@@ -16,7 +16,7 @@
 - `HITOIKI_HOME` 環境変数で設定・DB の置き場所を一括で差し替えられる（テスト用）。
 - コメント・ドキュメント・ユーザー向けメッセージは日本語。
 - キー入力の記録、低レベルフック（`WH_KEYBOARD_LL` 等）、DLL インジェクション、ネットワークポートを開くことは禁止。
-- 依存クレートは MIT / Apache-2.0 / BSD 等の permissive ライセンスのみ（`deny.toml`）。
+- 依存クレートは MIT / Apache-2.0 / BSD 等の permissive ライセンスのみ（`cargo deny check` で検査。新規クレートには `publish = false` を付ける）。
 
 ## コマンド
 
