@@ -37,7 +37,7 @@ fn claude_edge_cases() {
     );
     assert_eq!(evs[3].prompt_excerpt.as_deref(), Some("/review dummy args"));
     assert_eq!(evs[4].prompt_excerpt.as_deref(), Some("画像付きの依頼"));
-    // 連続する end_turn 行は最後の 1 件に
+    // 同じ message.id の end_turn 行（thinking と text）は最後の 1 件に
     assert_eq!(evs[2].at - evs[0].at, 5000);
     assert_eq!(evs[1].git_branch.as_deref(), Some("feature/x"));
     assert!(evs[1].cwd.as_deref().unwrap().ends_with("proj"));
@@ -117,28 +117,34 @@ fn codex_legacy_format() {
     let a = CodexAdapter::with_root(fixtures().join("codex"), 100);
     let f = fixtures().join("codex/rollout-2025-05-01T00-00-00-cccccccc-0000-4000-8000-000000000003.jsonl");
     let (evs, _) = a.parse_incremental(&f, 0).unwrap();
-    assert_eq!(
-        kinds(&evs),
-        [
-            K::SessionStart,
-            K::PromptSubmit,
-            K::ResponseComplete,
-            K::PromptSubmit,
-            K::ResponseComplete
-        ]
-    );
-    assert_eq!(evs[1].prompt_excerpt.as_deref(), Some("古い形式の依頼"));
-    let mut ats: Vec<_> = evs.iter().map(|e| (e.kind.as_str(), e.at)).collect();
-    ats.sort();
-    ats.dedup();
-    assert_eq!(ats.len(), evs.len());
-    // 途中からでもセッション ID を引き継ぐ
-    let (later, _) = a
-        .parse_incremental(&f, evs[3].source_offset.unwrap() as u64)
+    // 行ごとの時刻が無い旧形式は、メタ時刻の session_start 以外を出さない（時刻の捏造をしない）。
+    assert_eq!(kinds(&evs), [K::SessionStart]);
+    assert_eq!(evs[0].session_id, "cccccccc-0000-4000-8000-000000000003");
+    assert_eq!(evs[0].at, 1_746_057_600_000); // 2025-05-01T00:00:00Z
+                                              // 途中からでも何も出さない
+    let (later, _) = a.parse_incremental(&f, 200).unwrap();
+    assert!(later.is_empty());
+}
+
+#[test]
+fn codex_exec_session_is_excluded() {
+    let a = CodexAdapter::with_root(fixtures().join("codex"), 100);
+    let f = fixtures().join("codex/rollout-2026-01-02T00-00-00-eeeeeeee-0000-4000-8000-000000000005.jsonl");
+    let (evs, off) = a.parse_incremental(&f, 0).unwrap();
+    assert!(evs.is_empty());
+    assert_eq!(off, std::fs::metadata(&f).unwrap().len());
+    // 途中からの読み込みでも先頭行のメタで除外される
+    let (later, _) = a.parse_incremental(&f, 200).unwrap();
+    assert!(later.is_empty());
+}
+
+#[test]
+fn claude_sdk_session_is_excluded() {
+    let a = ClaudeCodeAdapter::with_root(fixtures().join("claude-code"), 50);
+    let (evs, _) = a
+        .parse_incremental(&fixtures().join("claude-code/session_sdk.jsonl"), 0)
         .unwrap();
-    assert!(later
-        .iter()
-        .all(|e| e.session_id == "cccccccc-0000-4000-8000-000000000003"));
+    assert!(evs.is_empty());
 }
 
 #[test]

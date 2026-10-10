@@ -7,14 +7,18 @@
 //! - ツール結果は `type=user` で `message.content` が `tool_result` 配列。人間の入力は
 //!   `content` が文字列（または text/image の配列）で、新しい版では `origin.kind == "human"` が付く。
 //! - 最終応答は `type=assistant` かつ `message.stop_reason == "end_turn"`。
-//!   thinking と text が別行になるため、連続する end_turn 行は 1 件にまとめる。
+//!   thinking と text が別行になるため、同じ `message.id` の end_turn 行は 1 件にまとめる
+//!   （バッチ境界に依存しない決定的な処理。バッチをまたぐ重複はパイプライン側で除去する）。
+//! - `entrypoint` は cli / claude-desktop（対話）/ sdk-cli 等（`claude -p` などの非対話）。
+//!   `sdk-` で始まる行は Hitoiki 自身の AI 振り返り実行などを作業時間に混ぜないため、セッションごと除外する。
 //! - サブエージェントのログは `subagents/` 配下（および `isSidechain=true`）。対象外。
 
-use crate::common::{excerpt, parse_ts, push_response_complete, read_complete_lines};
+use crate::common::{excerpt, parse_ts, read_complete_lines};
 use crate::AgentAdapter;
 use hitoiki_core::id::new_id;
 use hitoiki_core::model::{AgentEvent, AgentEventKind};
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 pub const NAME: &str = "claude-code";
@@ -69,6 +73,8 @@ impl AgentAdapter for ClaudeCodeAdapter {
         let mut events: Vec<AgentEvent> = Vec::new();
         let mut started = from_offset > 0;
         let mut skipped = 0usize;
+        // message.id -> events 内の位置（同一メッセージの複数行を 1 件にする）。
+        let mut completed: HashMap<String, usize> = HashMap::new();
 
         for line in lines {
             if line.bytes.iter().all(|b| b.is_ascii_whitespace()) {
@@ -83,6 +89,13 @@ impl AgentAdapter for ClaudeCodeAdapter {
                 continue; // メタ行
             }
             if v.get("isSidechain").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
+            // 非対話実行（`claude -p` 等）はセッションごと対象外。
+            if v.get("entrypoint")
+                .and_then(Value::as_str)
+                .is_some_and(|e| e.starts_with("sdk"))
+            {
                 continue;
             }
             let Some(at) = v.get("timestamp").and_then(Value::as_str).and_then(parse_ts) else {
@@ -128,7 +141,21 @@ impl AgentAdapter for ClaudeCodeAdapter {
                 "assistant" => {
                     let stop = v.pointer("/message/stop_reason").and_then(Value::as_str);
                     if matches!(stop, Some("end_turn") | Some("stop_sequence")) {
-                        push_response_complete(&mut events, mk(AgentEventKind::ResponseComplete, None));
+                        let ev = mk(AgentEventKind::ResponseComplete, None);
+                        let mid = v.pointer("/message/id").and_then(Value::as_str);
+                        match mid.and_then(|m| completed.get(m).copied()) {
+                            Some(i) => {
+                                if ev.at >= events[i].at {
+                                    events[i] = ev;
+                                }
+                            }
+                            None => {
+                                if let Some(m) = mid {
+                                    completed.insert(m.to_string(), events.len());
+                                }
+                                events.push(ev);
+                            }
+                        }
                     }
                 }
                 _ => {}

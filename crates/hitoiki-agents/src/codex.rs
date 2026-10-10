@@ -6,10 +6,12 @@
 //!   `user_message`（入力。`message`）/ `task_complete` または `turn_complete`（応答完了）。
 //!   `response_item` は重複するので使わない。`turn_context.payload.cwd` があれば cwd を更新する。
 //! - 旧形式: 先頭行が `{"id", "timestamp", ...}` のメタ、以降は `{"type":"message","role":..,"content":[..]}`
-//!   のみで行ごとの時刻が無い。時刻はメタの時刻 + 行番号ミリ秒で代用する（一意キーの衝突回避）。
-//!   assistant の message を応答完了、環境コンテキスト等を除く user の message をプロンプトとみなす。
+//!   のみで行ごとの時刻が無い。時刻を捏造しないため、session_start（メタの時刻）以外のイベントは出さない。
+//! - 非対話実行（`codex exec`）は `session_meta.payload` の `originator == "codex_exec"` または
+//!   `source == "exec"` で区別できる（公開されている Codex CLI の実装に基づく。実ログでは未検証）。
+//!   該当セッションはイベントを一切出さない。
 
-use crate::common::{excerpt, parse_ts, push_response_complete, read_complete_lines, read_first_line};
+use crate::common::{excerpt, parse_ts, read_complete_lines, read_first_line};
 use crate::AgentAdapter;
 use hitoiki_core::id::new_id;
 use hitoiki_core::model::{AgentEvent, AgentEventKind};
@@ -51,6 +53,8 @@ struct Meta {
     at: Option<Millis>,
     cwd: Option<String>,
     git_branch: Option<String>,
+    /// `codex exec` 等の非対話セッション。
+    non_interactive: bool,
 }
 
 fn read_meta(v: &Value, meta: &mut Meta) {
@@ -61,6 +65,11 @@ fn read_meta(v: &Value, meta: &mut Meta) {
     }
     if let Some(t) = p.get("timestamp").and_then(Value::as_str).and_then(parse_ts) {
         meta.at = Some(t);
+    }
+    if p.get("originator").and_then(Value::as_str) == Some("codex_exec")
+        || p.get("source").and_then(Value::as_str) == Some("exec")
+    {
+        meta.non_interactive = true;
     }
     if let Some(c) = p.get("cwd").and_then(Value::as_str) {
         meta.cwd = Some(c.to_string());
@@ -92,19 +101,6 @@ fn is_meta_row(v: &Value) -> bool {
         || (v.get("type").is_none() && v.get("id").is_some() && v.get("timestamp").is_some())
 }
 
-/// 旧形式の message 行から結合テキストを取り出す。
-fn message_text(v: &Value) -> String {
-    match v.get("content") {
-        Some(Value::String(s)) => s.clone(),
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(|i| i.get("text").and_then(Value::as_str))
-            .collect::<Vec<_>>()
-            .join(" "),
-        _ => String::new(),
-    }
-}
-
 impl AgentAdapter for CodexAdapter {
     fn name(&self) -> &str {
         NAME
@@ -129,6 +125,9 @@ impl AgentAdapter for CodexAdapter {
                 }
             }
         }
+        if meta.non_interactive {
+            return Ok((Vec::new(), next));
+        }
         let file_id = id_from_filename(file);
 
         let mut events: Vec<AgentEvent> = Vec::new();
@@ -148,6 +147,9 @@ impl AgentAdapter for CodexAdapter {
 
             if is_meta_row(&v) {
                 read_meta(&v, &mut meta);
+                if meta.non_interactive {
+                    return Ok((Vec::new(), next));
+                }
                 if !started {
                     started = true;
                     if let Some(at) = meta.at.or(line_ts) {
@@ -219,52 +221,14 @@ impl AgentAdapter for CodexAdapter {
                                 AgentEventKind::ResponseComplete,
                                 None,
                             );
-                            push_response_complete(&mut events, ev);
+                            events.push(ev);
                         }
                         _ => {}
                     },
                     _ => {}
                 }
-            } else if ty == Some("message") {
-                // 旧形式。
-                // 時刻が無いので、メタの時刻にバイトオフセット(ms)を足して単調・一意にする。
-                let at = line_ts.unwrap_or(meta.at.unwrap_or(0) + line.offset as Millis);
-                match v.get("role").and_then(Value::as_str) {
-                    Some("user") => {
-                        let text = message_text(&v);
-                        let t = text.trim_start();
-                        if t.is_empty()
-                            || t.starts_with("<environment_context>")
-                            || t.starts_with("<user_instructions>")
-                        {
-                            continue;
-                        }
-                        let ex = excerpt(t, self.prompt_excerpt_chars);
-                        events.push(self.event(
-                            &meta,
-                            &file_id,
-                            &source_file,
-                            line.offset,
-                            at,
-                            AgentEventKind::PromptSubmit,
-                            ex,
-                        ));
-                    }
-                    Some("assistant") => {
-                        let ev = self.event(
-                            &meta,
-                            &file_id,
-                            &source_file,
-                            line.offset,
-                            at,
-                            AgentEventKind::ResponseComplete,
-                            None,
-                        );
-                        push_response_complete(&mut events, ev);
-                    }
-                    _ => {}
-                }
             }
+            // 旧形式の message 行は行ごとの時刻が無いので出さない（時刻の捏造を避ける）。
             // それ以外（function_call 等の旧形式 item、record_type 行）は無視。
         }
         if skipped > 0 {

@@ -1,0 +1,3 @@
+{"timestamp":"2026-01-02T00:00:00.000Z","type":"session_meta","payload":{"id":"eeeeeeee-0000-4000-8000-000000000005","timestamp":"2026-01-02T00:00:00.000Z","cwd":"C:\\Users\\dummy\\src\\proj","originator":"codex_exec","source":"exec"}}
+{"timestamp":"2026-01-02T00:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"非対話実行のダミー依頼"}}
+{"timestamp":"2026-01-02T00:00:05.000Z","type":"event_msg","payload":{"type":"task_complete"}}

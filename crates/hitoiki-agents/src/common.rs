@@ -1,7 +1,6 @@
 //! アダプタ共通の補助関数。
 
 use anyhow::Context;
-use hitoiki_core::model::{AgentEvent, AgentEventKind};
 use hitoiki_core::Millis;
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -97,20 +96,6 @@ pub fn excerpt(text: &str, max_chars: usize) -> Option<String> {
     }
     let out = out.trim_end().to_string();
     (!out.is_empty()).then_some(out)
-}
-
-/// 連続する `response_complete`（間に prompt が無い）を最後の 1 件にまとめる。
-/// 1 回の応答が複数行に分かれて記録される場合の重複を避ける。
-pub fn push_response_complete(events: &mut Vec<AgentEvent>, ev: AgentEvent) {
-    if let Some(last) = events.last_mut() {
-        if last.kind == AgentEventKind::ResponseComplete && last.session_id == ev.session_id {
-            if ev.at >= last.at {
-                *last = ev;
-            }
-            return;
-        }
-    }
-    events.push(ev);
 }
 
 #[cfg(test)]

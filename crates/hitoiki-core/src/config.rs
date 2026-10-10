@@ -65,6 +65,7 @@ impl Default for Collect {
                 "powershell.exe",
                 "cmd.exe",
                 "Code.exe",
+                "Claude.exe",
             ]
             .map(String::from)
             .to_vec(),
