@@ -18,10 +18,7 @@ pub(crate) const SESSION_START_GRACE: Millis = 5_000;
 
 /// タイトル比較用の正規化。先頭の記号（スピナー ✳ ⠂ ⠐ · * など）と空白を除く。
 pub(crate) fn norm_title(t: Option<&str>) -> String {
-    t.unwrap_or("")
-        .trim_start_matches(|c: char| !c.is_alphanumeric())
-        .trim()
-        .to_string()
+    crate::rules::normalize_title(t.unwrap_or(""))
 }
 
 fn win_title(w: &WindowSpan) -> Option<&str> {

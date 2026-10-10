@@ -12,13 +12,10 @@ use rusqlite::Connection;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// タイトル比較用の正規化。先頭の記号（スピナー ✳ ⠂ ⠐ · * など）と空白を除く。
-/// `hitoiki-core` の `pipeline/agent.rs` の `norm_title`（非公開）と同じ規則。変更時は両方を揃えること。
-/// Claude のスピナーはタイトル先頭の記号だけが毎秒変わるため、これで区間を切ると行が増えすぎる。
+/// Claude のスピナーはタイトル先頭の記号だけが毎秒変わるため、正規化せずに区間を切ると行が増えすぎる。
+/// 正規化は帰属判定と同じ規則（`hitoiki_core::rules::normalize_title`）。
 fn norm_title(t: &str) -> String {
-    t.trim_start_matches(|c: char| !c.is_alphanumeric())
-        .trim()
-        .to_string()
+    hitoiki_core::rules::normalize_title(t)
 }
 
 struct CurWin {

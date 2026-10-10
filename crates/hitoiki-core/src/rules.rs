@@ -195,6 +195,14 @@ impl ActivityRuleSet {
     }
 }
 
+/// ウインドウタイトルの比較用正規化。先頭の記号（Claude Code のスピナー ✳ ⠂ ⠐ · * など）と空白を除く。
+/// 帰属判定（セッションとウインドウの対応付け）と収集（区間の切り替え判定）で同じ規則を使う。
+pub fn normalize_title(t: &str) -> String {
+    t.trim_start_matches(|c: char| !c.is_alphanumeric())
+        .trim()
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
