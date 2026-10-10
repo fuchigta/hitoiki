@@ -9,7 +9,10 @@ pub mod error;
 pub mod id;
 pub mod model;
 pub mod paths;
+pub mod pipeline;
+pub mod rebuild;
 pub mod repo;
+pub mod rules;
 pub mod timefmt;
 
 pub use clock::{Clock, FixedClock, SystemClock};

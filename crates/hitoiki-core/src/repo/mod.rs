@@ -22,7 +22,7 @@ pub fn resolve_prefix(conn: &Connection, table: &str, prefix: &str) -> Result<St
     let ids: Vec<String> = stmt
         .query_map([&upper], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?;
-    if ids.iter().any(|i| *i == upper) {
+    if ids.contains(&upper) {
         return Ok(upper);
     }
     match ids.len() {
