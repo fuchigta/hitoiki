@@ -19,6 +19,7 @@ use crate::model::*;
 use crate::rules::{ActivityRuleSet, TaskRuleSet};
 use crate::timefmt::Range;
 use crate::Millis;
+pub(crate) use agent::norm_title;
 use piece::Piece;
 
 /// 判定器の答え（8章）。
@@ -162,6 +163,15 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
         })
         .collect();
     PipelineOutput { segments, bindings }
+}
+
+/// 出力範囲内の各 `prompt_submit` について、その対象期間（直前の応答完了 / 送信 / セッション開始、
+/// 無ければバックトラック）の開始のうち最も早いもの。範囲内に送信が無ければ None。
+/// 再計算範囲をここまで広げると、範囲より前から始まる対話も範囲内と同じ結果になる。
+pub fn earliest_period_start(input: &PipelineInput) -> Option<Millis> {
+    let task_rules = TaskRuleSet::new(&input.task_rules);
+    let wl = timeline::window_layer(&input.windows, input.now);
+    agent::earliest_period_start(input, &task_rules, &wl)
 }
 
 fn clip(pieces: &mut Vec<Piece>, range: Range) {

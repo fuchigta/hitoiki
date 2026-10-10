@@ -11,6 +11,11 @@ use crate::rules::{MatchTarget, TaskRuleSet};
 use crate::Millis;
 use std::collections::BTreeMap;
 
+/// セッション開始がこれ以内に最初の送信と重なる場合は、開始が無いものとして扱う。
+/// Claude Code のログは最初の行が最初のプロンプトとほぼ同時刻のことが多く、
+/// その場合「セッション開始」は最初のプロンプト作成の開始を表さないため。
+pub(crate) const SESSION_START_GRACE: Millis = 5_000;
+
 /// タイトル比較用の正規化。先頭の記号（スピナー ✳ ⠂ ⠐ · * など）と空白を除く。
 pub(crate) fn norm_title(t: Option<&str>) -> String {
     t.unwrap_or("")
@@ -95,7 +100,7 @@ struct Job {
     agent: String,
     session_id: String,
     t: Millis,
-    /// 対象期間の開始（直前の応答完了 / 送信 / セッション開始）。
+    /// 対象期間の開始（直前の応答完了 / 送信 / セッション開始）。None はバックトラックで決める。
     period_start: Option<Millis>,
     /// 次の応答完了または次の送信（見守りの打ち切り）。
     stop: Option<Millis>,
@@ -111,6 +116,37 @@ fn order(k: AgentEventKind) -> u8 {
     }
 }
 
+fn attribution(
+    task_rules: &TaskRuleSet,
+    cwd: Option<&str>,
+    branch: Option<&str>,
+    doing: Option<&String>,
+) -> Attribution {
+    let target = MatchTarget::session(cwd, branch);
+    if let Some(tid) = task_rules.find(&target) {
+        Attribution {
+            task_id: Some(tid.to_string()),
+            decided_by: Some("rule".into()),
+            confidence: Some(1.0),
+            status: SegmentStatus::Auto,
+        }
+    } else if let Some(tid) = doing {
+        Attribution {
+            task_id: Some(tid.clone()),
+            decided_by: Some("doing".into()),
+            confidence: Some(0.5),
+            status: SegmentStatus::NeedsReview,
+        }
+    } else {
+        Attribution {
+            task_id: None,
+            decided_by: None,
+            confidence: None,
+            status: SegmentStatus::NeedsReview,
+        }
+    }
+}
+
 fn build_jobs(input: &PipelineInput, task_rules: &TaskRuleSet) -> Vec<Job> {
     let mut groups: BTreeMap<(&str, &str), Vec<&AgentEvent>> = BTreeMap::new();
     for e in &input.events {
@@ -121,17 +157,45 @@ fn build_jobs(input: &PipelineInput, task_rules: &TaskRuleSet) -> Vec<Job> {
     }
     let mut jobs = Vec::new();
     for ((agent, sid), mut evs) in groups {
-        evs.sort_by_key(|e| (e.at, order(e.kind)));
+        evs.sort_by_key(|e| (e.at, order(e.kind), e.id.as_str()));
         let key = format!("{agent}:{sid}");
         let start_t = evs
             .iter()
             .find(|e| e.kind == AgentEventKind::SessionStart)
             .map_or(evs[0].at, |e| e.at);
         let doing = doing_at(&input.doing_logs, start_t).map(String::from);
+        // 対象期間の境界。送信の後の最初の応答完了だけを境界にする（同じ送信への 2 件目や、
+        // 送信なしで再開した応答の完了は使わない）。パーサ側の重複除去に依存しないため。
         let mut boundary: Option<Millis> = None;
+        // 直前の境界の後に送信があり、まだ応答完了を見ていない。
+        let mut pending_submit = false;
+        // このセッションの送信・セッション開始・応答完了を見たか。見ていなければ手前の履歴が
+        // 読み込み範囲の外にあるだけなので、最初の応答完了は境界として扱う。
+        let mut known = false;
         for (i, e) in evs.iter().enumerate() {
             match e.kind {
-                AgentEventKind::SessionStart | AgentEventKind::ResponseComplete => boundary = Some(e.at),
+                AgentEventKind::SessionStart => {
+                    known = true;
+                    pending_submit = false;
+                    let next = evs[i + 1..].iter().find(|x| {
+                        matches!(
+                            x.kind,
+                            AgentEventKind::PromptSubmit | AgentEventKind::ResponseComplete
+                        )
+                    });
+                    let near_submit = next.is_some_and(|x| {
+                        x.kind == AgentEventKind::PromptSubmit && x.at - e.at <= SESSION_START_GRACE
+                    });
+                    // 最初の送信とほぼ同時の開始は、開始が無いものとしてバックトラックに任せる。
+                    boundary = if near_submit { None } else { Some(e.at) };
+                }
+                AgentEventKind::ResponseComplete => {
+                    if pending_submit || !known {
+                        boundary = Some(e.at);
+                    }
+                    pending_submit = false;
+                    known = true;
+                }
                 AgentEventKind::SessionEnd => {}
                 AgentEventKind::PromptSubmit => {
                     let latest = |f: &dyn Fn(&AgentEvent) -> Option<&str>| {
@@ -143,29 +207,8 @@ fn build_jobs(input: &PipelineInput, task_rules: &TaskRuleSet) -> Vec<Job> {
                     };
                     let cwd = latest(&|x| x.cwd.as_deref());
                     let branch = latest(&|x| x.git_branch.as_deref());
-                    let target = MatchTarget::session(cwd, branch);
-                    let attr = if let Some(tid) = task_rules.find(&target) {
-                        Attribution {
-                            task_id: Some(tid.to_string()),
-                            decided_by: Some("rule".into()),
-                            confidence: Some(1.0),
-                            status: SegmentStatus::Auto,
-                        }
-                    } else if let Some(tid) = &doing {
-                        Attribution {
-                            task_id: Some(tid.clone()),
-                            decided_by: Some("doing".into()),
-                            confidence: Some(0.5),
-                            status: SegmentStatus::NeedsReview,
-                        }
-                    } else {
-                        Attribution {
-                            task_id: None,
-                            decided_by: None,
-                            confidence: None,
-                            status: SegmentStatus::NeedsReview,
-                        }
-                    };
+                    let attr = attribution(task_rules, cwd, branch, doing.as_ref());
+                    // 送信の後の最初の応答完了か次の送信（2 件目以降の応答完了は見ない）。
                     let stop = evs[i + 1..]
                         .iter()
                         .find(|x| {
@@ -185,6 +228,8 @@ fn build_jobs(input: &PipelineInput, task_rules: &TaskRuleSet) -> Vec<Job> {
                         attr,
                     });
                     boundary = Some(e.at);
+                    pending_submit = true;
+                    known = true;
                 }
             }
         }
@@ -197,17 +242,111 @@ fn piece_matches(input: &PipelineInput, p: &Piece, b: &Bound) -> bool {
     p.kind == SegmentKind::Work && !p.fixed && p.win.is_some_and(|i| b.matches_window(&input.windows[i]))
 }
 
+/// ウインドウに対応付けできた送信。
+struct Plan {
+    job: Job,
+    bound: Bound,
+    /// 対象期間の開始（バックトラック済み）。
+    ps: Millis,
+}
+
+fn plan(input: &PipelineInput, task_rules: &TaskRuleSet, wl: &[WPiece]) -> Vec<Plan> {
+    build_jobs(input, task_rules)
+        .into_iter()
+        .filter_map(|job| {
+            let bound = bind(input, wl, job.t)?;
+            let ps = job
+                .period_start
+                .unwrap_or_else(|| backtrack_start(input, wl, &bound));
+            Some(Plan { job, bound, ps })
+        })
+        .collect()
+}
+
+/// 出力範囲内の送信について、対象期間の開始のうち最も早いもの（再計算範囲の拡張用）。
+pub(crate) fn earliest_period_start(
+    input: &PipelineInput,
+    task_rules: &TaskRuleSet,
+    wl: &[WPiece],
+) -> Option<Millis> {
+    plan(input, task_rules, wl)
+        .iter()
+        .filter(|p| p.job.t >= input.range.start && p.job.t < input.range.end)
+        .map(|p| p.ps.min(p.job.t))
+        .min()
+}
+
+/// 同じ (hwnd, 正規化タイトル) に結び付いた別セッションと対象期間が重なる場合に、
+/// [s, e) のうち `plans[j]` のセッションに帰属する部分を返す（ベストエフォート）。
+/// 区別できない時間は「その時点の最も近い過去の送信を持つセッション」に帰属させる。
+/// どちらにも過去の送信が無ければ、送信が早い方。
+fn owned_parts(plans: &[Plan], j: usize, s: Millis, e: Millis) -> Vec<(Millis, Millis)> {
+    let me = &plans[j];
+    let cands: Vec<usize> = (0..plans.len())
+        .filter(|&k| {
+            let p = &plans[k];
+            k == j
+                || (p.job.key != me.job.key
+                    && p.bound.hwnd == me.bound.hwnd
+                    && p.bound.norm == me.bound.norm
+                    && p.ps < e
+                    && p.job.t > s)
+        })
+        .collect();
+    if cands.len() <= 1 {
+        return vec![(s, e)];
+    }
+    // 候補ごとの、そのセッションの送信時刻。
+    let subs: Vec<(usize, Vec<Millis>)> = cands
+        .iter()
+        .map(|&k| {
+            let key = &plans[k].job.key;
+            let ts = plans
+                .iter()
+                .filter(|p| &p.job.key == key)
+                .map(|p| p.job.t)
+                .collect();
+            (k, ts)
+        })
+        .collect();
+    let mut points = vec![s, e];
+    for (k, ts) in &subs {
+        points.extend([plans[*k].ps, plans[*k].job.t]);
+        points.extend(ts.iter().copied());
+    }
+    points.retain(|&x| x >= s && x <= e);
+    points.sort_unstable();
+    points.dedup();
+    let mut out: Vec<(Millis, Millis)> = Vec::new();
+    for w in points.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let owner = subs
+            .iter()
+            .filter(|(k, _)| plans[*k].ps <= a && a < plans[*k].job.t)
+            .max_by_key(|(k, ts)| {
+                let last = ts.iter().copied().filter(|&t| t <= a).max();
+                (last, std::cmp::Reverse(plans[*k].job.t), std::cmp::Reverse(*k))
+            })
+            .map(|(k, _)| *k);
+        if owner == Some(j) {
+            match out.last_mut() {
+                Some(l) if l.1 == a => l.1 = b,
+                _ => out.push((a, b)),
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn apply(
     input: &PipelineInput,
     task_rules: &TaskRuleSet,
     wl: &[WPiece],
     pieces: &mut Vec<Piece>,
 ) -> Vec<AgentSessionWindow> {
+    let plans = plan(input, task_rules, wl);
     let mut bindings = Vec::new();
-    for job in build_jobs(input, task_rules) {
-        let Some(b) = bind(input, wl, job.t) else {
-            continue;
-        };
+    for (j, Plan { job, bound: b, ps }) in plans.iter().enumerate() {
         if job.t >= input.range.start && job.t < input.range.end {
             bindings.push(AgentSessionWindow {
                 session_id: job.session_id.clone(),
@@ -232,26 +371,28 @@ pub(crate) fn apply(
             if p.end <= cur {
                 continue;
             }
-            if p.start > cur || !piece_matches(input, p, &b) {
+            if p.start > cur || !piece_matches(input, p, b) {
                 break;
             }
             watch.push((cur, p.end.min(limit)));
             cur = p.end;
         }
         for (s, e) in watch {
-            mark(pieces, s, e, input, &b, &job, SegmentKind::AgentWatch);
+            mark(pieces, s, e, input, b, job, SegmentKind::AgentWatch);
         }
 
         // agent_dialog: 対象期間のうち、そのウインドウが前面で無操作でない部分。
-        let ps = job.period_start.unwrap_or_else(|| backtrack_start(input, wl, &b));
+        let ps = *ps;
         if ps < job.t {
             let ivs: Vec<(Millis, Millis)> = pieces
                 .iter()
-                .filter(|p| p.end > ps && p.start < job.t && piece_matches(input, p, &b))
+                .filter(|p| p.end > ps && p.start < job.t && piece_matches(input, p, b))
                 .map(|p| (p.start.max(ps), p.end.min(job.t)))
                 .collect();
             for (s, e) in ivs {
-                mark(pieces, s, e, input, &b, &job, SegmentKind::AgentDialog);
+                for (s, e) in owned_parts(&plans, j, s, e) {
+                    mark(pieces, s, e, input, b, job, SegmentKind::AgentDialog);
+                }
             }
         }
     }

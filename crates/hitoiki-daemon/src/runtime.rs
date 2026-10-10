@@ -316,6 +316,8 @@ fn rebuild_loop(
 }
 
 /// 直近 `collect.rebuild_window_min` 分を再計算する。判定器が有効なら毎回構築する。
+/// 範囲より前から始まる対話の対象期間や境界をまたぐ区間の分は `rebuild_with_judge` が範囲を広げるので、
+/// 結果は全範囲を再計算した場合と同じになる。判定器の答えはキャッシュされ、同じ区間は問い合わせ直さない。
 fn run_rebuild(sh: &Shared, conn: &mut Connection) -> anyhow::Result<RebuildStats> {
     let cfg = sh.cfg();
     let now = sh.clock.now_ms();
