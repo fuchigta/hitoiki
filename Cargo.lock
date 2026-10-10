@@ -557,6 +557,7 @@ dependencies = [
  "clap",
  "hitoiki-agents",
  "hitoiki-core",
+ "hitoiki-daemon",
  "hitoiki-ipc",
  "hitoiki-judge",
  "serde",
