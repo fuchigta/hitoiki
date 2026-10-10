@@ -13,6 +13,7 @@ pub mod pipeline;
 pub mod rebuild;
 pub mod repo;
 pub mod rules;
+pub mod service;
 pub mod timefmt;
 
 pub use clock::{Clock, FixedClock, SystemClock};

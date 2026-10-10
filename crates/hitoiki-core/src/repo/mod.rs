@@ -2,8 +2,15 @@
 
 pub mod agent;
 pub mod collect;
+pub mod okr;
+pub mod overrides;
+pub mod plan;
+pub mod push;
 pub mod raw;
+pub mod record;
+pub mod rule;
 pub mod segment;
+pub mod skill;
 pub mod task;
 
 use crate::{Error, Result};
