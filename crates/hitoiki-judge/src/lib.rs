@@ -9,9 +9,11 @@ pub mod questions;
 
 pub use adapter::{JudgeAdapter, JudgeContext};
 pub use external::{ExternalCommandJudge, DEFAULT_TIMEOUT};
-pub use openai::{build_schema, parse_chat_response, OpenAiCompatibleJudge};
+pub use openai::{
+    build_batch_schema, build_schema, parse_batch_response, parse_chat_response, OpenAiCompatibleJudge,
+};
 pub use protocol::{
-    Answer, Answers, Judge, JudgeRequest, JudgeResponse, OptionSpec, QuestionSpec, QuestionType,
+    Answer, Answers, BatchResult, Judge, JudgeRequest, JudgeResponse, OptionSpec, QuestionSpec, QuestionType,
     SegmentState, State, StateContext, PROTOCOL_VERSION,
 };
 pub use questions::{OptionSources, QuestionSet};
@@ -42,15 +44,21 @@ pub fn backend_from_config(cfg: &Config) -> anyhow::Result<Box<dyn Judge>> {
             api_key_env.clone(),
             Duration::from_secs(*timeout_sec),
         )),
-        JudgeBackend::ExternalCommand { command, timeout_sec } => {
+        JudgeBackend::ExternalCommand {
+            command,
+            timeout_sec,
+            batch,
+        } => {
             if command.is_empty() {
                 return Err(anyhow!("judge.backends.{name}.command が空です"));
             }
-            Box::new(ExternalCommandJudge::new(
-                name.clone(),
-                command.clone(),
-                Duration::from_secs(*timeout_sec),
-            ))
+            let judge =
+                ExternalCommandJudge::new(name.clone(), command.clone(), Duration::from_secs(*timeout_sec));
+            Box::new(if *batch {
+                judge.with_batch(external::DEFAULT_BATCH_SIZE)
+            } else {
+                judge
+            })
         }
     })
 }

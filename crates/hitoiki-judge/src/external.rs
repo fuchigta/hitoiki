@@ -1,17 +1,21 @@
 //! 外部コマンド判定器（8.3）。標準入力に JSON、標準出力から JSON。
 
-use crate::protocol::{Judge, JudgeRequest, JudgeResponse};
+use crate::protocol::{Answers, Judge, JudgeRequest, JudgeResponse, QuestionSpec, State, PROTOCOL_VERSION};
 use anyhow::{anyhow, bail, Context};
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
+/// バッチモードの 1 回あたり最大件数。
+pub const DEFAULT_BATCH_SIZE: usize = 20;
 
 pub struct ExternalCommandJudge {
     name: String,
     command: Vec<String>,
     timeout: Duration,
+    /// Some(n) ならバッチモード（最大 n 件ずつ送る）。
+    batch_size: Option<usize>,
 }
 
 impl ExternalCommandJudge {
@@ -20,7 +24,35 @@ impl ExternalCommandJudge {
             name: name.into(),
             command,
             timeout,
+            batch_size: None,
         }
+    }
+
+    /// バッチモードを有効にする（`states` 配列で最大 `max` 件ずつ送る）。
+    pub fn with_batch(mut self, max: usize) -> Self {
+        self.batch_size = Some(max.max(1));
+        self
+    }
+
+    fn ask_chunk(&self, states: &[State], questions: &[QuestionSpec]) -> anyhow::Result<Vec<Answers>> {
+        let req = JudgeRequest {
+            version: PROTOCOL_VERSION,
+            state: None,
+            states: Some(states.to_vec()),
+            questions: questions.to_vec(),
+        };
+        let results = self
+            .ask(&req)?
+            .results
+            .ok_or_else(|| anyhow!("バッチ応答に results がありません"))?;
+        if results.len() != states.len() {
+            bail!(
+                "バッチ応答の件数が一致しません (送信 {} / 受信 {})",
+                states.len(),
+                results.len()
+            );
+        }
+        Ok(results.into_iter().map(|r| r.answers).collect())
     }
 }
 
@@ -34,6 +66,34 @@ impl Judge for ExternalCommandJudge {
         let out = run_command(&self.command, &input, self.timeout)?;
         // 前後に余計な出力があっても、JSON 全体が解釈できなければエラーにする。
         serde_json::from_slice(&out).context("判定器の出力が JSON として不正です")
+    }
+
+    fn ask_batch(&self, states: &[State], questions: &[QuestionSpec]) -> Vec<Option<Answers>> {
+        let Some(max) = self.batch_size else {
+            return states
+                .iter()
+                .map(
+                    |s| match self.ask(&JudgeRequest::single(s.clone(), questions.to_vec())) {
+                        Ok(r) => r.answers,
+                        Err(e) => {
+                            tracing::warn!("判定器 {} の問い合わせに失敗: {e:#}", self.name);
+                            None
+                        }
+                    },
+                )
+                .collect();
+        };
+        let mut out = Vec::with_capacity(states.len());
+        for chunk in states.chunks(max) {
+            match self.ask_chunk(chunk, questions) {
+                Ok(rs) => out.extend(rs.into_iter().map(Some)),
+                Err(e) => {
+                    tracing::warn!("判定器 {} のバッチ問い合わせに失敗: {e:#}", self.name);
+                    out.extend(chunk.iter().map(|_| None));
+                }
+            }
+        }
+        out
     }
 }
 

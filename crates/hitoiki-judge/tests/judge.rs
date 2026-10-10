@@ -214,6 +214,136 @@ fn openai_errors() {
     assert!(j.ask(&request()).is_err());
 }
 
+fn states(n: usize) -> Vec<State> {
+    let s = request().state.unwrap();
+    (0..n).map(|_| s.clone()).collect()
+}
+
+#[test]
+fn external_batch_ok_in_order() {
+    let req = request();
+    let j = ext("ok", Duration::from_secs(10)).with_batch(20);
+    let r = j.ask_batch(&states(4), &req.questions);
+    assert_eq!(r.len(), 4);
+    // エコー判定器は bool を「添字が奇数なら true」で返す（順序確認）。
+    for (i, a) in r.iter().enumerate() {
+        let a = a.as_ref().unwrap();
+        assert_eq!(a["is_interrupt"].value, json!(i % 2 == 1));
+        assert_eq!(a["task"].value, json!("T1"));
+    }
+}
+
+#[test]
+fn external_batch_length_mismatch_is_all_none() {
+    let req = request();
+    let j = ext("short", Duration::from_secs(10)).with_batch(20);
+    let r = j.ask_batch(&states(3), &req.questions);
+    assert_eq!(r.len(), 3);
+    assert!(r.iter().all(|a| a.is_none()));
+}
+
+#[test]
+fn external_batch_bad_json_is_all_none() {
+    let req = request();
+    let j = ext("bad", Duration::from_secs(10)).with_batch(20);
+    let r = j.ask_batch(&states(2), &req.questions);
+    assert_eq!(r, vec![None, None]);
+}
+
+#[test]
+fn external_batch_splits_into_chunks() {
+    // 25 件 → 20 + 5。添字は各チャンク内で振り直されるので、
+    // 21 件目(チャンク 2 の添字 0)は false、22 件目(同 1)は true になる。
+    let req = request();
+    let j = ext("ok", Duration::from_secs(10)).with_batch(20);
+    let r = j.ask_batch(&states(25), &req.questions);
+    assert_eq!(r.len(), 25);
+    assert!(r.iter().all(|a| a.is_some()));
+    assert_eq!(r[20].as_ref().unwrap()["is_interrupt"].value, json!(false));
+    assert_eq!(r[21].as_ref().unwrap()["is_interrupt"].value, json!(true));
+}
+
+fn batch_content(n: usize) -> String {
+    let items: Vec<Value> = (0..n)
+        .map(|i| {
+            json!({
+                "task": {"value": "T1", "confidence": 0.8},
+                "is_interrupt": {"value": i % 2 == 1, "confidence": 0.7}
+            })
+        })
+        .collect();
+    json!({"results": items}).to_string()
+}
+
+#[test]
+fn openai_batch_single_request() {
+    let (url, log) = mock_server(|_, _| (200, chat(&batch_content(3))));
+    let j = OpenAiCompatibleJudge::new("aigw", &url, "m", None, Duration::from_secs(5));
+    let r = j.ask_batch(&states(3), &request().questions);
+    assert_eq!(r.len(), 3);
+    assert_eq!(r[1].as_ref().unwrap()["is_interrupt"].value, json!(true));
+    let log = log.lock().unwrap();
+    assert_eq!(log.len(), 1);
+    let schema = &log[0].1["response_format"]["json_schema"]["schema"];
+    assert_eq!(schema["properties"]["results"]["minItems"], 3);
+    assert_eq!(schema["properties"]["results"]["maxItems"], 3);
+}
+
+#[test]
+fn openai_batch_count_mismatch_is_all_none() {
+    let (url, _) = mock_server(|_, _| (200, chat(&batch_content(2))));
+    let j = OpenAiCompatibleJudge::new("aigw", &url, "m", None, Duration::from_secs(5));
+    let r = j.ask_batch(&states(3), &request().questions);
+    assert_eq!(r, vec![None, None, None]);
+}
+
+#[test]
+fn openai_batch_splits_by_batch_size() {
+    // 既定 10 件 → 25 件は 10 + 10 + 5 の 3 回。件数はスキーマの minItems から得る。
+    let (url, log) = mock_server(|_, body| {
+        let n = body["response_format"]["json_schema"]["schema"]["properties"]["results"]["minItems"]
+            .as_u64()
+            .unwrap() as usize;
+        (200, chat(&batch_content(n)))
+    });
+    let j = OpenAiCompatibleJudge::new("aigw", &url, "m", None, Duration::from_secs(5));
+    let r = j.ask_batch(&states(25), &request().questions);
+    assert_eq!(r.len(), 25);
+    assert!(r.iter().all(|a| a.is_some()));
+    let sizes: Vec<u64> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(_, b)| {
+            b["response_format"]["json_schema"]["schema"]["properties"]["results"]["minItems"]
+                .as_u64()
+                .unwrap()
+        })
+        .collect();
+    assert_eq!(sizes, vec![10, 10, 5]);
+}
+
+#[test]
+fn openai_batch_json_object_fallback() {
+    let (url, log) = mock_server(|_, body| {
+        if body["response_format"]["type"] == "json_schema" {
+            (422, "{}".into())
+        } else {
+            (200, chat(&batch_content(2)))
+        }
+    });
+    let j = OpenAiCompatibleJudge::new("aigw", &url, "m", None, Duration::from_secs(5));
+    let r = j.ask_batch(&states(2), &request().questions);
+    assert!(r.iter().all(|a| a.is_some()));
+    let log = log.lock().unwrap();
+    assert_eq!(log.len(), 2);
+    assert_eq!(log[1].1["response_format"]["type"], "json_object");
+    assert!(log[1].1["messages"][1]["content"]
+        .as_str()
+        .unwrap()
+        .contains("minItems"));
+}
+
 #[test]
 fn openai_timeout() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();

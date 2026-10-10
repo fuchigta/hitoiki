@@ -97,6 +97,13 @@ pub struct Answer {
 
 pub type Answers = BTreeMap<String, Answer>;
 
+/// バッチ応答の 1 件分（`{"answers": {...}}`）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct BatchResult {
+    #[serde(default)]
+    pub answers: Answers,
+}
+
 /// 回答。単件は `answers`、バッチは `results`（`states` と同じ長さ）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct JudgeResponse {
@@ -105,7 +112,7 @@ pub struct JudgeResponse {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answers: Option<Answers>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub results: Option<Vec<Answers>>,
+    pub results: Option<Vec<BatchResult>>,
 }
 
 /// 判定器。差し替え可能（OpenAI 互換 / 外部コマンド / 将来の Jev）。

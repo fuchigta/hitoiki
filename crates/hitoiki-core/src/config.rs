@@ -292,6 +292,9 @@ pub enum JudgeBackend {
         command: Vec<String>,
         #[serde(default = "default_judge_timeout")]
         timeout_sec: u64,
+        /// true なら複数区間を `states` 配列でまとめて送る（8.3 バッチモード）。
+        #[serde(default)]
+        batch: bool,
     },
 }
 

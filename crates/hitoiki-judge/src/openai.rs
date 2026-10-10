@@ -5,13 +5,16 @@
 //! モデルは確率を返せないため、confidence はモデルの自己申告値を 0..1 に丸めて使う。
 
 use crate::protocol::{
-    clamp01, Answer, Answers, Judge, JudgeRequest, JudgeResponse, QuestionSpec, QuestionType,
+    clamp01, Answer, Answers, Judge, JudgeRequest, JudgeResponse, QuestionSpec, QuestionType, State,
     PROTOCOL_VERSION,
 };
 use anyhow::{anyhow, bail, Context};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+
+/// バッチ問い合わせの 1 回あたり最大件数（既定）。
+pub const DEFAULT_BATCH_SIZE: usize = 10;
 
 pub struct OpenAiCompatibleJudge {
     name: String,
@@ -21,6 +24,7 @@ pub struct OpenAiCompatibleJudge {
     agent: ureq::Agent,
     /// json_schema が拒否された後は json_object を使い続ける。
     json_object_mode: AtomicBool,
+    batch_size: usize,
 }
 
 impl OpenAiCompatibleJudge {
@@ -39,7 +43,46 @@ impl OpenAiCompatibleJudge {
             api_key_env,
             agent,
             json_object_mode: AtomicBool::new(false),
+            batch_size: DEFAULT_BATCH_SIZE,
         }
+    }
+
+    /// バッチ問い合わせの最大件数を変える（既定 10）。
+    pub fn with_batch_size(mut self, n: usize) -> Self {
+        self.batch_size = n.max(1);
+        self
+    }
+
+    /// json_schema で問い合わせ、400/422 なら json_object に切り替えて再試行する。
+    fn chat(&self, payload: &Value, schema: &Value) -> anyhow::Result<Value> {
+        let use_object = self.json_object_mode.load(Ordering::Relaxed);
+        let body = build_body_value(&self.model, payload, schema, use_object);
+        match self.post(&body) {
+            Ok(v) => Ok(v),
+            Err(PostError::Status(400 | 422)) if !use_object => {
+                tracing::info!("json_schema が拒否されたため json_object モードに切り替えます");
+                self.json_object_mode.store(true, Ordering::Relaxed);
+                let body = build_body_value(&self.model, payload, schema, true);
+                match self.post(&body) {
+                    Ok(v) => Ok(v),
+                    Err(PostError::Status(c)) => bail!("判定 API が HTTP {c} を返しました"),
+                    Err(PostError::Other(e)) => Err(e),
+                }
+            }
+            Err(PostError::Status(c)) => bail!("判定 API が HTTP {c} を返しました"),
+            Err(PostError::Other(e)) => Err(e),
+        }
+    }
+
+    fn ask_chunk(
+        &self,
+        states: &[State],
+        questions: &[QuestionSpec],
+    ) -> anyhow::Result<Vec<Option<Answers>>> {
+        let schema = build_batch_schema(questions, states.len());
+        let payload = json!({"states": states, "questions": questions});
+        let resp = self.chat(&payload, &schema)?;
+        parse_batch_response(&resp, questions, states.len())
     }
 
     fn post(&self, body: &Value) -> Result<Value, PostError> {
@@ -83,29 +126,32 @@ impl Judge for OpenAiCompatibleJudge {
 
     fn ask(&self, req: &JudgeRequest) -> anyhow::Result<JudgeResponse> {
         let schema = build_schema(&req.questions);
-        let use_object = self.json_object_mode.load(Ordering::Relaxed);
-        let body = build_body(&self.model, req, &schema, use_object);
-        let resp = match self.post(&body) {
-            Ok(v) => v,
-            Err(PostError::Status(400 | 422)) if !use_object => {
-                tracing::info!("json_schema が拒否されたため json_object モードに切り替えます");
-                self.json_object_mode.store(true, Ordering::Relaxed);
-                let body = build_body(&self.model, req, &schema, true);
-                match self.post(&body) {
-                    Ok(v) => v,
-                    Err(PostError::Status(c)) => bail!("判定 API が HTTP {c} を返しました"),
-                    Err(PostError::Other(e)) => return Err(e),
-                }
-            }
-            Err(PostError::Status(c)) => bail!("判定 API が HTTP {c} を返しました"),
-            Err(PostError::Other(e)) => return Err(e),
-        };
+        let payload = json!({
+            "state": req.state,
+            "states": req.states,
+            "questions": req.questions,
+        });
+        let resp = self.chat(&payload, &schema)?;
         let answers = parse_chat_response(&resp, &req.questions)?;
         Ok(JudgeResponse {
             version: PROTOCOL_VERSION,
             answers: Some(answers),
             results: None,
         })
+    }
+
+    fn ask_batch(&self, states: &[State], questions: &[QuestionSpec]) -> Vec<Option<Answers>> {
+        let mut out = Vec::with_capacity(states.len());
+        for chunk in states.chunks(self.batch_size) {
+            match self.ask_chunk(chunk, questions) {
+                Ok(rs) => out.extend(rs),
+                Err(e) => {
+                    tracing::warn!("判定器 {} のバッチ問い合わせに失敗: {e:#}", self.name);
+                    out.extend(chunk.iter().map(|_| None));
+                }
+            }
+        }
+        out
     }
 }
 
@@ -155,19 +201,42 @@ pub fn build_schema(questions: &[QuestionSpec]) -> Value {
     })
 }
 
+/// バッチ用の JSON Schema。`{"results": [ {各質問...}, ... ]}`（件数は `n` 固定）。
+pub fn build_batch_schema(questions: &[QuestionSpec], n: usize) -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "minItems": n,
+                "maxItems": n,
+                "items": build_schema(questions)
+            }
+        },
+        "required": ["results"],
+        "additionalProperties": false
+    })
+}
+
 const SYSTEM_PROMPT: &str =
     "あなたは作業ログの分類器です。与えられた作業区間(state)について、各質問に答えてください。\
 choice の value には選択肢の id(または none)を、bool には真偽を、score には整数を返します。\
 各回答には 0 から 1 の確信度 confidence を付けてください。根拠が乏しければ低くしてください。\
-出力は指定された JSON のみで、説明文は不要です。";
+出力は指定された JSON のみで、説明文は不要です。\
+入力に states 配列がある場合は、各 state について同じ順序・同じ件数で results 配列に回答を返してください。";
 
+#[cfg(test)]
 fn build_body(model: &str, req: &JudgeRequest, schema: &Value, json_object: bool) -> Value {
     let payload = json!({
         "state": req.state,
         "states": req.states,
         "questions": req.questions,
     });
-    let mut user = serde_json::to_string_pretty(&payload).unwrap_or_default();
+    build_body_value(model, &payload, schema, json_object)
+}
+
+fn build_body_value(model: &str, payload: &Value, schema: &Value, json_object: bool) -> Value {
+    let mut user = serde_json::to_string_pretty(payload).unwrap_or_default();
     let response_format = if json_object {
         user.push_str("\n\n次の JSON Schema に従う JSON オブジェクトだけを返してください:\n");
         user.push_str(&schema.to_string());
@@ -189,14 +258,16 @@ fn build_body(model: &str, req: &JudgeRequest, schema: &Value, json_object: bool
     })
 }
 
-/// Chat Completions の応答から回答を取り出して検証する。範囲外の回答は捨てる。
-pub fn parse_chat_response(resp: &Value, questions: &[QuestionSpec]) -> anyhow::Result<Answers> {
+fn parse_content(resp: &Value) -> anyhow::Result<Value> {
     let content = resp
         .pointer("/choices/0/message/content")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("応答に choices[0].message.content がありません"))?;
-    let parsed: Value =
-        serde_json::from_str(strip_fence(content)).context("モデル出力が JSON として不正です")?;
+    serde_json::from_str(strip_fence(content)).context("モデル出力が JSON として不正です")
+}
+
+/// 1 件分の回答オブジェクトを検証して取り出す。範囲外の回答は捨てる（空もあり得る）。
+fn extract_answers(parsed: &Value, questions: &[QuestionSpec]) -> anyhow::Result<Answers> {
     let obj = parsed
         .as_object()
         .ok_or_else(|| anyhow!("モデル出力がオブジェクトではありません"))?;
@@ -220,10 +291,37 @@ pub fn parse_chat_response(resp: &Value, questions: &[QuestionSpec]) -> anyhow::
             },
         );
     }
+    Ok(out)
+}
+
+/// Chat Completions の応答から回答を取り出して検証する。範囲外の回答は捨てる。
+pub fn parse_chat_response(resp: &Value, questions: &[QuestionSpec]) -> anyhow::Result<Answers> {
+    let out = extract_answers(&parse_content(resp)?, questions)?;
     if out.is_empty() {
         bail!("有効な回答がありません");
     }
     Ok(out)
+}
+
+/// バッチ応答（`{"results": [...]}`）を解釈する。件数が `n` と違えば全体をエラーにする。
+/// 個々の要素に有効な回答が無ければその要素だけ None。
+pub fn parse_batch_response(
+    resp: &Value,
+    questions: &[QuestionSpec],
+    n: usize,
+) -> anyhow::Result<Vec<Option<Answers>>> {
+    let parsed = parse_content(resp)?;
+    let items = parsed
+        .get("results")
+        .and_then(Value::as_array)
+        .ok_or_else(|| anyhow!("モデル出力に results 配列がありません"))?;
+    if items.len() != n {
+        bail!("バッチ応答の件数が一致しません (送信 {n} / 受信 {})", items.len());
+    }
+    Ok(items
+        .iter()
+        .map(|it| extract_answers(it, questions).ok().filter(|a| !a.is_empty()))
+        .collect())
 }
 
 /// 回答値が問いの型・選択肢・範囲に合っているか。
@@ -313,6 +411,23 @@ mod tests {
         assert_eq!(a["task"].confidence, 1.0);
         assert!(!a.contains_key("flag"));
         assert!(!a.contains_key("urgency"));
+    }
+
+    #[test]
+    fn batch_schema_and_parse() {
+        let s = build_batch_schema(&qs(), 3);
+        assert_eq!(s["properties"]["results"]["minItems"], 3);
+        assert_eq!(s["properties"]["results"]["maxItems"], 3);
+        assert_eq!(
+            s["properties"]["results"]["items"]["required"],
+            json!(["task", "flag", "urgency"])
+        );
+        let c = r#"{"results":[{"task":{"value":"T1","confidence":0.5}},{"task":{"value":"zzz","confidence":1}}]}"#;
+        let r = parse_batch_response(&chat(c), &qs(), 2).unwrap();
+        assert!(r[0].is_some());
+        assert!(r[1].is_none());
+        assert!(parse_batch_response(&chat(c), &qs(), 3).is_err());
+        assert!(parse_batch_response(&chat("{}"), &qs(), 1).is_err());
     }
 
     #[test]
