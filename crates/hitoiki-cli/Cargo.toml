@@ -1,0 +1,16 @@
+[package]
+name = "hitoiki-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "hitoiki"
+path = "src/main.rs"
+
+[dependencies]
+hitoiki-core.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde_json.workspace = true
