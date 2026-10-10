@@ -74,20 +74,33 @@ fn derive_rule_source(
     seg: &crate::model::ActivitySegment,
 ) -> Result<(MatchField, String, PatternType)> {
     if let Some(sid) = &seg.agent_session_id {
+        // パイプラインは "<agent>:<session_id>" で保存する。素の session_id の場合も許容する。
+        let (agent, session) = match sid.split_once(':') {
+            Some((a, s)) => (Some(a), s),
+            None => (None, sid.as_str()),
+        };
         let cwd: Option<String> = ctx
             .conn
             .query_row(
-                "SELECT cwd FROM agent_event WHERE session_id = ?1 AND cwd IS NOT NULL AND cwd <> '' \
-                 ORDER BY at DESC LIMIT 1",
-                params![sid],
+                "SELECT cwd FROM agent_event WHERE session_id = ?1 AND (?2 IS NULL OR agent = ?2)                  AND cwd IS NOT NULL AND cwd <> '' ORDER BY at DESC LIMIT 1",
+                params![session, agent],
                 |r| r.get(0),
             )
             .optional()?;
-        if let Some(cwd) = cwd {
-            let norm = cwd.replace('\\', "/");
-            let base = norm.trim_end_matches('/');
-            return Ok((MatchField::Cwd, format!("{base}/**"), PatternType::Glob));
-        }
+        return match cwd {
+            Some(cwd) => {
+                let norm = cwd.replace('\\', "/");
+                let base = norm.trim_end_matches('/');
+                Ok((
+                    MatchField::Cwd,
+                    format!("{}/**", globset::escape(base)),
+                    PatternType::Glob,
+                ))
+            }
+            None => Err(Error::InvalidArgument(
+                "このエージェント区間には作業ディレクトリが無いためルール化できません".into(),
+            )),
+        };
     }
     if let Some(t) = seg.title.as_deref().filter(|t| !t.trim().is_empty()) {
         return Ok((MatchField::Title, t.to_string(), PatternType::Contains));
@@ -305,7 +318,7 @@ mod tests {
         );
         ctx.conn
             .execute(
-                "UPDATE activity_segment SET agent_session_id = 'S1' WHERE id = 'SEG1'",
+                "UPDATE activity_segment SET agent_session_id = 'claude-code:S1' WHERE id = 'SEG1'",
                 [],
             )
             .unwrap();
@@ -332,6 +345,73 @@ mod tests {
         assert_eq!(rule.pattern, "C:/src/foo/**");
         assert_eq!(rule.pattern_type, PatternType::Glob);
         assert!(!rule.reused);
+    }
+
+    fn agent_seg(env: &Env, cwd: Option<&str>) -> (String, String) {
+        let ctx = env.ctx();
+        let d = env.day_start();
+        insert_segment(
+            ctx.conn,
+            "SEG1",
+            d,
+            d + 600_000,
+            SegmentKind::AgentDialog,
+            Some("✳ Claude Code"),
+            SegmentStatus::NeedsReview,
+        );
+        ctx.conn
+            .execute(
+                "UPDATE activity_segment SET agent_session_id = 'claude-code:S1' WHERE id = 'SEG1'",
+                [],
+            )
+            .unwrap();
+        if let Some(cwd) = cwd {
+            ctx.conn
+                .execute(
+                    "INSERT INTO agent_event (id, at, agent, session_id, kind, cwd)                      VALUES ('E1', ?1, 'claude-code', 'S1', 'prompt_submit', ?2)",
+                    params![d, cwd],
+                )
+                .unwrap();
+        }
+        (mk_task(&ctx), "SEG1".into())
+    }
+
+    #[test]
+    fn rule_cwd_is_glob_escaped() {
+        let env = Env::new();
+        let (t, seg) = agent_seg(&env, Some(r"C:\src\a[1]{x}?*"));
+        let r = set(
+            &env.ctx(),
+            &ReviewSetInput {
+                segment: seg,
+                task: Some(t),
+                rule: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let rule = r.rule.unwrap();
+        assert_eq!(rule.pattern, "C:/src/a[[]1[]][{]x[}][?][*]/**");
+        let g = globset::Glob::new(&rule.pattern).unwrap().compile_matcher();
+        assert!(g.is_match("C:/src/a[1]{x}?*/sub/f.rs"));
+        assert!(!g.is_match("C:/src/a1x/f.rs"));
+    }
+
+    #[test]
+    fn agent_segment_without_cwd_is_error() {
+        let env = Env::new();
+        let (t, seg) = agent_seg(&env, None);
+        let e = set(
+            &env.ctx(),
+            &ReviewSetInput {
+                segment: seg,
+                task: Some(t),
+                rule: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.exit_code(), 2);
     }
 
     #[test]

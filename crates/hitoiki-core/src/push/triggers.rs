@@ -8,7 +8,7 @@ use crate::config::Push;
 use crate::model::{ActivitySegment, SegmentKind};
 use crate::timefmt::{day_range, local_date_of, to_local, week_range};
 use crate::Millis;
-use chrono::{Datelike, NaiveTime, Weekday};
+use chrono::{Datelike, Duration, NaiveTime, TimeZone, Weekday};
 
 const MIN_MS: Millis = 60_000;
 
@@ -205,15 +205,21 @@ fn switch_spike(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Opt
     (n > cfg.switch_spike.count).then(|| payload::switch_spike(window, n))
 }
 
-/// after_interrupt: interrupt 区間が `interrupt_recent_min` 分以内に終了していて、
-/// その終了後にまだ配信していない。
+/// after_interrupt: interrupt 区間が終わっていて（その後に interrupt でない別の区間が始まっている）、
+/// 終了から `interrupt_recent_min` 分以内で、その割り込みの開始以降にまだ配信していない。
+/// 進行中の割り込み区間は終了時刻が再計算のたびに伸びるため、後続区間の有無で終了を判定する。
 fn after_interrupt(ctx: &PushContext, segs: &[&ActivitySegment]) -> Option<PushPayload> {
     let recent = ctx.tuning.interrupt_recent_min as Millis * MIN_MS;
-    let seg = segs
-        .iter()
-        .rev()
-        .find(|s| s.kind == SegmentKind::Interrupt && s.end_at <= ctx.now && ctx.now - s.end_at <= recent)?;
-    (!delivered_since(ctx, PushTrigger::AfterInterrupt, seg.end_at)).then(payload::after_interrupt)
+    let seg = segs.iter().rev().find(|s| {
+        s.kind == SegmentKind::Interrupt
+            && s.end_at <= ctx.now
+            && ctx.now - s.end_at <= recent
+            && segs
+                .iter()
+                .any(|n| n.kind != SegmentKind::Interrupt && n.start_at >= s.end_at)
+    })?;
+    // 配信は割り込みの終了後にしか起きないので、開始時刻を基準にすれば終了時刻が多少動いても重複しない。
+    (!delivered_since(ctx, PushTrigger::AfterInterrupt, seg.start_at)).then(payload::after_interrupt)
 }
 
 /// meeting_overrun: 会議アプリが前面で、予定（終日でない）の終了から `meeting_overrun_min` 分以上
@@ -236,12 +242,27 @@ fn meeting_overrun(ctx: &PushContext) -> Option<PushPayload> {
     (!delivered_since(ctx, PushTrigger::MeetingOverrun, ev.end_at)).then(payload::meeting_overrun)
 }
 
-/// late_work: `late_work_after` 以降（同じ日の時刻として）に、いま作業が続いている。1 日 1 回。
+/// late_work: 「遅い時間帯」（`late_work_after` 〜 翌朝の `day_start_after`、日付をまたぐ）に、
+/// いま作業が続いている。1 回の遅い時間帯につき 1 回（時間帯の開始日単位）。
 fn late_work(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Option<PushPayload> {
     let after = parse_hm(&cfg.late_work_after)?;
-    if local_time(ctx, ctx.now) < after {
+    let morning = parse_hm(&cfg.day_start_after).unwrap_or(NaiveTime::MIN);
+    let now_t = local_time(ctx, ctx.now);
+    let today = local_date_of(ctx.tz, ctx.now);
+    // 遅い時間帯の開始日。
+    let start_date = if now_t >= after {
+        today
+    } else if now_t < morning {
+        today - Duration::days(1)
+    } else {
         return None;
-    }
+    };
     active_work_segment(ctx, segs)?;
-    (!delivered_today(ctx, PushTrigger::LateWork)).then(payload::late_work)
+    let since = ctx
+        .tz
+        .from_local_datetime(&start_date.and_time(after))
+        .earliest()
+        .map(|d| d.timestamp_millis())
+        .unwrap_or_else(|| day_range(ctx.tz, start_date).start);
+    (!delivered_since(ctx, PushTrigger::LateWork, since)).then(payload::late_work)
 }

@@ -36,9 +36,18 @@ pub fn parse_tz(name: &str) -> Result<Tz> {
 }
 
 fn local_midnight(tz: Tz, d: NaiveDate) -> Millis {
-    tz.from_local_datetime(&d.and_time(NaiveTime::MIN))
-        .earliest()
-        .expect("midnight should exist")
+    if let Some(t) = tz.from_local_datetime(&d.and_time(NaiveTime::MIN)).earliest() {
+        return t.timestamp_millis();
+    }
+    // DST で 0 時が存在しない（America/Santiago 等）場合は、その日の最初の有効なローカル時刻。
+    for m in 1..=24 * 60 {
+        let t = d.and_time(NaiveTime::MIN) + Duration::minutes(m);
+        if let Some(t) = tz.from_local_datetime(&t).earliest() {
+            return t.timestamp_millis();
+        }
+    }
+    // 到達しない想定。UTC 0 時で代用する。
+    Utc.from_utc_datetime(&d.and_time(NaiveTime::MIN))
         .timestamp_millis()
 }
 
@@ -175,6 +184,20 @@ pub fn fmt_duration(ms: Millis) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn midnight_missing_in_dst_does_not_panic() {
+        // America/Santiago は 2026-09-06 の 0:00 に時計が 1:00 へ進み、0 時が存在しない。
+        let tz = parse_tz("America/Santiago").unwrap();
+        let d = NaiveDate::from_ymd_opt(2026, 9, 6).unwrap();
+        let r = day_range(tz, d);
+        assert_eq!(
+            to_local(tz, r.start).time(),
+            NaiveTime::from_hms_opt(1, 0, 0).unwrap()
+        );
+        assert_eq!(r.len(), 23 * 3_600_000);
+        let _ = week_range(tz, d);
+    }
 
     #[test]
     fn durations() {
