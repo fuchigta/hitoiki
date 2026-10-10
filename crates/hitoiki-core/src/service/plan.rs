@@ -55,6 +55,15 @@ pub fn add(ctx: &Ctx, input: &BlockInput) -> Result<TimeBlock> {
     Ok(b)
 }
 
+/// ブロックを削除する。存在しなければ `NotFound`。
+pub fn delete(ctx: &Ctx, id: &str) -> Result<()> {
+    if plan::delete(ctx.conn, id)? {
+        Ok(())
+    } else {
+        Err(Error::NotFound(format!("ブロック {id}")))
+    }
+}
+
 pub fn list(ctx: &Ctx, args: &RangeArgs) -> Result<BlockList> {
     let tz = ctx.tz()?;
     let range = ctx.range(args)?;
@@ -76,6 +85,27 @@ pub fn list(ctx: &Ctx, args: &RangeArgs) -> Result<BlockList> {
 mod tests {
     use super::*;
     use crate::service::testutil::Env;
+
+    #[test]
+    fn delete_block() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        let b = add(
+            &ctx,
+            &BlockInput {
+                start: d + 3_600_000,
+                end: d + 7_200_000,
+                task: None,
+                label: Some("x".into()),
+                focus: false,
+            },
+        )
+        .unwrap();
+        delete(&ctx, &b.id).unwrap();
+        assert!(list(&ctx, &RangeArgs::default()).unwrap().blocks.is_empty());
+        assert!(matches!(delete(&ctx, &b.id), Err(Error::NotFound(_))));
+    }
 
     #[test]
     fn add_and_list_today() {

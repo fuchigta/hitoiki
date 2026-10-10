@@ -46,6 +46,8 @@ export const api = {
   // 計画
   blockAdd: (input: T.BlockInput) => call<T.TimeBlock>("block_add", { input }),
   blockList: (range?: T.RangeArgs) => call<T.BlockList>("block_list", { range }),
+  blockDelete: (id: string) => call<null>("block_delete", { id }),
+  calendarList: (range?: T.RangeArgs) => call<T.CalendarEvent[]>("calendar_list", { range }),
 
   // 記録
   checkinAdd: (input: T.CheckInput) => call<T.Checkin>("checkin_add", { input }),

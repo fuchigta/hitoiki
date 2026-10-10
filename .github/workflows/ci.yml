@@ -35,6 +35,7 @@ jobs:
         run: |
           npm ci
           npm run build
+          npm test
 
       - name: Check formatting
         run: cargo fmt --all -- --check

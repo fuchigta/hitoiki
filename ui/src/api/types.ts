@@ -388,3 +388,16 @@ export type RuntimeMode =
   | { mode: "own" }
   | { mode: "external"; message: string }
   | { mode: "failed"; message: string };
+
+export interface CalendarEvent {
+  id: string;
+  source: string;
+  external_id: string;
+  start_at: Millis;
+  end_at: Millis;
+  all_day: boolean;
+  title: string;
+  location: string | null;
+  is_busy: boolean;
+  fetched_at: Millis;
+}

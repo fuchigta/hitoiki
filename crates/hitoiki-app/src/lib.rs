@@ -81,6 +81,8 @@ pub fn run() {
             commands::review_set,
             commands::block_add,
             commands::block_list,
+            commands::block_delete,
+            commands::calendar_list,
             commands::checkin_add,
             commands::checkin_list,
             commands::hassle_add,

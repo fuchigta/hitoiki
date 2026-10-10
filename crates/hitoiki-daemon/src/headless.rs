@@ -38,6 +38,17 @@ pub fn init_logging() -> anyhow::Result<LogGuard> {
     Ok(LogGuard(guard))
 }
 
+/// daemon 実行ファイルと同じディレクトリの `hitoiki-app`。無ければ None。
+fn app_path() -> Option<std::path::PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let app = exe.with_file_name(if cfg!(windows) {
+        "hitoiki-app.exe"
+    } else {
+        "hitoiki-app"
+    });
+    app.exists().then_some(app)
+}
+
 /// ログ出力に加えて、IPC の終了要求を待機側へ伝える。
 struct HeadlessSink {
     log: LogSink,
@@ -58,7 +69,20 @@ impl RuntimeSink for HeadlessSink {
         self.log.import_completed(stats)
     }
     fn open_ui(&self, screen: Option<&str>) {
-        self.log.open_ui(screen)
+        // 既に起動済みなら、アプリ側の single-instance が画面を切り替える。
+        match app_path() {
+            Some(app) => {
+                let mut cmd = std::process::Command::new(&app);
+                if let Some(s) = screen {
+                    cmd.arg("--screen").arg(s);
+                }
+                match cmd.spawn() {
+                    Ok(_) => tracing::info!(app = %app.display(), "UI を起動しました"),
+                    Err(e) => tracing::warn!(app = %app.display(), error = %e, "UI を起動できません"),
+                }
+            }
+            None => tracing::warn!("hitoiki-app が見つからないため UI を開けません"),
+        }
     }
     fn shutdown_requested(&self) {
         self.log.shutdown_requested();
