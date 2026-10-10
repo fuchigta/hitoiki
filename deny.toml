@@ -38,26 +38,15 @@ allow = [
     "MPL-2.0",
     "CC0-1.0",
     "BSL-1.0",
+    "CDLA-Permissive-2.0",
 ]
-# コピーレフト系は明示的に拒否する（許可リストにも含めない）。
-deny = [
-    "GPL-2.0-only",
-    "GPL-2.0-or-later",
-    "GPL-3.0-only",
-    "GPL-3.0-or-later",
-    "AGPL-3.0-only",
-    "AGPL-3.0-or-later",
-    "LGPL-2.0-only",
-    "LGPL-2.0-or-later",
-    "LGPL-2.1-only",
-    "LGPL-2.1-or-later",
-    "LGPL-3.0-only",
-    "LGPL-3.0-or-later",
-]
+# 許可リストに無いもの（GPL/AGPL/LGPL 等のコピーレフト系を含む）はすべて拒否される。
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# ワークスペース内の path 依存はワイルドカード扱いにしない。
+allow-wildcard-paths = true
 highlight = "all"
 deny = []
 skip = []
