@@ -1,0 +1,38 @@
+[package]
+name = "hitoiki-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Hitoiki の常駐 GUI アプリ（Tauri v2）"
+
+[dependencies]
+hitoiki-core.workspace = true
+tauri.workspace = true
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-autostart.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rusqlite.workspace = true
+
+[features]
+# 既定で有効: `cargo build` だけでフロントエンド(ui/dist)を exe に埋め込む。
+# `tauri dev` は --no-default-features で起動するので、その場合だけ devUrl(Vite) を読む。
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Data_Xml_Dom",
+    "Foundation",
+    "Foundation_Collections",
+    "UI_Notifications",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+] }
+
+[build-dependencies]
+tauri-build.workspace = true
