@@ -23,6 +23,19 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # hitoiki-app は ui/dist を exe に埋め込むので、Rust のビルド前にフロントエンドを作る。
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 

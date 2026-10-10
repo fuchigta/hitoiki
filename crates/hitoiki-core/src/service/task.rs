@@ -5,10 +5,11 @@ use crate::id::new_id;
 use crate::model::{MatchField, PatternType, Task, TaskKind, TaskMatchRule, TaskStatus};
 use crate::repo::{self, okr, rule, skill};
 use crate::{Error, Millis, Result};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// add / edit 共通の入力。edit では `None` / 空は「変更しない」。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
 pub struct TaskInput {
     pub title: Option<String>,
     pub body: Option<String>,
@@ -19,6 +20,8 @@ pub struct TaskInput {
     pub key_result: Option<String>,
     /// スキル名。edit では 1 つ以上指定されたとき置き換える。
     pub skills: Vec<String>,
+    /// edit でスキルを全て外す（`skills` が空でも置き換える）。
+    pub clear_skills: bool,
     pub external_url: Option<String>,
     pub planned_start_at: Option<Millis>,
     pub planned_end_at: Option<Millis>,
@@ -231,7 +234,7 @@ pub fn edit(ctx: &Ctx, id: &str, input: &TaskInput) -> Result<TaskView> {
     let sids = skill_ids(ctx, &input.skills)?;
     let tx = ctx.conn.unchecked_transaction()?;
     repo::task::update(ctx.conn, &t)?;
-    if !input.skills.is_empty() {
+    if !input.skills.is_empty() || input.clear_skills {
         skill::set_task_skills(ctx.conn, &t.id, &sids)?;
     }
     tx.commit()?;

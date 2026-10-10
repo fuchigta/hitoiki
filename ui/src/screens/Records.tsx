@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
-import { api } from "../api";
+import { api, type AbcRecord } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
+import { Markdown } from "../markdown";
 import { fmtDateTime, useAction, useAsync } from "../lib";
 
 const PERIODS = [
@@ -96,10 +97,33 @@ export function Records() {
                   {a.consequence_intensity != null && `（${a.consequence_intensity}）`}
                 </div>
               )}
+              <AbcDialog abc={a} onChanged={abcs.reload} />
             </li>
           ))}
         </ul>
       </Card>
+    </div>
+  );
+}
+
+/** B（受け止め方）を掘り下げる AI の問い。生成には時間がかかるので、実行中は表示を変える。 */
+function AbcDialog({ abc, onChanged }: { abc: AbcRecord; onChanged: () => void }) {
+  const act = useAction();
+  return (
+    <div class="stack">
+      {abc.ai_dialog_md && <Markdown text={abc.ai_dialog_md} />}
+      <div class="row">
+        <button
+          class="ghost"
+          disabled={act.busy}
+          onClick={async () => {
+            if (await act.run(() => api.abcDispute(abc.id))) onChanged();
+          }}
+        >
+          {act.busy ? "AI が考えています…" : abc.ai_dialog_md ? "問いを追加する" : "AI に問いを聞く"}
+        </button>
+      </div>
+      <ErrorBox error={act.error} />
     </div>
   );
 }

@@ -81,7 +81,8 @@ pub fn parse_to(tz: Tz, s: &str, now: Millis) -> Result<Millis> {
 }
 
 /// 範囲指定の引数（`--date` / `--period`、`--from` / `--to`）。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
 pub struct RangeArgs {
     /// `today` / `yesterday` / `this-week` / `last-week` / `YYYY-MM-DD`。
     pub date: Option<String>,

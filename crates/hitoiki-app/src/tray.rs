@@ -1,6 +1,6 @@
 //! タスクトレイ（15.2）。メニューは状態が変わるたびに作り直す。
 
-use crate::state::AppState;
+use crate::state::{AppState, RuntimeMode};
 use crate::{events, window};
 use hitoiki_core::model::{TaskKind, TaskStatus};
 use hitoiki_core::service::record::{self, CheckInput};
@@ -123,9 +123,19 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "終了").build(app)?;
 
-    let menu = MenuBuilder::new(app)
-        .item(&doing_item)
-        .item(&today_item)
+    // 収集を自前で行っていないときは、その理由をメニューに出す。
+    let note = match state.runtime_mode() {
+        RuntimeMode::External { message } | RuntimeMode::Failed { message } => Some(message),
+        _ => None,
+    };
+    let mut menu = MenuBuilder::new(app).item(&doing_item).item(&today_item);
+    if let Some(m) = &note {
+        let item = MenuItemBuilder::with_id("info-runtime", format!("※ {m}"))
+            .enabled(false)
+            .build(app)?;
+        menu = menu.item(&item);
+    }
+    let menu = menu
         .separator()
         .item(&switch)
         .item(&checkin)
@@ -136,7 +146,10 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
         .separator()
         .item(&quit)
         .build()?;
-    let tooltip = format!("Hitoiki\n{doing_text}\n{today_text}");
+    let mut tooltip = format!("Hitoiki\n{doing_text}\n{today_text}");
+    if let Some(m) = &note {
+        tooltip.push_str(&format!("\n{m}"));
+    }
     Ok((menu, tooltip))
 }
 
@@ -200,6 +213,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
             Ok(_) => {
                 events::emit_doing_changed(app);
                 refresh(app);
+                state.request_rebuild();
             }
             Err(e) => tracing::warn!("タスクを開始できませんでした: {}", e.message),
         }
@@ -227,7 +241,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
                 state.set_snooze_until(until);
                 refresh(app);
             }
-            "quit" => app.exit(0),
+            "quit" => crate::runtime::quit(app),
             _ => {}
         }
     }

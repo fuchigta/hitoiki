@@ -56,6 +56,17 @@ export const api = {
   abcAdd: (input: T.AbcInput) => call<T.AbcRecord>("abc_add", { input }),
   abcList: (range?: T.RangeArgs) => call<T.Items<T.AbcRecord>>("abc_list", { range }),
 
+  // 振り返り（AI）。generate / dispute は時間がかかる。
+  context: (kind: T.ReflectionKind, date?: string) => call<unknown>("context", { kind, date }),
+  reflectGenerate: (kind: T.ReflectionKind, date?: string) =>
+    call<T.Reflection>("reflect_generate", { kind, date }),
+  reflectAnswer: (id: string, answersMd: string) =>
+    call<T.Reflection>("reflect_answer", { id, answers_md: answersMd }),
+  reflectList: (kind?: T.ReflectionKind, limit = 30) =>
+    call<T.Reflection[]>("reflect_list", { kind, limit }),
+  reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
+  abcDispute: (id: string) => call<T.AbcRecord>("abc_dispute", { id }),
+
   // OKR・スキル
   okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
   okrAddObjective: (title: string) => call<T.Objective>("okr_add_objective", { input: { title } }),
@@ -81,9 +92,16 @@ export const api = {
   snooze: (minutes: number) => call<{ snooze_until: number }>("snooze", { minutes }),
   snoozeState: () => call<{ snooze_until: number }>("snooze_state"),
   takeInitialScreen: () => call<string | null>("take_initial_screen"),
-  pendingPush: () => call<T.PushPayload | null>("pending_push"),
-  pushRespond: (actionId: string, input?: string) =>
-    call<void>("push_respond", { action_id: actionId, input }),
+  pendingPush: () => call<T.PushEvent | null>("pending_push"),
+  /** ポップアップからの応答。`push_id` が無ければテスト通知として扱われる。 */
+  pushRespond: (r: {
+    push_id?: string | null;
+    action?: string | null;
+    value?: number | null;
+    input?: string;
+    open_screen?: string | null;
+  }) => call<void>("push_respond", r),
+  runtimeState: () => call<T.RuntimeMode>("runtime_state"),
   notifyTest: () => call<void>("notify_test"),
 };
 

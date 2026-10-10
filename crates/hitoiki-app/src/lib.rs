@@ -13,7 +13,7 @@ pub mod tray;
 pub mod window;
 
 use state::AppState;
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 /// 引数から `--name value` の値を取る。
@@ -87,6 +87,13 @@ pub fn run() {
             commands::hassle_list,
             commands::abc_add,
             commands::abc_list,
+            commands::context,
+            commands::reflect_generate,
+            commands::reflect_answer,
+            commands::reflect_list,
+            commands::reflect_show,
+            commands::abc_dispute,
+            commands::runtime_state,
             commands::okr_list,
             commands::okr_add_objective,
             commands::okr_add_kr,
@@ -134,24 +141,34 @@ pub fn run() {
             // UI の読み込み前にイベントを送っても届かないので、状態に積んで UI が取りに来る。
             handle
                 .state::<AppState>()
-                .set_initial_screen(arg_value(&args, "--screen"));
+                .set_initial_screen(arg_value(&args, "--screen").map(|s| window::normalize_screen(&s)));
             // 通知の動作確認用: HITOIKI_APP_NOTIFY_TEST=1 で起動 2 秒後にテスト通知を出す。
             if std::env::var_os("HITOIKI_APP_NOTIFY_TEST").is_some() {
                 let h = handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(2));
-                    let r = notify::show_push(&h, &notify::PushPayload::checkin());
+                    let r = notify::show_push(&h, None, &notify::test_payload());
                     tracing::info!("テスト通知の結果: {r:?}");
                 });
             }
             Ok(())
         })
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!());
 
-    if let Err(e) = result {
-        eprintln!("アプリを起動できませんでした: {e}");
-        std::process::exit(1);
-    }
+    let app = match result {
+        Ok(app) => app,
+        Err(e) => {
+            eprintln!("アプリを起動できませんでした: {e}");
+            std::process::exit(1);
+        }
+    };
+    app.run(|app, event| match event {
+        // 全ウインドウを閉じても（暗黙の終了要求）トレイに常駐し続ける。明示的な終了（コード付き）は通す。
+        RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+        // 終了時は必ず常駐処理を止める（Recorder が進行中の区間を閉じる）。
+        RunEvent::Exit => app.state::<AppState>().stop_runtime(),
+        _ => {}
+    });
 }
 
 #[cfg(test)]

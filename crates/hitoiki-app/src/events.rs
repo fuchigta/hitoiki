@@ -1,5 +1,6 @@
 //! UI へ送る Tauri イベント（15.3）。発火は `emit_*` 経由に統一する。
 
+use crate::state::PushEvent;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
@@ -21,9 +22,9 @@ pub fn emit_segments_updated(app: &AppHandle) {
     emit(app, SEGMENTS_UPDATED, json!({}));
 }
 
-/// プッシュ通知が発生した。`payload` はプッシュのペイロード。
-pub fn emit_push(app: &AppHandle, payload: &Value) {
-    emit(app, PUSH, payload.clone());
+/// プッシュ通知が発生した。ペイロードは `{ push_id, payload }`。
+pub fn emit_push(app: &AppHandle, ev: &PushEvent) {
+    emit(app, PUSH, serde_json::to_value(ev).unwrap_or(Value::Null));
 }
 
 /// doing タスクが変わった。

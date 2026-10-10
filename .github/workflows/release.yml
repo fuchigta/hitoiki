@@ -22,8 +22,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: Build CLI
-        run: cargo build --release -p hitoiki-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # hitoiki-app は ui/dist を exe に埋め込むので、Rust のビルド前にフロントエンドを作る。
+      - name: Build UI
+        working-directory: ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build CLI and app
+        run: cargo build --release -p hitoiki-cli -p hitoiki-app
 
       - name: Package zip
         id: pack
@@ -33,17 +46,11 @@ jobs:
           $staging = Join-Path $env:RUNNER_TEMP "hitoiki-$ver"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
-          # CLI は必須
-          Copy-Item "target/release/hitoiki.exe" -Destination $staging
-
-          # 常駐アプリ（Tauri、後で追加予定）は存在する場合のみ同梱
-          $app = "target/release/hitoiki-app.exe"
-          if (Test-Path $app) {
-            Copy-Item $app -Destination $staging
-            Write-Output "hitoiki-app.exe を同梱します"
-          } else {
-            Write-Output "hitoiki-app.exe は存在しないため同梱しません"
+          # CLI と常駐アプリはどちらも必須（欠けていればここで失敗させる）
+          foreach ($exe in 'hitoiki.exe', 'hitoiki-app.exe') {
+            Copy-Item "target/release/$exe" -Destination $staging -ErrorAction Stop
           }
+          Copy-Item "README.md", "LICENSE-MIT", "LICENSE-APACHE" -Destination $staging
 
           $zip = "hitoiki-$ver-windows-x64.zip"
           Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -Force

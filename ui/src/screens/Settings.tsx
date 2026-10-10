@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
-import { useAction, useAsync } from "../lib";
+import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = { general?: { timezone?: string; autostart?: boolean }; push?: { enabled?: boolean } };
 
@@ -18,6 +18,7 @@ export function Settings() {
     const r = await act.run(() => api.configSet(k, v));
     if (r) {
       setMsg(`${k} を保存しました。`);
+      if (k === "general.timezone") void loadTimeZone();
       cfg.reload();
     }
   };

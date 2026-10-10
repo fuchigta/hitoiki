@@ -9,6 +9,9 @@ description = "Hitoiki の常駐 GUI アプリ（Tauri v2）"
 
 [dependencies]
 hitoiki-core.workspace = true
+hitoiki-daemon.workspace = true
+hitoiki-ipc.workspace = true
+hitoiki-agents.workspace = true
 tauri.workspace = true
 tauri-plugin-single-instance.workspace = true
 tauri-plugin-autostart.workspace = true

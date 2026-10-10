@@ -546,15 +546,7 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
 }
 
 fn list_abc(ctx: &Ctx, range: Range) -> Result<Vec<crate::model::AbcRecord>> {
-    let mut stmt = ctx
-        .conn
-        .prepare("SELECT id FROM abc_record WHERE at >= ?1 AND at < ?2 ORDER BY at, id")?;
-    let ids: Vec<String> = stmt
-        .query_map([range.start, range.end], |r| r.get(0))?
-        .collect::<rusqlite::Result<_>>()?;
-    ids.iter()
-        .map(|id| repo::reflection::get_abc(ctx.conn, id))
-        .collect()
+    repo::record::list_abc(ctx.conn, range.start, range.end)
 }
 
 /// `--kind` 文字列の解釈。

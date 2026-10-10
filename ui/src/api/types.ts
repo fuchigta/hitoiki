@@ -105,6 +105,8 @@ export interface TaskInput {
   estimate_min?: number;
   key_result?: string;
   skills?: string[];
+  /** 編集でスキルを全て外す。 */
+  clear_skills?: boolean;
   external_url?: string;
   planned_start_at?: Millis;
   planned_end_at?: Millis;
@@ -337,11 +339,52 @@ export interface PresetImport {
   [key: string]: unknown;
 }
 
-/** ポップアップ／通知のペイロード（暫定。core の PushPayload 確定後に差し替える）。 */
+/** プッシュのボタン（core の `PushAction`）。押すと `{action: id, value}` で応答する。 */
+export interface PushAction {
+  /** "energy" | "stress" | "snooze_15" | "snooze_60" | "snooze_today" | "open" など。 */
+  id: string;
+  label: string;
+  value: number | null;
+}
+
+export interface PushInput {
+  /** 入力の保存先を示す ID（"hassle"）。 */
+  id: string;
+  placeholder: string;
+}
+
+/** core の `PushPayload`。 */
 export interface PushPayload {
+  trigger: string;
   title: string;
   body: string;
-  actions: { id: string; label: string }[];
-  input?: { placeholder: string } | null;
-  push_id?: string | null;
+  actions: PushAction[];
+  input: PushInput | null;
+  /** 通知クリックで開く画面（例 "reflection/day_start"）。 */
+  open_screen: string | null;
 }
+
+/** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */
+export interface PushEvent {
+  push_id: string | null;
+  payload: PushPayload;
+}
+
+export type ReflectionKind = "day_start" | "day_end" | "weekly";
+
+export interface Reflection {
+  id: string;
+  at: Millis;
+  kind: ReflectionKind;
+  context_json: string;
+  questions_md: string;
+  answers_md: string | null;
+  summary_md: string | null;
+}
+
+/** 常駐処理の状態。 */
+export type RuntimeMode =
+  | { mode: "starting" }
+  | { mode: "own" }
+  | { mode: "external"; message: string }
+  | { mode: "failed"; message: string };

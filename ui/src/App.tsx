@@ -1,7 +1,8 @@
-import { useEffect } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on } from "./api";
-import { SCREENS, useScreen, type ScreenId } from "./lib";
+import { RuntimeBanner } from "./components";
+import { SCREENS, loadTimeZone, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
 import { Okr } from "./screens/Okr";
 import { Plan } from "./screens/Plan";
 import { Popup } from "./screens/Popup";
@@ -40,6 +41,12 @@ export function App() {
 
 function Main() {
   const screen = useScreen();
+  const tzVersion = useTimeZoneVersion();
+  // 時刻表示は設定のタイムゾーンに従う。読み込めるまで描画を待つ（ずれた時刻を一瞬出さない）。
+  const [tzReady, setTzReady] = useState(false);
+  useEffect(() => {
+    loadTimeZone().finally(() => setTzReady(true));
+  }, []);
 
   // `hitoiki ui <screen>`・トレイ・通知からの画面切り替え。
   useEffect(() => {
@@ -62,6 +69,7 @@ function Main() {
   }, []);
 
   const View = VIEWS[screen];
+  if (!tzReady) return <div class="shell" aria-busy="true" />;
   return (
     <div class="shell">
       <nav class="nav" aria-label="画面">
@@ -74,7 +82,8 @@ function Main() {
       </nav>
       <main class="content">
         <h1>{SCREENS.find((s) => s.id === screen)?.label}</h1>
-        <View />
+        <RuntimeBanner />
+        <View key={tzVersion} />
       </main>
     </div>
   );

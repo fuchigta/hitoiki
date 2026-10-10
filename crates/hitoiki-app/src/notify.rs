@@ -1,80 +1,49 @@
-//! プッシュ通知の表示（9.3）。
-//!
-//! 検証の結果、`tauri-plugin-notification` のデスクトップ版（notify-rust 経由）は Windows で
-//! アクションボタン・入力欄・アクティベーションのコールバックに対応していないため、
-//! `windows` クレートの WinRT トースト API を直接使う（`winrt` モジュール）。
-//!
-//! - AUMID は `HKCU\Software\Classes\AppUserModelId\<AUMID>` に DisplayName/IconUri を登録する
-//!   （管理者権限・パッケージ化・ショートカット不要）。
-//! - アプリ実行中のボタン押下・入力値は `ToastNotification.Activated` で受ける。
-//! - トーストを出せない場合は、右下の小さなポップアップ窓（`window::open_popup`）に切り替える。
-
-use crate::{events, runtime, state::AppState, window};
+use crate::state::{AppState, PushEvent};
+use crate::{events, runtime, window};
+use hitoiki_core::push::{PushAction, PushInput, PushPayload, PushTrigger};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use tauri::{AppHandle, Manager};
 
 /// アプリ固有の AUMID。
 pub const AUMID: &str = "Hitoiki.App";
 
-/// プッシュのペイロード（暫定型。`hitoiki_core::push` の型が確定したら差し替える）。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct PushPayload {
-    pub title: String,
-    pub body: String,
-    pub actions: Vec<PushAction>,
-    /// テキスト入力欄（一言メモ）。
-    pub input: Option<PushInput>,
-    /// 応答の紐付け用（push_log の ID）。
-    pub push_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct PushAction {
-    /// 例: `energy:3`、`open:records`。
-    pub id: String,
-    pub label: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct PushInput {
-    pub placeholder: String,
-}
-
-impl PushPayload {
-    /// `serde_json::Value` から作る。
-    pub fn from_value(v: &Value) -> Result<Self, String> {
-        serde_json::from_value(v.clone()).map_err(|e| format!("プッシュのペイロードが不正です: {e}"))
-    }
-
-    /// チェックイン（エネルギー 1〜5 ＋ 一言メモ）の既定ペイロード。
-    pub fn checkin() -> Self {
-        Self {
-            title: "ひといき".into(),
-            body: "いまのエネルギーは？".into(),
-            actions: (1..=5)
-                .map(|n| PushAction {
-                    id: format!("energy:{n}"),
-                    label: n.to_string(),
-                })
-                .collect(),
-            input: Some(PushInput {
-                placeholder: "一言メモ（任意）".into(),
-            }),
-            push_id: None,
-        }
-    }
-}
-
 /// 通知のアクティベーション（ボタン押下／本体クリック）。
+///
+/// トーストの引数 `action=<id>&value=<value>&push=<push_id>&open=<screen>` から作る。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Activation {
-    pub action_id: Option<String>,
+    /// 押されたボタンの `PushAction.id`（本体クリックは None）。
+    pub action: Option<String>,
+    pub value: Option<i64>,
+    /// 入力欄のテキスト。
     pub input: Option<String>,
     pub push_id: Option<String>,
+    /// ペイロードの `open_screen`。
+    pub open_screen: Option<String>,
+}
+
+/// 入力欄だけで答える通知（ボタン無し）用の、テキスト送信ボタンの `PushAction.id`。
+pub const TEXT_ACTION: &str = "text";
+
+/// 設定画面の動作確認用のテスト通知（チェックイン相当。push_log には紐付かない）。
+pub fn test_payload() -> PushPayload {
+    PushPayload {
+        trigger: PushTrigger::LongFocus,
+        title: "ひといき".into(),
+        body: "いまのエネルギーは？".into(),
+        actions: (1..=5)
+            .map(|n| PushAction {
+                id: "energy".into(),
+                label: n.to_string(),
+                value: Some(n),
+            })
+            .collect(),
+        input: Some(PushInput {
+            id: "hassle".into(),
+            placeholder: "一言メモ（任意）".into(),
+        }),
+        open_screen: Some("records".into()),
+    }
 }
 
 /// 起動時に一度呼ぶ。AUMID を登録する。失敗してもフォールバックがあるので致命的ではない。
@@ -85,28 +54,28 @@ pub fn init() {
 }
 
 /// トースト通知を出す。ボタン押下は `runtime::handle_activation` に渡る。
-pub fn show_push(app: &AppHandle, payload: &PushPayload) -> Result<(), String> {
+pub fn show_push(app: &AppHandle, push_id: Option<&str>, payload: &PushPayload) -> Result<(), String> {
     let handle = app.clone();
-    platform::show(payload, move |act| runtime::handle_activation(&handle, act))
+    platform::show(push_id, payload, move |act| {
+        runtime::handle_activation(&handle, act)
+    })
 }
 
 /// プッシュを届ける: UI へ `push` イベントを送り、トーストを試し、失敗したらポップアップ窓に切り替える。
 /// 通知の一時停止中は何もしない（`false` を返す）。
-pub fn deliver(app: &AppHandle, payload: &Value) -> bool {
+pub fn deliver(app: &AppHandle, push_id: &str, payload: &PushPayload) -> bool {
     let state = app.state::<AppState>();
     if state.is_snoozed(hitoiki_core::Clock::now_ms(&hitoiki_core::SystemClock)) {
+        tracing::info!(push_id, "通知の一時停止中のため表示しません");
         return false;
     }
-    let p = match PushPayload::from_value(payload) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!("{e}");
-            return false;
-        }
+    let ev = PushEvent {
+        push_id: Some(push_id.to_string()),
+        payload: payload.clone(),
     };
-    state.set_last_push(Some(payload.clone()));
-    events::emit_push(app, payload);
-    if let Err(e) = show_push(app, &p) {
+    state.set_last_push(Some(ev.clone()));
+    events::emit_push(app, &ev);
+    if let Err(e) = show_push(app, Some(push_id), payload) {
         tracing::warn!("トーストを出せないためポップアップに切り替えます: {e}");
         if let Err(e) = window::open_popup(app) {
             tracing::warn!("ポップアップも開けませんでした: {e}");
@@ -115,11 +84,25 @@ pub fn deliver(app: &AppHandle, payload: &Value) -> bool {
     true
 }
 
+/// トーストに出すボタンの一覧。入力欄だけの通知には送信ボタンを足す。
+pub fn toast_actions(p: &PushPayload) -> Vec<PushAction> {
+    let mut v: Vec<PushAction> = p.actions.iter().take(5).cloned().collect();
+    if v.is_empty() && p.input.is_some() {
+        v.push(PushAction {
+            id: TEXT_ACTION.into(),
+            label: "ひとこと残す".into(),
+            value: None,
+        });
+    }
+    v
+}
+
 // ===== Windows 実装 =====
 
 #[cfg(windows)]
 mod platform {
-    use super::{Activation, PushPayload, AUMID};
+    use super::{toast_actions, Activation, AUMID};
+    use hitoiki_core::push::{PushAction, PushPayload};
     use std::sync::{Arc, Mutex};
     use windows::core::{Interface, HSTRING, PCWSTR};
     use windows::Data::Xml::Dom::XmlDocument;
@@ -218,35 +201,42 @@ mod platform {
         String::from_utf8_lossy(&out).into_owned()
     }
 
-    fn args(action: Option<&str>, push: Option<&str>) -> String {
+    fn args(action: Option<&PushAction>, push: Option<&str>, open: Option<&str>) -> String {
         let mut v = Vec::new();
         if let Some(a) = action {
-            v.push(format!("action={}", enc(a)));
+            v.push(format!("action={}", enc(&a.id)));
+            if let Some(n) = a.value {
+                v.push(format!("value={n}"));
+            }
         }
         if let Some(p) = push {
             v.push(format!("push={}", enc(p)));
         }
+        if let Some(o) = open {
+            v.push(format!("open={}", enc(o)));
+        }
         v.join("&")
     }
 
-    fn parse_args(s: &str) -> (Option<String>, Option<String>) {
-        let (mut action, mut push) = (None, None);
+    fn parse_args(s: &str) -> Activation {
+        let mut a = Activation::default();
         for kv in s.split('&') {
             match kv.split_once('=') {
-                Some(("action", v)) => action = Some(dec(v)),
-                Some(("push", v)) => push = Some(dec(v)),
+                Some(("action", v)) => a.action = Some(dec(v)),
+                Some(("value", v)) => a.value = dec(v).parse().ok(),
+                Some(("push", v)) => a.push_id = Some(dec(v)),
+                Some(("open", v)) => a.open_screen = Some(dec(v)),
                 _ => {}
             }
         }
-        (action, push)
+        a
     }
 
-    pub(super) fn build_xml(p: &PushPayload) -> String {
-        let push = p.push_id.as_deref();
+    pub(super) fn build_xml(push_id: Option<&str>, p: &PushPayload) -> String {
+        let open = p.open_screen.as_deref();
         let mut x = format!(
-            "<toast launch=\"{}\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\">\
-             <text>{}</text><text>{}</text></binding></visual><actions>",
-            esc(&args(None, push)),
+            "<toast launch=\"{}\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\">             <text>{}</text><text>{}</text></binding></visual><actions>",
+            esc(&args(None, push_id, open)),
             esc(&p.title),
             esc(&p.body)
         );
@@ -257,11 +247,11 @@ mod platform {
             ));
         }
         // トーストのボタンは最大 5 個。
-        for a in p.actions.iter().take(5) {
+        for a in toast_actions(p) {
             x.push_str(&format!(
                 "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
                 esc(&a.label),
-                esc(&args(Some(&a.id), push))
+                esc(&args(Some(&a), push_id, open))
             ));
         }
         x.push_str("</actions></toast>");
@@ -269,11 +259,12 @@ mod platform {
     }
 
     pub fn show(
+        push_id: Option<&str>,
         payload: &PushPayload,
         on_activated: impl Fn(Activation) + Send + Sync + 'static,
     ) -> Result<(), String> {
         let e = |e: windows::core::Error| e.to_string();
-        let xml = build_xml(payload);
+        let xml = build_xml(push_id, payload);
         let doc = XmlDocument::new().map_err(e)?;
         doc.LoadXml(&HSTRING::from(xml)).map_err(e)?;
         let toast = ToastNotification::CreateToastNotification(&doc).map_err(e)?;
@@ -290,7 +281,7 @@ mod platform {
                         return Ok(());
                     };
                     let raw = args.Arguments().map(|s| s.to_string()).unwrap_or_default();
-                    let (action_id, push_id) = parse_args(&raw);
+                    let mut act = parse_args(&raw);
                     let input = args
                         .UserInput()
                         .ok()
@@ -298,11 +289,8 @@ mod platform {
                         .and_then(|v| v.cast::<IPropertyValue>().ok())
                         .and_then(|pv| pv.GetString().ok())
                         .map(|s| s.to_string());
-                    cb(Activation {
-                        action_id,
-                        input,
-                        push_id,
-                    });
+                    act.input = input;
+                    cb(act);
                     Ok(())
                 },
             ))
@@ -353,25 +341,48 @@ mod platform {
     #[cfg(test)]
     mod tests {
         use super::*;
-        use crate::notify::{PushAction, PushInput};
+        use crate::notify::test_payload;
+        use hitoiki_core::push::PushInput;
 
         #[test]
         fn 引数の往復() {
-            let a = args(Some("energy:3"), Some("01 AB&x"));
-            let (act, push) = parse_args(&a);
-            assert_eq!(act.as_deref(), Some("energy:3"));
-            assert_eq!(push.as_deref(), Some("01 AB&x"));
+            let act = PushAction {
+                id: "energy".into(),
+                label: "3".into(),
+                value: Some(3),
+            };
+            let a = args(Some(&act), Some("01 AB&x"), Some("reflection/day_end"));
+            let p = parse_args(&a);
+            assert_eq!(p.action.as_deref(), Some("energy"));
+            assert_eq!(p.value, Some(3));
+            assert_eq!(p.push_id.as_deref(), Some("01 AB&x"));
+            assert_eq!(p.open_screen.as_deref(), Some("reflection/day_end"));
         }
 
         #[test]
         fn xmlにボタンと入力欄が入る() {
-            let mut p = PushPayload::checkin();
+            let mut p = test_payload();
             p.title = "a<b".into();
-            let x = build_xml(&p);
+            let x = build_xml(Some("P1"), &p);
             assert_eq!(x.matches("<action ").count(), 5);
             assert!(x.contains("<input id=\"note\""));
             assert!(x.contains("a&lt;b"));
-            let _ = (PushAction::default(), PushInput::default());
+            assert!(x.contains("action=energy&amp;value=3&amp;push=P1"));
+        }
+
+        #[test]
+        fn 入力欄だけの通知には送信ボタンが付く() {
+            let mut p = test_payload();
+            p.actions.clear();
+            p.input = Some(PushInput {
+                id: "hassle".into(),
+                placeholder: "x".into(),
+            });
+            let x = build_xml(Some("P1"), &p);
+            assert_eq!(x.matches("<action ").count(), 1);
+            assert!(x.contains("action=text"));
+            p.input = None;
+            assert_eq!(build_xml(None, &p).matches("<action ").count(), 0);
         }
     }
 }
@@ -380,13 +391,15 @@ mod platform {
 
 #[cfg(not(windows))]
 mod platform {
-    use super::{Activation, PushPayload};
+    use super::Activation;
+    use hitoiki_core::push::PushPayload;
 
     pub fn register() -> Result<(), String> {
         Ok(())
     }
 
     pub fn show(
+        _push_id: Option<&str>,
         _payload: &PushPayload,
         _on_activated: impl Fn(Activation) + Send + Sync + 'static,
     ) -> Result<(), String> {

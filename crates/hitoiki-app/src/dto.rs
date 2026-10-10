@@ -1,34 +1,13 @@
 //! UI から受け取る入力の型。core のサービス入力型へ変換するだけで、ロジックは持たない。
 
-use hitoiki_core::model::{ErgTag, MatchField, PatternType, SegmentKind, TaskKind, TaskStatus};
+use hitoiki_core::model::{MatchField, PatternType, SegmentKind, TaskKind, TaskStatus};
 use hitoiki_core::service::okr::{KrInput, ObjectiveInput};
 use hitoiki_core::service::plan::BlockInput;
-use hitoiki_core::service::record::{AbcInput, CheckInput, HassleInput};
 use hitoiki_core::service::review::ReviewSetInput;
 use hitoiki_core::service::skill::SkillInput;
-use hitoiki_core::service::task::{RuleInput, TaskFilter, TaskInput};
-use hitoiki_core::service::RangeArgs;
+use hitoiki_core::service::task::{RuleInput, TaskFilter};
 use hitoiki_core::Millis;
 use serde::Deserialize;
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct RangeDto {
-    /// `today` / `yesterday` / `this-week` / `last-week` / `YYYY-MM-DD`
-    pub date: Option<String>,
-    pub from: Option<String>,
-    pub to: Option<String>,
-}
-
-impl From<RangeDto> for RangeArgs {
-    fn from(r: RangeDto) -> Self {
-        RangeArgs {
-            date: r.date,
-            from: r.from,
-            to: r.to,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -42,40 +21,6 @@ impl From<TaskFilterDto> for TaskFilter {
         TaskFilter {
             statuses: f.statuses,
             kind: f.kind,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct TaskInputDto {
-    pub title: Option<String>,
-    pub body: Option<String>,
-    pub urgent: Option<bool>,
-    pub important: Option<bool>,
-    pub estimate_min: Option<i64>,
-    pub key_result: Option<String>,
-    pub skills: Vec<String>,
-    pub external_url: Option<String>,
-    pub planned_start_at: Option<Millis>,
-    pub planned_end_at: Option<Millis>,
-    pub interrupt: bool,
-}
-
-impl From<TaskInputDto> for TaskInput {
-    fn from(t: TaskInputDto) -> Self {
-        TaskInput {
-            title: t.title,
-            body: t.body,
-            urgent: t.urgent,
-            important: t.important,
-            estimate_min: t.estimate_min,
-            key_result: t.key_result,
-            skills: t.skills,
-            external_url: t.external_url,
-            planned_start_at: t.planned_start_at,
-            planned_end_at: t.planned_end_at,
-            interrupt: t.interrupt,
         }
     }
 }
@@ -152,66 +97,6 @@ impl From<BlockInputDto> for BlockInput {
     }
 }
 
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct CheckInputDto {
-    pub energy: Option<i64>,
-    pub mood: Option<i64>,
-    pub stress: Option<i64>,
-    pub erg: Option<ErgTag>,
-    pub note: Option<String>,
-}
-
-impl From<CheckInputDto> for CheckInput {
-    fn from(c: CheckInputDto) -> Self {
-        CheckInput {
-            energy: c.energy,
-            mood: c.mood,
-            stress: c.stress,
-            erg: c.erg,
-            note: c.note,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct HassleInputDto {
-    pub text: String,
-    #[serde(default)]
-    pub intensity: Option<i64>,
-}
-
-impl From<HassleInputDto> for HassleInput {
-    fn from(h: HassleInputDto) -> Self {
-        HassleInput {
-            text: h.text,
-            intensity: h.intensity,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct AbcInputDto {
-    pub activating_event: Option<String>,
-    pub belief: Option<String>,
-    pub consequence_emotion: Option<String>,
-    pub consequence_intensity: Option<i64>,
-    pub from_hassle: Option<String>,
-}
-
-impl From<AbcInputDto> for AbcInput {
-    fn from(a: AbcInputDto) -> Self {
-        AbcInput {
-            activating_event: a.activating_event,
-            belief: a.belief,
-            consequence_emotion: a.consequence_emotion,
-            consequence_intensity: a.consequence_intensity,
-            from_hassle: a.from_hassle,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct ObjectiveInputDto {
     pub title: String,
@@ -268,14 +153,15 @@ impl From<SkillInputDto> for SkillInput {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hitoiki_core::service::task::TaskInput;
 
     #[test]
     fn タスク入力は省略可能() {
-        let t: TaskInputDto = serde_json::from_str(r#"{"title":"a","urgent":true}"#).unwrap();
-        let t: TaskInput = t.into();
+        let t: TaskInput = serde_json::from_str(r#"{"title":"a","urgent":true}"#).unwrap();
         assert_eq!(t.title.as_deref(), Some("a"));
         assert_eq!(t.urgent, Some(true));
         assert!(t.skills.is_empty());
+        assert!(!t.clear_skills);
     }
 
     #[test]

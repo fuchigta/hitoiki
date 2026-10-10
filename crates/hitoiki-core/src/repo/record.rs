@@ -101,3 +101,23 @@ pub fn insert_abc(conn: &Connection, a: &AbcRecord) -> Result<()> {
     )?;
     Ok(())
 }
+
+pub fn list_abc(conn: &Connection, start: i64, end: i64) -> Result<Vec<AbcRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, at, activating_event, belief, consequence_emotion, consequence_intensity, dispute,          ai_dialog_md, hassle_id FROM abc_record WHERE at >= ?1 AND at < ?2 ORDER BY at, id",
+    )?;
+    let rows = stmt.query_map(params![start, end], |r| {
+        Ok(AbcRecord {
+            id: r.get(0)?,
+            at: r.get(1)?,
+            activating_event: r.get(2)?,
+            belief: r.get(3)?,
+            consequence_emotion: r.get(4)?,
+            consequence_intensity: r.get(5)?,
+            dispute: r.get(6)?,
+            ai_dialog_md: r.get(7)?,
+            hassle_id: r.get(8)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}

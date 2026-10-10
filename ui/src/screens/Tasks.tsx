@@ -145,6 +145,8 @@ function EditForm({
     urgent: boolean;
     important: boolean;
     estimate_min?: number;
+    skills: string[];
+    clear_skills: boolean;
   }) => void;
 }) {
   const [title, setTitle] = useState(task.title);
@@ -152,13 +154,27 @@ function EditForm({
   const [urgent, setUrgent] = useState(!!task.urgent);
   const [important, setImportant] = useState(!!task.important);
   const [est, setEst] = useState(task.estimate_min != null ? String(task.estimate_min) : "");
+  const [skills, setSkills] = useState(task.skills.join(", "));
   return (
     <form
       class="stack"
       onSubmit={(e) => {
         e.preventDefault();
         const n = parseInt(est, 10);
-        onSave({ title, body, urgent, important, estimate_min: Number.isFinite(n) ? n : undefined });
+        const list = skills
+          .split(/[,、]/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+        onSave({
+          title,
+          body,
+          urgent,
+          important,
+          estimate_min: Number.isFinite(n) ? n : undefined,
+          skills: list,
+          // 空にして保存したら、付いていたスキルを全て外す。
+          clear_skills: list.length === 0 && task.skills.length > 0,
+        });
       }}
     >
       <Field label="タイトル">
@@ -166,6 +182,9 @@ function EditForm({
       </Field>
       <Field label="本文（Markdown）">
         <textarea rows={8} value={body} onInput={(e) => setBody(e.currentTarget.value)} />
+      </Field>
+      <Field label="スキル（カンマ区切り。空にすると全て外します）">
+        <input value={skills} onInput={(e) => setSkills(e.currentTarget.value)} />
       </Field>
       <div class="row">
         <label class="check">

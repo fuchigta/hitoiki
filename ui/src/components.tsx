@@ -1,5 +1,6 @@
 import type { ComponentChildren } from "preact";
-import type { AppError, BlockView, Millis, ReportRow, SegmentView } from "./api";
+import { useEffect, useState } from "preact/hooks";
+import { api, type AppError, type BlockView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
 import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime } from "./lib";
 
 export function ErrorBox({ error }: { error: AppError | null }) {
@@ -7,6 +8,20 @@ export function ErrorBox({ error }: { error: AppError | null }) {
   return (
     <div class="error" role="alert">
       {error.message}
+    </div>
+  );
+}
+
+/** 常駐処理が自前で動いていないとき（別プロセスが収集中／起動失敗）に理由を表示する。 */
+export function RuntimeBanner() {
+  const [m, setM] = useState<RuntimeMode | null>(null);
+  useEffect(() => {
+    api.runtimeState().then(setM).catch(() => {});
+  }, []);
+  if (!m || (m.mode !== "external" && m.mode !== "failed")) return null;
+  return (
+    <div class={`banner${m.mode === "failed" ? " warn" : ""}`} role="status">
+      {m.message}
     </div>
   );
 }

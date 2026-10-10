@@ -17,15 +17,35 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// メイン窓を表示し、指定の画面へ切り替える。未知の画面名は `today`。
-pub fn open_screen(app: &AppHandle, screen: &str) {
-    let screen = if SCREENS.contains(&screen) {
-        screen
-    } else {
-        "today"
+/// 振り返りの種別（`reflect/<kind>`）。
+const REFLECT_KINDS: &[&str] = &["day_start", "day_end", "weekly"];
+
+/// 画面指定を UI のハッシュ（`today`、`reflect/day_end` など）に正規化する。
+///
+/// - `reflection/<kind>`（プッシュの `open_screen`）と `reflect/<kind>` は振り返り画面の該当種別。
+/// - `checkin` / `hassle`（プッシュの `open_screen`）は記録画面。
+/// - 未知の画面名は `today`。
+pub fn normalize_screen(screen: &str) -> String {
+    let (base, rest) = match screen.split_once('/') {
+        Some((b, r)) => (b, Some(r)),
+        None => (screen, None),
     };
+    match base {
+        "reflection" | "reflect" => match rest {
+            Some(k) if REFLECT_KINDS.contains(&k) => format!("reflect/{k}"),
+            _ => "reflect".to_string(),
+        },
+        "checkin" | "hassle" => "records".to_string(),
+        b if SCREENS.contains(&b) => b.to_string(),
+        _ => "today".to_string(),
+    }
+}
+
+/// メイン窓を表示し、指定の画面へ切り替える。
+pub fn open_screen(app: &AppHandle, screen: &str) {
+    let screen = normalize_screen(screen);
     show_main(app);
-    events::emit_open_screen(app, screen);
+    events::emit_open_screen(app, &screen);
 }
 
 /// 通知トーストが出せないときのフォールバック: 画面右下に小さなポップアップ窓を出す。
@@ -53,4 +73,20 @@ pub fn open_popup(app: &AppHandle) -> tauri::Result<()> {
     }
     b.build()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_screen;
+
+    #[test]
+    fn 画面名の正規化() {
+        assert_eq!(normalize_screen("today"), "today");
+        assert_eq!(normalize_screen("reflection/day_end"), "reflect/day_end");
+        assert_eq!(normalize_screen("reflect"), "reflect");
+        assert_eq!(normalize_screen("reflection/xx"), "reflect");
+        assert_eq!(normalize_screen("checkin"), "records");
+        assert_eq!(normalize_screen("hassle"), "records");
+        assert_eq!(normalize_screen("nope"), "today");
+    }
 }

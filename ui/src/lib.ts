@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
-import { on, toAppError, type AppError, type EventName, type Millis, type SegmentKind } from "./api";
+import { api, on, toAppError, type AppError, type EventName, type Millis, type SegmentKind } from "./api";
 
 // ===== 表示用の整形 =====
 
@@ -13,26 +13,109 @@ export function fmtDur(ms: number): string {
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** ローカル時刻の HH:mm。 */
+// ===== タイムゾーン =====
+// 表示は設定 `general.timezone`（IANA 名）に従う。取得できない・不正なときは OS のローカル時刻。
+
+let TZ: string | undefined;
+const TZ_EVENT = "hitoiki-tz-changed";
+
+/** 表示に使うタイムゾーンを設定する（不正な名前は無視してローカル時刻に戻す）。 */
+export function setTimeZone(tz: string | null | undefined): void {
+  let next: string | undefined;
+  if (tz) {
+    try {
+      new Intl.DateTimeFormat("ja-JP", { timeZone: tz });
+      next = tz;
+    } catch {
+      next = undefined;
+    }
+  }
+  if (next !== TZ) {
+    TZ = next;
+    window.dispatchEvent(new Event(TZ_EVENT));
+  }
+}
+
+/** 設定からタイムゾーンを読み込む。 */
+export async function loadTimeZone(): Promise<void> {
+  try {
+    const r = await api.configGet("general.timezone");
+    setTimeZone(typeof r.value === "string" ? r.value : undefined);
+  } catch {
+    setTimeZone(undefined);
+  }
+}
+
+/** タイムゾーンが変わるたびに増える値。画面の再描画に使う。 */
+export function useTimeZoneVersion(): number {
+  const [v, setV] = useState(0);
+  useEffect(() => {
+    const h = () => setV((x) => x + 1);
+    window.addEventListener(TZ_EVENT, h);
+    return () => window.removeEventListener(TZ_EVENT, h);
+  }, []);
+  return v;
+}
+
+interface Wall {
+  y: number;
+  mo: number;
+  d: number;
+  h: number;
+  mi: number;
+}
+
+/** UTC ミリ秒を、表示タイムゾーンの壁時計に分解する。 */
+export function wallClock(ms: Millis): Wall {
+  const f = new Intl.DateTimeFormat("en-CA", {
+    timeZone: TZ,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const g: Record<string, number> = {};
+  for (const p of f.formatToParts(new Date(ms))) if (p.type !== "literal") g[p.type] = Number(p.value);
+  return { y: g.year, mo: g.month, d: g.day, h: g.hour % 24, mi: g.minute };
+}
+
+/** 表示タイムゾーンの HH:mm。 */
 export function fmtTime(ms: Millis): string {
-  const d = new Date(ms);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const w = wallClock(ms);
+  return `${pad(w.h)}:${pad(w.mi)}`;
 }
 
 export function fmtDateTime(ms: Millis): string {
-  const d = new Date(ms);
-  return `${d.getMonth() + 1}/${d.getDate()} ${fmtTime(ms)}`;
+  const w = wallClock(ms);
+  return `${w.mo}/${w.d} ${pad(w.h)}:${pad(w.mi)}`;
 }
 
-/** `<input type="date">` 用の YYYY-MM-DD（ローカル）。 */
+/** `<input type="date">` 用の YYYY-MM-DD（表示タイムゾーン）。 */
 export function dateInput(ms: Millis = Date.now()): string {
-  const d = new Date(ms);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const w = wallClock(ms);
+  return `${w.y}-${pad(w.mo)}-${pad(w.d)}`;
 }
 
-/** ローカルの日付 + 時刻（HH:mm）を UTC ミリ秒に。 */
+/** 表示タイムゾーンの日付 + 時刻（HH:mm）を UTC ミリ秒に。 */
 export function toMillis(date: string, time: string): Millis {
-  return new Date(`${date}T${time}:00`).getTime();
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = time.split(":").map(Number);
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi);
+  // 壁時計 → UTC は、その時刻付近のオフセットを引いて求める（夏時間の境目は 2 回目の補正で収束）。
+  const offsetAt = (t: Millis) => {
+    const w = wallClock(t);
+    return Date.UTC(w.y, w.mo - 1, w.d, w.h, w.mi) - t;
+  };
+  let t = asUtc - offsetAt(asUtc);
+  t = asUtc - offsetAt(t);
+  return t;
+}
+
+/** 日時を `YYYY-MM-DD HH:mm`（表示タイムゾーン）で。 */
+export function fmtFull(ms: Millis): string {
+  return `${dateInput(ms)} ${fmtTime(ms)}`;
 }
 
 export const KIND_LABEL: Record<SegmentKind, string> = {

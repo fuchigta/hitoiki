@@ -23,6 +23,19 @@ use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+/// 既に常駐プロセスが動いている（IPC の名前が使用中）。`Runtime::start` の失敗理由として
+/// `anyhow::Error::downcast_ref::<AlreadyRunning>()` で判別できる。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AlreadyRunning;
+
+impl std::fmt::Display for AlreadyRunning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("既に常駐プロセスが動いています")
+    }
+}
+
+impl std::error::Error for AlreadyRunning {}
+
 /// 起動オプション。`new` が既定値を与える。
 #[derive(Clone)]
 pub struct RuntimeOptions {
@@ -157,7 +170,7 @@ impl Runtime {
         });
 
         let ipc = hitoiki_ipc::serve(&pipe, ipc_handler(shared.clone())).map_err(|e| match e {
-            IpcError::AlreadyRunning => anyhow!("既に常駐プロセスが動いています"),
+            IpcError::AlreadyRunning => anyhow::Error::new(AlreadyRunning),
             other => anyhow!("IPC サーバを起動できません: {other}"),
         })?;
         let mut h = RuntimeHandle {

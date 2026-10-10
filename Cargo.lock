@@ -1728,7 +1728,10 @@ name = "hitoiki-app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "hitoiki-agents",
  "hitoiki-core",
+ "hitoiki-daemon",
+ "hitoiki-ipc",
  "rusqlite",
  "serde",
  "serde_json",

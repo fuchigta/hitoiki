@@ -3,32 +3,34 @@
 
 use crate::dto::*;
 use crate::error::{AppError, AppResult};
-use crate::state::AppState;
+use crate::state::{AppState, PushEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
-use hitoiki_core::model::{AbcRecord, Checkin, Hassle, TimeBlock};
-use hitoiki_core::repo::record;
+use hitoiki_core::model::{AbcRecord, Checkin, Hassle, Reflection, TimeBlock};
+use hitoiki_core::service::context::{self, ContextJson};
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
 use hitoiki_core::service::plan::{self, BlockList};
+use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
+use hitoiki_core::service::reflect;
 use hitoiki_core::service::report::{self, Report, ReportBy, ReportInput};
 use hitoiki_core::service::review::{self, ReviewList, ReviewSetResult};
 use hitoiki_core::service::skill::{self, PresetImport, SkillList};
 use hitoiki_core::service::status::{self, Status};
-use hitoiki_core::service::task::{self, RuleList, TaskChange, TaskList, TaskShow, TaskView};
+use hitoiki_core::service::task::{self, RuleList, TaskChange, TaskInput, TaskList, TaskShow, TaskView};
 use hitoiki_core::service::RangeArgs;
-use hitoiki_core::{paths, Clock, Millis, SystemClock};
-use serde::Serialize;
+use hitoiki_core::{paths, Clock, SystemClock};
 use serde_json::{json, Value};
 use std::str::FromStr;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 type S<'a> = State<'a, AppState>;
 
-/// doing タスクが変わりうる操作の後処理。
+/// doing タスクが変わりうる操作の後処理（UI へ通知し、再計算を要求する）。
 fn doing_changed(app: &AppHandle) {
     events::emit_doing_changed(app);
     tray::refresh(app);
+    app.state::<AppState>().request_rebuild();
 }
 
 // ===== 状況 =====
@@ -52,16 +54,15 @@ pub fn task_show(state: S, id: String) -> AppResult<TaskShow> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn task_add(app: AppHandle, state: S, input: TaskInputDto) -> AppResult<TaskView> {
-    let input = input.into();
+pub fn task_add(app: AppHandle, state: S, input: TaskInput) -> AppResult<TaskView> {
     let v = state.with_ctx(|c| task::add(c, &input))?;
     tray::refresh(&app);
+    state.request_rebuild();
     Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn task_edit(app: AppHandle, state: S, id: String, input: TaskInputDto) -> AppResult<TaskView> {
-    let input = input.into();
+pub fn task_edit(app: AppHandle, state: S, id: String, input: TaskInput) -> AppResult<TaskView> {
     let v = state.with_ctx(|c| task::edit(c, &id, &input))?;
     doing_changed(&app);
     Ok(v)
@@ -91,7 +92,9 @@ pub fn task_drop(app: AppHandle, state: S, id: String) -> AppResult<TaskView> {
 #[tauri::command(rename_all = "snake_case")]
 pub fn rule_add(state: S, input: RuleInputDto) -> AppResult<hitoiki_core::model::TaskMatchRule> {
     let input = input.into();
-    state.with_ctx(|c| task::rule_add(c, &input))
+    let v = state.with_ctx(|c| task::rule_add(c, &input))?;
+    state.request_rebuild();
+    Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -102,17 +105,17 @@ pub fn rule_list(state: S, task: Option<String>) -> AppResult<RuleList> {
 // ===== 区間・仕分け =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn log(state: S, range: Option<RangeDto>, raw: Option<bool>) -> AppResult<Log> {
+pub fn log(state: S, range: Option<RangeArgs>, raw: Option<bool>) -> AppResult<Log> {
     let input = LogInput {
-        range: range.unwrap_or_default().into(),
+        range: range.unwrap_or_default(),
         raw: raw.unwrap_or(false),
     };
     state.with_ctx(|c| log_svc::log(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_list(state: S, range: Option<RangeDto>) -> AppResult<ReviewList> {
-    let args: RangeArgs = range.unwrap_or_default().into();
+pub fn review_list(state: S, range: Option<RangeArgs>) -> AppResult<ReviewList> {
+    let args = range.unwrap_or_default();
     state.with_ctx(|c| review::list(c, &args))
 }
 
@@ -121,6 +124,7 @@ pub fn review_set(app: AppHandle, state: S, input: ReviewSetDto) -> AppResult<Re
     let input = input.into();
     let v = state.with_ctx(|c| review::set(c, &input))?;
     events::emit_segments_updated(&app);
+    state.request_rebuild();
     Ok(v)
 }
 
@@ -129,101 +133,103 @@ pub fn review_set(app: AppHandle, state: S, input: ReviewSetDto) -> AppResult<Re
 #[tauri::command(rename_all = "snake_case")]
 pub fn block_add(state: S, input: BlockInputDto) -> AppResult<TimeBlock> {
     let input = input.into();
-    state.with_ctx(|c| plan::add(c, &input))
+    let v = state.with_ctx(|c| plan::add(c, &input))?;
+    state.request_rebuild();
+    Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn block_list(state: S, range: Option<RangeDto>) -> AppResult<BlockList> {
-    let args: RangeArgs = range.unwrap_or_default().into();
+pub fn block_list(state: S, range: Option<RangeArgs>) -> AppResult<BlockList> {
+    let args = range.unwrap_or_default();
     state.with_ctx(|c| plan::list(c, &args))
 }
 
 // ===== 記録（チェックイン・ハッスル・ABC） =====
 
-/// 期間付きの一覧。
-#[derive(Debug, Serialize)]
-pub struct Items<T> {
-    pub start_at: Millis,
-    pub end_at: Millis,
-    pub items: Vec<T>,
+#[tauri::command(rename_all = "snake_case")]
+pub fn checkin_add(state: S, input: CheckInput) -> AppResult<Checkin> {
+    state.with_ctx(|c| record_svc::check(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_add(state: S, input: CheckInputDto) -> AppResult<Checkin> {
-    let input = input.into();
-    state.with_ctx(|c| hitoiki_core::service::record::check(c, &input))
+pub fn checkin_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Checkin>> {
+    let args = range.unwrap_or_default();
+    state.with_ctx(|c| record_svc::list_checkins(c, &args))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_list(state: S, range: Option<RangeDto>) -> AppResult<Items<Checkin>> {
-    let args: RangeArgs = range.unwrap_or_default().into();
-    state.with_ctx(|c| {
-        let r = c.range(&args)?;
-        Ok(Items {
-            start_at: r.start,
-            end_at: r.end,
-            items: record::list_checkins(c.conn, r.start, r.end)?,
-        })
+pub fn hassle_add(state: S, input: HassleInput) -> AppResult<Hassle> {
+    state.with_ctx(|c| record_svc::hassle(c, &input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn hassle_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Hassle>> {
+    let args = range.unwrap_or_default();
+    state.with_ctx(|c| record_svc::list_hassles(c, &args))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn abc_add(state: S, input: AbcInput) -> AppResult<AbcRecord> {
+    state.with_ctx(|c| record_svc::abc_add(c, &input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn abc_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<AbcRecord>> {
+    let args = range.unwrap_or_default();
+    state.with_ctx(|c| record_svc::list_abc(c, &args))
+}
+
+// ===== 振り返り（AI） =====
+
+/// 振り返りに渡すコンテキスト（AI は呼ばない）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn context(state: S, kind: String, date: Option<String>) -> AppResult<ContextJson> {
+    let kind = context::parse_kind(&kind)?;
+    state.with_ctx(|c| context::context(c, kind, date.as_deref()))
+}
+
+/// 時間のかかる処理を専用スレッド・専用の DB 接続で実行する（UI も他のコマンドも塞がない）。
+async fn blocking<T: Send + 'static>(
+    app: AppHandle,
+    f: impl FnOnce(&AppState) -> AppResult<T> + Send + 'static,
+) -> AppResult<T> {
+    tauri::async_runtime::spawn_blocking(move || f(&app.state::<AppState>()))
+        .await
+        .map_err(|e| AppError::internal(format!("処理が異常終了しました: {e}")))?
+}
+
+/// 問いを AI で生成して保存する。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn reflect_generate(app: AppHandle, kind: String, date: Option<String>) -> AppResult<Reflection> {
+    let kind = context::parse_kind(&kind)?;
+    blocking(app, move |st| {
+        st.with_own_ctx(|c| reflect::reflect(c, kind, date.as_deref()))
     })
+    .await
+}
+
+/// 回答を保存する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn reflect_answer(state: S, id: String, answers_md: String) -> AppResult<Reflection> {
+    state.with_ctx(|c| reflect::answer(c, &id, &answers_md))
+}
+
+/// 過去の振り返り（新しい順）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn reflect_list(state: S, kind: Option<String>, limit: Option<i64>) -> AppResult<Vec<Reflection>> {
+    let kind = kind.as_deref().map(context::parse_kind).transpose()?;
+    state.with_ctx(|c| reflect::list(c, kind, limit.unwrap_or(30)))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn hassle_add(state: S, input: HassleInputDto) -> AppResult<Hassle> {
-    let input = input.into();
-    state.with_ctx(|c| hitoiki_core::service::record::hassle(c, &input))
+pub fn reflect_show(state: S, id: String) -> AppResult<Reflection> {
+    state.with_ctx(|c| reflect::show(c, &id))
 }
 
+/// ABC 記録の B を掘り下げる問いを AI で生成し、記録に追記する。
 #[tauri::command(rename_all = "snake_case")]
-pub fn hassle_list(state: S, range: Option<RangeDto>) -> AppResult<Items<Hassle>> {
-    let args: RangeArgs = range.unwrap_or_default().into();
-    state.with_ctx(|c| {
-        let r = c.range(&args)?;
-        Ok(Items {
-            start_at: r.start,
-            end_at: r.end,
-            items: record::list_hassles(c.conn, r.start, r.end)?,
-        })
-    })
-}
-
-#[tauri::command(rename_all = "snake_case")]
-pub fn abc_add(state: S, input: AbcInputDto) -> AppResult<AbcRecord> {
-    let input = input.into();
-    state.with_ctx(|c| hitoiki_core::service::record::abc_add(c, &input))
-}
-
-/// ABC 記録の一覧。
-/// TODO(core): `repo::record::list_abc` が追加されたらそちらを呼ぶ（今は core に一覧関数が無いため直接読む）。
-#[tauri::command(rename_all = "snake_case")]
-pub fn abc_list(state: S, range: Option<RangeDto>) -> AppResult<Items<AbcRecord>> {
-    let args: RangeArgs = range.unwrap_or_default().into();
-    state.with_ctx(|c| {
-        let r = c.range(&args)?;
-        let mut stmt = c.conn.prepare(
-            "SELECT id, at, activating_event, belief, consequence_emotion, consequence_intensity, \
-             dispute, ai_dialog_md, hassle_id FROM abc_record WHERE at >= ?1 AND at < ?2 ORDER BY at, id",
-        )?;
-        let items = stmt
-            .query_map([r.start, r.end], |row| {
-                Ok(AbcRecord {
-                    id: row.get(0)?,
-                    at: row.get(1)?,
-                    activating_event: row.get(2)?,
-                    belief: row.get(3)?,
-                    consequence_emotion: row.get(4)?,
-                    consequence_intensity: row.get(5)?,
-                    dispute: row.get(6)?,
-                    ai_dialog_md: row.get(7)?,
-                    hassle_id: row.get(8)?,
-                })
-            })?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(Items {
-            start_at: r.start,
-            end_at: r.end,
-            items,
-        })
-    })
+pub async fn abc_dispute(app: AppHandle, id: String) -> AppResult<AbcRecord> {
+    blocking(app, move |st| st.with_own_ctx(|c| reflect::abc_dispute(c, &id))).await
 }
 
 // ===== OKR・スキル =====
@@ -266,12 +272,12 @@ pub fn skill_import_preset(state: S, name: Option<String>) -> AppResult<PresetIm
 #[tauri::command(rename_all = "snake_case")]
 pub fn report(
     state: S,
-    range: Option<RangeDto>,
+    range: Option<RangeArgs>,
     by: String,
     include_idle: Option<bool>,
 ) -> AppResult<Report> {
     let input = ReportInput {
-        range: range.unwrap_or_default().into(),
+        range: range.unwrap_or_default(),
         by: ReportBy::from_str(&by)?,
         include_idle: include_idle.unwrap_or(false),
     };
@@ -296,9 +302,11 @@ pub fn config_get(key: String) -> AppResult<Value> {
 
 /// `value` は TOML の値として解釈される（`true` / `"Asia/Tokyo"` / `[...]`）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn config_set(app: AppHandle, key: String, value: String) -> AppResult<Value> {
+pub fn config_set(app: AppHandle, state: S, key: String, value: String) -> AppResult<Value> {
     let path = paths::config_file();
     config::set_value(&path, &key, &value)?;
+    // 再計算・カレンダー・プッシュ・判定器に反映する（収集器の設定は再起動が必要）。
+    state.apply_config();
     if key == "general.autostart" {
         crate::apply_autostart(&app);
     }
@@ -341,25 +349,40 @@ pub fn take_initial_screen(state: S) -> Option<String> {
 
 /// ポップアップ窓用: 直近のプッシュを返す。
 #[tauri::command(rename_all = "snake_case")]
-pub fn pending_push(state: S) -> Option<Value> {
+pub fn pending_push(state: S) -> Option<PushEvent> {
     state.last_push()
 }
 
-/// ポップアップ／通知のボタン押下相当（UI から応答する）。
+/// ポップアップ／通知のボタン押下相当（UI から応答する）。`push_id` は `pending_push` が返した値。
 #[tauri::command(rename_all = "snake_case")]
-pub fn push_respond(app: AppHandle, action_id: String, input: Option<String>) {
+pub fn push_respond(
+    app: AppHandle,
+    push_id: Option<String>,
+    action: Option<String>,
+    value: Option<i64>,
+    input: Option<String>,
+    open_screen: Option<String>,
+) {
     crate::runtime::handle_activation(
         &app,
         crate::notify::Activation {
-            action_id: Some(action_id),
+            action,
+            value,
             input,
-            push_id: None,
+            push_id,
+            open_screen,
         },
     );
+}
+
+/// 常駐処理の状態（自前で収集中／別プロセスが収集中／起動失敗）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn runtime_state(state: S) -> RuntimeMode {
+    state.runtime_mode()
 }
 
 /// テスト通知（アクションボタン付きトースト）を出す。設定画面の動作確認用。
 #[tauri::command(rename_all = "snake_case")]
 pub fn notify_test(app: AppHandle) -> AppResult<()> {
-    crate::notify::show_push(&app, &crate::notify::PushPayload::checkin()).map_err(AppError::internal)
+    crate::notify::show_push(&app, None, &crate::notify::test_payload()).map_err(AppError::internal)
 }

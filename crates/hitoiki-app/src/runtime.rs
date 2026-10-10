@@ -1,58 +1,170 @@
-//! 常駐処理（収集・取り込み・再計算・プッシュ）の差し込み口。
+//! 常駐処理（収集・取り込み・再計算・プッシュ・IPC）の統合。
 //!
-//! 別クレートのランタイム（`hitoiki-daemon` 相当）が完成したら、`start_background` から起動する。
-//! ランタイムは次を行うこと:
-//! - 区間を更新したら [`crate::events::emit_segments_updated`]
-//! - 取り込み完了で [`crate::events::emit_import_completed`]
-//! - プッシュは [`crate::notify::deliver`]（トースト → 失敗時ポップアップのフォールバック）
-//! - 通知の一時停止は [`crate::state::AppState::is_snoozed`] を参照する
+//! 実体は `hitoiki-daemon` の [`Runtime`] で、ヘッドレス（`hitoiki daemon`）と共通。
+//! IPC サーバもここ（Runtime 側）が持つので、アプリ側で別に立てない。
+//! UI への通知は [`TauriSink`] が Tauri イベント・トースト・トレイ更新に変換する。
 
-use crate::notify::Activation;
-use crate::state::AppState;
-use crate::{events, window};
+use crate::notify::{self, Activation, TEXT_ACTION};
+use crate::state::{AppState, RuntimeMode, EXTERNAL_DAEMON_MESSAGE};
+use crate::{events, tray, window};
+use hitoiki_agents::ImportStats;
+use hitoiki_core::config::Config;
+use hitoiki_core::push::{self, PushPayload, PushResponse};
 use hitoiki_core::service::record::{self, CheckInput};
+use hitoiki_core::timefmt::Range;
+use hitoiki_daemon::{AlreadyRunning, Runtime, RuntimeOptions, RuntimeSink};
+use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 
-/// バックグラウンド処理を起動する。今は何もしない（後でランタイムを統合する）。
-pub fn start_background(_app: &AppHandle) {
-    tracing::debug!("バックグラウンドランタイムは未統合です");
+/// 常駐処理からの通知を Tauri 側へ橋渡しする。全メソッドは任意のスレッドから呼ばれる。
+pub struct TauriSink {
+    app: AppHandle,
+}
+
+impl TauriSink {
+    pub fn new(app: AppHandle) -> Self {
+        Self { app }
+    }
+}
+
+impl RuntimeSink for TauriSink {
+    fn segments_updated(&self, range: Range) {
+        tracing::info!(start = range.start, end = range.end, "区間を更新しました");
+        events::emit_segments_updated(&self.app);
+        tray::refresh(&self.app);
+    }
+
+    fn push(&self, push_id: &str, payload: &PushPayload) {
+        // 一時停止中は deliver が何もしない。
+        notify::deliver(&self.app, push_id, payload);
+    }
+
+    fn doing_changed(&self, task_id: Option<&str>) {
+        tracing::info!(task_id = task_id.unwrap_or("-"), "doing タスクが変わりました");
+        events::emit_doing_changed(&self.app);
+        tray::refresh(&self.app);
+    }
+
+    fn import_completed(&self, _stats: &ImportStats) {
+        events::emit_import_completed(&self.app, "agent");
+    }
+
+    fn open_ui(&self, screen: Option<&str>) {
+        window::open_screen(&self.app, screen.unwrap_or("today"));
+    }
+
+    fn shutdown_requested(&self) {
+        tracing::info!("IPC で終了が要求されました");
+        self.app.exit(0);
+    }
+}
+
+/// バックグラウンド処理（Runtime）を起動する。失敗してもアプリは UI のみで動き続ける。
+///
+/// - 別の常駐プロセス（`hitoiki daemon`）が動いていれば `RuntimeMode::External`。
+/// - それ以外の失敗は `RuntimeMode::Failed`（メッセージを画面とトレイに出す）。
+pub fn start_background(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let cfg = match Config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("設定を読めないため常駐処理を起動しません: {e}");
+            state.set_runtime_mode(RuntimeMode::Failed {
+                message: format!("設定を読めませんでした: {e}"),
+            });
+            return;
+        }
+    };
+    let sink = Arc::new(TauriSink::new(app.clone()));
+    match Runtime::start(RuntimeOptions::new(cfg), sink) {
+        Ok(h) => {
+            state.set_runtime(Some(h));
+            state.set_runtime_mode(RuntimeMode::Own);
+            tracing::info!("常駐処理を開始しました");
+        }
+        Err(e) if e.downcast_ref::<AlreadyRunning>().is_some() => {
+            tracing::info!("{EXTERNAL_DAEMON_MESSAGE}");
+            state.set_runtime_mode(RuntimeMode::External {
+                message: EXTERNAL_DAEMON_MESSAGE.into(),
+            });
+        }
+        Err(e) => {
+            tracing::error!("常駐処理を起動できませんでした: {e:#}");
+            state.set_runtime_mode(RuntimeMode::Failed {
+                message: format!("常駐処理を起動できませんでした: {e:#}"),
+            });
+        }
+    }
+    tray::refresh(app);
+}
+
+/// 常駐処理を止めてからアプリを終了する（トレイの「終了」）。
+/// 停止は終了処理（`RunEvent::Exit`）でも行うので、ここでは終了を要求するだけ。
+pub fn quit(app: &AppHandle) {
+    app.exit(0);
 }
 
 /// 通知のアクション（トーストのボタン／ポップアップのボタン）を受けたときの処理。
 ///
-/// `action_id` の規約: `energy:N`（チェックイン、N は 1〜5）、`open:<screen>`（画面を開く）。
-/// アクション無し（通知本体のクリック）は記録画面を開く。
+/// `push_id` があれば `push::apply_response` に渡す（push_log・checkin・hassle・スヌーズは core が処理）。
+/// ボタンが `open`、または本体クリックなら、ペイロードの `open_screen` の画面を開く。
+/// `push_id` が無い（テスト通知）場合は、`energy` を直接チェックインとして記録する。
 pub fn handle_activation(app: &AppHandle, act: Activation) {
     tracing::info!("通知のアクティベーション: {act:?}");
-    let action = act.action_id.as_deref().unwrap_or("");
-    if let Some(n) = action.strip_prefix("energy:") {
-        let Ok(energy) = n.parse::<i64>() else {
-            return;
+    let state = app.state::<AppState>();
+    let note = act.input.clone().filter(|s| !s.trim().is_empty());
+    // 入力欄だけの通知の送信ボタンは、アクション無し＋テキストとして扱う。
+    let action = act.action.clone().filter(|a| a != TEXT_ACTION);
+    let opens = act.action.is_none() || action.as_deref() == Some("open");
+
+    let mut changed = false;
+    if let Some(push_id) = act.push_id.as_deref() {
+        let resp = PushResponse {
+            action: action
+                .clone()
+                .or_else(|| act.action.is_none().then(|| "open".to_string())),
+            value: act.value,
+            text: note.clone(),
         };
-        let note = act.input.clone().filter(|s| !s.trim().is_empty());
-        let state = app.state::<AppState>();
-        match state.with_ctx(|ctx| {
+        match state.with_ctx(|c| push::apply_response(c.conn, push_id, resp, c.now(), c.tz()?)) {
+            Ok(out) => {
+                changed = out.checkin_id.is_some() || out.hassle_id.is_some();
+                if let Some(until) = out.snoozed_until {
+                    state.set_snooze_until(until);
+                    tray::refresh(app);
+                }
+            }
+            Err(e) => tracing::warn!("通知への応答を保存できませんでした: {}", e.message),
+        }
+    } else if action.as_deref() == Some("energy") || note.is_some() {
+        let r = state.with_ctx(|c| {
             record::check(
-                ctx,
+                c,
                 &CheckInput {
-                    energy: Some(energy),
-                    note,
+                    energy: if action.as_deref() == Some("energy") {
+                        act.value
+                    } else {
+                        None
+                    },
+                    note: note.clone(),
                     ..Default::default()
                 },
             )
-        }) {
-            Ok(_) => {
-                // ポップアップから応答したときは窓を閉じる。
-                if let Some(w) = app.get_webview_window("popup") {
-                    let _ = w.close();
-                }
-                events::emit_segments_updated(app);
-            }
+        });
+        match r {
+            Ok(_) => changed = true,
             Err(e) => tracing::warn!("チェックインを記録できませんでした: {}", e.message),
         }
-    } else if let Some(screen) = action.strip_prefix("open:") {
-        window::open_screen(app, screen);
-    } else {
-        window::open_screen(app, "records");
+    }
+
+    if changed {
+        events::emit_segments_updated(app);
+    }
+    // ポップアップから応答したときは窓を閉じる。
+    if let Some(w) = app.get_webview_window("popup") {
+        let _ = w.close();
+    }
+    if opens {
+        window::open_screen(app, act.open_screen.as_deref().unwrap_or("records"));
     }
 }

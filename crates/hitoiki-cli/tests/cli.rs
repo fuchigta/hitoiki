@@ -328,7 +328,11 @@ fn config_doctor_and_reflect() {
 
     // doctor は診断結果を JSON で返す（終了コードは環境次第なので見ない）
     let d = run(h, &["--json", "doctor"]);
-    assert!(d.json()["items"].as_array().is_some_and(|a| !a.is_empty()), "{}", d.stdout);
+    assert!(
+        d.json()["items"].as_array().is_some_and(|a| !a.is_empty()),
+        "{}",
+        d.stdout
+    );
     assert_eq!(run(h, &["version"]).code, 0);
 
     // 振り返り系: context は JSON、存在しない ID は 3

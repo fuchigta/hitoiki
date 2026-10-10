@@ -383,6 +383,7 @@ fn task_input(ctx: &Ctx, title: Option<String>, o: TaskOpts) -> Result<task::Tas
             .transpose()?,
         key_result: o.kr,
         skills: o.skill,
+        clear_skills: false,
         external_url: o.url,
         planned_start_at: o
             .plan_start
