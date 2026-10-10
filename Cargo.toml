@@ -44,3 +44,9 @@ which = "7"
 ctrlc = "3"
 tracing-appender = "0.2"
 winreg = "0.55"
+
+# GUI（hitoiki-app）
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-build = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"

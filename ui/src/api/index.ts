@@ -1,0 +1,96 @@
+// Tauri コマンドの薄いクライアント。コア呼び出しはここに集約する。
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type * as T from "./types";
+
+export * from "./types";
+
+/** Tauri から `{code, message}` で返るエラーを AppError に正規化する。 */
+export function toAppError(e: unknown): T.AppError {
+  if (e && typeof e === "object" && "message" in e) {
+    const o = e as { code?: unknown; message: unknown };
+    return { code: typeof o.code === "string" ? o.code : "internal", message: String(o.message) };
+  }
+  return { code: "internal", message: String(e) };
+}
+
+/** ブラウザ（Tauri 外）で開いたときは呼び出しが失敗する。画面は落とさずエラー表示にする。 */
+async function call<R>(cmd: string, args?: Record<string, unknown>): Promise<R> {
+  try {
+    return await invoke<R>(cmd, args);
+  } catch (e) {
+    throw toAppError(e);
+  }
+}
+
+export const api = {
+  status: () => call<T.Status>("status"),
+
+  // タスク
+  taskList: (statuses?: T.TaskStatus[], kind?: T.TaskKind) =>
+    call<{ tasks: T.TaskView[] }>("task_list", { filter: { statuses: statuses ?? [], kind } }),
+  taskShow: (id: string) => call<T.TaskShow>("task_show", { id }),
+  taskAdd: (input: T.TaskInput) => call<T.TaskView>("task_add", { input }),
+  taskEdit: (id: string, input: T.TaskInput) => call<T.TaskView>("task_edit", { id, input }),
+  taskStart: (id: string) => call<T.TaskChange>("task_start", { id }),
+  taskDone: (id: string) => call<T.TaskView>("task_done", { id }),
+  taskDrop: (id: string) => call<T.TaskView>("task_drop", { id }),
+  ruleAdd: (input: T.RuleInput) => call<T.TaskMatchRule>("rule_add", { input }),
+  ruleList: (task?: string) => call<{ rules: T.TaskMatchRule[] }>("rule_list", { task }),
+
+  // 区間・仕分け
+  log: (range?: T.RangeArgs, raw = false) => call<T.Log>("log", { range, raw }),
+  reviewList: (range?: T.RangeArgs) => call<T.ReviewList>("review_list", { range }),
+  reviewSet: (input: T.ReviewSetInput) => call<T.ReviewSetResult>("review_set", { input }),
+
+  // 計画
+  blockAdd: (input: T.BlockInput) => call<T.TimeBlock>("block_add", { input }),
+  blockList: (range?: T.RangeArgs) => call<T.BlockList>("block_list", { range }),
+
+  // 記録
+  checkinAdd: (input: T.CheckInput) => call<T.Checkin>("checkin_add", { input }),
+  checkinList: (range?: T.RangeArgs) => call<T.Items<T.Checkin>>("checkin_list", { range }),
+  hassleAdd: (text: string, intensity?: number) =>
+    call<T.Hassle>("hassle_add", { input: { text, intensity } }),
+  hassleList: (range?: T.RangeArgs) => call<T.Items<T.Hassle>>("hassle_list", { range }),
+  abcAdd: (input: T.AbcInput) => call<T.AbcRecord>("abc_add", { input }),
+  abcList: (range?: T.RangeArgs) => call<T.Items<T.AbcRecord>>("abc_list", { range }),
+
+  // OKR・スキル
+  okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
+  okrAddObjective: (title: string) => call<T.Objective>("okr_add_objective", { input: { title } }),
+  okrAddKr: (objective: string, title: string, target?: string) =>
+    call<T.KeyResult>("okr_add_kr", { input: { objective, title, target } }),
+  skillList: () => call<{ skills: T.SkillView[] }>("skill_list"),
+  skillAdd: (name: string, parent?: string) => call<T.Skill>("skill_add", { input: { name, parent } }),
+  skillImportPreset: (name?: string) => call<T.PresetImport>("skill_import_preset", { name }),
+
+  // レポート
+  report: (by: T.ReportBy, range?: T.RangeArgs, includeIdle = false) =>
+    call<T.Report>("report", { range, by, include_idle: includeIdle }),
+
+  // 設定
+  configAll: () => call<Record<string, unknown>>("config_all"),
+  configGet: (key: string) => call<{ key: string; value: unknown }>("config_get", { key }),
+  /** `value` は TOML の値（`true`、`"Asia/Tokyo"`、`[...]`）。 */
+  configSet: (key: string, value: string) => call<{ key: string; path: string }>("config_set", { key, value }),
+  configPath: () => call<{ path: string; db: string }>("config_path"),
+
+  // ウインドウ・通知
+  openScreen: (screen: string) => call<void>("open_screen", { screen }),
+  snooze: (minutes: number) => call<{ snooze_until: number }>("snooze", { minutes }),
+  snoozeState: () => call<{ snooze_until: number }>("snooze_state"),
+  takeInitialScreen: () => call<string | null>("take_initial_screen"),
+  pendingPush: () => call<T.PushPayload | null>("pending_push"),
+  pushRespond: (actionId: string, input?: string) =>
+    call<void>("push_respond", { action_id: actionId, input }),
+  notifyTest: () => call<void>("notify_test"),
+};
+
+// ===== イベント =====
+
+export type EventName = "segments-updated" | "push" | "doing-changed" | "import-completed" | "open-screen";
+
+export function on<P = unknown>(name: EventName, handler: (payload: P) => void): Promise<UnlistenFn> {
+  return listen<P>(name, (e) => handler(e.payload));
+}
