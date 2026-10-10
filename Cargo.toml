@@ -37,3 +37,4 @@ notify = "6"
 crossbeam-channel = "0.5"
 windows = "0.62"
 libc = "0.2"
+ureq = { version = "2", features = ["json"] }
