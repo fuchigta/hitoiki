@@ -7,9 +7,10 @@ mod table;
 use args::*;
 use clap::Parser;
 use hitoiki_core::config::{self, Config};
-use hitoiki_core::model::TaskStatus;
+use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::{
-    self, log as log_svc, okr, plan, record, report, review, skill, status, task, Ctx, RangeArgs,
+    self, context, log as log_svc, okr, plan, record, reflect, report, review, skill, status, task, Ctx,
+    RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Error, Result, SystemClock};
 use serde::Serialize;
@@ -101,13 +102,10 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Rebuild { .. } => return unimplemented_cmd("rebuild"),
         Cmd::Daemon => return unimplemented_cmd("daemon"),
         Cmd::Doctor => return unimplemented_cmd("doctor"),
-        Cmd::Context { .. } => return unimplemented_cmd("context"),
-        Cmd::Reflect(_) => return unimplemented_cmd("reflect"),
         Cmd::Ui { .. } => return unimplemented_cmd("ui"),
         Cmd::Ingest(_) => return unimplemented_cmd("ingest context"),
         Cmd::NativeHost { .. } => return unimplemented_cmd("native-host"),
         Cmd::Agent(_) => return unimplemented_cmd("agent"),
-        Cmd::Abc(AbcCmd::Dispute { .. }) => return unimplemented_cmd("abc dispute"),
         _ => {}
     }
 
@@ -233,7 +231,16 @@ fn run(cli: Cli) -> Result<()> {
                 )
             })
         }
-        Cmd::Abc(AbcCmd::Dispute { .. }) => unimplemented_cmd("abc dispute"),
+        Cmd::Abc(AbcCmd::Dispute { id }) => {
+            let r = reflect::abc_dispute(&ctx, &id)?;
+            emit(json, &r, || render::abc_dispute(&r))
+        }
+        Cmd::Context { kind, date } => {
+            let c = context::context(&ctx, kind.parse()?, date.as_deref())?;
+            // 機械可読が目的なので --json の有無にかかわらず JSON を出す。
+            print_json(&c)
+        }
+        Cmd::Reflect(r) => reflect_cmd(&ctx, r, json),
         Cmd::Okr(o) => match o {
             OkrCmd::AddObjective { title, from, to } => {
                 let now = ctx.now();
@@ -301,6 +308,40 @@ fn run(cli: Cli) -> Result<()> {
         }
         // DB を開く前に処理済み
         _ => unreachable!("handled before opening the database"),
+    }
+}
+
+fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
+    let tz = ctx.tz()?;
+    let generate = |kind: ReflectionKind, date: Option<String>| -> Result<()> {
+        let r = reflect::reflect(ctx, kind, date.as_deref())?;
+        emit(json, &r, || render::reflection(tz, &r))
+    };
+    match cmd {
+        ReflectCmd::DayStart { date } => generate(ReflectionKind::DayStart, date),
+        ReflectCmd::DayEnd { date } => generate(ReflectionKind::DayEnd, date),
+        ReflectCmd::Weekly { date } => generate(ReflectionKind::Weekly, date),
+        ReflectCmd::Answer { id, file } => {
+            let text = match file.as_deref() {
+                None | Some("-") => read_text("-")?,
+                Some(path) => std::fs::read_to_string(path)?,
+            };
+            let r = reflect::answer(ctx, &id, &text)?;
+            emit(json, &r, || {
+                format!("回答を保存しました: {}", render::short(&r.id))
+            })
+        }
+        ReflectCmd::List { kind, limit } => {
+            let kind = kind.map(|k| k.parse::<ReflectionKind>()).transpose()?;
+            let l = reflect::list(ctx, kind, limit)?;
+            emit(json, &serde_json::json!({ "reflections": l }), || {
+                render::reflection_list(tz, &l)
+            })
+        }
+        ReflectCmd::Show { id } => {
+            let r = reflect::show(ctx, &id)?;
+            emit(json, &r, || render::reflection(tz, &r))
+        }
     }
 }
 

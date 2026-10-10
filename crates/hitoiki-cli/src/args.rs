@@ -109,14 +109,14 @@ pub enum Cmd {
         #[arg(long)]
         include_idle: bool,
     },
-    /// AI 用コンテキストを JSON で出力 [未実装]
+    /// AI 用コンテキストを JSON で出力
     Context {
         #[arg(long)]
         kind: String,
         #[arg(long)]
         date: Option<String>,
     },
-    /// AI で問いを生成して保存 [未実装]
+    /// AI で問いを生成して保存
     #[command(subcommand)]
     Reflect(ReflectCmd),
     /// エージェントセッション [一部未実装]
@@ -303,7 +303,7 @@ pub enum AbcCmd {
         #[arg(long)]
         from_hassle: Option<String>,
     },
-    /// AI で受け止め方を掘り下げる問いを生成 [未実装]
+    /// AI で受け止め方を掘り下げる問いを生成
     Dispute { id: String },
 }
 
@@ -361,6 +361,17 @@ pub enum ReflectCmd {
         #[arg(long)]
         file: Option<String>,
     },
+    /// 保存済みの振り返り一覧（新しい順）
+    List {
+        /// day_start | day_end | weekly
+        #[arg(long)]
+        kind: Option<String>,
+        /// 最大件数（既定 20）
+        #[arg(long, default_value_t = 20)]
+        limit: i64,
+    },
+    /// 振り返りの詳細（問い・回答）
+    Show { id: String },
 }
 
 #[derive(Debug, Subcommand)]
