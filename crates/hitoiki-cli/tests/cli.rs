@@ -22,7 +22,20 @@ fn run(home: &std::path::Path, args: &[&str]) -> Out {
 }
 
 fn run_with_stdin(home: &std::path::Path, args: &[&str], stdin: Option<&str>) -> Out {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_hitoiki"))
+    run_full(home, args, stdin.map(str::as_bytes), &[])
+}
+
+fn run_full(
+    home: &std::path::Path,
+    args: &[&str],
+    stdin: Option<&[u8]>,
+    envs: &[(&str, &std::path::Path)],
+) -> Out {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_hitoiki"));
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let mut child = cmd
         .args(args)
         .env("HITOIKI_HOME", home)
         .stdin(Stdio::piped())
@@ -33,7 +46,7 @@ fn run_with_stdin(home: &std::path::Path, args: &[&str], stdin: Option<&str>) ->
     {
         let mut si = child.stdin.take().unwrap();
         if let Some(s) = stdin {
-            si.write_all(s.as_bytes()).unwrap();
+            si.write_all(s).unwrap();
         }
     }
     let o = child.wait_with_output().unwrap();
@@ -313,16 +326,7 @@ fn config_and_unimplemented() {
     assert!(run(h, &["config", "path"]).stdout.contains("config.toml"));
     assert_eq!(run(h, &["config", "get", "no.such"]).code, 3);
 
-    for args in [
-        &["rebuild"][..],
-        &["daemon"],
-        &["doctor"],
-        &["agent", "sessions"],
-        &["ui"],
-        &["ingest", "context"],
-        &["native-host"],
-        &["version", "--check"],
-    ] {
+    for args in [&["daemon"][..], &["doctor"], &["ui"]] {
         let o = run(h, args);
         assert_eq!(o.code, 1, "{args:?}");
         assert!(o.stderr.contains("未実装"), "{args:?}: {}", o.stderr);
@@ -336,4 +340,183 @@ fn config_and_unimplemented() {
     assert_eq!(run(h, &["context", "--kind", "bogus"]).code, 2);
     assert_eq!(run(h, &["reflect", "list"]).code, 0);
     assert_eq!(run(h, &["abc", "dispute", "X"]).code, 3);
+}
+
+#[test]
+fn rebuild_on_empty_db() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let o = run(h, &["rebuild"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(o.stdout.contains("再計算しました"), "{}", o.stdout);
+    let o = run(h, &["--json", "rebuild", "--date", "2026-10-09"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let j = o.json();
+    assert_eq!(j["segments"], 0);
+    assert_eq!(j["bindings"], 0);
+    assert_eq!(j["version"], 1);
+    assert!(j["range"]["start"].is_string());
+    assert_eq!(
+        run(h, &["rebuild", "--date", "today", "--from", "2026-01-01"]).code,
+        2
+    );
+}
+
+#[test]
+fn ingest_context_cases() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let one = r#"{"source":"browser","hwnd":"0x1","kind":"url","value":"https://example.com"}"#;
+    let o = run_with_stdin(h, &["--json", "ingest", "context"], Some(one));
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["saved"], 1);
+    let many = r#"[{"at":"2026-10-09T00:00:00Z","source":"vscode","kind":"workspace","value":"/w"},
+                   {"at":1700000000000,"source":"vscode","kind":"file","value":"a.rs"}]"#;
+    let o = run_with_stdin(h, &["--json", "ingest", "context"], Some(many));
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["saved"], 2);
+    let conn = db::open(&paths_db(h)).unwrap();
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM context_hint", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 3);
+
+    for bad in [
+        "not json",
+        r#"{"source":"b","kind":"url"}"#,
+        r#"[{"source":"b","kind":"url","value":"v"},{}]"#,
+        "42",
+    ] {
+        let o = run_with_stdin(h, &["ingest", "context"], Some(bad));
+        assert_eq!(o.code, 2, "{bad}: {}", o.stderr);
+    }
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM context_hint", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 3);
+}
+
+fn paths_db(home: &std::path::Path) -> std::path::PathBuf {
+    home.join("hitoiki.db")
+}
+
+fn frame(payload: &[u8]) -> Vec<u8> {
+    let mut v = (payload.len() as u32).to_le_bytes().to_vec();
+    v.extend_from_slice(payload);
+    v
+}
+
+fn read_frames(mut b: &[u8]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    while b.len() >= 4 {
+        let n = u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize;
+        out.push(serde_json::from_slice(&b[4..4 + n]).unwrap());
+        b = &b[4 + n..];
+    }
+    out
+}
+
+#[test]
+fn native_host_process() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let mut input = Vec::new();
+    input.extend(frame(
+        br#"{"source":"browser","kind":"url","value":"https://a.example"}"#,
+    ));
+    input.extend(frame(
+        br#"[{"source":"browser","kind":"url","value":"u1"},{"source":"browser","kind":"url","value":"u2"}]"#,
+    ));
+    input.extend(frame(br#"{"source":"browser"}"#));
+    // ブラウザが付ける起動引数でもホストとして動く。
+    let o = run_full(
+        h,
+        &["native-host", "chrome-extension://abcdef/"],
+        Some(&input),
+        &[],
+    );
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let replies = read_frames(o.stdout.as_bytes());
+    assert_eq!(replies.len(), 3);
+    assert_eq!(replies[0], serde_json::json!({"ok": true, "saved": 1}));
+    assert_eq!(replies[1], serde_json::json!({"ok": true, "saved": 2}));
+    assert_eq!(replies[2]["ok"], false);
+    let conn = db::open(&paths_db(h)).unwrap();
+    let n: i64 = conn
+        .query_row("SELECT COUNT(*) FROM context_hint", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 3);
+
+    // 1MB 超は拒否して終了する。
+    let big = ((1024 * 1024 + 1) as u32).to_le_bytes();
+    let o = run_full(h, &["native-host"], Some(&big), &[]);
+    assert_ne!(o.code, 0);
+    let replies = read_frames(o.stdout.as_bytes());
+    assert_eq!(replies[0]["ok"], false);
+
+    // 空入力は即終了。
+    assert_eq!(run_full(h, &["native-host"], Some(b""), &[]).code, 0);
+    assert_eq!(run(h, &["native-host", "bogus"]).code, 2);
+    assert_eq!(run(h, &["native-host", "install"]).code, 2);
+}
+
+#[test]
+fn agent_import_and_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path().join("home");
+    std::fs::create_dir_all(&h).unwrap();
+    let claude = dir.path().join("claude");
+    let codex = dir.path().join("codex");
+    let fx = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../hitoiki-agents/tests/fixtures");
+    let proj = claude.join("projects/enc");
+    std::fs::create_dir_all(&proj).unwrap();
+    std::fs::copy(
+        fx.join("claude-code/session_basic.jsonl"),
+        proj.join("session_basic.jsonl"),
+    )
+    .unwrap();
+    let sess = codex.join("sessions/2026/01/01");
+    std::fs::create_dir_all(&sess).unwrap();
+    for e in std::fs::read_dir(fx.join("codex")).unwrap() {
+        let p = e.unwrap().path();
+        std::fs::copy(&p, sess.join(p.file_name().unwrap())).unwrap();
+    }
+    let envs: [(&str, &std::path::Path); 2] = [("CLAUDE_CONFIG_DIR", &claude), ("CODEX_HOME", &codex)];
+
+    let o = run_full(
+        &h,
+        &["--json", "agent", "import", "--agent", "claude-code"],
+        None,
+        &envs,
+    );
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let j = o.json();
+    assert_eq!(j["files_scanned"], 1, "{j}");
+    assert!(j["events_inserted"].as_i64().unwrap() > 0);
+
+    let o = run_full(&h, &["--json", "agent", "import"], None, &envs);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(o.json()["files_scanned"].as_i64().unwrap() >= 2);
+    assert_eq!(
+        run_full(&h, &["agent", "import", "--agent", "x"], None, &envs).code,
+        2
+    );
+
+    let o = run_full(
+        &h,
+        &["--json", "agent", "sessions", "--date", "2026-10-09"],
+        None,
+        &envs,
+    );
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let j = o.json();
+    let s = &j["sessions"][0];
+    assert_eq!(s["agent"], "claude-code");
+    assert_eq!(s["session_id"], "11111111-2222-4333-8444-555555555555");
+    assert!(s["prompt_count"].as_i64().unwrap() >= 1);
+    assert!(s["dialog_ms"].is_number());
+    let o = run_full(&h, &["agent", "sessions", "--date", "2026-10-09"], None, &envs);
+    assert!(o.stdout.contains("11111111"), "{}", o.stdout);
+    let o = run_full(&h, &["agent", "sessions", "--date", "2020-01-01"], None, &envs);
+    assert!(o.stdout.contains("セッションはありません"));
 }

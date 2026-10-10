@@ -4,6 +4,7 @@
 //! タイムゾーンで扱う。JSON 出力のスキーマ版は [`SCHEMA_VERSION`]（CLI が `"version"` として付与する）。
 
 pub mod context;
+pub mod ingest;
 pub mod log;
 pub mod okr;
 pub mod plan;
