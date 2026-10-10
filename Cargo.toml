@@ -39,3 +39,4 @@ windows = "0.62"
 libc = "0.2"
 ureq = { version = "2", features = ["json"] }
 rrule = "0.14"
+which = "7"

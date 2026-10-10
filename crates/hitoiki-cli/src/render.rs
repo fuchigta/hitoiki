@@ -458,3 +458,43 @@ pub fn preset_import(p: &PresetImport) -> String {
         p.skipped.len()
     )
 }
+
+pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
+    let mut s = format!(
+        "# 振り返り {} ({}, {})\n\n{}",
+        short(&r.id),
+        r.kind,
+        dt(tz, r.at),
+        r.questions_md
+    );
+    if let Some(a) = &r.answers_md {
+        s += &format!("\n\n## 回答\n\n{a}");
+    }
+    s
+}
+
+pub fn reflection_list(tz: Tz, list: &[hitoiki_core::model::Reflection]) -> String {
+    if list.is_empty() {
+        return "振り返りはありません。".into();
+    }
+    let rows = list
+        .iter()
+        .map(|r| {
+            vec![
+                short(&r.id),
+                dt(tz, r.at),
+                r.kind.to_string(),
+                if r.answers_md.is_some() { "回答済" } else { "-" }.to_string(),
+            ]
+        })
+        .collect::<Vec<_>>();
+    table(&["ID", "日時", "種別", "回答"], &rows)
+}
+
+pub fn abc_dispute(a: &hitoiki_core::model::AbcRecord) -> String {
+    format!(
+        "ABC {} の問いを追記しました。\n\n{}",
+        short(&a.id),
+        a.ai_dialog_md.as_deref().unwrap_or_default()
+    )
+}

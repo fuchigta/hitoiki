@@ -318,17 +318,22 @@ fn config_and_unimplemented() {
         &["daemon"],
         &["doctor"],
         &["agent", "sessions"],
-        &["context", "--kind", "day_start"],
-        &["reflect", "weekly"],
         &["ui"],
         &["ingest", "context"],
         &["native-host"],
         &["version", "--check"],
-        &["abc", "dispute", "X"],
     ] {
         let o = run(h, args);
         assert_eq!(o.code, 1, "{args:?}");
         assert!(o.stderr.contains("未実装"), "{args:?}: {}", o.stderr);
     }
     assert_eq!(run(h, &["version"]).code, 0);
+
+    // 振り返り系: context は JSON、存在しない ID は 3
+    let c = run(h, &["context", "--kind", "day_start"]);
+    assert_eq!(c.code, 0);
+    assert!(c.stdout.contains("\"version\": 1"), "{}", c.stdout);
+    assert_eq!(run(h, &["context", "--kind", "bogus"]).code, 2);
+    assert_eq!(run(h, &["reflect", "list"]).code, 0);
+    assert_eq!(run(h, &["abc", "dispute", "X"]).code, 3);
 }
