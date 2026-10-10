@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: build and publish (windows-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build CLI
+        run: cargo build --release -p hitoiki-cli
+
+      - name: Package zip
+        id: pack
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          $staging = Join-Path $env:RUNNER_TEMP "hitoiki-$ver"
+          New-Item -ItemType Directory -Force -Path $staging | Out-Null
+
+          # CLI は必須
+          Copy-Item "target/release/hitoiki.exe" -Destination $staging
+
+          # 常駐アプリ（Tauri、後で追加予定）は存在する場合のみ同梱
+          $app = "target/release/hitoiki-app.exe"
+          if (Test-Path $app) {
+            Copy-Item $app -Destination $staging
+            Write-Output "hitoiki-app.exe を同梱します"
+          } else {
+            Write-Output "hitoiki-app.exe は存在しないため同梱しません"
+          }
+
+          $zip = "hitoiki-$ver-windows-x64.zip"
+          Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -Force
+          "zip=$zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pack.outputs.zip }}
