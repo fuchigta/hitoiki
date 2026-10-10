@@ -1,0 +1,8 @@
+{"id":"cccccccc-0000-4000-8000-000000000003","timestamp":"2025-05-01T00:00:00.000Z","instructions":"dummy"}
+{"record_type":"state"}
+{"type":"message","id":null,"role":"user","content":[{"type":"input_text","text":"<user_instructions>dummy</user_instructions>"}]}
+{"type":"message","id":null,"role":"user","content":[{"type":"input_text","text":"古い形式の依頼"}]}
+{"type":"function_call","name":"shell","arguments":"{}","call_id":"c1"}
+{"type":"message","id":null,"role":"assistant","content":[{"type":"output_text","text":"dummy"}]}
+{"type":"message","id":null,"role":"user","content":[{"type":"input_text","text":"古い形式の2つ目"}]}
+{"type":"message","id":null,"role":"assistant","content":[{"type":"output_text","text":"dummy"}]}
