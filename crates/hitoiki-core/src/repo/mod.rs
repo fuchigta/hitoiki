@@ -1,6 +1,7 @@
 //! DB アクセス。テーブル群ごとにファイルを分ける。
 
 pub mod agent;
+pub mod calendar;
 pub mod collect;
 pub mod raw;
 pub mod segment;

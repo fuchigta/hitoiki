@@ -6,4 +6,11 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+hitoiki-core.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
+chrono-tz.workspace = true
+rrule.workspace = true
+ureq.workspace = true
+tracing.workspace = true
+rusqlite.workspace = true
