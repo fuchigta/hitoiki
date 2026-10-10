@@ -17,6 +17,7 @@ hitoiki-agents = { path = "crates/hitoiki-agents" }
 hitoiki-calendar = { path = "crates/hitoiki-calendar" }
 hitoiki-judge = { path = "crates/hitoiki-judge" }
 hitoiki-ipc = { path = "crates/hitoiki-ipc" }
+hitoiki-daemon = { path = "crates/hitoiki-daemon" }
 
 anyhow = "1"
 thiserror = "2"
@@ -39,3 +40,5 @@ windows = "0.62"
 libc = "0.2"
 ureq = { version = "2", features = ["json"] }
 rrule = "0.14"
+ctrlc = "3"
+tracing-appender = "0.2"

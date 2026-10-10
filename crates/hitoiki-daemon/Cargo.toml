@@ -1,0 +1,29 @@
+[package]
+name = "hitoiki-daemon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hitoiki-core.workspace = true
+hitoiki-collect.workspace = true
+hitoiki-collect-win.workspace = true
+hitoiki-agents.workspace = true
+hitoiki-calendar.workspace = true
+hitoiki-judge.workspace = true
+hitoiki-ipc.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+chrono-tz.workspace = true
+crossbeam-channel.workspace = true
+rusqlite.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+ctrlc.workspace = true
+ureq.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+serde_json.workspace = true
