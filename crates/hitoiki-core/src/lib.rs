@@ -10,6 +10,7 @@ pub mod id;
 pub mod model;
 pub mod paths;
 pub mod pipeline;
+pub mod push;
 pub mod rebuild;
 pub mod repo;
 pub mod rules;
