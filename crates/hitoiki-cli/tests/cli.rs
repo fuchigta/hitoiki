@@ -317,7 +317,7 @@ fn records_and_planning() {
 }
 
 #[test]
-fn config_and_unimplemented() {
+fn config_doctor_and_reflect() {
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();
     assert_eq!(run(h, &["config", "set", "task.single_doing", "false"]).code, 0);
@@ -326,11 +326,9 @@ fn config_and_unimplemented() {
     assert!(run(h, &["config", "path"]).stdout.contains("config.toml"));
     assert_eq!(run(h, &["config", "get", "no.such"]).code, 3);
 
-    for args in [&["daemon"][..], &["doctor"], &["ui"]] {
-        let o = run(h, args);
-        assert_eq!(o.code, 1, "{args:?}");
-        assert!(o.stderr.contains("未実装"), "{args:?}: {}", o.stderr);
-    }
+    // doctor は診断結果を JSON で返す（終了コードは環境次第なので見ない）
+    let d = run(h, &["--json", "doctor"]);
+    assert!(d.json()["items"].as_array().is_some_and(|a| !a.is_empty()), "{}", d.stdout);
     assert_eq!(run(h, &["version"]).code, 0);
 
     // 振り返り系: context は JSON、存在しない ID は 3

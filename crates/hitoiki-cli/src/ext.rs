@@ -325,6 +325,84 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
+/// `hitoiki daemon`: ヘッドレス常駐（3.3）。
+pub fn daemon() -> Result<()> {
+    hitoiki_daemon::run_headless().map_err(Error::Other)
+}
+
+/// `hitoiki doctor [--network]`。
+pub fn doctor(network: bool, json: bool) -> Result<()> {
+    use hitoiki_daemon::doctor::{doctor_with, DoctorOptions, Status};
+    let cfg = Config::load().unwrap_or_default();
+    let report = doctor_with(
+        &cfg,
+        &DoctorOptions {
+            network,
+            pipe_name: None,
+        },
+    );
+    emit(json, &report, || {
+        let rows: Vec<Vec<String>> = report
+            .items
+            .iter()
+            .map(|i| {
+                let mark = match i.status {
+                    Status::Ok => "OK",
+                    Status::Warn => "WARN",
+                    Status::Error => "ERROR",
+                };
+                vec![mark.to_string(), i.name.clone(), i.message.clone()]
+            })
+            .collect();
+        table(&["状態", "項目", "内容"], &rows)
+    })?;
+    if report.overall() == Status::Error {
+        return Err(Error::Other(anyhow::anyhow!("診断でエラーが見つかりました")));
+    }
+    Ok(())
+}
+
+/// `hitoiki ui [<screen>]`: 常駐アプリに画面を開かせる。未起動なら同じディレクトリの
+/// `hitoiki-app` を起動する。
+pub fn ui(screen: Option<String>, json: bool) -> Result<()> {
+    let msg = Message::OpenUi {
+        screen: screen.clone(),
+    };
+    let name = hitoiki_ipc::PipeName::for_current_user().map_err(|e| Error::Other(anyhow::anyhow!("{e}")))?;
+    let launched = match hitoiki_ipc::send(&name, &msg, Duration::from_secs(2)) {
+        Ok(_) => false,
+        Err(hitoiki_ipc::IpcError::NotRunning) => {
+            let exe = std::env::current_exe()?;
+            let app = exe.with_file_name(if cfg!(windows) {
+                "hitoiki-app.exe"
+            } else {
+                "hitoiki-app"
+            });
+            if !app.exists() {
+                return Err(Error::NotFound(format!("常駐アプリ {}", app.display())));
+            }
+            let mut cmd = std::process::Command::new(&app);
+            if let Some(s) = &screen {
+                cmd.arg("--screen").arg(s);
+            }
+            cmd.spawn()?;
+            true
+        }
+        Err(e) => {
+            return Err(Error::Other(anyhow::anyhow!(
+                "常駐アプリへの通知に失敗しました: {e}"
+            )))
+        }
+    };
+    emit(json, &json!({ "screen": screen, "launched": launched }), || {
+        if launched {
+            "常駐アプリを起動しました".into()
+        } else {
+            "常駐アプリに画面を開くよう伝えました".into()
+        }
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

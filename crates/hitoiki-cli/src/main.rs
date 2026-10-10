@@ -14,7 +14,7 @@ use hitoiki_core::service::{
     self, context, log as log_svc, okr, plan, record, reflect, report, review, skill, status, task, Ctx,
     RangeArgs,
 };
-use hitoiki_core::{db, paths, timefmt, Error, Result, SystemClock};
+use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
 use std::io::Read;
 use std::process::ExitCode;
@@ -36,10 +36,6 @@ fn main() -> ExitCode {
             ExitCode::from(e.exit_code() as u8)
         }
     }
-}
-
-fn unimplemented_cmd(name: &str) -> Result<()> {
-    Err(Error::Other(anyhow::anyhow!("`{name}` は未実装です")))
 }
 
 /// JSON を `{"version": 1, ...}` の形で出力する。
@@ -102,9 +98,9 @@ fn run(cli: Cli) -> Result<()> {
             return Ok(());
         }
         Cmd::Rebuild { date, from, to } => return ext::rebuild(from.clone(), to.clone(), date.clone(), json),
-        Cmd::Daemon => return unimplemented_cmd("daemon"),
-        Cmd::Doctor => return unimplemented_cmd("doctor"),
-        Cmd::Ui { .. } => return unimplemented_cmd("ui"),
+        Cmd::Daemon => return ext::daemon(),
+        Cmd::Doctor { network } => return ext::doctor(*network, json),
+        Cmd::Ui { screen } => return ext::ui(screen.clone(), json),
         Cmd::Ingest(IngestCmd::Context) => return ext::ingest_context(json),
         Cmd::NativeHost(_) | Cmd::Agent(_) => {}
         _ => {}

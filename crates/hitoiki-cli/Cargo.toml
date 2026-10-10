@@ -15,6 +15,7 @@ hitoiki-core.workspace = true
 hitoiki-agents.workspace = true
 hitoiki-judge.workspace = true
 hitoiki-ipc.workspace = true
+hitoiki-daemon.workspace = true
 ureq.workspace = true
 anyhow.workspace = true
 clap.workspace = true

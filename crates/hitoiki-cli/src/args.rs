@@ -125,9 +125,9 @@ pub enum Cmd {
     /// エージェントセッション
     #[command(subcommand)]
     Agent(AgentCmd),
-    /// ヘッドレス常駐 [未実装]
+    /// ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止）
     Daemon,
-    /// 常駐アプリのウインドウを開く [未実装]
+    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|review|tasks|report|records|plan|reflection|okr|settings
     Ui { screen: Option<String> },
     /// 補助コレクタ用の取り込み
     #[command(subcommand)]
@@ -137,8 +137,12 @@ pub enum Cmd {
     /// 設定
     #[command(subcommand)]
     Config(ConfigCmd),
-    /// 収集状態などの診断 [未実装]
-    Doctor,
+    /// 収集状態、エージェントログ、カレンダー、通知、判定器などの診断
+    Doctor {
+        /// カレンダー取得・判定器への疎通も実際に試す（ネットワークを使う）
+        #[arg(long)]
+        network: bool,
+    },
     /// バージョンを表示する
     Version {
         /// GitHub Releases で最新版を確認する（このときだけネットワークを使う）
