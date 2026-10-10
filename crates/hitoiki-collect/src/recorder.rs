@@ -12,6 +12,15 @@ use rusqlite::Connection;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// タイトル比較用の正規化。先頭の記号（スピナー ✳ ⠂ ⠐ · * など）と空白を除く。
+/// `hitoiki-core` の `pipeline/agent.rs` の `norm_title`（非公開）と同じ規則。変更時は両方を揃えること。
+/// Claude のスピナーはタイトル先頭の記号だけが毎秒変わるため、これで区間を切ると行が増えすぎる。
+fn norm_title(t: &str) -> String {
+    t.trim_start_matches(|c: char| !c.is_alphanumeric())
+        .trim()
+        .to_string()
+}
+
 struct CurWin {
     hwnd: String,
     title: String,
@@ -58,7 +67,7 @@ impl Recorder {
 
     pub fn on_foreground(&mut self, ev: ForegroundChange) -> Result<()> {
         if let Some(c) = &self.cur_win {
-            if c.hwnd == ev.hwnd && c.title == ev.title {
+            if c.hwnd == ev.hwnd && norm_title(&c.title) == norm_title(&ev.title) {
                 return Ok(());
             }
         }
@@ -291,6 +300,26 @@ mod tests {
                 (100, Some(200), Some("A".into()), false),
                 (200, Some(300), Some("A2".into()), false),
                 (300, None, Some("B".into()), false),
+            ]
+        );
+    }
+
+    #[test]
+    fn spinner_only_title_change_keeps_span() {
+        let (mut r, _) = rec(Collect::default());
+        r.on_foreground(fg(100, "1", "t.exe", "\u{2802} Claude Code"))
+            .unwrap();
+        r.on_foreground(fg(200, "1", "t.exe", "\u{2810} Claude Code"))
+            .unwrap();
+        r.on_foreground(fg(300, "1", "t.exe", "\u{2733} Claude Code"))
+            .unwrap();
+        r.on_foreground(fg(400, "1", "t.exe", "* Claude Code")).unwrap();
+        r.on_foreground(fg(500, "1", "t.exe", "\u{2733} Other")).unwrap();
+        assert_eq!(
+            wins(&r),
+            vec![
+                (100, Some(500), Some("\u{2802} Claude Code".into()), false),
+                (500, None, Some("\u{2733} Other".into()), false),
             ]
         );
     }

@@ -288,18 +288,69 @@ fn switch_spike_counted_from_segments() {
 fn after_interrupt_fires_within_five_minutes_once() {
     let now = t(12, 11, 0);
     let mut ctx = PushContext::new(now, TZ);
-    ctx.recent_segments = vec![seg(SegmentKind::Interrupt, now - 10 * MIN, now - 2 * MIN)];
+    let after = |from: Millis| work("T1", from, now);
+    ctx.recent_segments = vec![
+        seg(SegmentKind::Interrupt, now - 10 * MIN, now - 2 * MIN),
+        after(now - 2 * MIN),
+    ];
     assert_eq!(
         delivered(&evaluate(&ctx, &cfg())),
         vec![PushTrigger::AfterInterrupt]
     );
     // 6 分前に終了 → 対象外。
-    ctx.recent_segments = vec![seg(SegmentKind::Interrupt, now - 10 * MIN, now - 6 * MIN)];
+    ctx.recent_segments = vec![
+        seg(SegmentKind::Interrupt, now - 10 * MIN, now - 6 * MIN),
+        after(now - 6 * MIN),
+    ];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 配信済み。
-    ctx.recent_segments = vec![seg(SegmentKind::Interrupt, now - 10 * MIN, now - 2 * MIN)];
+    ctx.recent_segments = vec![
+        seg(SegmentKind::Interrupt, now - 10 * MIN, now - 2 * MIN),
+        after(now - 2 * MIN),
+    ];
     ctx.push_log.push(log("after_interrupt", now - MIN, true));
     assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
+}
+
+#[test]
+fn after_interrupt_not_while_ongoing_and_only_once() {
+    let now = t(12, 11, 0);
+    let mut ctx = PushContext::new(now, TZ);
+    // 進行中の割り込み（終了が now に追従している）では出ない。
+    ctx.recent_segments = vec![seg(SegmentKind::Interrupt, now - 10 * MIN, now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 終了後（別区間が始まった）に 1 回出る。
+    ctx.recent_segments = vec![
+        seg(SegmentKind::Interrupt, now - 10 * MIN, now - MIN),
+        work("T1", now - MIN, now),
+    ];
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![PushTrigger::AfterInterrupt]
+    );
+    ctx.push_log.push(log("after_interrupt", now, true));
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 61 分後も同じ割り込みなら出ない（5 分の窓を過ぎ、配信済みでもある）。
+    ctx.now = now + 61 * MIN;
+    ctx.recent_segments[1].end_at = ctx.now;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+}
+
+#[test]
+fn late_work_spans_midnight() {
+    // 12 日 20:00 以降の遅い時間帯が 13 日の朝まで続く。
+    let now = t(13, 0, 30);
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.recent_segments = vec![work("T1", t(13, 0, 0), now)];
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LateWork]);
+    // 同じ時間帯（12 日 21:00 に配信済み）なら出ない。
+    ctx.push_log.push(log("late_work", t(12, 21, 0), true));
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 朝（08:00 以降、20:00 前）は対象外。
+    ctx.push_log.clear();
+    ctx.now = t(13, 9, 0);
+    ctx.recent_segments = vec![work("T1", t(13, 8, 30), ctx.now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
 }
 
 #[test]
