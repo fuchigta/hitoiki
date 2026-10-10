@@ -12,15 +12,24 @@ fn same_content(a: &Piece, b: &Piece) -> bool {
         && a.session == b.session
 }
 
-/// `b` を `a` の後ろに連結する。ids は和集合、exe/title は長い方の代表値。
-fn join(a: &mut Piece, b: Piece) {
+/// 前後の区間として、間の短い中断を吸収してよいか。
+/// エージェント対話・見守りは「そのウインドウにいた時間だけ」を計上するため（7.3、ラグを計上しない）、
+/// ユーザー確定（override）はユーザーが決めた範囲を広げないため、吸収しない。
+fn can_absorb_around(p: &Piece) -> bool {
+    !matches!(p.kind, SegmentKind::AgentDialog | SegmentKind::AgentWatch)
+        && p.status != Some(SegmentStatus::Confirmed)
+}
+
+/// `b` を `a` の後ろに連結する。ids は和集合。exe/title は同種の区間のうち長い方の代表値で、
+/// 吸収した別内容の区間（`absorbed`）からは選ばない。
+fn join(a: &mut Piece, b: Piece, absorbed: bool) {
     a.end = b.end;
     for id in b.ids {
         if !a.ids.contains(&id) {
             a.ids.push(id);
         }
     }
-    if b.rep_len > a.rep_len {
+    if !absorbed && b.rep_len > a.rep_len {
         a.rep_len = b.rep_len;
         a.exe = b.exe;
         a.title = b.title;
@@ -42,12 +51,13 @@ pub(crate) fn merge(mut pieces: Vec<Piece>, merge_gap: Millis) -> Vec<Piece> {
                 && b.kind == SegmentKind::Work
                 && b.status != Some(SegmentStatus::Confirmed)
                 && b.len() <= merge_gap
+                && can_absorb_around(a)
                 && same_content(a, c);
             if absorb {
                 let c = pieces.remove(i + 2);
                 let b = pieces.remove(i + 1);
-                join(&mut pieces[i], b);
-                join(&mut pieces[i], c);
+                join(&mut pieces[i], b, true);
+                join(&mut pieces[i], c, false);
                 changed = true;
             } else {
                 i += 1;
@@ -61,7 +71,7 @@ pub(crate) fn merge(mut pieces: Vec<Piece>, merge_gap: Millis) -> Vec<Piece> {
     let mut out: Vec<Piece> = Vec::new();
     for p in pieces {
         match out.last_mut() {
-            Some(l) if l.end == p.start && same_content(l, &p) => join(l, p),
+            Some(l) if l.end == p.start && same_content(l, &p) => join(l, p, false),
             _ => out.push(p),
         }
     }

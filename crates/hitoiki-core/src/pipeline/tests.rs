@@ -213,11 +213,220 @@ fn dialog_two_returns_make_two_segments() {
     ];
     i.events = vec![
         ev("1", 0, "S", SessionStart),
-        ev("2", 5, "S", ResponseComplete),
-        ev("3", 22, "S", PromptSubmit),
+        ev("2", 1, "S", PromptSubmit),
+        ev("3", 5, "S", ResponseComplete),
+        ev("4", 22, "S", PromptSubmit),
     ];
     let o = build(&i, None);
-    assert_eq!(of_kind(&o, AgentDialog), vec![(10, 12), (20, 22)]);
+    assert_eq!(of_kind(&o, AgentDialog), vec![(0, 1), (10, 12), (20, 22)]);
+}
+
+#[test]
+fn response_complete_without_submit_is_not_period_start() {
+    // 送信の無い応答完了（task-notification による再開など）は対象期間の開始にしない。
+    // セッション開始〜送信が対象期間になり、0〜5 分の端末も対話になる。
+    let mut i = agent_input();
+    i.windows = vec![
+        term("W1", 0, 5, "claude"),
+        win("W2", 5, 10, "H2", "chrome.exe", "x"),
+        term("W3", 10, 12, "claude"),
+    ];
+    i.events = vec![
+        ev("1", 0, "S", SessionStart),
+        ev("2", 5, "S", ResponseComplete),
+        ev("3", 12, "S", PromptSubmit),
+    ];
+    let o = build(&i, None);
+    assert_eq!(of_kind(&o, AgentDialog), vec![(0, 5), (10, 12)]);
+}
+
+#[test]
+fn duplicate_and_orphan_response_complete_give_same_result() {
+    // パーサが応答完了を重複して出しても、送信なしの応答完了が混ざっても結果は同じ。
+    let mut i = base();
+    i.windows = vec![
+        term("W1", 0, 4, "claude"),
+        win("W2", 4, 20, "H2", "chrome.exe", "x"),
+        term("W3", 20, 30, "claude"),
+        win("W4", 30, 40, "H2", "chrome.exe", "y"),
+        term("W5", 40, 45, "claude"),
+    ];
+    let clean = vec![
+        ev("1", 0, "S", SessionStart),
+        ev("2", 2, "S", PromptSubmit),
+        ev("3", 3, "S", ResponseComplete),
+        ev("4", 44, "S", PromptSubmit),
+        ev("5", 50, "S", ResponseComplete),
+    ];
+    i.events = clean.clone();
+    let expect = build(&i, None);
+    assert_eq!(
+        of_kind(&expect, AgentDialog),
+        vec![(0, 2), (3, 4), (20, 30), (40, 44)]
+    );
+    assert_eq!(of_kind(&expect, AgentWatch), vec![(2, 3), (44, 45)]);
+
+    let mut noisy = clean;
+    noisy.extend([
+        // 同じ送信への 2 件目（バッチ境界で重複除去されなかった）
+        ev("3b", 3, "S", ResponseComplete),
+        ev("3c", 4, "S", ResponseComplete),
+        // 送信なしの再開による応答完了。対象期間の開始（25 分）にしてはいけない。
+        ev("6", 25, "S", ResponseComplete),
+        ev("7", 26, "S", ResponseComplete),
+    ]);
+    i.events = noisy;
+    let got = build(&i, None);
+    assert_eq!(shape(&got), shape(&expect));
+    let sess = |o: &PipelineOutput| -> Vec<Option<String>> {
+        o.segments.iter().map(|s| s.agent_session_id.clone()).collect()
+    };
+    assert_eq!(sess(&got), sess(&expect));
+}
+
+#[test]
+fn session_start_at_first_submit_backtracks() {
+    // 実ログでは最初の行（= セッション開始）と最初のプロンプトがほぼ同時刻のことが多い。
+    // その場合は開始が無いものとして、同じウインドウが続いていた開始まで遡る。
+    let mut i = agent_input();
+    i.windows = vec![
+        win("W0", 0, 2, "H2", "chrome.exe", "x"),
+        term("W1", 2, 10, "Claude Code"),
+    ];
+    let mut start = ev("1", 5, "S", SessionStart);
+    start.at -= 1_000; // 送信の 1 秒前
+    i.events = vec![start, ev("2", 5, "S", PromptSubmit)];
+    let o = build(&i, None);
+    assert_eq!(of_kind(&o, AgentDialog), vec![(2, 5)]);
+
+    // 同時刻でも同じ
+    i.events = vec![ev("1", 5, "S", SessionStart), ev("2", 5, "S", PromptSubmit)];
+    assert_eq!(of_kind(&build(&i, None), AgentDialog), vec![(2, 5)]);
+
+    // 十分前に始まったセッションなら、開始からが対象期間
+    i.events = vec![ev("1", 3, "S", SessionStart), ev("2", 5, "S", PromptSubmit)];
+    assert_eq!(of_kind(&build(&i, None), AgentDialog), vec![(3, 5)]);
+}
+
+#[test]
+fn same_window_same_title_sessions_split_by_nearest_past_submit() {
+    // 同じ hwnd・同じタイトルの 2 セッション（区別不能）。先に処理した SA が SB の時間を全取りしない。
+    let mut i = agent_input();
+    i.windows = vec![term("W", 0, 50, "Claude Code")];
+    i.events = vec![
+        ev("a1", 0, "SA", PromptSubmit),
+        ev("a2", 1, "SA", ResponseComplete),
+        ev("a3", 30, "SA", PromptSubmit),
+        ev("b0", 5, "SB", SessionStart),
+        ev("b1", 10, "SB", PromptSubmit),
+        ev("b2", 11, "SB", ResponseComplete),
+        ev("b3", 40, "SB", PromptSubmit),
+    ];
+    let o = build(&i, None);
+    let by = |sess: &str| -> Vec<(i64, i64)> {
+        o.segments
+            .iter()
+            .filter(|s| s.kind == AgentDialog && s.agent_session_id.as_deref() == Some(sess))
+            .map(|s| (s.start_at / M, s.end_at / M))
+            .collect()
+    };
+    // 修正前は先に処理する SA@30（対象期間 1〜30）が 11〜30 を全取りしていた。
+    // 5〜10 は SA（過去の送信 0 分）と SB（過去の送信なし）→ SA。
+    // 11〜30 は SA・SB とも対象期間内。最も近い過去の送信は SB（10 分）なので SB。
+    assert_eq!(by("claude-code:SA"), vec![(1, 11)]);
+    assert_eq!(by("claude-code:SB"), vec![(11, 40)]);
+}
+
+#[test]
+fn merge_does_not_absorb_other_window_into_dialog() {
+    // 端末20s → chrome25s → 端末20s → chrome25s → 端末20s → 送信。
+    // 吸収（既定 30 秒）で chrome の時間が対話に入ってはいけない（7.3 ラグを計上しない）。
+    let mut i = agent_input();
+    i.merge_gap = 30_000;
+    let s = 1_000;
+    let mk = |id: &str, a: i64, b: i64, hwnd: &str, exe: &str, title: &str| {
+        let mut w = win(id, 0, 0, hwnd, exe, title);
+        w.start_at = a * s;
+        w.end_at = Some(b * s);
+        w
+    };
+    i.windows = vec![
+        mk("a", 0, 20, "H1", "WindowsTerminal.exe", "claude"),
+        mk("b", 20, 45, "H2", "chrome.exe", "docs"),
+        mk("c", 45, 65, "H1", "WindowsTerminal.exe", "claude"),
+        mk("d", 65, 90, "H2", "chrome.exe", "docs"),
+        mk("e", 90, 110, "H1", "WindowsTerminal.exe", "claude"),
+        mk("f", 110, 200, "H2", "chrome.exe", "docs"),
+    ];
+    let mut rc = ev("1", 0, "S", ResponseComplete);
+    rc.at = 0;
+    let mut ps = ev("2", 0, "S", PromptSubmit);
+    ps.at = 110 * s;
+    i.events = vec![rc, ps];
+    let o = build(&i, None);
+    let dialog: Vec<_> = o.segments.iter().filter(|x| x.kind == AgentDialog).collect();
+    let total: i64 = dialog.iter().map(|x| x.end_at - x.start_at).sum();
+    assert_eq!(total, 60 * s);
+    // 代表の exe/title は対話の区間（端末）から選ぶ
+    assert!(dialog
+        .iter()
+        .all(|x| x.exe_name.as_deref() == Some("WindowsTerminal.exe")));
+    // chrome の時間は作業として残る
+    let work: i64 = o
+        .segments
+        .iter()
+        .filter(|x| x.kind == Work)
+        .map(|x| x.end_at - x.start_at)
+        .sum();
+    assert_eq!(work, 140 * s);
+}
+
+#[test]
+fn merge_does_not_absorb_into_confirmed_override() {
+    let mut i = base();
+    i.merge_gap = 30_000;
+    let mut b = win("B", 0, 0, "H2", "other.exe", "x");
+    b.start_at = 10 * M;
+    b.end_at = Some(10 * M + 20_000);
+    let mut a2 = win("A2", 0, 20, "H1", "chrome.exe", "docs");
+    a2.start_at = 10 * M + 20_000;
+    i.windows = vec![win("A1", 0, 10, "H1", "chrome.exe", "docs"), b, a2];
+    let ov = |id: &str, s: i64, e: i64| SegmentOverride {
+        id: id.into(),
+        start_at: s,
+        end_at: e,
+        kind: None,
+        task_id: Some("T1".into()),
+        activity_label: None,
+        created_at: 0,
+    };
+    i.overrides = vec![ov("O1", 0, 10 * M), ov("O2", 10 * M + 20_000, 20 * M)];
+    let o = build(&i, None);
+    assert_eq!(o.segments.len(), 3);
+    assert_eq!(o.segments[1].status, SegmentStatus::NeedsReview);
+}
+
+#[test]
+fn absorbed_window_is_not_representative() {
+    // 吸収した区間が長くても代表の exe/title にはしない。
+    let mut i = base();
+    i.merge_gap = 30_000;
+    let s = 1_000;
+    let mk = |id: &str, a: i64, b: i64, exe: &str, title: &str| {
+        let mut w = win(id, 0, 0, "H", exe, title);
+        w.start_at = a * s;
+        w.end_at = Some(b * s);
+        w
+    };
+    i.windows = vec![
+        mk("A1", 0, 10, "chrome.exe", "docs a"),
+        mk("B", 10, 40, "other.exe", "x"),
+        mk("A2", 40, 50, "chrome.exe", "docs b"),
+    ];
+    i.task_rules = vec![rule("R", "T1", MatchField::Title, "docs", 0)];
+    let o = build(&i, None);
+    assert_eq!(o.segments.len(), 1);
+    assert_eq!(o.segments[0].exe_name.as_deref(), Some("chrome.exe"));
 }
 
 #[test]

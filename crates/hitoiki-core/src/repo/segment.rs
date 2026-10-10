@@ -64,16 +64,16 @@ pub fn resolve(conn: &Connection, prefix: &str) -> Result<ActivitySegment> {
     get(conn, &ids)
 }
 
-/// 範囲 [start, end) に完全に含まれる区間を削除し、新しい区間で置き換える。
-/// 範囲の境界をまたぐ既存区間は、呼び出し側が範囲を区間境界に揃えて扱うこと。
-pub fn replace_range(conn: &mut Connection, range: Range, segments: &[ActivitySegment]) -> Result<()> {
-    let tx = conn.transaction()?;
-    tx.execute(
-        "DELETE FROM activity_segment WHERE start_at >= ?1 AND start_at < ?2",
+/// 範囲 [start, end) と重なる区間をすべて削除し、新しい区間で置き換える。
+/// トランザクションは張らない。呼び出し側が範囲の確定（境界をまたぐ区間が無いことの確認）と
+/// 合わせて 1 つのトランザクション（`BEGIN IMMEDIATE`）の中で呼ぶこと。
+pub fn replace_range(conn: &Connection, range: Range, segments: &[ActivitySegment]) -> Result<()> {
+    conn.execute(
+        "DELETE FROM activity_segment WHERE start_at < ?2 AND end_at > ?1",
         params![range.start, range.end],
     )?;
     {
-        let mut stmt = tx.prepare(&format!(
+        let mut stmt = conn.prepare(&format!(
             "INSERT INTO activity_segment ({COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
         ))?;
         for s in segments {
@@ -94,7 +94,6 @@ pub fn replace_range(conn: &mut Connection, range: Range, segments: &[ActivitySe
             ])?;
         }
     }
-    tx.commit()?;
     Ok(())
 }
 
@@ -144,14 +143,9 @@ mod tests {
 
     #[test]
     fn replace_and_list() {
-        let mut conn = db::open_in_memory().unwrap();
-        replace_range(
-            &mut conn,
-            Range::new(0, 100),
-            &[seg("A1", 0, 50), seg("A2", 50, 100)],
-        )
-        .unwrap();
-        replace_range(&mut conn, Range::new(50, 100), &[seg("B1", 50, 100)]).unwrap();
+        let conn = db::open_in_memory().unwrap();
+        replace_range(&conn, Range::new(0, 100), &[seg("A1", 0, 50), seg("A2", 50, 100)]).unwrap();
+        replace_range(&conn, Range::new(50, 100), &[seg("B1", 50, 100)]).unwrap();
         let all = list(&conn, Range::new(0, 100)).unwrap();
         assert_eq!(
             all.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
@@ -160,5 +154,10 @@ mod tests {
         assert_eq!(all[0].window_span_ids, ["w1"]);
         assert_eq!(resolve(&conn, "B").unwrap().id, "B1");
         assert!(matches!(resolve(&conn, "Z"), Err(Error::NotFound(_))));
+
+        // 範囲の開始より前から始まり、範囲と重なる区間も消す（重なりを残さない）。
+        replace_range(&conn, Range::new(40, 60), &[seg("C1", 40, 60)]).unwrap();
+        let all = list(&conn, Range::new(0, 100)).unwrap();
+        assert_eq!(all.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["C1"]);
     }
 }

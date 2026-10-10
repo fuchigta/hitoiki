@@ -6,7 +6,10 @@ use std::path::Path;
 use std::time::Duration;
 
 /// (バージョン, SQL)。追加時は末尾に足すこと。
-const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i64, &str)] = &[
+    (1, include_str!("../migrations/0001_init.sql")),
+    (2, include_str!("../migrations/0002_judge_cache.sql")),
+];
 
 /// DB を開き、未適用のマイグレーションを適用する。
 pub fn open(path: &Path) -> Result<Connection> {

@@ -238,18 +238,14 @@ pub fn session_windows(conn: &Connection, range: Range) -> Result<Vec<AgentSessi
 }
 
 /// 範囲 [start, end) の `agent_session_window` を削除し、新しい行で置き換える。
-pub fn replace_session_windows(
-    conn: &mut Connection,
-    range: Range,
-    rows: &[AgentSessionWindow],
-) -> Result<()> {
-    let tx = conn.transaction()?;
-    tx.execute(
+/// トランザクションは張らない（呼び出し側が区間の置き換えと同じトランザクションで呼ぶ）。
+pub fn replace_session_windows(conn: &Connection, range: Range, rows: &[AgentSessionWindow]) -> Result<()> {
+    conn.execute(
         "DELETE FROM agent_session_window WHERE bound_at >= ?1 AND bound_at < ?2",
         params![range.start, range.end],
     )?;
     {
-        let mut stmt = tx.prepare(
+        let mut stmt = conn.prepare(
             "INSERT OR REPLACE INTO agent_session_window (session_id, agent, hwnd, title_at_bind, bound_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
         )?;
@@ -263,6 +259,5 @@ pub fn replace_session_windows(
             ])?;
         }
     }
-    tx.commit()?;
     Ok(())
 }
