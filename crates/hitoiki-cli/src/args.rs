@@ -1,0 +1,397 @@
+//! コマンド体系の定義（設計書 12.2）。
+
+use clap::{Args, Parser, Subcommand};
+use hitoiki_core::model::{ErgTag, MatchField, PatternType, SegmentKind, TaskKind};
+use std::path::PathBuf;
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "hitoiki",
+    about = "Hitoiki（一息）: 自己管理ツールの CLI",
+    disable_version_flag = true
+)]
+pub struct Cli {
+    /// 機械可読な JSON で出力する（参照系コマンド）。
+    #[arg(long, global = true)]
+    pub json: bool,
+    #[command(subcommand)]
+    pub cmd: Cmd,
+}
+
+/// 範囲指定（`--date` と `--from/--to`）。
+#[derive(Debug, Args, Clone, Default)]
+pub struct RangeOpts {
+    /// today / yesterday / this-week / last-week / YYYY-MM-DD
+    #[arg(long)]
+    pub date: Option<String>,
+    /// 開始（ISO 8601 / ローカル日時 / 日付）
+    #[arg(long)]
+    pub from: Option<String>,
+    /// 終了（日付のみの場合はその日の終わりまで）
+    #[arg(long)]
+    pub to: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Cmd {
+    /// 現在の doing タスク、直近の区間、今日の集計、未応答のプッシュ
+    Status,
+    /// タスクの操作
+    #[command(subcommand)]
+    Task(TaskCmd),
+    /// 区間一覧（--raw で生データも）
+    Log {
+        #[command(flatten)]
+        range: RangeOpts,
+        /// window_span / idle_span / agent_event を時系列に混ぜて表示する
+        #[arg(long)]
+        raw: bool,
+    },
+    /// 要確認区間の一覧と確定
+    #[command(subcommand)]
+    Review(ReviewCmd),
+    /// 派生層の再計算
+    Rebuild {
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+    },
+    /// タイムブロッキング
+    #[command(subcommand)]
+    Block(BlockCmd),
+    /// コンディションの記録
+    Check {
+        /// エネルギー 1-5
+        #[arg(short = 'e', long)]
+        energy: Option<i64>,
+        /// 気分 1-5
+        #[arg(short = 'm', long)]
+        mood: Option<i64>,
+        /// ストレス 1-5
+        #[arg(short = 's', long)]
+        stress: Option<i64>,
+        /// ERG タグ
+        #[arg(long)]
+        erg: Option<ErgTag>,
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// デイリーハッスルの記録
+    Hassle {
+        text: String,
+        /// 強度 1-5（既定 3）
+        #[arg(short = 'i', long)]
+        intensity: Option<i64>,
+    },
+    /// ABC 理論の記録
+    #[command(subcommand)]
+    Abc(AbcCmd),
+    /// OKR
+    #[command(subcommand)]
+    Okr(OkrCmd),
+    /// スキル
+    #[command(subcommand)]
+    Skill(SkillCmd),
+    /// 期間内の集計
+    Report {
+        /// today / yesterday / this-week / last-week / YYYY-MM-DD（既定 today）
+        #[arg(long)]
+        period: Option<String>,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+        /// task | activity | quadrant | okr | skill | agent | kind
+        #[arg(long, default_value = "task")]
+        by: String,
+        /// idle / break も合計に含める
+        #[arg(long)]
+        include_idle: bool,
+    },
+    /// AI 用コンテキストを JSON で出力 [未実装]
+    Context {
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// AI で問いを生成して保存 [未実装]
+    #[command(subcommand)]
+    Reflect(ReflectCmd),
+    /// エージェントセッション [一部未実装]
+    #[command(subcommand)]
+    Agent(AgentCmd),
+    /// ヘッドレス常駐 [未実装]
+    Daemon,
+    /// 常駐アプリのウインドウを開く [未実装]
+    Ui { screen: Option<String> },
+    /// 補助コレクタ用の取り込み [未実装]
+    #[command(subcommand)]
+    Ingest(IngestCmd),
+    /// ブラウザ拡張のネイティブメッセージングホスト [未実装]
+    NativeHost { action: Option<String> },
+    /// 設定
+    #[command(subcommand)]
+    Config(ConfigCmd),
+    /// 収集状態などの診断 [未実装]
+    Doctor,
+    /// バージョンを表示する
+    Version {
+        /// 更新の確認 [未実装]
+        #[arg(long)]
+        check: bool,
+    },
+}
+
+/// task add / edit 共通のオプション。
+#[derive(Debug, Args, Clone, Default)]
+pub struct TaskOpts {
+    /// 本文ファイル
+    #[arg(long, conflicts_with = "body")]
+    pub body_file: Option<PathBuf>,
+    /// 本文（`-` で標準入力）
+    #[arg(long)]
+    pub body: Option<String>,
+    #[arg(long, conflicts_with = "not_urgent")]
+    pub urgent: bool,
+    #[arg(long)]
+    pub not_urgent: bool,
+    #[arg(long, conflicts_with = "not_important")]
+    pub important: bool,
+    #[arg(long)]
+    pub not_important: bool,
+    /// 見積もり（90m / 1h30m / 分）
+    #[arg(long)]
+    pub estimate: Option<String>,
+    /// KR の ID
+    #[arg(long)]
+    pub kr: Option<String>,
+    /// スキル名（複数指定可。`,` 区切りも可）
+    #[arg(long, value_delimiter = ',')]
+    pub skill: Vec<String>,
+    /// Issue / Jira 等のリンク
+    #[arg(long)]
+    pub url: Option<String>,
+    #[arg(long)]
+    pub plan_start: Option<String>,
+    #[arg(long)]
+    pub plan_end: Option<String>,
+    /// 割り込みタスク（urgent=1）
+    #[arg(long)]
+    pub interrupt: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TaskCmd {
+    /// タスクを追加する
+    Add {
+        title: String,
+        #[command(flatten)]
+        opts: TaskOpts,
+    },
+    /// タスク一覧
+    List {
+        /// カンマ区切り（todo,doing,done,dropped,all）。既定は todo,doing
+        #[arg(long)]
+        status: Option<String>,
+        #[arg(long)]
+        kind: Option<TaskKind>,
+    },
+    Show {
+        id: String,
+    },
+    /// タスクを編集する
+    Edit {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[command(flatten)]
+        opts: TaskOpts,
+    },
+    /// doing にする
+    Start {
+        id: String,
+    },
+    Done {
+        id: String,
+    },
+    Drop {
+        id: String,
+    },
+    /// 帰属ルール
+    #[command(subcommand)]
+    Rule(RuleCmd),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RuleCmd {
+    Add {
+        id: String,
+        /// exe | title | cwd | repo | url | git_branch
+        #[arg(long)]
+        field: MatchField,
+        #[arg(long)]
+        pattern: String,
+        /// glob | regex | contains（既定 glob）
+        #[arg(long = "type")]
+        pattern_type: Option<PatternType>,
+        #[arg(long, default_value_t = 0)]
+        priority: i64,
+    },
+    List {
+        id: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ReviewCmd {
+    /// needs_review の区間
+    List {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+    /// 区間を確定する
+    Set {
+        segment: String,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        kind: Option<SegmentKind>,
+        #[arg(long)]
+        activity: Option<String>,
+        /// 区間からルールを生成する
+        #[arg(long)]
+        rule: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BlockCmd {
+    Add {
+        start: String,
+        end: String,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        focus: bool,
+    },
+    List {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AbcCmd {
+    Add {
+        /// A: 出来事
+        #[arg(long = "a")]
+        a: Option<String>,
+        /// B: 受け止め方
+        #[arg(long = "b")]
+        b: Option<String>,
+        /// C: 感情
+        #[arg(long)]
+        c_emotion: Option<String>,
+        /// C: 強度 1-5
+        #[arg(long)]
+        c_intensity: Option<i64>,
+        /// ハッスルの ID（A を補完する）
+        #[arg(long)]
+        from_hassle: Option<String>,
+    },
+    /// AI で受け止め方を掘り下げる問いを生成 [未実装]
+    Dispute { id: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum OkrCmd {
+    AddObjective {
+        title: String,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+    },
+    AddKr {
+        objective: String,
+        title: String,
+        #[arg(long)]
+        target: Option<String>,
+    },
+    List,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SkillCmd {
+    Add {
+        name: String,
+        #[arg(long)]
+        parent: Option<String>,
+    },
+    /// 同梱プリセットを取り込む（省略で全部）
+    ImportPreset {
+        name: Option<String>,
+    },
+    List,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ReflectCmd {
+    #[command(name = "day_start")]
+    DayStart {
+        #[arg(long)]
+        date: Option<String>,
+    },
+    #[command(name = "day_end")]
+    DayEnd {
+        #[arg(long)]
+        date: Option<String>,
+    },
+    Weekly {
+        #[arg(long)]
+        date: Option<String>,
+    },
+    Answer {
+        id: String,
+        /// 回答ファイル（`-` で標準入力）
+        #[arg(long)]
+        file: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCmd {
+    Sessions {
+        #[arg(long)]
+        date: Option<String>,
+    },
+    Import {
+        /// claude-code | codex
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long)]
+        since: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IngestCmd {
+    Context,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCmd {
+    /// 設定ファイルのパス
+    Path,
+    Get {
+        key: String,
+    },
+    Set {
+        key: String,
+        value: String,
+    },
+}

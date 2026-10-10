@@ -14,3 +14,9 @@ hitoiki-core.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 serde_json.workspace = true
+serde.workspace = true
+toml.workspace = true
+chrono-tz.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
