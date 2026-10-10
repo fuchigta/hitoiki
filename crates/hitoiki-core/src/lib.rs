@@ -9,6 +9,7 @@ pub mod error;
 pub mod id;
 pub mod model;
 pub mod paths;
+pub mod repo;
 pub mod timefmt;
 
 pub use clock::{Clock, FixedClock, SystemClock};
