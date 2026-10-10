@@ -52,6 +52,9 @@ pub enum Cmd {
     Review(ReviewCmd),
     /// 派生層の再計算
     Rebuild {
+        /// today / yesterday / this-week / last-week / YYYY-MM-DD
+        #[arg(long, conflicts_with_all = ["from", "to"])]
+        date: Option<String>,
         #[arg(long)]
         from: Option<String>,
         #[arg(long)]
@@ -119,18 +122,18 @@ pub enum Cmd {
     /// AI で問いを生成して保存
     #[command(subcommand)]
     Reflect(ReflectCmd),
-    /// エージェントセッション [一部未実装]
+    /// エージェントセッション
     #[command(subcommand)]
     Agent(AgentCmd),
     /// ヘッドレス常駐 [未実装]
     Daemon,
     /// 常駐アプリのウインドウを開く [未実装]
     Ui { screen: Option<String> },
-    /// 補助コレクタ用の取り込み [未実装]
+    /// 補助コレクタ用の取り込み
     #[command(subcommand)]
     Ingest(IngestCmd),
-    /// ブラウザ拡張のネイティブメッセージングホスト [未実装]
-    NativeHost { action: Option<String> },
+    /// ブラウザ拡張のネイティブメッセージングホスト（install / uninstall で登録・解除）
+    NativeHost(NativeHostArgs),
     /// 設定
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -138,7 +141,7 @@ pub enum Cmd {
     Doctor,
     /// バージョンを表示する
     Version {
-        /// 更新の確認 [未実装]
+        /// GitHub Releases で最新版を確認する（このときだけネットワークを使う）
         #[arg(long)]
         check: bool,
     },
@@ -387,6 +390,22 @@ pub enum AgentCmd {
         #[arg(long)]
         since: Option<String>,
     },
+}
+
+/// `native-host`: 引数なし（またはブラウザが渡す `chrome-extension://...`）でホストとして動作する。
+#[derive(Debug, Args)]
+pub struct NativeHostArgs {
+    /// install | uninstall（省略時はネイティブメッセージングホストとして動作）
+    pub action: Option<String>,
+    /// install: Chrome / Edge の拡張 ID（複数指定可）
+    #[arg(long = "extension-id")]
+    pub extension_id: Vec<String>,
+    /// install: Firefox の拡張 ID（例: hitoiki@example.com）
+    #[arg(long = "firefox-extension-id")]
+    pub firefox_extension_id: Vec<String>,
+    /// ブラウザがホスト起動時に渡す引数（無視する）
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+    pub rest: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]

@@ -1,6 +1,8 @@
 //! `hitoiki` CLI。ロジックは hitoiki-core の service 層にあり、ここは引数の解釈と出力整形だけを行う。
 
 mod args;
+mod ext;
+mod native_host;
 mod render;
 mod table;
 
@@ -94,20 +96,26 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Config(c) => return config_cmd(c, json),
         Cmd::Version { check } => {
             if *check {
-                return unimplemented_cmd("version --check");
+                return ext::version_check(json);
             }
             println!("hitoiki {}", env!("CARGO_PKG_VERSION"));
             return Ok(());
         }
-        Cmd::Rebuild { .. } => return unimplemented_cmd("rebuild"),
+        Cmd::Rebuild { date, from, to } => return ext::rebuild(from.clone(), to.clone(), date.clone(), json),
         Cmd::Daemon => return unimplemented_cmd("daemon"),
         Cmd::Doctor => return unimplemented_cmd("doctor"),
         Cmd::Ui { .. } => return unimplemented_cmd("ui"),
-        Cmd::Ingest(_) => return unimplemented_cmd("ingest context"),
-        Cmd::NativeHost { .. } => return unimplemented_cmd("native-host"),
-        Cmd::Agent(_) => return unimplemented_cmd("agent"),
+        Cmd::Ingest(IngestCmd::Context) => return ext::ingest_context(json),
+        Cmd::NativeHost(_) | Cmd::Agent(_) => {}
         _ => {}
     }
+
+    // 自前で DB を開くコマンド
+    let cmd = match cli.cmd {
+        Cmd::NativeHost(a) => return ext::native_host(a, json),
+        Cmd::Agent(a) => return ext::agent(a, json),
+        other => other,
+    };
 
     let cfg = Config::load()?;
     let conn = db::open(&paths::db_file())?;
@@ -115,7 +123,7 @@ fn run(cli: Cli) -> Result<()> {
     let ctx = Ctx::new(&conn, &cfg, &clock);
     let tz = ctx.tz()?;
 
-    match cli.cmd {
+    match cmd {
         Cmd::Status => {
             let st = status::status(&ctx)?;
             emit(json, &st, || render::status(tz, &st))
@@ -153,6 +161,7 @@ fn run(cli: Cli) -> Result<()> {
                         rule,
                     },
                 )?;
+                ext::notify_data("segments");
                 emit(json, &r, || render::review_set(tz, &r))
             }
         },
@@ -175,6 +184,7 @@ fn run(cli: Cli) -> Result<()> {
                         focus,
                     },
                 )?;
+                ext::notify_data("blocks");
                 emit(json, &block, || render::block_added(tz, &block))
             }
             BlockCmd::List { range } => {
@@ -199,11 +209,13 @@ fn run(cli: Cli) -> Result<()> {
                     note,
                 },
             )?;
+            ext::notify_data("checkin");
             emit(json, &c, || render::checkin(&c))
         }
         Cmd::Hassle { text, intensity } => {
             let text = read_text(&text)?;
             let h = record::hassle(&ctx, &record::HassleInput { text, intensity })?;
+            ext::notify_data("hassle");
             emit(json, &h, || render::hassle(&h))
         }
         Cmd::Abc(AbcCmd::Add {
@@ -223,6 +235,7 @@ fn run(cli: Cli) -> Result<()> {
                     from_hassle,
                 },
             )?;
+            ext::notify_data("abc");
             emit(json, &r, || {
                 format!(
                     "ABC を記録しました: {} (A: {})",
@@ -409,6 +422,7 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
         TaskCmd::Add { title, opts } => {
             let input = task_input(ctx, Some(title), opts)?;
             let v = task::add(ctx, &input)?;
+            ext::notify_task(Some(&v.task.id));
             emit(json, &v, || done_msg("追加しました", &v))
         }
         TaskCmd::List { status, kind } => {
@@ -428,10 +442,12 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
         TaskCmd::Edit { id, title, opts } => {
             let input = task_input(ctx, title, opts)?;
             let v = task::edit(ctx, &id, &input)?;
+            ext::notify_task(Some(&v.task.id));
             emit(json, &v, || done_msg("更新しました", &v))
         }
         TaskCmd::Start { id } => {
             let c = task::start(ctx, &id)?;
+            ext::notify_task(Some(&c.task.task.id));
             emit(json, &c, || {
                 let mut s = done_msg("開始しました", &c.task);
                 for d in &c.demoted {
@@ -442,10 +458,12 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
         }
         TaskCmd::Done { id } => {
             let v = task::done(ctx, &id)?;
+            ext::notify_task(Some(&v.task.id));
             emit(json, &v, || done_msg("完了しました", &v))
         }
         TaskCmd::Drop { id } => {
             let v = task::drop_task(ctx, &id)?;
+            ext::notify_task(Some(&v.task.id));
             emit(json, &v, || done_msg("破棄しました", &v))
         }
         TaskCmd::Rule(RuleCmd::Add {
