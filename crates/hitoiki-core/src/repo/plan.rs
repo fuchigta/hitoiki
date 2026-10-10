@@ -13,6 +13,12 @@ pub fn insert(conn: &Connection, b: &TimeBlock) -> Result<()> {
     Ok(())
 }
 
+/// ID で削除する。削除できたら true。
+pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
+    let n = conn.execute("DELETE FROM time_block WHERE id = ?1", params![id])?;
+    Ok(n > 0)
+}
+
 pub fn list(conn: &Connection, range: Range) -> Result<Vec<TimeBlock>> {
     let mut stmt = conn.prepare(
         "SELECT id, start_at, end_at, task_id, label, focus FROM time_block \

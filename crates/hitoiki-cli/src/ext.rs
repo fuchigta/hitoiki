@@ -370,7 +370,13 @@ pub fn ui(screen: Option<String>, json: bool) -> Result<()> {
     };
     let name = hitoiki_ipc::PipeName::for_current_user().map_err(|e| Error::Other(anyhow::anyhow!("{e}")))?;
     let launched = match hitoiki_ipc::send(&name, &msg, Duration::from_secs(2)) {
-        Ok(_) => false,
+        Ok(reply) if reply.ok => false,
+        Ok(reply) => {
+            return Err(Error::Other(anyhow::anyhow!(
+                "画面を開けませんでした: {}",
+                reply.message.unwrap_or_default()
+            )))
+        }
         Err(hitoiki_ipc::IpcError::NotRunning) => {
             let exe = std::env::current_exe()?;
             let app = exe.with_file_name(if cfg!(windows) {

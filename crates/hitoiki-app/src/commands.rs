@@ -6,7 +6,7 @@ use crate::error::{AppError, AppResult};
 use crate::state::{AppState, PushEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
-use hitoiki_core::model::{AbcRecord, Checkin, Hassle, Reflection, TimeBlock};
+use hitoiki_core::model::{AbcRecord, CalendarEvent, Checkin, Hassle, Reflection, TimeBlock};
 use hitoiki_core::service::context::{self, ContextJson};
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
@@ -142,6 +142,23 @@ pub fn block_add(state: S, input: BlockInputDto) -> AppResult<TimeBlock> {
 pub fn block_list(state: S, range: Option<RangeArgs>) -> AppResult<BlockList> {
     let args = range.unwrap_or_default();
     state.with_ctx(|c| plan::list(c, &args))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_delete(state: S, id: String) -> AppResult<()> {
+    state.with_ctx(|c| plan::delete(c, &id))?;
+    state.request_rebuild();
+    Ok(())
+}
+
+/// 指定範囲のカレンダー予定（同期済みのもの）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn calendar_list(state: S, range: Option<RangeArgs>) -> AppResult<Vec<CalendarEvent>> {
+    let args = range.unwrap_or_default();
+    state.with_ctx(|c| {
+        let r = c.range(&args)?;
+        hitoiki_core::repo::calendar::list(c.conn, r)
+    })
 }
 
 // ===== 記録（チェックイン・ハッスル・ABC） =====
