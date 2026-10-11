@@ -534,11 +534,24 @@ button.ghost {
   margin: 0;
   color: var(--muted);
 }
+.push-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.push-list > li {
+  padding: 8px 0;
+}
+.push-list p {
+  margin: 2px 0;
+}
+.push-answer .actions,
 .popup .actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
+.push-answer .actions .chip,
 .popup .actions .chip {
   flex: 1 1 auto;
   padding: 8px 10px;

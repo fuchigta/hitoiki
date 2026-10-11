@@ -300,7 +300,11 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 ### 8.3 応答と表示
 
 - **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（override 保存。UI へは `segments_updated` を送り、再計算を要求する）。
-- **トースト**（`hitoiki-app/src/notify.rs`）: WinRT の `ToastNotificationManager` でボタン付きトーストを出す（ボタンは最大 5 個、入力欄は 1 つ）。AUMID は `Hitoiki.App`。起動時に `HKCU\Software\Classes\AppUserModelId\Hitoiki.App` へ `DisplayName` / `IconUri` / `IconBackgroundColor` を書き、`SetCurrentProcessExplicitAppUserModelID` で設定する。起動時に前回のトーストを履歴から消す（受け手がいないため）。ボタンの引数は `action=<id>&value=<値>&push=<push_id>&open=<画面>`。
+- **後からの回答と見送り**（`service::pushlog`）: `list`（配信済みの通知を状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `PushTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `push answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/push-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `push_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
+  - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく通知の時刻（`push_log.at`）。あとから答えても、通知時点の状態として時系列に載る。
+  - **見送り**（`dismiss`）: `responded_at` を付けず `response_json` に `{"action":"dismiss"}` を残す（スキーマ変更なし）。未回答の一覧（`repo::push::list_unanswered`）から外れる。応答率（8.2 の 4）は `responded_at` の有無で数えるので、見送りは無応答のまま数える。つまり「答えない通知が続くと間隔を延ばす」ルールは、一覧から外しても効き続ける。見送ったあとでも答え直せる。
+  - **対象期間**: `status` と今日画面の一覧は今日の分だけ。過去は `push list --date`。
+- **トースト**（`hitoiki-app/src/notify.rs`）: WinRT の `ToastNotificationManager` でボタン付きトーストを出す（ボタンは最大 5 個、入力欄は 1 つ）。回答を求める通知（push_log に紐づき、ボタンか入力欄があるもの）は `scenario="reminder"`（`toast_scenario`）で、操作するまで残る（`push.toast_persistent`、false で従来の短い表示）。更新のお知らせとテスト通知は対象外。AUMID は `Hitoiki.App`。起動時に `HKCU\Software\Classes\AppUserModelId\Hitoiki.App` へ `DisplayName` / `IconUri` / `IconBackgroundColor` を書き、`SetCurrentProcessExplicitAppUserModelID` で設定する。起動時に前回のトーストを履歴から消す（受け手がいないため）。ボタンの引数は `action=<id>&value=<値>&push=<push_id>&open=<画面>`。
 - **フォールバック**: トーストを出せない場合は、画面右下の小さなポップアップ窓（ラベル `popup`）に切り替える。UI へは Tauri イベント `push` も送る。
 - **一時停止**: アプリ側の一時停止中は表示しない。
 

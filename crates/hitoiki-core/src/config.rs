@@ -228,6 +228,9 @@ pub struct Push {
     pub idle_return_min: u64,
     /// 無効にするトリガー ID。
     pub disabled_triggers: Vec<String>,
+    /// 回答を求めるトースト（ボタンや入力欄のあるもの）を、操作するまで画面に残す（Windows の
+    /// `scenario="reminder"`）。false なら一定時間で自動的に消える従来の表示。
+    pub toast_persistent: bool,
 }
 
 impl Default for Push {
@@ -244,6 +247,7 @@ impl Default for Push {
             late_work_after: "20:00".into(),
             idle_return_min: 15,
             disabled_triggers: vec![],
+            toast_persistent: true,
         }
     }
 }

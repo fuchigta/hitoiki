@@ -421,11 +421,17 @@ pub fn status(tz: Tz, st: &Status) -> String {
     }
     s += "\n";
     if st.unanswered_pushes.is_empty() {
-        s += "未応答のプッシュ: なし";
+        s += "未応答の問いかけ: なし";
     } else {
-        s += "未応答のプッシュ:";
+        s += "未応答の問いかけ（`hitoiki push answer <ID>` で答える／--dismiss で見送る）:";
         for p in &st.unanswered_pushes {
-            s += &format!("\n  {} {} ({})", fmt_hm(tz, p.at), p.trigger, short(&p.id));
+            s += &format!(
+                "\n  {} [{}] {} ({})",
+                fmt_hm(tz, p.at),
+                p.trigger_label,
+                truncate(&p.title, 40),
+                short(&p.id)
+            );
         }
     }
     if let Some(v) = &st.update_available {
@@ -839,4 +845,57 @@ pub fn correction_undone(tz: Tz, r: &CorrUndone) -> String {
         dt(tz, r.correction.start_at),
         r.overrides_removed
     )
+}
+
+/// `hitoiki push list` の人間向け表示。
+pub fn push_list(tz: Tz, l: &hitoiki_core::service::pushlog::PushList) -> String {
+    use hitoiki_core::service::pushlog::PushState;
+    if l.pushes.is_empty() {
+        return "通知はありません".into();
+    }
+    let mut out = Vec::new();
+    for p in &l.pushes {
+        let state = match p.state {
+            PushState::Unanswered => "未回答",
+            PushState::Answered => "回答済み",
+            PushState::Dismissed => "見送り",
+        };
+        let mut line = format!(
+            "{} {} [{}] {} ({})",
+            fmt_hm(tz, p.at),
+            state,
+            p.trigger_label,
+            p.title,
+            short(&p.id)
+        );
+        if let Some((a, b)) = p.payload.as_ref().and_then(|x| x.idle_range) {
+            line += &format!("\n    対象: {}〜{}", fmt_hm(tz, a), fmt_hm(tz, b));
+        }
+        if !p.body.is_empty() {
+            line += &format!("\n    {}", p.body);
+        }
+        out.push(line);
+    }
+    out.join("\n")
+}
+
+/// `hitoiki push answer` の人間向け表示。
+pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String {
+    use hitoiki_core::service::pushlog::PushState;
+    match r.state {
+        PushState::Dismissed => format!("見送りました: {}", short(&r.id)),
+        _ => {
+            let mut parts = Vec::new();
+            if r.checkin_id.is_some() {
+                parts.push("チェックイン".to_string());
+            }
+            if r.hassle_id.is_some() {
+                parts.push("ハッスル".to_string());
+            }
+            if r.idle_labeled > 0 {
+                parts.push(format!("無操作の分類（{} 区間）", r.idle_labeled));
+            }
+            format!("答えました: {} ({})", short(&r.id), parts.join("・"))
+        }
+    }
 }

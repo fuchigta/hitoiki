@@ -1,9 +1,10 @@
 //! `hitoiki status`: 現在の状況の要約（docs/dev/architecture.md「CLI」）。
 
+use super::pushlog::PushView;
 use super::report::{self, ReportBy, ReportInput, ReportRow};
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};
 use crate::model::SegmentStatus;
-use crate::repo::{self, push};
+use crate::repo;
 use crate::service::task::{self as task_svc, TaskView};
 use crate::{timefmt, Millis, Result};
 use rusqlite::OptionalExtension;
@@ -29,14 +30,6 @@ pub struct TodaySummary {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct PushView {
-    pub id: String,
-    pub at: Millis,
-    pub trigger: String,
-    pub payload: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize)]
 pub struct Status {
     pub now: Millis,
     pub now_local: String,
@@ -48,7 +41,7 @@ pub struct Status {
     pub needs_review_count: i64,
     /// 全期間の needs_review のうち、`review.min_sec` 未満で既定では隠れている件数。
     pub needs_review_short_count: i64,
-    /// 当日の配信済みで未応答のプッシュ。
+    /// 当日の配信済みで未応答のプッシュ（見送りにしたものは除く）。
     pub unanswered_pushes: Vec<PushView>,
     /// 保存済みの確認結果で、現在より新しい版があればそのバージョン（`v` なし）。
     /// `general.update_check = true` のときだけ。ネットワークには出ない。
@@ -121,16 +114,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         ctx.cfg.review.min_sec as i64 * 1000,
     )?;
 
-    let unanswered_pushes = push::list_unanswered(ctx.conn, today_range.start, today_range.end)?
-        .into_iter()
-        .map(|p| PushView {
-            payload: serde_json::from_str(&p.payload_json)
-                .unwrap_or(serde_json::Value::String(p.payload_json)),
-            id: p.id,
-            at: p.at,
-            trigger: p.trigger,
-        })
-        .collect();
+    let unanswered_pushes = super::pushlog::list_unanswered(ctx, today_range)?;
 
     let update_available = if ctx.cfg.general.update_check == Some(true) {
         super::update::available(ctx.conn, env!("CARGO_PKG_VERSION"))?

@@ -12,8 +12,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, log as log_svc, okr, plan, record, reflect, report, review, skill, status,
-    task, Ctx, RangeArgs,
+    self, context, correction, log as log_svc, okr, plan, pushlog, record, reflect, report, review, skill,
+    status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -274,6 +274,45 @@ fn run(cli: Cli) -> Result<()> {
             )?;
             emit(json, &l, || render::log(tz, &l))
         }
+        Cmd::Push(p) => match p {
+            PushCmd::List { range, unanswered } => {
+                let l = pushlog::list(&ctx, &range_args(&range), unanswered)?;
+                emit(json, &l, || render::push_list(tz, &l))
+            }
+            PushCmd::Answer {
+                id,
+                energy,
+                mood,
+                stress,
+                hassle,
+                idle,
+                dismiss,
+            } => {
+                let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
+                let r = pushlog::answer(
+                    &ctx,
+                    &id,
+                    &pushlog::AnswerInput {
+                        energy,
+                        mood,
+                        stress,
+                        hassle,
+                        idle,
+                        dismiss,
+                    },
+                )?;
+                if r.checkin_id.is_some() {
+                    ext::notify_data("checkin");
+                }
+                if r.hassle_id.is_some() {
+                    ext::notify_data("hassle");
+                }
+                if idle.is_some() {
+                    ext::notify_data("segments");
+                }
+                emit(json, &r, || render::push_answered(&r))
+            }
+        },
         Cmd::Review(r) => match r {
             ReviewCmd::List { range, all } => {
                 let l = review::list_with(&ctx, &range_args(&range), all)?;

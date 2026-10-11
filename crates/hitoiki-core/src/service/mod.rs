@@ -12,6 +12,7 @@ pub mod log;
 pub mod okr;
 pub mod onboarding;
 pub mod plan;
+pub mod pushlog;
 pub mod record;
 pub mod reflect;
 pub mod report;

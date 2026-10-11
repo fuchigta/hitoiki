@@ -939,3 +939,63 @@ fn review_set_range_argument_errors() {
     ];
     assert_eq!(run(h, &bad_exclude).code, 3);
 }
+
+#[test]
+fn push_list_and_answer() {
+    use hitoiki_core::push::{store, PushDecision, PushPayload};
+    let mk = |trigger: &str, title: &str| -> PushPayload {
+        serde_json::from_value(serde_json::json!({
+            "trigger": trigger, "title": title, "body": "本文",
+            "actions": [{"id": "energy", "label": "3", "value": 3}],
+            "input": null, "open_screen": null
+        }))
+        .unwrap()
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    std::env::set_var("HITOIKI_HOME", h);
+    let conn = db::open(&paths::db_file()).unwrap();
+    let now = hitoiki_core::Clock::now_ms(&hitoiki_core::SystemClock);
+    let a = store::record_decision(
+        &conn,
+        &PushDecision::Deliver(mk("day_start", "おはようございます")),
+        now,
+    )
+    .unwrap()
+    .unwrap();
+    let b = store::record_decision(
+        &conn,
+        &PushDecision::Deliver(mk("after_interrupt", "割り込み")),
+        now,
+    )
+    .unwrap()
+    .unwrap();
+    drop(conn);
+
+    let l = run(h, &["--json", "push", "list", "--unanswered"]);
+    assert_eq!(l.code, 0, "{}", l.stderr);
+    assert_eq!(l.json()["pushes"].as_array().unwrap().len(), 2);
+    assert_eq!(l.json()["pushes"][0]["trigger_label"], "始業");
+    let human = run(h, &["push", "list"]);
+    assert!(human.stdout.contains("おはようございます"), "{}", human.stdout);
+    assert!(run(h, &["status"]).stdout.contains("[始業] おはようございます"));
+
+    let ans = run(
+        h,
+        &["--json", "push", "answer", &a, "--energy", "4", "--mood", "3"],
+    );
+    assert_eq!(ans.code, 0, "{}", ans.stderr);
+    assert_eq!(ans.json()["state"], "answered");
+    let dis = run(h, &["--json", "push", "answer", &b, "--dismiss"]);
+    assert_eq!(dis.json()["state"], "dismissed");
+    let l = run(h, &["--json", "push", "list", "--unanswered"]);
+    assert!(l.json()["pushes"].as_array().unwrap().is_empty());
+    let all = run(h, &["--json", "push", "list"]);
+    assert_eq!(all.json()["pushes"].as_array().unwrap().len(), 2);
+
+    // 終了コード: 引数不正 2、対象なし 3。
+    assert_eq!(run(h, &["push", "answer", &a]).code, 2);
+    assert_eq!(run(h, &["push", "answer", &a, "--energy", "9"]).code, 2);
+    assert_eq!(run(h, &["push", "answer", &a, "--idle", "x"]).code, 2);
+    assert_eq!(run(h, &["push", "answer", "ZZZZ", "--dismiss"]).code, 3);
+}
