@@ -939,3 +939,55 @@ fn review_set_range_argument_errors() {
     ];
     assert_eq!(run(h, &bad_exclude).code, 3);
 }
+
+#[test]
+fn task_delete_force_dry_run_and_exit_codes() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let tid = run(h, &["--json", "task", "add", "誤入力"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    insert_segment(
+        h,
+        "SEG1",
+        "2026-01-05 10:00",
+        "2026-01-05 10:30",
+        "work",
+        Some(&tid),
+        "auto",
+    );
+
+    // --dry-run は影響の表示だけ（何も消えない）。
+    let d = run(h, &["--json", "task", "delete", &tid, "--dry-run"]);
+    assert_eq!(d.code, 0, "{}", d.stderr);
+    let j = d.json();
+    assert_eq!(j["segments"], 1);
+    assert_eq!(j["tracked_ms"], 30 * 60_000);
+    assert_eq!(j["needs_force"], true);
+    let human = run(h, &["task", "delete", &tid, "--dry-run"]);
+    assert!(human.stdout.contains("実行はしていません"), "{}", human.stdout);
+    assert_eq!(run(h, &["task", "show", &tid]).code, 0);
+
+    // 計上済みがあると --force なしは終了コード 2 で、影響を表示する。
+    let e = run(h, &["task", "delete", &tid]);
+    assert_eq!(e.code, 2);
+    assert!(e.stderr.contains("--force"), "{}", e.stderr);
+    assert!(e.stderr.contains("30分"), "{}", e.stderr);
+    assert_eq!(run(h, &["task", "show", &tid]).code, 0);
+
+    let o = run(h, &["--json", "task", "delete", &tid, "--force"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["deleted"]["segments"], 1);
+    assert_eq!(run(h, &["task", "show", &tid]).code, 3);
+    assert_eq!(run(h, &["task", "delete", &tid, "--force"]).code, 3);
+
+    // 記録の無いタスクは --force なしで消せる。
+    let t2 = run(h, &["--json", "task", "add", "空"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let o = run(h, &["task", "delete", &t2]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(o.stdout.contains("削除しました"), "{}", o.stdout);
+}

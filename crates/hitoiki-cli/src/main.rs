@@ -747,6 +747,18 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
             ext::notify_task(Some(&v.task.id));
             emit(json, &v, || done_msg("破棄しました", &v))
         }
+        TaskCmd::Delete { id, force, dry_run } => {
+            if dry_run {
+                let p = task::delete_preview(ctx, &id)?;
+                return emit(json, &p, || render::task_delete_preview(&p));
+            }
+            let range = ctx.range(&RangeArgs::default())?;
+            let judge = ext::judge_for(ctx, Some(range))?;
+            let r = task::delete(ctx, &id, force, judge.as_deref())?;
+            ext::notify_task(Some(&r.deleted.task_id));
+            ext::notify_data("segments");
+            emit(json, &r, || render::task_deleted(tz, &r))
+        }
         TaskCmd::Rule(RuleCmd::Add {
             id,
             field,

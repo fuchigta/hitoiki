@@ -31,6 +31,7 @@
 | `hitoiki task edit <ID> [...]` | 編集。`add` と同じオプションと `--title` |
 | `hitoiki task start <ID>` | doing にする（`task.single_doing` が true なら他の doing を todo に戻す） |
 | `hitoiki task done <ID>` / `hitoiki task drop <ID>` | 完了にする / やめる |
+| `hitoiki task delete <ID> [--force] [--dry-run]` | 誤入力のタスクを削除する（やめる=記録として残す、削除=無かったことにする）。計上済みの時間・確定した割り当て・補正があるときは `--force` が無いと終了コード 2 で影響を表示して止まる。`--dry-run` は影響（区間数と時間、確定・補正・ルール・ブロックなどの件数）の表示だけで何も変えない。削除すると帰属ルール・スキルの紐付け・進行中の履歴・確定した割り当てと補正を消し、ブロックとテンプレート項目はタスクの指定だけを外し、影響した期間を再計算して未割り当てに戻す。`--json` で件数を取れる |
 | `hitoiki task rule add <ID> --field F --pattern P [--type T] [--priority N]` | 帰属ルールを追加。`--field` は `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`、`--type` は `glob`（既定）/ `regex` / `contains` |
 | `hitoiki task rule list [ID]` | 帰属ルールの一覧 |
 

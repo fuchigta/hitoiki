@@ -180,6 +180,22 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 - **取り消し**（`undo`）: 補正と、その `correction_id` を持つ override を削除し、補正の期間を `rebuild_with_judge` で再計算する（判定器は呼び出し側が渡す。CLI は `judge.enabled` から構築、アプリは `hitoiki_daemon::build_judge`）。派生層の復元は再計算で行うため、その期間の判定は最新のルール・doing で作り直される。
 - **プレビュー**（`preview`）: 対象の合計、うち PC 外（無操作・休憩・記録なし）の時間、外した候補の数と、説明文（`summary`）を返す。DB は変更しない。UI は、チェックの切り替えごとに同じ数え方を `ui/src/correct-util.ts` で再計算し、範囲選択の吸着（端を 1 分刻みに丸めて、`review.snap_sec` 以内の区間の境目へ寄せる）もそこにある。
 
+### 3.7 タスクの削除と参照の扱い（`service/task.rs` の `delete` / `delete_preview`）
+
+「やめる」（`dropped`）は記録として残す。誤入力のタスクを消すのが削除で、`task` を指す参照を次のように扱う。CLI の `task delete` と Tauri の `task_delete` / `task_delete_preview` はこの薄いラッパー。
+
+| 参照 | 削除時の扱い |
+|---|---|
+| `task_match_rule.task_id` / `task_skill.task_id` / `task_doing_log.task_id` | 削除（外部キー制約のため先に消す） |
+| `segment_override.task_id` | 削除（その時間は未割り当てに戻る） |
+| `segment_correction.task_id` | 補正ごと削除。補正は付け替え先が 1 つのタスクなので「他のタスクも含む補正」は無い。補正が作った override（`correction_id`）も消す。他のタスクへの補正には触れない |
+| `activity_segment.task_id` | トランザクション内で NULL（確定済みは needs_review）にし、直後の再計算で作り直す |
+| `time_block.task_id` / `block_template_item.task_id` | NULL にして残す。`label` が空ならタスク名を写す |
+| `checkin` / `hassle` / `abc_record` / `reflection` / `push_log` | タスクへの参照列が無い（`reflection.context_json` や `push_log.payload_json` に ID が入ることはあるが、履歴のスナップショットなので触れない） |
+| `activity_rule` / `activity_skill_rule` / `judge_cache` | タスクを指さない（判定器キャッシュのキーは未完了タスク集合のハッシュを含むので、削除後は自然に引き直される） |
+
+流れは、`impact` で影響（区間数と時間、override・補正・ルール・スキル・ブロック・テンプレート項目・doing ログの件数、再計算する期間）を見積もる → 計上済み・確定・補正があって `force` が偽ならエラー（引数不正、終了コード 2） → 1 トランザクションで上表を処理しタスクを削除 → 影響期間（区間・override・補正の最小〜最大）を `rebuild_with_judge` で再計算、の順。doing だったタスクは `task_doing_log` を消すので「doing なし」になり、以後の判定に使われない。`delete_preview` は何も変更しない。
+
 ## 4. 帰属判定パイプライン
 
 `crates/hitoiki-core/src/pipeline/` は、生データを入力とし `activity_segment` と `agent_session_window` を出力する純粋関数 `build`（`pipeline/mod.rs`）である。現在時刻は `PipelineInput.now` で受け取る。
