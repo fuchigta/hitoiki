@@ -45,6 +45,8 @@ pub fn normalize_screen(screen: &str) -> String {
             _ => "reflect".to_string(),
         },
         "checkin" | "hassle" => "records".to_string(),
+        // 今日のデザインモード（始業の通知から）。
+        "today" if rest == Some("design") => "today/design".to_string(),
         b if SCREENS.contains(&b) => b.to_string(),
         _ => "today".to_string(),
     }
@@ -94,6 +96,8 @@ mod tests {
         assert_eq!(normalize_screen("reflection/day_end"), "reflect/day_end");
         assert_eq!(normalize_screen("reflect"), "reflect");
         assert_eq!(normalize_screen("reflection/xx"), "reflect");
+        assert_eq!(normalize_screen("today/design"), "today/design");
+        assert_eq!(normalize_screen("today/xx"), "today");
         assert_eq!(normalize_screen("checkin"), "records");
         assert_eq!(normalize_screen("hassle"), "records");
         assert_eq!(normalize_screen("onboarding"), "onboarding");

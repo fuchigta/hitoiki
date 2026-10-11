@@ -7,7 +7,12 @@ use crate::state::{AppState, PushEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{AbcRecord, CalendarEvent, Checkin, Hassle, Reflection, TimeBlock};
+use hitoiki_core::service::block_template::{
+    self as btpl, ApplyInput, ApplyResult, Preview, SaveFromInput, Suggestion, TemplateInput, TemplateList,
+    TemplateView, UndoResult,
+};
 use hitoiki_core::service::context::{self, ContextJson};
+use hitoiki_core::service::hint;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
 use hitoiki_core::service::onboarding::{self, OnboardingStatus};
@@ -150,6 +155,78 @@ pub fn block_delete(state: S, id: String) -> AppResult<()> {
     state.with_ctx(|c| plan::delete(c, &id))?;
     state.request_rebuild();
     Ok(())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_update(state: S, id: String, input: BlockInputDto) -> AppResult<TimeBlock> {
+    let input = input.into();
+    let v = state.with_ctx(|c| plan::update(c, &id, &input))?;
+    state.request_rebuild();
+    Ok(v)
+}
+
+// ===== ブロックのテンプレート =====
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_list(state: S) -> AppResult<TemplateList> {
+    state.with_ctx(btpl::list)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_add(state: S, input: TemplateInput) -> AppResult<TemplateView> {
+    state.with_ctx(|c| btpl::add(c, &input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_edit(state: S, id: String, input: TemplateInput) -> AppResult<TemplateView> {
+    state.with_ctx(|c| btpl::edit(c, &id, &input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_delete(state: S, id: String) -> AppResult<TemplateView> {
+    state.with_ctx(|c| btpl::delete(c, &id))
+}
+
+/// 指定日（省略は今日）の曜日に割り当てたテンプレート。
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_suggest(state: S, date: Option<String>) -> AppResult<Suggestion> {
+    state.with_ctx(|c| btpl::suggest(c, date.as_deref()))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_preview(state: S, input: ApplyInput) -> AppResult<Preview> {
+    state.with_ctx(|c| btpl::preview(c, &input))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_apply(state: S, input: ApplyInput) -> AppResult<ApplyResult> {
+    let v = state.with_ctx(|c| btpl::apply(c, &input))?;
+    state.request_rebuild();
+    Ok(v)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_undo(state: S, date: Option<String>) -> AppResult<UndoResult> {
+    let v = state.with_ctx(|c| btpl::undo(c, date.as_deref()))?;
+    state.request_rebuild();
+    Ok(v)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn block_template_save_from(state: S, input: SaveFromInput) -> AppResult<TemplateView> {
+    state.with_ctx(|c| btpl::save_from(c, &input))
+}
+
+// ===== 1 回だけ出す案内 =====
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn hint_dismissed(state: S, name: String) -> AppResult<bool> {
+    state.with_ctx(|c| hint::is_dismissed(c, &name))
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn hint_dismiss(state: S, name: String) -> AppResult<()> {
+    state.with_ctx(|c| hint::dismiss(c, &name))
 }
 
 /// 指定範囲のカレンダー予定（同期済みのもの）。

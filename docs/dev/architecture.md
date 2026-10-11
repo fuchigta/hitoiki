@@ -251,7 +251,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 | ID | 条件 |
 |---|---|
-| `day_start` | 今日のロック解除/無操作明けがあり、`push.day_start_after`（既定 08:00）以降 `push.day_end_at` 前で、今日まだ配信していない |
+| `day_start` | 今日のロック解除/無操作明けがあり、`push.day_start_after`（既定 08:00）以降 `push.day_end_at` 前で、今日まだ配信していない。通知本体のクリックは今日の画面の「今日のデザイン」モード（`open_screen = today/design`）を開く |
 | `day_end` | `push.day_end_at`（既定 18:30）以降に 10 分以上無操作、または終業時刻ちょうど（±60 秒）。1 日 1 回 |
 | `weekly` | `push.weekly`（既定 金曜 17:00）以降で、今週（月曜始まり）まだ配信していない |
 | `after_interrupt` | 割り込み区間が終わり、終了から 5 分以内で、その割り込み以降に未配信 |

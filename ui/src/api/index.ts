@@ -46,7 +46,24 @@ export const api = {
   // 計画
   blockAdd: (input: T.BlockInput) => call<T.TimeBlock>("block_add", { input }),
   blockList: (range?: T.RangeArgs) => call<T.BlockList>("block_list", { range }),
+  blockUpdate: (id: string, input: T.BlockInput) => call<T.TimeBlock>("block_update", { id, input }),
   blockDelete: (id: string) => call<null>("block_delete", { id }),
+
+  // ブロックのテンプレート
+  templateList: () => call<{ templates: T.TemplateView[] }>("block_template_list"),
+  templateAdd: (input: T.TemplateInput) => call<T.TemplateView>("block_template_add", { input }),
+  templateEdit: (id: string, input: T.TemplateInput) => call<T.TemplateView>("block_template_edit", { id, input }),
+  templateDelete: (id: string) => call<T.TemplateView>("block_template_delete", { id }),
+  templateSuggest: (date?: string) => call<T.Suggestion>("block_template_suggest", { date }),
+  templatePreview: (input: T.ApplyInput) => call<T.TemplatePreview>("block_template_preview", { input }),
+  templateApply: (input: T.ApplyInput) => call<T.ApplyResult>("block_template_apply", { input }),
+  templateUndo: (date?: string) => call<T.UndoResult>("block_template_undo", { date }),
+  templateSaveFrom: (input: { name: string; description?: string; date?: string; weekdays?: number[] }) =>
+    call<T.TemplateView>("block_template_save_from", { input }),
+
+  // 1 回だけ出す案内
+  hintDismissed: (name: string) => call<boolean>("hint_dismissed", { name }),
+  hintDismiss: (name: string) => call<null>("hint_dismiss", { name }),
   calendarList: (range?: T.RangeArgs) => call<T.CalendarEvent[]>("calendar_list", { range }),
 
   // 記録

@@ -89,7 +89,15 @@ export function Reflect() {
             </button>
           ))}
         </div>
-        <p class="muted">{info.hint}</p>
+        <p class="muted">
+          {info.hint}
+          {info.id === "day_start" && (
+            <>
+              {" "}
+              <a href="#/today/design">今日のデザイン</a>でブロックを並べることもできます。
+            </>
+          )}
+        </p>
         <div class="row">
           <Field label={kind === "weekly" ? "基準日（その週）" : "基準日"}>
             <input type="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />

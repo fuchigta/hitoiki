@@ -65,7 +65,8 @@ pub(crate) fn day_start() -> PushPayload {
         body: "今日のはじまりに、いまの元気度を教えてください（1 = ゆったり 〜 5 = 元気いっぱい）。".into(),
         actions: scale("energy"),
         input: None,
-        open_screen: Some("reflection/day_start".into()),
+        // 始業の通知は「今日のデザイン」（今日の画面）へ。始業の振り返りは今日の画面から開ける。
+        open_screen: Some("today/design".into()),
     }
 }
 
