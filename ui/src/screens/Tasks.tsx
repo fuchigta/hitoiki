@@ -4,6 +4,7 @@ import { Card, Empty, ErrorBox, Field } from "../components";
 import { defaultBodyMode, isDirty, isSaveShortcut, leaveGuard, parseEstimate, parseSkills, type TaskDraft } from "../edit-util";
 import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
 import { Markdown } from "../markdown";
+import { TaskRuleRow } from "../rule-row";
 
 /** 「保存しました」を出しておく時間。 */
 const SAVED_NOTICE_MS = 4000;
@@ -148,11 +149,7 @@ function TaskDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
       {rules.length === 0 && <Empty>ルールはありません。</Empty>}
       <ul class="plain">
         {rules.map((r) => (
-          <li key={r.id}>
-            <code>
-              {r.field} {r.pattern_type} {r.pattern}
-            </code>
-          </li>
+          <TaskRuleRow key={r.id} rule={r} onChanged={show.reload} />
         ))}
       </ul>
       <RuleForm taskId={task.id} onAdded={show.reload} />

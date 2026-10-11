@@ -2,7 +2,8 @@ import { useState } from "preact/hooks";
 import { api, type AbcRecord } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
 import { Markdown } from "../markdown";
-import { fmtDateTime, useAction, useAsync } from "../lib";
+import { useAction, useAsync } from "../lib";
+import { AbcItem, CheckinItem, HassleItem } from "../record-edit";
 
 const PERIODS = [
   { id: "today", label: "今日" },
@@ -59,12 +60,7 @@ export function Records() {
           {checkins.data?.items.length === 0 && <Empty>記録はありません。</Empty>}
           <ul class="plain">
             {checkins.data?.items.map((c) => (
-              <li key={c.id}>
-                <span class="muted">{fmtDateTime(c.at)}</span> エネルギー {c.energy ?? "-"}
-                {c.mood != null && ` ・ 気分 ${c.mood}`}
-                {c.stress != null && ` ・ ストレス ${c.stress}`}
-                {c.note && <div>{c.note}</div>}
-              </li>
+              <CheckinItem key={c.id} c={c} onChanged={checkins.reload} />
             ))}
           </ul>
         </Card>
@@ -73,10 +69,14 @@ export function Records() {
           {hassles.data?.items.length === 0 && <Empty>記録はありません。</Empty>}
           <ul class="plain">
             {hassles.data?.items.map((h) => (
-              <li key={h.id}>
-                <span class="muted">{fmtDateTime(h.at)}</span> {h.text}
-                <span class="muted"> （強さ {h.intensity}）</span>
-              </li>
+              <HassleItem
+                key={h.id}
+                h={h}
+                onChanged={() => {
+                  hassles.reload();
+                  abcs.reload();
+                }}
+              />
             ))}
           </ul>
         </Card>
@@ -87,18 +87,9 @@ export function Records() {
         {abcs.data?.items.length === 0 && <Empty>記録はありません。</Empty>}
         <ul class="plain">
           {abcs.data?.items.map((a) => (
-            <li key={a.id}>
-              <span class="muted">{fmtDateTime(a.at)}</span>
-              <div>A: {a.activating_event}</div>
-              {a.belief && <div>B: {a.belief}</div>}
-              {a.consequence_emotion && (
-                <div>
-                  C: {a.consequence_emotion}
-                  {a.consequence_intensity != null && `（${a.consequence_intensity}）`}
-                </div>
-              )}
+            <AbcItem key={a.id} a={a} onChanged={abcs.reload}>
               <AbcDialog abc={a} onChanged={abcs.reload} />
-            </li>
+            </AbcItem>
           ))}
         </ul>
       </Card>

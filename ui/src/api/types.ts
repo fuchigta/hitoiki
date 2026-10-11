@@ -479,6 +479,111 @@ export interface SkillView extends Skill {
   parent_name: string | null;
 }
 
+// ===== 編集・削除 =====
+
+export interface ImpactLine {
+  label: string;
+  count: number;
+}
+
+/** 削除の影響（core の `Impact`）。 */
+export interface Impact {
+  entity: string;
+  id: string;
+  name: string;
+  lines: ImpactLine[];
+  note: string | null;
+}
+
+export interface DeleteOutcome {
+  dry_run: boolean;
+  deleted: boolean;
+  impact: Impact;
+}
+
+export interface DeleteMode {
+  dry_run?: boolean;
+  force?: boolean;
+}
+
+export type ChildPolicy = "reparent" | "delete";
+
+export interface ObjectiveEdit {
+  title?: string;
+  /** 空文字で説明を消す。 */
+  description?: string;
+  from?: Millis;
+  to?: Millis;
+  clear_period?: boolean;
+  status?: string;
+}
+
+export interface KrEdit {
+  title?: string;
+  /** 空文字で消す。 */
+  target?: string;
+  current?: string;
+  status?: string;
+  objective?: string;
+}
+
+export interface SkillEdit {
+  name?: string;
+  parent?: string;
+  clear_parent?: boolean;
+  description?: string;
+}
+
+export interface TaskRuleEdit {
+  field?: MatchField;
+  pattern?: string;
+  pattern_type?: PatternType;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface ActivityRule {
+  id: string;
+  field: MatchField;
+  pattern: string;
+  pattern_type: PatternType;
+  activity_label: string;
+  priority: number;
+  enabled: boolean;
+}
+
+export interface ActivityRuleInput {
+  field: MatchField;
+  pattern: string;
+  pattern_type?: PatternType;
+  activity_label: string;
+  priority?: number;
+}
+
+export interface ActivityRuleEdit {
+  field?: MatchField;
+  pattern?: string;
+  pattern_type?: PatternType;
+  activity_label?: string;
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface AbcEditInput {
+  activating_event: string;
+  belief?: string;
+  consequence_emotion?: string;
+  consequence_intensity?: number;
+  dispute?: string;
+}
+
+export interface CalendarSourceView {
+  name: string;
+  type: string;
+  /** URL は秘密情報なのでホスト名だけ。 */
+  host: string;
+}
+
 export interface PresetImport {
   [key: string]: unknown;
 }

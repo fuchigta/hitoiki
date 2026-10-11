@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### 追加
+
+- 作れるのに直せない・消せなかったデータを、編集・削除できるようにしました。OKR（Objective と KR の編集・削除）、スキル（名前・親・説明の編集と削除。プリセットも可）、タスクの帰属ルールと活動ルール（編集・有効/無効・削除）、記録（チェックイン・ハッスル・ABC の編集と削除）、設定画面のカレンダーソースと活動ラベルの追加・編集・削除です。削除は確認のダイアログで影響（紐付いたタスクの数など）を表示します。
+- 削除の扱い: Objective を消すと配下の KR も消えます。KR や Objective を消しても、紐付いていたタスクは残り、KR との紐付けだけが外れます。スキルを消すとタスクへの付与が外れ、子スキルは親を付け替えるか一緒に削除するかを選べます。ハッスルを消しても、元にした ABC の記録は残ります。
+- CLI に `hitoiki okr edit-objective|edit-kr|delete-objective|delete-kr`、`skill edit|delete`、`task rule edit|delete`、`activity-rule list|add|edit|delete`、`activity-label list|add|rename|remove`、`calendar list|add|edit|delete`、`check|hassle|abc list|edit|delete` を追加しました。削除は `--force`（影響があるとき必須。なければ終了コード 2）、`--dry-run`（影響の表示だけ）、`--json` に対応します。
+
 ## [0.4.0] - 2026-10-11
 
 ### 追加

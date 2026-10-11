@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
+import { DataSettings } from "../data-settings";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = {
@@ -99,6 +100,7 @@ export function Settings() {
           </div>
         </div>
       </Card>
+      <DataSettings />
       <Card title="はじめに">
         <div class="row">
           <button
