@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, Empty, ErrorBox } from "../components";
 import { useAction, useAsync } from "../lib";
+import { KrItem, ObjectiveItem, SkillItem } from "../okr-edit";
 
 export function Okr() {
   const okr = useAsync(() => api.okrList(), []);
@@ -17,18 +18,14 @@ export function Okr() {
           <ErrorBox error={okr.error} />
           {okr.data?.objectives.length === 0 && <Empty>Objective はまだありません。</Empty>}
           {okr.data?.objectives.map((o) => (
-            <div key={o.id} class="obj">
-              <strong>{o.title}</strong>
+            <ObjectiveItem key={o.id} o={o} onChanged={okr.reload}>
               <ul class="plain">
                 {o.key_results.map((k) => (
-                  <li key={k.id}>
-                    {k.title}
-                    {k.target && <span class="muted"> / 目標 {k.target}</span>}
-                  </li>
+                  <KrItem key={k.id} k={k} objectives={okr.data?.objectives ?? []} onChanged={okr.reload} />
                 ))}
               </ul>
               <KrForm objective={o.id} onAdded={okr.reload} />
-            </div>
+            </ObjectiveItem>
           ))}
           <form
             class="row"
@@ -52,10 +49,7 @@ export function Okr() {
           {skills.data?.skills.length === 0 && <Empty>スキルはまだありません。</Empty>}
           <ul class="plain">
             {skills.data?.skills.map((s) => (
-              <li key={s.id}>
-                {s.parent_name && <span class="muted">{s.parent_name} › </span>}
-                {s.name}
-              </li>
+              <SkillItem key={s.id} s={s} all={skills.data?.skills ?? []} onChanged={skills.reload} />
             ))}
           </ul>
           <form

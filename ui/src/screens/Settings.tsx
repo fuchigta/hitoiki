@@ -3,6 +3,7 @@ import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
 import { QuickShortcutCard } from "../quick-shortcut";
 import { hasExe, normalizeExe } from "../ignore-util";
+import { DataSettings } from "../data-settings";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = {
@@ -103,6 +104,7 @@ export function Settings() {
         </div>
       </Card>
       <IgnoreCard />
+      <DataSettings />
       <Card title="はじめに">
         <div class="row">
           <button

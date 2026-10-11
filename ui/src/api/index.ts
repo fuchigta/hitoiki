@@ -132,6 +132,47 @@ export const api = {
   skillAdd: (name: string, parent?: string) => call<T.Skill>("skill_add", { input: { name, parent } }),
   skillImportPreset: (name?: string) => call<T.PresetImport>("skill_import_preset", { name }),
 
+  // OKR・スキルの編集と削除。削除は mode で dry_run（影響の確認）と force（削除）を指定する。
+  okrEditObjective: (id: string, input: T.ObjectiveEdit) => call<T.Objective>("okr_edit_objective", { id, input }),
+  okrDeleteObjective: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_objective", { id, mode }),
+  okrEditKr: (id: string, input: T.KrEdit) => call<T.KeyResult>("okr_edit_kr", { id, input }),
+  okrDeleteKr: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_kr", { id, mode }),
+  skillEdit: (key: string, input: T.SkillEdit) => call<T.Skill>("skill_edit", { key, input }),
+  skillDelete: (key: string, children: T.ChildPolicy, mode: T.DeleteMode) =>
+    call<T.DeleteOutcome>("skill_delete", { key, children, mode }),
+
+  // ルール
+  ruleEdit: (id: string, input: T.TaskRuleEdit) => call<T.TaskMatchRule>("rule_edit", { id, input }),
+  ruleDelete: (id: string) => call<unknown>("rule_delete", { id }),
+  activityRuleList: () => call<{ rules: T.ActivityRule[] }>("activity_rule_list"),
+  activityRuleAdd: (input: T.ActivityRuleInput) => call<T.ActivityRule>("activity_rule_add", { input }),
+  activityRuleEdit: (id: string, input: T.ActivityRuleEdit) =>
+    call<T.ActivityRule>("activity_rule_edit", { id, input }),
+  activityRuleDelete: (id: string) => call<unknown>("activity_rule_delete", { id }),
+
+  // 記録の編集と削除
+  checkinEdit: (id: string, input: T.CheckInput) => call<T.Checkin>("checkin_edit", { id, input }),
+  checkinDelete: (id: string) => call<T.DeleteOutcome>("checkin_delete", { id }),
+  hassleEdit: (id: string, text: string, intensity?: number) =>
+    call<T.Hassle>("hassle_edit", { id, input: { text, intensity } }),
+  hassleDelete: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("hassle_delete", { id, mode }),
+  abcEdit: (id: string, input: T.AbcEditInput) => call<T.AbcRecord>("abc_edit", { id, input }),
+  abcDelete: (id: string) => call<T.DeleteOutcome>("abc_delete", { id }),
+
+  // カレンダーソース・活動ラベル（設定）
+  calendarSourceList: () => call<{ sources: T.CalendarSourceView[] }>("calendar_source_list"),
+  calendarSourceAdd: (name: string, url: string) =>
+    call<T.CalendarSourceView>("calendar_source_add", { name, url }),
+  calendarSourceEdit: (name: string, newName?: string, url?: string) =>
+    call<T.CalendarSourceView>("calendar_source_edit", { name, new_name: newName, url }),
+  calendarSourceDelete: (name: string, mode: T.DeleteMode) =>
+    call<T.DeleteOutcome>("calendar_source_delete", { name, mode }),
+  activityLabelList: () => call<{ labels: string[] }>("activity_label_list"),
+  activityLabelAdd: (label: string) => call<{ labels: string[] }>("activity_label_add", { label }),
+  activityLabelRename: (from: string, to: string) =>
+    call<{ labels: string[] }>("activity_label_rename", { from, to }),
+  activityLabelRemove: (label: string) => call<{ labels: string[] }>("activity_label_remove", { label }),
+
   // レポート
   report: (by: T.ReportBy, range?: T.RangeArgs, includeIdle = false) =>
     call<T.Report>("report", { range, by, include_idle: includeIdle }),

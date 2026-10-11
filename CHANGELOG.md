@@ -18,6 +18,9 @@
 - 今日画面の「未回答の問いかけ」で、通知のタイトル・本文・時刻を見て、その場で答えられるようになりました。通知と同じ選択肢（エネルギー 1〜5、一言、無操作の休憩／会議／考えごと／離席、画面を開くボタン）が出て、種類は「始業」などの日本語名で表示されます。「答えない」で一覧から外せます（応答率では無応答のまま数えるので、答えない通知が続くと間隔が延びる仕組みは変わりません）。あとから答えた記録の時刻は、通知が出た時刻になります。ポップアップ窓も同じ部品になりました。
 - CLI に `hitoiki push list [--unanswered] [--date D]` と `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle ...] [--dismiss]` を追加しました。`hitoiki status` の未応答の表示にもタイトルを出します。
 - 設定 `push.toast_persistent`（既定 true）を追加しました。回答を求めるトーストは、操作するまで画面に残ります（false で従来どおり自動的に消える）。更新のお知らせは残りません。アクションセンターに入ったあとのボタンが届かない場合は、今日画面の「未回答の問いかけ」から答えられます。
+- 作れるのに直せない・消せなかったデータを、編集・削除できるようにしました。OKR（Objective と KR の編集・削除）、スキル（名前・親・説明の編集と削除。プリセットも可）、タスクの帰属ルールと活動ルール（編集・有効/無効・削除）、記録（チェックイン・ハッスル・ABC の編集と削除）、設定画面のカレンダーソースと活動ラベルの追加・編集・削除です。削除は確認のダイアログで影響（紐付いたタスクの数など）を表示します。
+- 削除の扱い: Objective を消すと配下の KR も消えます。KR や Objective を消しても、紐付いていたタスクは残り、KR との紐付けだけが外れます。スキルを消すとタスクへの付与が外れ、子スキルは親を付け替えるか一緒に削除するかを選べます。ハッスルを消しても、元にした ABC の記録は残ります。
+- CLI に `hitoiki okr edit-objective|edit-kr|delete-objective|delete-kr`、`skill edit|delete`、`task rule edit|delete`、`activity-rule list|add|edit|delete`、`activity-label list|add|rename|remove`、`calendar list|add|edit|delete`、`check|hassle|abc list|edit|delete` を追加しました。削除は `--force`（影響があるとき必須。なければ終了コード 2）、`--dry-run`（影響の表示だけ）、`--json` に対応します。
 
 ## [0.4.0] - 2026-10-11
 

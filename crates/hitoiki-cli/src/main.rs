@@ -2,6 +2,7 @@
 
 mod args;
 mod ext;
+mod manage;
 mod native_host;
 mod render;
 mod table;
@@ -588,12 +589,18 @@ fn run(cli: Cli) -> Result<()> {
             }
             BlockCmd::Template(t) => template_cmd(&ctx, tz, json, t),
         },
+        Cmd::Check { cmd: Some(sub), .. } => manage::check_sub(&ctx, json, sub),
+        Cmd::Hassle { cmd: Some(sub), .. } => manage::hassle_sub(&ctx, json, sub),
+        Cmd::ActivityRule(c) => manage::activity_rule_sub(&ctx, json, c),
+        Cmd::ActivityLabel(c) => manage::label_sub(&ctx, json, c),
+        Cmd::Calendar(c) => manage::calendar_sub(&ctx, json, c),
         Cmd::Check {
             energy,
             mood,
             stress,
             erg,
             note,
+            ..
         } => {
             let c = record::check(
                 &ctx,
@@ -608,8 +615,10 @@ fn run(cli: Cli) -> Result<()> {
             ext::notify_data("checkin");
             emit(json, &c, || render::checkin(&c))
         }
-        Cmd::Hassle { text, intensity } => {
-            let text = read_text(&text)?;
+        Cmd::Hassle { text, intensity, .. } => {
+            let text = read_text(&text.ok_or_else(|| {
+                hitoiki_core::Error::InvalidArgument("ハッスルの内容を指定してください".into())
+            })?)?;
             let h = record::hassle(&ctx, &record::HassleInput { text, intensity })?;
             ext::notify_data("hassle");
             emit(json, &h, || render::hassle(&h))
@@ -644,6 +653,7 @@ fn run(cli: Cli) -> Result<()> {
             let r = reflect::abc_dispute(&ctx, &id)?;
             emit(json, &r, || render::abc_dispute(&r))
         }
+        Cmd::Abc(sub) => manage::abc_sub(&ctx, json, sub),
         Cmd::Context { kind, date } => {
             let c = context::context(&ctx, kind.parse()?, date.as_deref())?;
             // 機械可読が目的なので --json の有無にかかわらず JSON を出す。
@@ -677,6 +687,7 @@ fn run(cli: Cli) -> Result<()> {
                 let l = okr::list(&ctx)?;
                 emit(json, &l, || render::okr_list(&l))
             }
+            other => manage::okr_sub(&ctx, json, other),
         },
         Cmd::Skill(s) => match s {
             SkillCmd::Add { name, parent } => {
@@ -693,6 +704,7 @@ fn run(cli: Cli) -> Result<()> {
                 let l = skill::list(&ctx)?;
                 emit(json, &l, || render::skills(&l))
             }
+            other => manage::skill_sub(&ctx, json, other),
         },
         Cmd::Report {
             period,
@@ -950,6 +962,7 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
             let l = task::rule_list(ctx, id.as_deref())?;
             emit(json, &l, || render::rule_list(&l))
         }
+        TaskCmd::Rule(r) => manage::task_rule_sub(ctx, json, r),
     }
 }
 

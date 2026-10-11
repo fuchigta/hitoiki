@@ -87,6 +87,252 @@ fn insert_segment(
 }
 
 #[test]
+fn 編集と削除_force_dry_run_終了コード() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
+
+    // OKR: KR を編集し、紐付いたタスクがあると --force なしでは消せない
+    let o = id_of(&run(h, &["--json", "okr", "add-objective", "目標"]));
+    let k = id_of(&run(
+        h,
+        &["--json", "okr", "add-kr", &o, "成果", "--target", "10"],
+    ));
+    let t = run(h, &["--json", "task", "add", "作業", "--kr", &k]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let e = run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "edit-kr",
+            &k,
+            "--title",
+            "成果2",
+            "--current",
+            "3",
+            "--status",
+            "done",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(e.json()["current"], "3");
+    assert_eq!(run(h, &["okr", "edit-kr", &k, "--status", "bad"]).code, 2);
+    assert_eq!(run(h, &["okr", "edit-kr", "ZZZ", "--title", "x"]).code, 3);
+
+    let d = run(h, &["okr", "delete-kr", &k]);
+    assert_eq!(d.code, 2);
+    assert!(d.stderr.contains("--force"), "{}", d.stderr);
+    let d = run(h, &["--json", "okr", "delete-kr", &k, "--dry-run"]);
+    assert_eq!(d.code, 0);
+    assert_eq!(d.json()["deleted"], false);
+    assert_eq!(d.json()["impact"]["lines"][0]["count"], 1);
+    let d = run(h, &["--json", "okr", "delete-kr", &k, "--force"]);
+    assert_eq!(d.code, 0, "{}", d.stderr);
+    assert_eq!(d.json()["deleted"], true);
+    let shown = run(h, &["--json", "task", "show", &t]).json();
+    assert!(shown["task"]["key_result"].is_null());
+    // 影響のない Objective は --force なしで消える
+    assert_eq!(run(h, &["okr", "delete-objective", &o]).code, 0);
+    assert_eq!(run(h, &["okr", "delete-objective", &o]).code, 3);
+
+    // スキル: 子の付け替えと削除
+    run(h, &["skill", "add", "親"]);
+    run(h, &["skill", "add", "子", "--parent", "親"]);
+    let e = run(
+        h,
+        &[
+            "--json",
+            "skill",
+            "edit",
+            "子",
+            "--name",
+            "子2",
+            "--description",
+            "メモ",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(run(h, &["skill", "edit", "親", "--parent", "子2"]).code, 2);
+    let d = run(
+        h,
+        &[
+            "--json",
+            "skill",
+            "delete",
+            "親",
+            "--children",
+            "reparent",
+            "--dry-run",
+        ],
+    );
+    assert_eq!(d.json()["deleted"], false);
+    assert_eq!(
+        run(h, &["skill", "delete", "親", "--children", "reparent"]).code,
+        2
+    );
+    assert_eq!(run(h, &["skill", "delete", "親", "--force"]).code, 0);
+    let l = run(h, &["--json", "skill", "list"]).json();
+    assert_eq!(l["skills"].as_array().unwrap().len(), 1);
+    assert!(l["skills"][0]["parent_id"].is_null());
+    assert_eq!(
+        run(h, &["skill", "delete", "子2", "--children", "x", "--force"]).code,
+        2
+    );
+
+    // ルール: 無効化・編集・削除
+    let r = run(
+        h,
+        &[
+            "--json",
+            "task",
+            "rule",
+            "add",
+            &t,
+            "--field",
+            "exe",
+            "--pattern",
+            "code*",
+        ],
+    );
+    let rid = id_of(&r);
+    let e = run(
+        h,
+        &[
+            "--json",
+            "task",
+            "rule",
+            "edit",
+            &rid,
+            "--disable",
+            "--priority",
+            "3",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(e.json()["enabled"], false);
+    assert_eq!(
+        run(
+            h,
+            &["task", "rule", "edit", &rid, "--type", "regex", "--pattern", "("]
+        )
+        .code,
+        2
+    );
+    assert_eq!(run(h, &["task", "rule", "delete", &rid, "--dry-run"]).code, 0);
+    assert_eq!(run(h, &["task", "rule", "delete", &rid]).code, 0);
+    assert_eq!(run(h, &["task", "rule", "delete", &rid]).code, 3);
+    let a = id_of(&run(
+        h,
+        &[
+            "--json",
+            "activity-rule",
+            "add",
+            "--field",
+            "exe",
+            "--pattern",
+            "slack*",
+            "--label",
+            "会議",
+        ],
+    ));
+    assert_eq!(
+        run(h, &["activity-rule", "edit", &a, "--label", "連絡", "--disable"]).code,
+        0
+    );
+    let l = run(h, &["--json", "activity-rule", "list"]).json();
+    assert_eq!(l["rules"][0]["activity_label"], "連絡");
+    assert_eq!(l["rules"][0]["enabled"], false);
+    assert_eq!(run(h, &["activity-rule", "delete", &a]).code, 0);
+
+    // 記録: ハッスルを消すと ABC の紐付けだけ外れる
+    let hs = id_of(&run(h, &["--json", "hassle", "会議が長い", "-i", "4"]));
+    let abc = id_of(&run(
+        h,
+        &["--json", "abc", "add", "--from-hassle", &hs, "--b", "無駄"],
+    ));
+    let e = run(h, &["--json", "hassle", "edit", &hs, "-i", "2"]);
+    assert_eq!(e.json()["intensity"], 2);
+    assert_eq!(run(h, &["hassle", "delete", &hs]).code, 2);
+    assert_eq!(run(h, &["hassle", "delete", &hs, "--force"]).code, 0);
+    let l = run(h, &["--json", "abc", "list"]).json();
+    assert!(l["items"][0]["hassle_id"].is_null());
+    let e = run(
+        h,
+        &[
+            "--json",
+            "abc",
+            "edit",
+            &abc,
+            "--a",
+            "A2",
+            "--b",
+            "",
+            "--c-emotion",
+            "不安",
+            "--c-intensity",
+            "3",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(e.json()["activating_event"], "A2");
+    assert!(e.json()["belief"].is_null());
+    assert_eq!(run(h, &["abc", "delete", &abc]).code, 0);
+    let c = id_of(&run(h, &["--json", "check", "-e", "2", "-m", "3"]));
+    let e = run(
+        h,
+        &[
+            "--json", "check", "edit", &c, "-e", "5", "-m", "0", "--note", "元気",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(
+        (e.json()["energy"].as_i64(), e.json()["mood"].is_null()),
+        (Some(5), true)
+    );
+    assert_eq!(run(h, &["check", "edit", &c, "-e", "9"]).code, 2);
+    assert_eq!(run(h, &["check", "delete", &c]).code, 0);
+    assert_eq!(run(h, &["check", "delete", &c]).code, 3);
+    // 引数なしのハッスルは引数エラー
+    assert_eq!(run(h, &["hassle"]).code, 2);
+
+    // カレンダーソース・活動ラベル: URL は出力に出ない
+    let a = run(
+        h,
+        &[
+            "--json",
+            "calendar",
+            "add",
+            "仕事",
+            "https://cal.example.com/token-secret/a.ics",
+        ],
+    );
+    assert_eq!(a.code, 0, "{}", a.stderr);
+    assert!(!a.stdout.contains("token-secret"));
+    let l = run(h, &["calendar", "list"]);
+    assert!(l.stdout.contains("cal.example.com") && !l.stdout.contains("token-secret"));
+    assert_eq!(
+        run(h, &["calendar", "add", "仕事", "https://x.example/b.ics"]).code,
+        2
+    );
+    assert_eq!(run(h, &["calendar", "delete", "仕事", "--dry-run"]).code, 0);
+    assert_eq!(run(h, &["calendar", "delete", "仕事"]).code, 0);
+    assert_eq!(run(h, &["calendar", "delete", "仕事"]).code, 3);
+    assert_eq!(run(h, &["activity-label", "add", "運動"]).code, 0);
+    assert_eq!(
+        run(h, &["activity-label", "rename", "運動", "トレーニング"]).code,
+        0
+    );
+    assert!(run(h, &["activity-label", "list"])
+        .stdout
+        .contains("トレーニング"));
+    assert_eq!(run(h, &["activity-label", "remove", "トレーニング"]).code, 0);
+    assert_eq!(run(h, &["activity-label", "remove", "トレーニング"]).code, 3);
+}
+
+#[test]
 fn task_lifecycle_with_json_and_exit_codes() {
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();

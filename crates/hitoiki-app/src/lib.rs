@@ -6,6 +6,7 @@ pub mod commands;
 pub mod dto;
 pub mod error;
 pub mod events;
+pub mod manage;
 pub mod notify;
 pub mod quick;
 pub mod runtime;
@@ -160,6 +161,32 @@ pub fn run() {
             commands::skill_list,
             commands::skill_add,
             commands::skill_import_preset,
+            manage::okr_edit_objective,
+            manage::okr_delete_objective,
+            manage::okr_edit_kr,
+            manage::okr_delete_kr,
+            manage::skill_edit,
+            manage::skill_delete,
+            manage::rule_edit,
+            manage::rule_delete,
+            manage::activity_rule_list,
+            manage::activity_rule_add,
+            manage::activity_rule_edit,
+            manage::activity_rule_delete,
+            manage::checkin_edit,
+            manage::checkin_delete,
+            manage::hassle_edit,
+            manage::hassle_delete,
+            manage::abc_edit,
+            manage::abc_delete,
+            manage::calendar_source_list,
+            manage::calendar_source_add,
+            manage::calendar_source_edit,
+            manage::calendar_source_delete,
+            manage::activity_label_list,
+            manage::activity_label_add,
+            manage::activity_label_rename,
+            manage::activity_label_remove,
             commands::report,
             commands::config_all,
             commands::config_get,

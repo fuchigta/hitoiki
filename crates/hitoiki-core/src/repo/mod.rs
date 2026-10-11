@@ -5,6 +5,7 @@ pub mod block_template;
 pub mod calendar;
 pub mod collect;
 pub mod correction;
+pub mod edit;
 pub mod okr;
 pub mod overrides;
 pub mod plan;
