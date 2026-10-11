@@ -43,6 +43,31 @@ jobs:
           $conf = (Get-Content crates/hitoiki-app/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ($conf -ne $ver) { throw "tauri.conf.json の version ($conf) がタグ ($ver) と一致しません" }
 
+      # GitHub Release の本文に使う CHANGELOG.md の該当バージョンの節を取り出す。
+      # 節が無い、または中身が空ならリリースを失敗させる（CHANGELOG の更新漏れを防ぐ）。
+      - name: Extract release notes from CHANGELOG
+        id: notes
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          $lines = Get-Content CHANGELOG.md -Encoding utf8
+          $heading = '## [' + $ver + ']'
+          $start = -1
+          for ($i = 0; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].StartsWith($heading)) { $start = $i; break }
+          }
+          if ($start -lt 0) { throw "CHANGELOG.md に '$heading' の節がありません" }
+          $body = New-Object System.Collections.Generic.List[string]
+          for ($i = $start + 1; $i -lt $lines.Count; $i++) {
+            if ($lines[$i].StartsWith('## [')) { break }
+            $body.Add($lines[$i])
+          }
+          $text = ($body -join "`n").Trim()
+          if (-not $text) { throw "CHANGELOG.md の '$heading' の節が空です" }
+          $path = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          [System.IO.File]::WriteAllText($path, $text + "`n", (New-Object System.Text.UTF8Encoding($false)))
+          "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       # ポータブル版（zip）用。CLI と常駐アプリを素のバイナリとしてビルドする。
       - name: Build CLI and app
         run: cargo build --release -p hitoiki-cli -p hitoiki-app
@@ -81,7 +106,9 @@ jobs:
           foreach ($exe in 'hitoiki.exe', 'hitoiki-app.exe') {
             Copy-Item "target/release/$exe" -Destination $staging -ErrorAction Stop
           }
-          Copy-Item "README.md", "LICENSE-MIT", "LICENSE-APACHE" -Destination $staging
+          # README のリンク先（docs/）が zip 内でも辿れるよう、文書も同梱する。
+          Copy-Item "README.md", "CHANGELOG.md", "LICENSE-MIT", "LICENSE-APACHE" -Destination $staging
+          Copy-Item "docs" -Destination $staging -Recurse
 
           $zip = "hitoiki-$ver-windows-x64.zip"
           Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zip -Force
@@ -90,6 +117,7 @@ jobs:
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          body_path: ${{ steps.notes.outputs.path }}
           files: |
             ${{ steps.pack.outputs.installer }}
             ${{ steps.pack.outputs.zip }}
