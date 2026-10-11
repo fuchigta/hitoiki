@@ -65,6 +65,26 @@ impl PushTrigger {
         }
     }
 
+    /// 画面・CLI に出す日本語の表示名。
+    pub fn label(&self) -> &'static str {
+        match self {
+            PushTrigger::DayStart => "始業",
+            PushTrigger::IdleReturn => "無操作からの復帰",
+            PushTrigger::DayEnd => "終業",
+            PushTrigger::Weekly => "週次の振り返り",
+            PushTrigger::AfterInterrupt => "割り込みのあと",
+            PushTrigger::MeetingOverrun => "会議の延長",
+            PushTrigger::SwitchSpike => "切り替えの増加",
+            PushTrigger::LongFocus => "長めの作業",
+            PushTrigger::LateWork => "遅い時間の作業",
+        }
+    }
+
+    /// `push_log.trigger` の文字列から表示名を引く（未知の値はそのまま返す）。
+    pub fn label_of(id: &str) -> String {
+        Self::parse(id).map_or_else(|| id.to_string(), |t| t.label().to_string())
+    }
+
     pub fn parse(s: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|t| t.as_str() == s)
     }

@@ -108,7 +108,8 @@ pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
 ///
 /// `action` の値: `energy` / `stress`（value は 1〜5）、`snooze_15` / `snooze_60` / `snooze_today`、
 /// `idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`（idle_return の分類。value は無し）、
-/// `open`（アプリを開いた）、`dismiss`（閉じただけ。応答とは数えない）。
+/// `open`（アプリを開いた）、`dismiss`（見送り。応答とは数えず `responded_at` を付けない。
+/// `response_json` には残るので未回答の一覧からは外れるが、応答率の算出では無応答のまま）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PushResponse {
     pub action: Option<String>,
@@ -133,8 +134,18 @@ fn check_scale(v: Option<i64>) -> Result<i64> {
     }
 }
 
+/// 通知のボタン以外で与える、チェックインの値（CLI の `push answer` など）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Scales {
+    pub energy: Option<i64>,
+    pub mood: Option<i64>,
+    pub stress: Option<i64>,
+}
+
 /// 応答を反映する。
 ///
+/// - 記録（checkin / hassle）の `at` は、応答時刻ではなく **通知の時刻**（`push_log.at`）にする。
+///   通知の時点の状態への答えなので、あとから答えても時系列がずれない。
 /// - push_log: `response_json` に応答を保存。`responded_at = now`（`dismiss` のみ設定しない）。
 /// - `energy` / `stress`: checkin を作成（`push_id` 付き）。
 /// - `text`（空白のみは無視）: hassle を作成（`push_id` 付き）。強度は `stress` の値、なければ 3。
@@ -148,11 +159,27 @@ pub fn apply_response(
     now: Millis,
     tz: Tz,
 ) -> Result<ResponseOutcome> {
+    apply_response_with(conn, push_id, response, Scales::default(), now, tz)
+}
+
+/// [`apply_response`] に、ボタン以外のチェックイン値（`scales`）を加えたもの。値は 1〜5。
+/// ボタン（`energy` / `stress`）と同じ項目が重なったときはボタンの値を優先する。
+pub fn apply_response_with(
+    conn: &Connection,
+    push_id: &str,
+    response: PushResponse,
+    scales: Scales,
+    now: Millis,
+    tz: Tz,
+) -> Result<ResponseOutcome> {
     let log = get_log(conn, push_id)?;
     let action = response.action.as_deref();
     let mut out = ResponseOutcome::default();
+    let opt_scale = |v: Option<i64>| v.map(|v| check_scale(Some(v))).transpose();
 
-    let (mut energy, mut stress) = (None, None);
+    let mut energy = opt_scale(scales.energy)?;
+    let mood = opt_scale(scales.mood)?;
+    let mut stress = opt_scale(scales.stress)?;
     match action {
         Some("energy") => energy = Some(check_scale(response.value)?),
         Some("stress") => stress = Some(check_scale(response.value)?),
@@ -173,11 +200,11 @@ pub fn apply_response(
         Some(other) => return Err(Error::InvalidArgument(format!("不明な応答アクション: {other}"))),
     }
 
-    if energy.is_some() || stress.is_some() {
+    if energy.is_some() || mood.is_some() || stress.is_some() {
         let id = new_id();
         conn.execute(
-            "INSERT INTO checkin (id, at, energy, stress, push_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, now, energy, stress, push_id],
+            "INSERT INTO checkin (id, at, energy, mood, stress, push_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, log.at, energy, mood, stress, push_id],
         )?;
         out.checkin_id = Some(id);
     }
@@ -185,17 +212,27 @@ pub fn apply_response(
         let id = new_id();
         let intensity = match response.value {
             Some(v) if action == Some("stress") && (1..=5).contains(&v) => v,
-            _ => 3,
+            _ => stress.unwrap_or(3),
         };
         conn.execute(
             "INSERT INTO hassle (id, at, text, intensity, push_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, now, text, intensity, push_id],
+            params![id, log.at, text, intensity, push_id],
         )?;
         out.hassle_id = Some(id);
     }
 
     let responded = (action != Some("dismiss")).then_some(now);
-    let json = serde_json::to_string(&response).map_err(anyhow::Error::from)?;
+    let mut json = serde_json::to_value(&response).map_err(anyhow::Error::from)?;
+    for (k, v) in [
+        ("energy", scales.energy),
+        ("mood", scales.mood),
+        ("stress", scales.stress),
+    ] {
+        if let (Some(v), Some(o)) = (v, json.as_object_mut()) {
+            o.insert(k.into(), v.into());
+        }
+    }
+    let json = json.to_string();
     conn.execute(
         "UPDATE push_log SET responded_at = ?2, response_json = ?3, snoozed_until = COALESCE(?4, snoozed_until) WHERE id = ?1",
         params![log.id, responded, json, out.snoozed_until],

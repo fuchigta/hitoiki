@@ -211,11 +211,21 @@ export interface TodaySummary {
   top_tasks: ReportRow[];
 }
 
+export type PushState = "unanswered" | "answered" | "dismissed";
+
+/** 配信された通知（`status` の未回答と `push list`）。 */
 export interface PushView {
   id: string;
   at: Millis;
+  at_local: string;
   trigger: string;
-  payload: unknown;
+  /** トリガーの日本語表示名（始業など）。 */
+  trigger_label: string;
+  title: string;
+  body: string;
+  state: PushState;
+  /** 通知の中身（ボタン・入力欄・対象期間）。読み取れなければ null。 */
+  payload: PushPayload | null;
 }
 
 export interface Status {

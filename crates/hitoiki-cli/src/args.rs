@@ -63,6 +63,9 @@ pub enum Cmd {
     /// タイムブロッキング
     #[command(subcommand)]
     Block(BlockCmd),
+    /// 通知（プッシュ）の一覧と、あとからの回答・見送り
+    #[command(subcommand)]
+    Push(PushCmd),
     /// コンディションの記録
     Check {
         /// エネルギー 1-5
@@ -274,6 +277,41 @@ pub enum RuleCmd {
     },
     List {
         id: Option<String>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PushCmd {
+    /// 配信された通知の一覧（既定は今日。答えたもの・見送ったものも含む）
+    List {
+        #[command(flatten)]
+        range: RangeOpts,
+        /// 未回答のものだけ
+        #[arg(long)]
+        unanswered: bool,
+    },
+    /// 通知に答える（または --dismiss で見送る）。記録の時刻は通知の時刻になる
+    Answer {
+        /// 通知の ID（前方一致）
+        id: String,
+        /// エネルギー 1-5
+        #[arg(short = 'e', long)]
+        energy: Option<i64>,
+        /// 気分 1-5
+        #[arg(short = 'm', long)]
+        mood: Option<i64>,
+        /// ストレス 1-5
+        #[arg(short = 's', long)]
+        stress: Option<i64>,
+        /// 一言（デイリーハッスルとして保存）
+        #[arg(long)]
+        hassle: Option<String>,
+        /// 無操作の分類: break / meeting / thinking / away（無操作からの復帰の通知のみ）
+        #[arg(long)]
+        idle: Option<String>,
+        /// 答えない（見送り）。一覧からは消えるが、応答率では無応答として数える
+        #[arg(long)]
+        dismiss: bool,
     },
 }
 

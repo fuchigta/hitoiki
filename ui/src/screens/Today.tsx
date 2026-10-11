@@ -15,6 +15,8 @@ import {
   visibleWindow,
   type TimeSpan,
 } from "../plan-util";
+import { PushAnswer } from "../push-answer";
+import { periodLabel } from "../push-answer-util";
 import { ApplyTemplate, SaveAsTemplate } from "../templates";
 import { suggestionText, weekdayOf } from "../template-util";
 
@@ -445,14 +447,19 @@ export function Today() {
 
       {s && s.unanswered_pushes.length > 0 && (
         <Card title="未回答の問いかけ">
-          <ul class="plain">
+          <ul class="plain push-list">
             {s.unanswered_pushes.map((p) => (
               <li key={p.id}>
-                {fmtTime(p.at)} <span class="muted">{p.trigger}</span>
+                <div>
+                  {fmtTime(p.at)} <span class="muted">{p.trigger_label}</span> <strong>{p.title}</strong>
+                </div>
+                {p.body && <p class="muted">{p.body}</p>}
+                {periodLabel(p.payload, fmtTime) && <p class="muted">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
+                {p.payload && <PushAnswer pushId={p.id} payload={p.payload} onDone={st.reload} />}
               </li>
             ))}
           </ul>
-          <p class="muted">答えなくても大丈夫です。</p>
+          <p class="muted">答えなくても大丈夫です。「答えない」で一覧から外せます。</p>
         </Card>
       )}
     </div>

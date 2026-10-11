@@ -93,7 +93,11 @@ pub fn init() {
 /// トースト通知を出す。ボタン押下は `runtime::handle_activation` に渡る。
 pub fn show_push(app: &AppHandle, push_id: Option<&str>, payload: &PushPayload) -> Result<(), String> {
     let handle = app.clone();
-    platform::show(push_id, payload, move |act| {
+    let persistent = hitoiki_core::config::Config::load()
+        .map(|c| c.push.toast_persistent)
+        .unwrap_or(true);
+    let scenario = toast_scenario(push_id, payload, persistent);
+    platform::show(push_id, payload, scenario, move |act| {
         runtime::handle_activation(&handle, act)
     })
 }
@@ -119,6 +123,14 @@ pub fn deliver(app: &AppHandle, push_id: &str, payload: &PushPayload) -> bool {
         }
     }
     true
+}
+
+/// トーストの `scenario` 属性。回答を求める通知（push_log に紐づき、ボタンか入力欄があるもの）は、
+/// `persistent` のとき `reminder`（操作するまで画面に残る）にする。更新のお知らせやテスト通知
+/// （push_log に紐づかない）、ボタンの無い通知は既定のまま（None）。
+/// なお `reminder` はボタンが 1 つ以上必要で、入力欄だけの通知にはここの [`toast_actions`] が送信ボタンを足す。
+pub fn toast_scenario(push_id: Option<&str>, p: &PushPayload, persistent: bool) -> Option<&'static str> {
+    (persistent && push_id.is_some() && !toast_actions(p).is_empty()).then_some("reminder")
 }
 
 /// トーストに出すボタンの一覧。入力欄だけの通知には送信ボタンを足す。
@@ -269,10 +281,11 @@ mod platform {
         a
     }
 
-    pub(super) fn build_xml(push_id: Option<&str>, p: &PushPayload) -> String {
+    pub(super) fn build_xml(push_id: Option<&str>, p: &PushPayload, scenario: Option<&str>) -> String {
         let open = p.open_screen.as_deref();
+        let scenario = scenario.map_or_else(String::new, |s| format!(" scenario=\"{}\"", esc(s)));
         let mut x = format!(
-            "<toast launch=\"{}\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\">             <text>{}</text><text>{}</text></binding></visual><actions>",
+            "<toast{scenario} launch=\"{}\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\">             <text>{}</text><text>{}</text></binding></visual><actions>",
             esc(&args(None, push_id, open)),
             esc(&p.title),
             esc(&p.body)
@@ -298,10 +311,11 @@ mod platform {
     pub fn show(
         push_id: Option<&str>,
         payload: &PushPayload,
+        scenario: Option<&str>,
         on_activated: impl Fn(Activation) + Send + Sync + 'static,
     ) -> Result<(), String> {
         let e = |e: windows::core::Error| e.to_string();
-        let xml = build_xml(push_id, payload);
+        let xml = build_xml(push_id, payload, scenario);
         let doc = XmlDocument::new().map_err(e)?;
         doc.LoadXml(&HSTRING::from(xml)).map_err(e)?;
         let toast = ToastNotification::CreateToastNotification(&doc).map_err(e)?;
@@ -400,8 +414,9 @@ mod platform {
         fn xmlにボタンと入力欄が入る() {
             let mut p = test_payload();
             p.title = "a<b".into();
-            let x = build_xml(Some("P1"), &p);
+            let x = build_xml(Some("P1"), &p, None);
             assert_eq!(x.matches("<action ").count(), 5);
+            assert!(!x.contains("scenario"));
             assert!(x.contains("<input id=\"note\""));
             assert!(x.contains("a&lt;b"));
             assert!(x.contains("action=energy&amp;value=3&amp;push=P1"));
@@ -415,11 +430,12 @@ mod platform {
                 id: "hassle".into(),
                 placeholder: "x".into(),
             });
-            let x = build_xml(Some("P1"), &p);
+            let x = build_xml(Some("P1"), &p, Some("reminder"));
             assert_eq!(x.matches("<action ").count(), 1);
+            assert!(x.starts_with("<toast scenario=\"reminder\" "));
             assert!(x.contains("action=text"));
             p.input = None;
-            assert_eq!(build_xml(None, &p).matches("<action ").count(), 0);
+            assert_eq!(build_xml(None, &p, None).matches("<action ").count(), 0);
         }
     }
 }
@@ -438,8 +454,31 @@ mod platform {
     pub fn show(
         _push_id: Option<&str>,
         _payload: &PushPayload,
+        _scenario: Option<&str>,
         _on_activated: impl Fn(Activation) + Send + Sync + 'static,
     ) -> Result<(), String> {
         Err("このプラットフォームではトースト通知に未対応です".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn 回答を求める通知だけ残り続ける() {
+        let ask = test_payload();
+        assert_eq!(toast_scenario(Some("P1"), &ask, true), Some("reminder"));
+        // 設定で切れる。
+        assert_eq!(toast_scenario(Some("P1"), &ask, false), None);
+        // 更新のお知らせ・テスト通知（push_log に紐づかない）は対象外。
+        assert_eq!(toast_scenario(None, &update_payload("1.0.0"), true), None);
+        assert_eq!(toast_scenario(None, &ask, true), None);
+        // 入力欄だけの通知は送信ボタンが付くので対象。ボタンも入力欄も無ければ対象外。
+        let mut only_input = ask.clone();
+        only_input.actions.clear();
+        assert_eq!(toast_scenario(Some("P1"), &only_input, true), Some("reminder"));
+        only_input.input = None;
+        assert_eq!(toast_scenario(Some("P1"), &only_input, true), None);
     }
 }

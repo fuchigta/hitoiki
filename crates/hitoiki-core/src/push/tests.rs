@@ -596,6 +596,21 @@ fn responsive_history_does_not_extend() {
 }
 
 #[test]
+fn dismissed_pushes_count_as_unresponded_for_backoff() {
+    // 「答えない」で見送った通知は応答とは数えず、無応答が続くときと同じく頻度を下げる。
+    let now = t(12, 20, 0);
+    let mut ctx = spike_ctx(now);
+    for i in 0..4 {
+        let mut l = log("long_focus", t(12, 9, 0) + i * 70 * MIN, true);
+        if i > 0 {
+            l.response_json = Some(r#"{"action":"dismiss","value":null,"text":null}"#.into());
+        }
+        ctx.push_log.push(l);
+    }
+    assert!(gate::interval_factor(&ctx) > 1.0);
+}
+
+#[test]
 fn only_one_deliver_per_evaluation() {
     let now = t(16, 17, 5);
     let mut ctx = PushContext::new(now, TZ);
@@ -704,7 +719,7 @@ fn apply_energy_creates_checkin() {
         .unwrap();
     assert_eq!(
         (energy, stress, push_id.as_str(), at),
-        (Some(4), None, id.as_str(), 5000)
+        (Some(4), None, id.as_str(), 1000)
     );
     let l = store::get_log(&conn, &id).unwrap();
     assert_eq!(l.responded_at, Some(5000));
