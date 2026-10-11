@@ -173,10 +173,32 @@ pub fn segments(tz: Tz, segs: &[SegmentView]) -> String {
 }
 
 pub fn review_list(tz: Tz, l: &ReviewList) -> String {
+    let hidden = if l.hidden_short > 0 {
+        format!(
+            "\n{}未満の短い区間が {} 件あります（--all で表示）",
+            short_threshold(l.min_sec),
+            l.hidden_short
+        )
+    } else {
+        String::new()
+    };
     if l.count == 0 {
-        return "要確認の区間はありません。".into();
+        return format!("要確認の区間はありません。{hidden}");
     }
-    format!("要確認の区間: {} 件\n{}", l.count, segments(tz, &l.segments))
+    format!(
+        "要確認の区間: {} 件\n{}{hidden}",
+        l.count,
+        segments(tz, &l.segments)
+    )
+}
+
+/// 「1分」「90秒」のように短い区間のしきい値を書く。
+fn short_threshold(sec: u64) -> String {
+    if sec >= 60 && sec.is_multiple_of(60) {
+        format!("{}分", sec / 60)
+    } else {
+        format!("{sec}秒")
+    }
 }
 
 fn rule_line(r: &CreatedRule) -> String {
@@ -331,7 +353,14 @@ pub fn status(tz: Tz, st: &Status) -> String {
             s += &format!("    {}  {}\n", dur(r.duration_ms), truncate(&r.label, 50));
         }
     }
-    s += &format!("\n要確認の区間: {} 件\n", st.needs_review_count);
+    s += &format!("\n要確認の区間: {} 件", st.needs_review_count);
+    if st.needs_review_short_count > 0 {
+        s += &format!(
+            "（ほかに短い区間 {} 件は仕分けで既定非表示）",
+            st.needs_review_short_count
+        );
+    }
+    s += "\n";
     if st.unanswered_pushes.is_empty() {
         s += "未応答のプッシュ: なし";
     } else {

@@ -40,7 +40,7 @@ export const api = {
 
   // 区間・仕分け
   log: (range?: T.RangeArgs, raw = false) => call<T.Log>("log", { range, raw }),
-  reviewList: (range?: T.RangeArgs) => call<T.ReviewList>("review_list", { range }),
+  reviewList: (range?: T.RangeArgs, all = false) => call<T.ReviewList>("review_list", { range, all }),
   reviewSet: (input: T.ReviewSetInput) => call<T.ReviewSetResult>("review_set", { input }),
 
   // 計画

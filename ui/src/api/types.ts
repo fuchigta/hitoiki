@@ -181,6 +181,7 @@ export interface Status {
   recent_segments: SegmentView[];
   today: TodaySummary;
   needs_review_count: number;
+  needs_review_short_count: number;
   unanswered_pushes: PushView[];
 }
 
@@ -194,6 +195,9 @@ export interface ReviewList {
   range: RangeView;
   count: number;
   segments: SegmentView[];
+  /** `review.min_sec` 未満のため隠した件数（全件表示のときは 0）。 */
+  hidden_short: number;
+  min_sec: number;
 }
 
 export interface ReviewSetInput {

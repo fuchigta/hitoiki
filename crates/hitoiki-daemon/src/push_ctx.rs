@@ -73,12 +73,17 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
 }
 
 /// DB から評価に必要な行を読む。
-pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz) -> Result<PushSnapshot> {
+/// `review_min_sec` 未満の短い要確認区間は `needs_review_count` に含めない（仕分け一覧の既定表示と同じ数え方）。
+pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64) -> Result<PushSnapshot> {
     let today = day_range(tz, local_date_of(tz, now));
     // 「当日分」かつ少なくとも直近 3 時間。
     let seg_range = Range::new(today.start.min(now - 3 * HOUR_MS), now + 1);
     let segments = segment::list(conn, seg_range)?;
-    let needs_review_count = segment::list_by_status(conn, today, SegmentStatus::NeedsReview)?.len() as u32;
+    let review_min_ms = review_min_sec as i64 * 1000;
+    let needs_review_count = segment::list_by_status(conn, today, SegmentStatus::NeedsReview)?
+        .iter()
+        .filter(|s| s.end_at - s.start_at >= review_min_ms)
+        .count() as u32;
     let week = week_range(tz, local_date_of(tz, now));
     Ok(PushSnapshot {
         segments,
@@ -103,7 +108,7 @@ pub fn push_tick(
         return Ok(vec![]);
     }
     let tz = cfg.tz()?;
-    let ctx = build_context(load_snapshot(conn, now, tz)?, cfg, now, tz);
+    let ctx = build_context(load_snapshot(conn, now, tz, cfg.review.min_sec)?, cfg, now, tz);
     let decisions = evaluate(&ctx, &cfg.push);
     for d in &decisions {
         let id = store::record_decision(conn, d, now)?;

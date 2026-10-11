@@ -115,9 +115,9 @@ pub fn log(state: S, range: Option<RangeArgs>, raw: Option<bool>) -> AppResult<L
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_list(state: S, range: Option<RangeArgs>) -> AppResult<ReviewList> {
+pub fn review_list(state: S, range: Option<RangeArgs>, all: Option<bool>) -> AppResult<ReviewList> {
     let args = range.unwrap_or_default();
-    state.with_ctx(|c| review::list(c, &args))
+    state.with_ctx(|c| review::list_with(c, &args, all.unwrap_or(false)))
 }
 
 #[tauri::command(rename_all = "snake_case")]

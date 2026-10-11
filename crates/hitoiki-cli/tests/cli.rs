@@ -522,3 +522,54 @@ fn agent_import_and_sessions() {
     let o = run_full(&h, &["agent", "sessions", "--date", "2020-01-01"], None, &envs);
     assert!(o.stdout.contains("セッションはありません"));
 }
+
+#[test]
+fn review_list_hides_short_segments_unless_all() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    insert_segment(
+        h,
+        "LONGSEG",
+        "2026-01-05 10:00",
+        "2026-01-05 10:05",
+        "work",
+        None,
+        "needs_review",
+    );
+    insert_segment(
+        h,
+        "SHORTSEG",
+        "2026-01-05 10:05",
+        "2026-01-05 10:05:30",
+        "work",
+        None,
+        "needs_review",
+    );
+
+    // 既定: 短い区間は隠し、件数を示す
+    let v = run(h, &["--json", "review", "list", "--date", "2026-01-05"]);
+    assert_eq!(v.code, 0, "{}", v.stderr);
+    let j = v.json();
+    assert_eq!(j["count"], 1);
+    assert_eq!(j["hidden_short"], 1);
+    assert_eq!(j["min_sec"], 60);
+    assert_eq!(j["version"], 1);
+    let human = run(h, &["review", "list", "--date", "2026-01-05"]);
+    assert!(
+        human
+            .stdout
+            .contains("1分未満の短い区間が 1 件あります（--all で表示）"),
+        "{}",
+        human.stdout
+    );
+
+    // --all: 全件、隠した件数は 0
+    let j = run(h, &["--json", "review", "list", "--date", "2026-01-05", "--all"]).json();
+    assert_eq!(j["count"], 2);
+    assert_eq!(j["hidden_short"], 0);
+
+    // status の件数は既定の一覧と同じ数え方（短い区間は別に数える）
+    let st = run(h, &["--json", "status"]).json();
+    assert_eq!(st["needs_review_count"], 1);
+    assert_eq!(st["needs_review_short_count"], 1);
+}

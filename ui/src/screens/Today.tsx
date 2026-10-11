@@ -56,6 +56,7 @@ export function Today() {
               ) : (
                 "仕分けが必要な区間はありません。"
               )}
+              {s.needs_review_short_count > 0 && ` 短い区間 ${s.needs_review_short_count} 件は仕分けで表示できます。`}
             </p>
           </Card>
         </div>

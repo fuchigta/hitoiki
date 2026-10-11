@@ -5,6 +5,7 @@ use super::{doing_at, JudgeAnswer, PipelineInput, SegmentJudge};
 use crate::id::new_id;
 use crate::model::*;
 use crate::rules::{ActivityRuleSet, MatchTarget, TaskRuleSet};
+use std::collections::HashMap;
 
 /// ユーザー確定（override）。最優先で、確定状態にする。None の項目は元の値を保つ。
 pub(crate) fn apply_overrides(input: &PipelineInput, pieces: &mut Vec<Piece>) {
@@ -81,11 +82,17 @@ fn to_segment(p: &Piece) -> ActivitySegment {
 }
 
 /// ルールで task が決まらなかった作業区間を判定器に問い合わせる。
-pub(crate) fn apply_judge(pieces: &mut [Piece], judge: &dyn SegmentJudge) {
+pub(crate) fn apply_judge(pieces: &mut [Piece], judge: &dyn SegmentJudge, absorb: &HashMap<usize, usize>) {
     let idx: Vec<usize> = pieces
         .iter()
         .enumerate()
-        .filter(|(_, p)| p.kind == SegmentKind::Work && !p.fixed && p.task_id.is_none() && p.win.is_some())
+        .filter(|(i, p)| {
+            p.kind == SegmentKind::Work
+                && !p.fixed
+                && p.task_id.is_none()
+                && p.win.is_some()
+                && !absorb.contains_key(i)
+        })
         .map(|(i, _)| i)
         .collect();
     if idx.is_empty() {

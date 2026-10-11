@@ -136,8 +136,8 @@ fn run(cli: Cli) -> Result<()> {
             emit(json, &l, || render::log(tz, &l))
         }
         Cmd::Review(r) => match r {
-            ReviewCmd::List { range } => {
-                let l = review::list(&ctx, &range_args(&range))?;
+            ReviewCmd::List { range, all } => {
+                let l = review::list_with(&ctx, &range_args(&range), all)?;
                 emit(json, &l, || render::review_list(tz, &l))
             }
             ReviewCmd::Set {

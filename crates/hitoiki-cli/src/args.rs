@@ -253,10 +253,13 @@ pub enum RuleCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum ReviewCmd {
-    /// needs_review の区間
+    /// needs_review の区間（既定では短い区間を隠す）
     List {
         #[command(flatten)]
         range: RangeOpts,
+        /// `review.min_sec` 未満の短い区間も含めて全件表示する
+        #[arg(long)]
+        all: bool,
     },
     /// 区間を確定する
     Set {
