@@ -14,7 +14,7 @@ pub mod window;
 
 use state::AppState;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
-use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_autostart::ManagerExt;
 
 /// 引数から `--name value` の値を取る。
 pub fn arg_value(args: &[String], name: &str) -> Option<String> {
@@ -60,10 +60,14 @@ pub fn run() {
                 None => window::show_main(app),
             },
         ))
-        .plugin(tauri_plugin_autostart::init(
-            MacosLauncher::LaunchAgent,
-            Some(vec!["--background"]),
-        ))
+        // 自動起動エントリ名は製品名（インストーラーの都合で変わりうる）に依存させず "Hitoiki" に固定する。
+        // インストーラーのフック（windows/hitoiki-path.ps1）もこの名前の Run 値を削除する。
+        .plugin(
+            tauri_plugin_autostart::Builder::new()
+                .app_name("Hitoiki")
+                .arg("--background")
+                .build(),
+        )
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::status,

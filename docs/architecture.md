@@ -308,7 +308,14 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 ## 13. 配布とライセンス
 
-- GitHub Releases に `hitoiki-<ver>-windows-x64.zip`（`hitoiki.exe`、`hitoiki-app.exe`）を添付する。コード署名は無く、README に「ブロックの解除」の手順を載せる。
+- GitHub Releases に次の 2 つを添付する（`.github/workflows/release.yml`）。コード署名は無い。
+  - `hitoiki-<ver>-windows-x64-setup.exe`（推奨。Tauri の NSIS インストーラー。MSI は作らない）
+  - `hitoiki-<ver>-windows-x64.zip`（ポータブル版。`hitoiki.exe`、`hitoiki-app.exe`。展開のみで動作する）
+- インストーラーの仕様（`crates/hitoiki-app/tauri.conf.json`、`tauri.bundle.conf.json`、`windows/`）:
+  - `installMode: currentUser`（管理者権限不要）。既定のインストール先は `%LOCALAPPDATA%\HitoikiApp`。データ用の `%LOCALAPPDATA%\hitoiki` と大文字小文字を除いて同名にならないよう、製品名（`productName`）を `HitoikiApp` にしている。実行ファイル名は `mainBinaryName` で `hitoiki-app.exe` に固定する（収集器の自己除外が exe 名で判定するため）。
+  - CLI は `externalBin`（サイドカー）で同梱し、インストール先に `hitoiki.exe` として `hitoiki-app.exe` と並べる（CLI の `ui` と daemon が同じフォルダの `hitoiki-app.exe` を探すため）。`externalBin` はビルド時にファイルの存在を検査されるので、bundle 専用の `tauri.bundle.conf.json` に分けて `tauri build --config` で合成する。
+  - NSIS フック（`windows/hooks.nsh`）が PowerShell（`windows/hitoiki-path.ps1`）を呼び、インストール先をユーザー PATH（HKCU）へ重複なしで追加し、アンインストールで除去する。`REG_EXPAND_SZ` を保つためレジストリを展開なしで読み書きし、変更後に `WM_SETTINGCHANGE` を通知する。自動起動の Run エントリ（値名 `Hitoiki`、`lib.rs` で固定）もアンインストール時（更新を除く）に削除する。
+  - アンインストールでユーザーデータ（`%APPDATA%\hitoiki`、`%LOCALAPPDATA%\hitoiki`）は消さない。標準の「アプリデータを削除」は `dev.hitoiki.app` フォルダのみが対象。
 - ライセンスは MIT OR Apache-2.0 のデュアル。依存クレートのライセンスは `cargo deny check`（`deny.toml`、CI でも実行）で検査し、permissive 以外を拒否する。
 - 自動更新は無い。ネットワークを使うのは `hitoiki version --check` の実行時のみ。
 - テストは `cargo test --workspace`。時刻は `Clock` トレイト経由で取得し、パイプライン・プッシュ判定は時刻を引数で受けるので決定的にテストできる。

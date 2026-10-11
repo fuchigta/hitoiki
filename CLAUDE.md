@@ -34,3 +34,10 @@
 - テスト: `cargo test --workspace`
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings`
 - フォーマット: `cargo fmt --all`
+
+## インストーラー（NSIS）のビルド
+
+- `ui` をビルド → `cargo build --release -p hitoiki-cli` → `target/release/hitoiki.exe` を `crates/hitoiki-app/binaries/hitoiki-x86_64-pc-windows-msvc.exe` にコピー → `cd crates/hitoiki-app && ../../ui/node_modules/.bin/tauri build --bundles nsis --config tauri.bundle.conf.json`（生成物は `target/release/bundle/nsis/`）。
+- `externalBin` は `tauri.bundle.conf.json` にだけ書く（`tauri.conf.json` に書くと、サイドカー未配置の `cargo build` / `cargo test` が失敗する）。
+- 製品名（`productName`）は `HitoikiApp`。`Hitoiki` にすると既定のインストール先が `%LOCALAPPDATA%\hitoiki`（データ置き場）と衝突する。
+- 自動起動エントリ名は `lib.rs` で `Hitoiki` に固定している。インストーラーのフックもこの名前を削除する。

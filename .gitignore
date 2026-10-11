@@ -6,3 +6,4 @@ node_modules/
 *.db-shm
 /.claude/worktrees/
 /crates/hitoiki-app/gen/
+/crates/hitoiki-app/binaries/
