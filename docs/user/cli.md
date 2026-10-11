@@ -48,10 +48,30 @@
 |---|---|
 | `hitoiki block add <START> <END> [--task T] [--label L] [--focus]` | 計画ブロックを追加（`--focus` は集中ブロック） |
 | `hitoiki block list [--date D] [--from F] [--to T]` | 計画ブロックの一覧 |
+| `hitoiki block edit <ID> [--start S] [--end E] [--task T] [--label L] [--focus \| --no-focus]` | 計画ブロックを編集（指定した項目だけ変える） |
+| `hitoiki block delete <ID>` | 計画ブロックを削除 |
+| `hitoiki block template add <NAME> [--description D] [--weekdays W] [--block SPEC]...` | ブロックのテンプレートを作る（下記） |
+| `hitoiki block template list` / `show <NAME>` | テンプレートの一覧 / 中身 |
+| `hitoiki block template edit <NAME> [--new-name N] [--description D] [--weekdays W] [--block SPEC]...` | 指定した項目だけ変える。`--block` を付けるとブロックを置き換える。`--weekdays ""` で曜日の割り当てを外す |
+| `hitoiki block template delete <NAME>` | テンプレートを削除（作成済みのブロックは消えない） |
+| `hitoiki block template apply <NAME> [--date D] [--overlap skip\|overlay] [--dry-run]` | 指定日（既定は今日）にテンプレートを適用してブロックを作る |
+| `hitoiki block template undo [--date D]` | 直前の適用で作ったブロックを削除 |
+| `hitoiki block template save-from --name N [--date D] [--description D] [--weekdays W]` | 指定日のブロックからテンプレートを作る |
+| `hitoiki block template suggest [--date D]` | 指定日の曜日に割り当てたテンプレート |
 | `hitoiki check [-e 1-5] [-m 1-5] [-s 1-5] [--erg TAG] [--note TEXT]` | コンディション（エネルギー・気分・ストレス）の記録 |
 | `hitoiki hassle <TEXT> [-i 1-5]` | デイリーハッスルの記録（強度の既定は 3） |
 | `hitoiki abc add [--a A] [--b B] [--c-emotion E] [--c-intensity 1-5] [--from-hassle ID]` | ABC 理論の記録 |
 | `hitoiki abc dispute <ID>` | AI で受け止め方を掘り下げる問いを生成 |
+
+#### ブロックのテンプレート
+
+`<NAME>` はテンプレートの名前、または ID の前方一致です。
+
+- **`--block SPEC`**: `HH:MM-HH:MM[,focus][,task=ID][,label=ラベル]`（例: `14:00-15:00,focus,label=内省`）。時刻はローカル時刻で、終了は `24:00` も指定できます。`label=` は最後に書きます（ラベルの中のカンマはそのまま入ります）。タスクかラベルのどちらかが必要です。
+- **`--weekdays W`**: `mon,wed` / `月,水` / `1,3`（1=月 … 7=日）のカンマ区切り。
+- **`apply`**: 既存のブロックや、busy なカレンダー予定と重なる項目は、既定（`--overlap skip`）では作らずにスキップします。`--overlap overlay` なら重ねて作ります。`--dry-run` は何も作らず、作られる内容と重なりを表示します。夏時間で存在しない時刻は、存在する最初の時刻まで進めます。
+- **`undo`**: 取り消していない直近の適用で作ったブロックだけを削除します（手で足したブロックや、すでに消したブロックは対象外）。
+- `--json` では、`list` が `templates`、`apply` が `created` / `skipped`（`skipped` は重なりを `conflicts` に持つ）、`apply --dry-run` が `blocks`、`undo` が `removed` を返します。
 
 ### OKR・スキル
 

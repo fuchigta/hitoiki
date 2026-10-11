@@ -573,3 +573,232 @@ fn review_list_hides_short_segments_unless_all() {
     assert_eq!(st["needs_review_count"], 1);
     assert_eq!(st["needs_review_short_count"], 1);
 }
+
+#[test]
+fn block_edit_delete_and_template_flow() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    assert_eq!(
+        run(h, &["config", "set", "general.timezone", "Asia/Tokyo"]).code,
+        0
+    );
+
+    // block edit / delete
+    let b = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "add",
+            "2026-10-14 09:00",
+            "2026-10-14 10:00",
+            "--label",
+            "a",
+        ],
+    );
+    assert_eq!(b.code, 0, "{}", b.stderr);
+    let id = b.json()["id"].as_str().unwrap().to_string();
+    let e = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "edit",
+            &id[..8],
+            "--end",
+            "2026-10-14 11:00",
+            "--focus",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(e.json()["focus"], true);
+    assert_eq!(e.json()["label"], "a");
+    assert_eq!(
+        e.json()["end_at"].as_i64().unwrap() - e.json()["start_at"].as_i64().unwrap(),
+        7_200_000
+    );
+    assert_eq!(run(h, &["block", "delete", &id]).code, 0);
+    assert_eq!(run(h, &["block", "delete", &id]).code, 3);
+
+    // 空のとき
+    let l = run(h, &["--json", "block", "template", "list"]);
+    assert_eq!(l.json()["templates"].as_array().unwrap().len(), 0);
+
+    // add / show
+    let a = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "template",
+            "add",
+            "水曜",
+            "--weekdays",
+            "wed",
+            "--description",
+            "定例の日",
+            "--block",
+            "10:00-11:00,label=定例",
+            "--block",
+            "14:00-15:00,focus,label=集中",
+        ],
+    );
+    assert_eq!(a.code, 0, "{}", a.stderr);
+    assert_eq!(a.json()["blocks"].as_array().unwrap().len(), 2);
+    assert_eq!(a.json()["weekdays"][0], 3);
+    // 引数エラー: 終了コード 2
+    assert_eq!(
+        run(
+            h,
+            &["block", "template", "add", "x", "--block", "11:00-10:00,label=a"]
+        )
+        .code,
+        2
+    );
+    assert_eq!(run(h, &["block", "template", "add", "水曜"]).code, 2);
+    assert_eq!(run(h, &["block", "template", "show", "ない"]).code, 3);
+    let s = run(h, &["block", "template", "show", "水曜"]);
+    assert!(s.stdout.contains("10:00-11:00 定例"), "{}", s.stdout);
+
+    // suggest（2026-10-14 は水曜）
+    let g = run(
+        h,
+        &["--json", "block", "template", "suggest", "--date", "2026-10-14"],
+    );
+    assert_eq!(g.json()["templates"][0]["name"], "水曜");
+    assert_eq!(g.json()["weekday"], 3);
+
+    // apply --dry-run は何も作らない
+    let d = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "template",
+            "apply",
+            "水曜",
+            "--date",
+            "2026-10-14",
+            "--dry-run",
+        ],
+    );
+    assert_eq!(d.json()["blocks"].as_array().unwrap().len(), 2);
+    let l = run(h, &["--json", "block", "list", "--date", "2026-10-14"]);
+    assert_eq!(l.json()["blocks"].as_array().unwrap().len(), 0);
+
+    // apply: 10:00 JST = 01:00 UTC
+    let r = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "template",
+            "apply",
+            "水曜",
+            "--date",
+            "2026-10-14",
+        ],
+    );
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    assert_eq!(r.json()["created"].as_array().unwrap().len(), 2);
+    assert_eq!(r.json()["created"][0]["start_at"], ms("2026-10-14 10:00"));
+    // 2 回目は重なるのでスキップ
+    let r2 = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "template",
+            "apply",
+            "水曜",
+            "--date",
+            "2026-10-14",
+        ],
+    );
+    assert_eq!(r2.json()["created"].as_array().unwrap().len(), 0);
+    assert_eq!(r2.json()["skipped"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        run(h, &["block", "template", "apply", "水曜", "--overlap", "bogus"]).code,
+        2
+    );
+    // 直前の適用（2 回目、作成 0 件）を取り消しても 1 回目のブロックは残る
+    let u = run(h, &["--json", "block", "template", "undo"]);
+    assert_eq!(u.json()["removed"], 0);
+    let u = run(
+        h,
+        &["--json", "block", "template", "undo", "--date", "2026-10-14"],
+    );
+    assert_eq!(u.json()["removed"], 2);
+    assert_eq!(run(h, &["block", "template", "undo"]).code, 3);
+
+    // save-from
+    assert_eq!(
+        run(h, &["block", "template", "apply", "水曜", "--date", "2026-10-15"]).code,
+        0
+    );
+    let sf = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "template",
+            "save-from",
+            "--date",
+            "2026-10-15",
+            "--name",
+            "コピー",
+            "--weekdays",
+            "thu",
+        ],
+    );
+    assert_eq!(sf.code, 0, "{}", sf.stderr);
+    assert_eq!(sf.json()["blocks"][1]["start"], "14:00");
+    assert_eq!(sf.json()["blocks"][1]["focus"], true);
+    assert_eq!(
+        run(
+            h,
+            &[
+                "block",
+                "template",
+                "save-from",
+                "--date",
+                "2026-10-20",
+                "--name",
+                "空"
+            ]
+        )
+        .code,
+        2
+    );
+
+    // edit（名前変更・曜日の解除・ブロック置き換え）/ delete
+    let ed = run(
+        h,
+        &[
+            "--json",
+            "block",
+            "template",
+            "edit",
+            "コピー",
+            "--new-name",
+            "朝型",
+            "--weekdays",
+            "",
+            "--block",
+            "07:00-08:00,label=読書",
+        ],
+    );
+    assert_eq!(ed.code, 0, "{}", ed.stderr);
+    assert_eq!(ed.json()["name"], "朝型");
+    assert_eq!(ed.json()["weekdays"].as_array().unwrap().len(), 0);
+    assert_eq!(ed.json()["blocks"].as_array().unwrap().len(), 1);
+    assert_eq!(run(h, &["block", "template", "delete", "朝型"]).code, 0);
+    assert_eq!(run(h, &["block", "template", "delete", "朝型"]).code, 3);
+    assert_eq!(
+        run(h, &["--json", "block", "template", "list"]).json()["templates"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+}
