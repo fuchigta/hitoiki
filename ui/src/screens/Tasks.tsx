@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, type MatchField, type PatternType, type TaskStatus, type TaskView } from "../api";
+import { api, type MatchField, type PatternType, type TaskDeletePreview, type TaskStatus, type TaskView } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
 import { defaultBodyMode, isDirty, isSaveShortcut, leaveGuard, parseEstimate, parseSkills, type TaskDraft } from "../edit-util";
 import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
@@ -71,7 +71,15 @@ export function Tasks() {
       </div>
       <div>
         {selected ? (
-          <TaskDetail key={selected} id={selected} onChanged={list.reload} />
+          <TaskDetail
+            key={selected}
+            id={selected}
+            onChanged={list.reload}
+            onDeleted={() => {
+              setSelected(null);
+              list.reload();
+            }}
+          />
         ) : (
           <Empty>タスクを選ぶと詳細を編集できます。</Empty>
         )}
@@ -103,7 +111,7 @@ function NewTask({ onAdded }: { onAdded: () => void }) {
   );
 }
 
-function TaskDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
+function TaskDetail({ id, onChanged, onDeleted }: { id: string; onChanged: () => void; onDeleted: () => void }) {
   const show = useAsync(() => api.taskShow(id), [id]);
   const act = useAction();
   if (show.error) return <ErrorBox error={show.error} />;
@@ -160,8 +168,78 @@ function TaskDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
         show.reload();
         onChanged();
       }} />
+      <DeleteTask taskId={task.id} title={task.title} disabled={act.busy} onDeleted={onDeleted} />
       <ErrorBox error={act.error} />
     </Card>
+  );
+}
+
+/**
+ * 誤入力のタスクの削除。押すと影響（計上済みの時間・確定した割り当て・ルールなど）を見せる確認を出し、
+ * 「削除する」で実行する。確認はアプリ内のダイアログ（`window.confirm` は使わない）。
+ */
+function DeleteTask({
+  taskId,
+  title,
+  disabled,
+  onDeleted,
+}: {
+  taskId: string;
+  title: string;
+  disabled: boolean;
+  onDeleted: () => void;
+}) {
+  const [preview, setPreview] = useState<TaskDeletePreview | null>(null);
+  const act = useAction();
+  const ask = async () => {
+    const p = await act.run(() => api.taskDeletePreview(taskId));
+    if (p) setPreview(p);
+  };
+  const doDelete = async () => {
+    const r = await act.run(() => api.taskDelete(taskId));
+    if (r) {
+      setPreview(null);
+      onDeleted();
+    }
+  };
+  useEffect(() => {
+    if (!preview) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreview(null);
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [preview]);
+  return (
+    <div class="stack delete-task">
+      <div class="row">
+        <button type="button" class="ghost" disabled={disabled || act.busy} onClick={ask}>
+          削除
+        </button>
+        <span class="muted note">
+          やめる=記録として残す／削除=誤入力を消す（計上した時間は未割り当てに戻ります）
+        </span>
+      </div>
+      <ErrorBox error={act.error} />
+      {preview && (
+        <div class="modal-back">
+          <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-title">
+            <p id="delete-title">タスク「{title}」を削除しますか？</p>
+            <p class="muted">{preview.summary}</p>
+            <p class="muted">削除は元に戻せません。記録として残したいときは「やめる」を使ってください。</p>
+            <div class="row">
+              <span class="spacer" />
+              <button autoFocus disabled={act.busy} onClick={() => setPreview(null)}>
+                キャンセル
+              </button>
+              <button class="primary" disabled={act.busy} onClick={doDelete}>
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
