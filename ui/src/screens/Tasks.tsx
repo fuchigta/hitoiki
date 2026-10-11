@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type MatchField, type PatternType, type TaskStatus, type TaskView } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
 import { defaultBodyMode, isDirty, isSaveShortcut, leaveGuard, parseEstimate, parseSkills, type TaskDraft } from "../edit-util";
-import { STATUS_LABEL, fmtDur, useAction, useAsync, useLiveTick } from "../lib";
+import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
 import { Markdown } from "../markdown";
 
 /** 「保存しました」を出しておく時間。 */
@@ -156,8 +156,52 @@ function TaskDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
         ))}
       </ul>
       <RuleForm taskId={task.id} onAdded={show.reload} />
+      <Corrections taskId={task.id} onUndone={() => {
+        show.reload();
+        onChanged();
+      }} />
       <ErrorBox error={act.error} />
     </Card>
+  );
+}
+
+/** このタスクへ付け替えた時間帯（実績の補正）。取り消すと、その補正で作った確定を削除して再計算する。 */
+function Corrections({ taskId, onUndone }: { taskId: string; onUndone: () => void }) {
+  const tick = useLiveTick(["segments-updated"]);
+  const list = useAsync(() => api.correctionList({ task: taskId }), [taskId, tick]);
+  const act = useAction();
+  const items = list.data?.corrections ?? [];
+  const undo = async (id: string) => {
+    const r = await act.run(() => api.correctionUndo(id));
+    if (r) {
+      list.reload();
+      onUndone();
+    }
+  };
+  return (
+    <>
+      <h3>補正した時間帯</h3>
+      <ErrorBox error={list.error ?? act.error} />
+      {items.length === 0 ? (
+        <Empty>このタスクへ付け替えた時間帯はありません。今日画面の「実績」の列をドラッグすると付け替えられます。</Empty>
+      ) : (
+        <ul class="plain corr-done">
+          {items.map((c) => (
+            <li key={c.id}>
+              <span>
+                {fmtDateTime(c.start_at)}–{fmtTime(c.end_at)}
+              </span>{" "}
+              <strong>{fmtDur(c.total_ms)}</strong>
+              {c.offline_ms > 0 && <span class="tag">うち PC 外 {fmtDur(c.offline_ms)}</span>}
+              {c.activity_label && <span class="muted"> {c.activity_label}</span>}
+              <button type="button" class="ghost" disabled={act.busy} onClick={() => undo(c.id)}>
+                取り消す
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
   );
 }
 

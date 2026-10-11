@@ -2,6 +2,7 @@ import type { ComponentChildren, RefObject } from "preact";
 import { useRef, useState } from "preact/hooks";
 import type { BlockView, CalendarEvent, GapView, Millis, SegmentView } from "./api";
 import { KIND_LABEL, fmtTime } from "./lib";
+import { boundaryTimes, pickRange } from "./correct-util";
 import { clickRange, currentBlock, dragRange, moveRange, nowPercent, resizeRange, timeToPercent, type TimeSpan } from "./plan-util";
 
 const HOUR = 3_600_000;
@@ -11,6 +12,13 @@ export const HOUR_PX = 36;
 const CLICK_SLOP = 4;
 
 type DragMode = "create" | "move" | "start" | "end";
+
+/** 実績の列での範囲選択（補正）。 */
+interface ActualDrag {
+  pointerId: number;
+  y1: number;
+  y2: number;
+}
 
 interface Drag {
   mode: DragMode;
@@ -48,6 +56,12 @@ export interface DayGridProps {
   onDeleteBlock: (b: BlockView) => void;
   /** 計画の列の要素（外から座標を求めるため）。 */
   laneRef?: RefObject<HTMLDivElement>;
+  /** 「実績」の列で範囲を選んだ（ドラッグ。実績の補正を開く）。渡さなければ実績の列は選択できない。 */
+  onPickActual?: (span: TimeSpan) => void;
+  /** 実績の補正で選択中の範囲。 */
+  actualSelection?: TimeSpan | null;
+  /** 範囲の端を区間の境目へ吸着させる幅（ミリ秒、`review.snap_sec`）。 */
+  snapMs?: number;
   /** 選択範囲の位置に重ねて出す内容（ポップオーバー）。 */
   popover?: ComponentChildren;
   disabled?: boolean;
@@ -58,6 +72,8 @@ export function DayGrid(p: DayGridProps) {
   const innerRef = useRef<HTMLDivElement>(null);
   const laneRef = p.laneRef ?? innerRef;
   const [drag, setDrag] = useState<Drag | null>(null);
+  const actualRef = useRef<HTMLDivElement>(null);
+  const [adrag, setAdrag] = useState<ActualDrag | null>(null);
 
   const { view } = p;
   const hours = (view.end - view.start) / HOUR;
@@ -112,6 +128,36 @@ export function DayGrid(p: DayGridProps) {
       if (r.start !== d.block!.start_at || r.end !== d.block!.end_at) p.onChangeBlock(d.block!, r);
     }
   };
+
+  // 実績の列のドラッグ（補正する範囲の選択）。端は区間の境目に吸着する。
+  const boundaries = boundaryTimes([...p.segments, ...(p.gaps ?? [])]);
+  const actualHeight = () => actualRef.current?.clientHeight || height;
+  const actualY = (e: PointerEvent) => e.clientY - actualRef.current!.getBoundingClientRect().top;
+  const pickActual = (a: ActualDrag): TimeSpan | null =>
+    pickRange(a.y1, a.y2, actualHeight(), view.start, view.end, boundaries, p.snapMs ?? 0);
+  const actualHandlers: Handlers | undefined = p.onPickActual
+    ? {
+        onDown: (e) => {
+          if (e.button > 0 || !e.isPrimary) return;
+          actualRef.current!.setPointerCapture(e.pointerId);
+          const y = actualY(e);
+          setAdrag({ pointerId: e.pointerId, y1: y, y2: y });
+        },
+        onMove: (e) => {
+          if (adrag && e.pointerId === adrag.pointerId) setAdrag({ ...adrag, y2: actualY(e) });
+        },
+        onUp: (e) => {
+          if (!adrag || e.pointerId !== adrag.pointerId) return;
+          const d = { ...adrag, y2: actualY(e) };
+          setAdrag(null);
+          if (Math.abs(d.y2 - d.y1) < CLICK_SLOP) return;
+          const span = pickActual(d);
+          if (span) p.onPickActual?.(span);
+        },
+        onCancel: () => setAdrag(null),
+      }
+    : undefined;
+  const actualSel = adrag && Math.abs(adrag.y2 - adrag.y1) >= CLICK_SLOP ? pickActual(adrag) : (p.actualSelection ?? null);
 
   const liveSpan = drag && (drag.mode === "create" ? Math.abs(drag.y2 - drag.y1) >= CLICK_SLOP : true) ? live(drag) : null;
   const sel = drag?.mode === "create" ? liveSpan : (p.selection ?? null);
@@ -201,13 +247,13 @@ export function DayGrid(p: DayGridProps) {
         )}
         {now}
       </Lane>
-      <Lane name="実績">
+      <Lane name="実績" laneRef={actualRef} handlers={actualHandlers}>
         {p.segments.map((s) => (
           <div
             key={s.id}
-            class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}`}
+            class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}${s.offline ? " offline" : ""}`}
             style={pos(s.start_at, s.end_at)}
-            title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}`}
+            title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.offline ? "（PC 外）" : ""}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}`}
           />
         ))}
         {(p.gaps ?? []).map((g) => (
@@ -218,6 +264,11 @@ export function DayGrid(p: DayGridProps) {
             title={`${fmtTime(g.start_at)}–${fmtTime(g.end_at)} 記録なし（収集が止まっていた時間帯です）`}
           />
         ))}
+        {actualSel && (
+          <div class="vtl-sel" style={pos(actualSel.start, actualSel.end)}>
+            {fmtTime(actualSel.start)}–{fmtTime(actualSel.end)}
+          </div>
+        )}
         {now}
       </Lane>
       {p.popover && sel && (

@@ -30,6 +30,10 @@ interface Props {
   ghost?: TimeSpan | null;
   laneRef?: RefObject<HTMLDivElement>;
   clickLenMin?: number;
+  /** 「実績」の列で範囲を選んだ（実績の補正）。 */
+  onPickActual?: (span: TimeSpan) => void;
+  actualSelection?: TimeSpan | null;
+  snapMs?: number;
 }
 
 /**
@@ -120,6 +124,9 @@ export function DayDesigner(p: Props) {
         editingId={draft?.id ?? null}
         clickLenMin={p.clickLenMin ?? (p.armedTask?.estimate_min ?? 60)}
         laneRef={p.laneRef}
+        onPickActual={p.onPickActual}
+        actualSelection={p.actualSelection}
+        snapMs={p.snapMs}
         onSelect={create}
         onEditBlock={edit}
         onChangeBlock={change}

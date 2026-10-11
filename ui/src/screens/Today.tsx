@@ -3,6 +3,7 @@ import { api } from "../api";
 import type { CalendarEvent, TaskView } from "../api";
 import { blockTitle } from "../block-form";
 import { Bars, Card, Empty, ErrorBox } from "../components";
+import { CorrectionPanel } from "../correction";
 import { DayDesigner } from "../day-designer";
 import { showStartGuide } from "../onboarding-util";
 import { KIND_LABEL, dateInput, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
@@ -81,6 +82,18 @@ export function Today() {
     ]);
     return !dismissed && !(Array.isArray(src.value) && src.value.length > 0);
   }, []);
+  const snap = useAsync(
+    () => api.configGet("review.snap_sec").then((r) => (typeof r.value === "number" ? r.value : 120)).catch(() => 120),
+    [],
+  );
+  const labels = useAsync(
+    () =>
+      api
+        .configGet("activity.labels")
+        .then((r) => (Array.isArray(r.value) ? (r.value as string[]) : []))
+        .catch(() => [] as string[]),
+    [],
+  );
   const act = useAction();
   const requested = useDesignRequested();
   const clock = useClock();
@@ -98,6 +111,8 @@ export function Today() {
   const [showAllDay, setShowAllDay] = useState(false);
   const [armed, setArmed] = useState<TaskView | null>(null);
   const [taskDrag, setTaskDrag] = useState<TaskDrag | null>(null);
+  /** 「実績」の列で選んだ、補正する範囲。 */
+  const [corr, setCorr] = useState<TimeSpan | null>(null);
   const laneRef = useRef<HTMLDivElement>(null);
 
   const s = st.data;
@@ -295,7 +310,8 @@ export function Today() {
               <p class="muted">
                 {designing
                   ? "空いている時間をドラッグ（クリックなら 1 時間）して、ブロックを置きます。置いたブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集できます。"
-                  : "「計画」の列をドラッグすると、その場でブロックを作れます。"}
+                  : "「計画」の列をドラッグすると、その場でブロックを作れます。"}{" "}
+                「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。
                 {armed && (
                   <strong>
                     {" "}
@@ -322,6 +338,9 @@ export function Today() {
                 onPlaced={() => setArmed(null)}
                 ghost={taskDrag?.over ?? null}
                 laneRef={laneRef}
+                onPickActual={setCorr}
+                actualSelection={corr}
+                snapMs={(snap.data ?? 120) * 1000}
               />
               <ul class="legend">
                 {[...new Set(log.data.segments.map((x) => x.kind))].map((k) => (
@@ -398,6 +417,19 @@ export function Today() {
           </div>
         )}
       </div>
+
+      {corr && (
+        <CorrectionPanel
+          span={corr}
+          tasks={tasks.data?.tasks ?? []}
+          labels={labels.data}
+          onClose={() => setCorr(null)}
+          onChanged={() => {
+            log.reload();
+            st.reload();
+          }}
+        />
+      )}
 
       {s && (
         <div class="grid2">
