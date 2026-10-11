@@ -55,3 +55,33 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses
+
+  # コミット前フックと同じ検査（.spotter.yml）を CI でも実行する。
+  # フックを回避したコミットを最後に拾う役割。
+  spotter:
+    name: spotter check
+    runs-on: ubuntu-latest
+    env:
+      # バージョンを上げるときは .spotter.yml の required_version と、sha256 も更新する
+      # （https://github.com/fuchigta/spotter/releases の spotter-linux-amd64.sha256）。
+      SPOTTER_VERSION: v0.13.0
+      SPOTTER_SHA256: 3c42ed85b9701f4b1d377ce8b790708159056b00828f63fe6ad816170ea7327b
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 比較範囲（base / before の SHA）をたどるために全履歴が必要。
+          fetch-depth: 0
+
+      - name: Install spotter
+        run: |
+          curl -fsSL -o spotter "https://github.com/fuchigta/spotter/releases/download/${SPOTTER_VERSION}/spotter-linux-amd64"
+          echo "${SPOTTER_SHA256}  spotter" | sha256sum -c -
+          chmod +x spotter
+          sudo mv spotter /usr/local/bin/spotter
+          spotter --version
+
+      - name: Detect range
+        run: echo "RANGE=$(spotter range)" >> "$GITHUB_ENV"
+
+      - name: Check
+        run: spotter check --range "$RANGE"

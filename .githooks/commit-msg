@@ -1,0 +1,9 @@
+#!/bin/sh
+# spotter hooks install が生成した commit-msg フック。
+# --- spotter (managed) begin ---
+if command -v spotter >/dev/null 2>&1; then
+  spotter check --message "$1" || exit 1
+else
+  echo "spotter: コマンドが見つからないため検査をスキップします" >&2
+fi
+# --- spotter (managed) end ---
