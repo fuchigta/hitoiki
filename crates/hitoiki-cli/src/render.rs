@@ -588,3 +588,145 @@ pub fn abc_dispute(a: &hitoiki_core::model::AbcRecord) -> String {
         a.ai_dialog_md.as_deref().unwrap_or_default()
     )
 }
+
+// ===== ブロックのテンプレート =====
+
+use hitoiki_core::service::block_template::{
+    ApplyResult, Preview, PreviewBlock, Suggestion, TemplateList, TemplateView, UndoResult,
+};
+
+fn weekdays_label(w: &[u8]) -> String {
+    const N: [&str; 7] = ["月", "火", "水", "木", "金", "土", "日"];
+    w.iter()
+        .filter_map(|d| N.get((*d as usize).wrapping_sub(1)).copied())
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+pub fn template_list(l: &TemplateList) -> String {
+    if l.templates.is_empty() {
+        return "テンプレートはありません。".into();
+    }
+    let rows: Vec<Vec<String>> = l
+        .templates
+        .iter()
+        .map(|t| {
+            vec![
+                short(&t.id),
+                t.name.clone(),
+                weekdays_label(&t.weekdays),
+                t.blocks.len().to_string(),
+                opt(&t.description),
+            ]
+        })
+        .collect();
+    table(&["ID", "名前", "曜日", "ブロック", "説明"], &rows)
+}
+
+pub fn template_show(t: &TemplateView) -> String {
+    let mut s = format!("{}（{}）", t.name, short(&t.id));
+    if !t.weekdays.is_empty() {
+        s += &format!(" 曜日: {}", weekdays_label(&t.weekdays));
+    }
+    if let Some(d) = &t.description {
+        s += &format!("\n{d}");
+    }
+    if t.blocks.is_empty() {
+        s += "\n（ブロックなし）";
+    }
+    for b in &t.blocks {
+        s += &format!(
+            "\n  {}-{} {}{}",
+            b.start,
+            b.end,
+            b.task_title
+                .clone()
+                .or_else(|| b.label.clone())
+                .unwrap_or_default(),
+            if b.focus { "（集中）" } else { "" }
+        );
+    }
+    s
+}
+
+pub fn template_saved(t: &TemplateView, verb: &str) -> String {
+    format!(
+        "テンプレートを{verb}しました: {} ({}ブロック)",
+        t.name,
+        t.blocks.len()
+    )
+}
+
+fn preview_line(tz: Tz, p: &PreviewBlock) -> String {
+    let mut s = format!(
+        "  {}-{} {}{}",
+        fmt_hm(tz, p.start_at),
+        fmt_hm(tz, p.end_at),
+        p.task_title
+            .clone()
+            .or_else(|| p.label.clone())
+            .unwrap_or_default(),
+        if p.focus { "（集中）" } else { "" }
+    );
+    for c in &p.conflicts {
+        s += &format!(
+            "\n      重なり: {} {}-{} {}",
+            if c.kind == "calendar" {
+                "予定"
+            } else {
+                "ブロック"
+            },
+            fmt_hm(tz, c.start_at),
+            fmt_hm(tz, c.end_at),
+            c.title
+        );
+    }
+    s
+}
+
+pub fn template_preview(tz: Tz, p: &Preview) -> String {
+    let mut s = format!(
+        "{} を {} に適用すると（重なりは{}）:",
+        p.template,
+        p.date,
+        p.overlap_label()
+    );
+    if p.blocks.is_empty() {
+        s += "\n  （作られるブロックはありません）";
+    }
+    for b in &p.blocks {
+        s += &format!("\n{}", preview_line(tz, b));
+    }
+    s
+}
+
+pub fn template_applied(tz: Tz, r: &ApplyResult) -> String {
+    let mut s = format!(
+        "{} を {} に適用しました: ブロック {} 件を作成",
+        r.template,
+        r.date,
+        r.created.len()
+    );
+    if !r.skipped.is_empty() {
+        s += &format!("、重なりのため {} 件をスキップ", r.skipped.len());
+        for p in &r.skipped {
+            s += &format!("\n{}", preview_line(tz, p));
+        }
+    }
+    s
+}
+
+pub fn template_undone(u: &UndoResult) -> String {
+    format!(
+        "{} の適用（{}）を取り消しました: ブロック {} 件を削除",
+        u.template, u.date, u.removed
+    )
+}
+
+pub fn template_suggest(s: &Suggestion) -> String {
+    if s.templates.is_empty() {
+        return format!("{} の曜日に割り当てたテンプレートはありません。", s.date);
+    }
+    let names: Vec<_> = s.templates.iter().map(|t| t.name.as_str()).collect();
+    format!("{} のパターン: {}", s.date, names.join("、"))
+}

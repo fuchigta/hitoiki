@@ -127,7 +127,7 @@ pub enum Cmd {
     Agent(AgentCmd),
     /// ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止）
     Daemon,
-    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|review|tasks|report|records|plan|reflection|okr|settings|onboarding
+    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|review|tasks|report|records|plan|reflection|okr|settings|onboarding
     Ui { screen: Option<String> },
     /// 補助コレクタ用の取り込み
     #[command(subcommand)]
@@ -307,6 +307,104 @@ pub enum BlockCmd {
     List {
         #[command(flatten)]
         range: RangeOpts,
+    },
+    /// ブロックを編集する（指定した項目だけ変える）
+    Edit {
+        /// ブロックの ID（前方一致）
+        id: String,
+        #[arg(long)]
+        start: Option<String>,
+        #[arg(long)]
+        end: Option<String>,
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        label: Option<String>,
+        /// 集中の時間にする
+        #[arg(long, conflicts_with = "no_focus")]
+        focus: bool,
+        /// 集中の時間を解除する
+        #[arg(long)]
+        no_focus: bool,
+    },
+    /// ブロックを削除する
+    Delete {
+        /// ブロックの ID（前方一致）
+        id: String,
+    },
+    /// ブロックのテンプレート（働き方のパターン）
+    #[command(subcommand)]
+    Template(TemplateCmd),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TemplateCmd {
+    /// テンプレートを作る
+    Add {
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+        /// 割り当てる曜日（例: mon,wed / 月,水 / 1,3。1=月 … 7=日）
+        #[arg(long)]
+        weekdays: Option<String>,
+        /// ブロック（複数指定可）: HH:MM-HH:MM[,focus][,task=ID][,label=ラベル]
+        #[arg(long = "block")]
+        blocks: Vec<String>,
+    },
+    /// テンプレートの一覧
+    List,
+    /// テンプレートの中身
+    Show { name: String },
+    /// テンプレートを編集する（指定した項目だけ変える。--block を指定するとブロックを置き換える）
+    Edit {
+        name: String,
+        #[arg(long)]
+        new_name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        /// 空文字を渡すと割り当てを外す
+        #[arg(long)]
+        weekdays: Option<String>,
+        #[arg(long = "block")]
+        blocks: Vec<String>,
+    },
+    /// テンプレートを削除する（作成済みのブロックは消えない）
+    Delete { name: String },
+    /// 指定日にテンプレートを適用してブロックを作る
+    Apply {
+        name: String,
+        /// today / YYYY-MM-DD（省略は今日）
+        #[arg(long)]
+        date: Option<String>,
+        /// 既存のブロック・予定と重なるときの扱い: skip（作らない）/ overlay（重ねて作る）
+        #[arg(long, default_value = "skip")]
+        overlap: String,
+        /// 何も作らず、作られる内容と重なりを表示する
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// 直前の適用で作ったブロックを削除する
+    Undo {
+        /// その日に適用したもののうち直近（省略は全体で直近）
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// 指定日のブロックからテンプレートを作る
+    SaveFrom {
+        /// today / YYYY-MM-DD（省略は今日）
+        #[arg(long)]
+        date: Option<String>,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        weekdays: Option<String>,
+    },
+    /// 指定日の曜日に割り当てたテンプレートを表示する
+    Suggest {
+        #[arg(long)]
+        date: Option<String>,
     },
 }
 

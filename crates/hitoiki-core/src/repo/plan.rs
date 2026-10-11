@@ -13,6 +13,35 @@ pub fn insert(conn: &Connection, b: &TimeBlock) -> Result<()> {
     Ok(())
 }
 
+/// ブロックの内容を置き換える。更新できたら true。
+pub fn update(conn: &Connection, b: &TimeBlock) -> Result<bool> {
+    let n = conn.execute(
+        "UPDATE time_block SET start_at = ?2, end_at = ?3, task_id = ?4, label = ?5, focus = ?6 WHERE id = ?1",
+        params![b.id, b.start_at, b.end_at, b.task_id, b.label, b.focus],
+    )?;
+    Ok(n > 0)
+}
+
+/// ID（前方一致可）で 1 件取得する。
+pub fn resolve(conn: &Connection, prefix: &str) -> Result<TimeBlock> {
+    let id = super::resolve_prefix(conn, "time_block", prefix)?;
+    let b = conn.query_row(
+        "SELECT id, start_at, end_at, task_id, label, focus FROM time_block WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(TimeBlock {
+                id: r.get(0)?,
+                start_at: r.get(1)?,
+                end_at: r.get(2)?,
+                task_id: r.get(3)?,
+                label: r.get(4)?,
+                focus: r.get::<_, i64>(5)? != 0,
+            })
+        },
+    )?;
+    Ok(b)
+}
+
 /// ID で削除する。削除できたら true。
 pub fn delete(conn: &Connection, id: &str) -> Result<bool> {
     let n = conn.execute("DELETE FROM time_block WHERE id = ?1", params![id])?;

@@ -3,7 +3,9 @@
 //! 入力は構造体、出力は `Serialize` 可能な構造体。時刻は `Clock` 経由、日付境界は設定の
 //! タイムゾーンで扱う。JSON 出力のスキーマ版は [`SCHEMA_VERSION`]（CLI が `"version"` として付与する）。
 
+pub mod block_template;
 pub mod context;
+pub mod hint;
 pub mod ingest;
 pub mod log;
 pub mod okr;

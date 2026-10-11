@@ -297,6 +297,98 @@ export interface BlockInput {
   focus?: boolean;
 }
 
+export interface TemplateItemInput {
+  /** ローカル時刻 HH:MM */
+  start: string;
+  /** ローカル時刻 HH:MM（24:00 も可） */
+  end: string;
+  label?: string | null;
+  focus?: boolean;
+  task?: string | null;
+}
+
+export interface TemplateInput {
+  name: string;
+  description?: string | null;
+  /** 1=月 … 7=日 */
+  weekdays: number[];
+  items: TemplateItemInput[];
+}
+
+export interface TemplateItemView {
+  id: string;
+  start: string;
+  end: string;
+  start_min: number;
+  end_min: number;
+  label: string | null;
+  focus: boolean;
+  task_id: string | null;
+  task_title: string | null;
+}
+
+export interface TemplateView {
+  id: string;
+  name: string;
+  description: string | null;
+  weekdays: number[];
+  created_at: Millis;
+  updated_at: Millis;
+  blocks: TemplateItemView[];
+}
+
+export type Overlap = "skip" | "overlay";
+
+export interface ApplyInput {
+  template: string;
+  date?: string;
+  overlap?: Overlap;
+}
+
+export interface Conflict {
+  kind: "block" | "calendar";
+  title: string;
+  start_at: Millis;
+  end_at: Millis;
+}
+
+export interface PreviewBlock {
+  start_at: Millis;
+  end_at: Millis;
+  label: string | null;
+  focus: boolean;
+  task_id: string | null;
+  task_title: string | null;
+  conflicts: Conflict[];
+}
+
+export interface TemplatePreview {
+  template: string;
+  date: string;
+  overlap: Overlap;
+  blocks: PreviewBlock[];
+}
+
+export interface ApplyResult {
+  application_id: string;
+  template: string;
+  date: string;
+  created: BlockView[];
+  skipped: PreviewBlock[];
+}
+
+export interface UndoResult {
+  template: string;
+  date: string;
+  removed: number;
+}
+
+export interface Suggestion {
+  date: string;
+  weekday: number;
+  templates: TemplateView[];
+}
+
 export interface Checkin {
   id: string;
   at: Millis;

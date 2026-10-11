@@ -10,6 +10,7 @@ use args::*;
 use clap::Parser;
 use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
+use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
     self, context, log as log_svc, okr, plan, record, reflect, report, review, skill, status, task, Ctx,
     RangeArgs,
@@ -82,6 +83,144 @@ fn range_args(r: &RangeOpts) -> RangeArgs {
         date: r.date.clone(),
         from: r.from.clone(),
         to: r.to.clone(),
+    }
+}
+
+fn template_input(
+    name: String,
+    description: Option<String>,
+    weekdays: Option<&str>,
+    blocks: &[String],
+) -> Result<bt::TemplateInput> {
+    Ok(bt::TemplateInput {
+        name,
+        description,
+        weekdays: match weekdays {
+            Some(w) => bt::parse_weekdays(w)?,
+            None => vec![],
+        },
+        items: blocks
+            .iter()
+            .map(|b| bt::ItemInput::parse_spec(b))
+            .collect::<Result<_>>()?,
+    })
+}
+
+fn template_cmd(ctx: &Ctx, tz: chrono_tz::Tz, json: bool, cmd: TemplateCmd) -> Result<()> {
+    match cmd {
+        TemplateCmd::Add {
+            name,
+            description,
+            weekdays,
+            blocks,
+        } => {
+            let t = bt::add(
+                ctx,
+                &template_input(name, description, weekdays.as_deref(), &blocks)?,
+            )?;
+            ext::notify_data("blocks");
+            emit(json, &t, || render::template_saved(&t, "作成"))
+        }
+        TemplateCmd::List => {
+            let l = bt::list(ctx)?;
+            emit(json, &l, || render::template_list(&l))
+        }
+        TemplateCmd::Show { name } => {
+            let t = bt::show(ctx, &name)?;
+            emit(json, &t, || render::template_show(&t))
+        }
+        TemplateCmd::Edit {
+            name,
+            new_name,
+            description,
+            weekdays,
+            blocks,
+        } => {
+            let cur = bt::show(ctx, &name)?;
+            let mut input = bt::TemplateInput {
+                name: new_name.unwrap_or(cur.name),
+                description: description.or(cur.description),
+                weekdays: match weekdays {
+                    Some(w) => bt::parse_weekdays(&w)?,
+                    None => cur.weekdays,
+                },
+                items: cur
+                    .blocks
+                    .into_iter()
+                    .map(|b| bt::ItemInput {
+                        start: b.start,
+                        end: b.end,
+                        label: b.label,
+                        focus: b.focus,
+                        task: b.task_id,
+                    })
+                    .collect(),
+            };
+            if !blocks.is_empty() {
+                input.items = blocks
+                    .iter()
+                    .map(|b| bt::ItemInput::parse_spec(b))
+                    .collect::<Result<_>>()?;
+            }
+            let t = bt::edit(ctx, &cur.id, &input)?;
+            ext::notify_data("blocks");
+            emit(json, &t, || render::template_saved(&t, "更新"))
+        }
+        TemplateCmd::Delete { name } => {
+            let t = bt::delete(ctx, &name)?;
+            ext::notify_data("blocks");
+            emit(json, &t, || format!("テンプレートを削除しました: {}", t.name))
+        }
+        TemplateCmd::Apply {
+            name,
+            date,
+            overlap,
+            dry_run,
+        } => {
+            let input = bt::ApplyInput {
+                template: name,
+                date,
+                overlap: overlap.parse()?,
+            };
+            if dry_run {
+                let p = bt::preview(ctx, &input)?;
+                emit(json, &p, || render::template_preview(tz, &p))
+            } else {
+                let r = bt::apply(ctx, &input)?;
+                ext::notify_data("blocks");
+                emit(json, &r, || render::template_applied(tz, &r))
+            }
+        }
+        TemplateCmd::Undo { date } => {
+            let u = bt::undo(ctx, date.as_deref())?;
+            ext::notify_data("blocks");
+            emit(json, &u, || render::template_undone(&u))
+        }
+        TemplateCmd::SaveFrom {
+            date,
+            name,
+            description,
+            weekdays,
+        } => {
+            let t = bt::save_from(
+                ctx,
+                &bt::SaveFromInput {
+                    name,
+                    description,
+                    date,
+                    weekdays: match weekdays {
+                        Some(w) => bt::parse_weekdays(&w)?,
+                        None => vec![],
+                    },
+                },
+            )?;
+            ext::notify_data("blocks");
+            emit(json, &t, || render::template_saved(&t, "作成"))
+        }
+        TemplateCmd::Suggest { date } => {
+            let s = bt::suggest(ctx, date.as_deref())?;
+            emit(json, &s, || render::template_suggest(&s))
+        }
     }
 }
 
@@ -231,6 +370,59 @@ fn run(cli: Cli) -> Result<()> {
                 let l = plan::list(&ctx, &range_args(&range))?;
                 emit(json, &l, || render::blocks(tz, &l))
             }
+            BlockCmd::Edit {
+                id,
+                start,
+                end,
+                task,
+                label,
+                focus,
+                no_focus,
+            } => {
+                let now = ctx.now();
+                let cur = plan::find(&ctx, &id)?;
+                let b = plan::update(
+                    &ctx,
+                    &id,
+                    &plan::BlockInput {
+                        start: match &start {
+                            Some(s) => timefmt::parse_instant(tz, s, now)?,
+                            None => cur.start_at,
+                        },
+                        end: match &end {
+                            Some(s) => timefmt::parse_instant(tz, s, now)?,
+                            None => cur.end_at,
+                        },
+                        task: task.or(cur.task_id),
+                        label: label.or(cur.label),
+                        focus: if focus {
+                            true
+                        } else if no_focus {
+                            false
+                        } else {
+                            cur.focus
+                        },
+                    },
+                )?;
+                ext::notify_data("blocks");
+                emit(json, &b, || {
+                    format!(
+                        "ブロックを更新しました: {} {}-{}",
+                        render::short(&b.id),
+                        timefmt::fmt_hm(tz, b.start_at),
+                        timefmt::fmt_hm(tz, b.end_at)
+                    )
+                })
+            }
+            BlockCmd::Delete { id } => {
+                let b = plan::find(&ctx, &id)?;
+                plan::delete(&ctx, &b.id)?;
+                ext::notify_data("blocks");
+                emit(json, &b, || {
+                    format!("ブロックを削除しました: {}", render::short(&b.id))
+                })
+            }
+            BlockCmd::Template(t) => template_cmd(&ctx, tz, json, t),
         },
         Cmd::Check {
             energy,

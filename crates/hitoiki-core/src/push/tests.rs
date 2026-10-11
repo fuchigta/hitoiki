@@ -90,7 +90,7 @@ fn day_start_fires_after_resume() {
         panic!()
     };
     assert_eq!(p.actions.len(), 5);
-    assert_eq!(p.open_screen.as_deref(), Some("reflection/day_start"));
+    assert_eq!(p.open_screen.as_deref(), Some("today/design"));
 }
 
 #[test]

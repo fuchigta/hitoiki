@@ -51,6 +51,39 @@ fn local_midnight(tz: Tz, d: NaiveDate) -> Millis {
         .timestamp_millis()
 }
 
+/// ローカル日付 `d` の「0 時から `min` 分」の時刻（UTC ミリ秒）。`min` は 0〜1440（1440 は翌日 0 時）。
+///
+/// DST で存在しない時刻（春の切り替えの空白）は、存在する最初の時刻まで進める。
+/// 2 回現れる時刻（秋の切り替え）は早い方を採る。
+pub fn local_minute_to_ms(tz: Tz, d: NaiveDate, min: u32) -> Millis {
+    if min >= 24 * 60 {
+        return day_range(tz, d).end;
+    }
+    let base = d.and_time(NaiveTime::MIN) + Duration::minutes(min as i64);
+    for extra in 0..=24 * 60 {
+        let t = base + Duration::minutes(extra);
+        if let Some(t) = tz.from_local_datetime(&t).earliest() {
+            return t.timestamp_millis();
+        }
+    }
+    // 到達しない想定。
+    Utc.from_utc_datetime(&base).timestamp_millis()
+}
+
+/// UTC ミリ秒を、ローカル日付 `d` の 0 時からの分に変換する（`d` の範囲外は 0〜1440 に丸める）。
+pub fn ms_to_local_minute(tz: Tz, d: NaiveDate, ms: Millis) -> u32 {
+    let r = day_range(tz, d);
+    if ms <= r.start {
+        return 0;
+    }
+    if ms >= r.end {
+        return 24 * 60;
+    }
+    let l = to_local(tz, ms);
+    use chrono::Timelike;
+    l.hour() * 60 + l.minute()
+}
+
 pub fn local_date_of(tz: Tz, ms: Millis) -> NaiveDate {
     to_local(tz, ms).date_naive()
 }

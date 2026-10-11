@@ -30,7 +30,8 @@ pub struct BlockList {
     pub blocks: Vec<BlockView>,
 }
 
-pub fn add(ctx: &Ctx, input: &BlockInput) -> Result<TimeBlock> {
+/// 入力を検証して `TimeBlock` を組み立てる（保存はしない）。
+fn build(ctx: &Ctx, id: String, input: &BlockInput) -> Result<TimeBlock> {
     if input.end <= input.start {
         return Err(Error::InvalidArgument("終了は開始より後にしてください".into()));
     }
@@ -43,21 +44,39 @@ pub fn add(ctx: &Ctx, input: &BlockInput) -> Result<TimeBlock> {
             "--task か --label のいずれかが必要です".into(),
         ));
     }
-    let b = TimeBlock {
-        id: new_id(),
+    Ok(TimeBlock {
+        id,
         start_at: input.start,
         end_at: input.end,
         task_id,
         label: input.label.clone(),
         focus: input.focus,
-    };
+    })
+}
+
+pub fn add(ctx: &Ctx, input: &BlockInput) -> Result<TimeBlock> {
+    let b = build(ctx, new_id(), input)?;
     plan::insert(ctx.conn, &b)?;
     Ok(b)
 }
 
-/// ブロックを削除する。存在しなければ `NotFound`。
+/// ブロックの内容（時間・タスク・ラベル・集中）をまるごと置き換える。`id` は前方一致可。
+pub fn update(ctx: &Ctx, id: &str, input: &BlockInput) -> Result<TimeBlock> {
+    let cur = plan::resolve(ctx.conn, id)?;
+    let b = build(ctx, cur.id, input)?;
+    plan::update(ctx.conn, &b)?;
+    Ok(b)
+}
+
+/// ID（前方一致可）でブロックを 1 件取得する。
+pub fn find(ctx: &Ctx, id: &str) -> Result<TimeBlock> {
+    plan::resolve(ctx.conn, id)
+}
+
+/// ブロックを削除する。存在しなければ `NotFound`。`id` は前方一致可。
 pub fn delete(ctx: &Ctx, id: &str) -> Result<()> {
-    if plan::delete(ctx.conn, id)? {
+    let b = plan::resolve(ctx.conn, id)?;
+    if plan::delete(ctx.conn, &b.id)? {
         Ok(())
     } else {
         Err(Error::NotFound(format!("ブロック {id}")))
@@ -105,6 +124,67 @@ mod tests {
         delete(&ctx, &b.id).unwrap();
         assert!(list(&ctx, &RangeArgs::default()).unwrap().blocks.is_empty());
         assert!(matches!(delete(&ctx, &b.id), Err(Error::NotFound(_))));
+    }
+
+    #[test]
+    fn update_block() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        let b = add(
+            &ctx,
+            &BlockInput {
+                start: d + 3_600_000,
+                end: d + 7_200_000,
+                task: None,
+                label: Some("x".into()),
+                focus: false,
+            },
+        )
+        .unwrap();
+        let u = update(
+            &ctx,
+            &b.id[..8],
+            &BlockInput {
+                start: d + 7_200_000,
+                end: d + 10_800_000,
+                task: None,
+                label: Some("y".into()),
+                focus: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(u.id, b.id);
+        let l = list(&ctx, &RangeArgs::default()).unwrap();
+        assert_eq!(l.blocks.len(), 1);
+        assert_eq!(l.blocks[0].block.start_at, d + 7_200_000);
+        assert!(l.blocks[0].block.focus);
+        assert!(update(
+            &ctx,
+            &b.id,
+            &BlockInput {
+                start: 5,
+                end: 5,
+                task: None,
+                label: Some("a".into()),
+                focus: false
+            }
+        )
+        .is_err());
+        assert!(matches!(
+            update(
+                &ctx,
+                "ZZZZ",
+                &BlockInput {
+                    start: 1,
+                    end: 5,
+                    task: None,
+                    label: Some("a".into()),
+                    focus: false
+                }
+            ),
+            Err(Error::NotFound(_))
+        ));
     }
 
     #[test]
