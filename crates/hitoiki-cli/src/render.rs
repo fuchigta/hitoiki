@@ -369,6 +369,12 @@ pub fn status(tz: Tz, st: &Status) -> String {
             s += &format!("\n  {} {} ({})", fmt_hm(tz, p.at), p.trigger, short(&p.id));
         }
     }
+    if let Some(v) = &st.update_available {
+        s += &format!(
+            "\n\n新しいバージョンがあります: v{v}（{}）",
+            hitoiki_core::service::update::RELEASE_PAGE_URL
+        );
+    }
     s
 }
 

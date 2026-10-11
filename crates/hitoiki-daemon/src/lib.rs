@@ -8,6 +8,7 @@ pub mod headless;
 pub mod push_ctx;
 pub mod runtime;
 pub mod sink;
+pub mod update;
 
 pub use doctor::{doctor, doctor_with, DoctorItem, DoctorOptions, DoctorReport, Status};
 pub use headless::{init_logging, run_headless, run_headless_with, LogGuard};

@@ -183,6 +183,7 @@ export interface Status {
   needs_review_count: number;
   needs_review_short_count: number;
   unanswered_pushes: PushView[];
+  update_available?: string | null;
 }
 
 export interface Log {

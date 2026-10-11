@@ -117,10 +117,13 @@ function TaskStep() {
 }
 
 function StartupStep() {
-  const cfg = useAsync(() => api.configGet("general.autostart"), []);
+  const cfg = useAsync(() => api.configAll(), []);
   const act = useAction();
   const [sent, setSent] = useState(false);
-  const on = cfg.data?.value === true;
+  const general = ((cfg.data ?? {}) as { general?: { autostart?: boolean; update_check?: boolean | null } }).general;
+  const on = general?.autostart === true;
+  // 未設定（null / 欠落）はまだ選んでいない状態。選ばずに進むと確認しない。
+  const updateCheck = general?.update_check ?? null;
 
   return (
     <Card title="自動起動と通知">
@@ -139,6 +142,34 @@ function StartupStep() {
           />
           ログイン時に自動で起動する
         </label>
+        <fieldset class="stack">
+          <legend>新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）</legend>
+          <label class="check">
+            <input
+              type="radio"
+              name="update-check"
+              checked={updateCheck === true}
+              disabled={act.busy}
+              onChange={async () => {
+                if (await act.run(() => api.configSet("general.update_check", "true"))) cfg.reload();
+              }}
+            />
+            はい
+          </label>
+          <label class="check">
+            <input
+              type="radio"
+              name="update-check"
+              checked={updateCheck === false}
+              disabled={act.busy}
+              onChange={async () => {
+                if (await act.run(() => api.configSet("general.update_check", "false"))) cfg.reload();
+              }}
+            />
+            いいえ
+          </label>
+          <p class="muted">選ばずに進むと確認しません。あとから「設定」画面で変えられます。自動でダウンロードやインストールはしません。</p>
+        </fieldset>
         <p>Hitoiki は、ときどき通知で「いま何してた？」と聞きます。1 タップで答えられます。</p>
         <div class="row">
           <button

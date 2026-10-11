@@ -3,7 +3,7 @@ import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
-type Cfg = { general?: { timezone?: string; autostart?: boolean }; push?: { enabled?: boolean } };
+type Cfg = { general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean } };
 
 export function Settings() {
   const cfg = useAsync(() => api.configAll(), []);
@@ -43,6 +43,14 @@ export function Settings() {
               onChange={(e) => set("push.enabled", String(e.currentTarget.checked))}
             />
             問いかけの通知を受け取る
+          </label>
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={c.general?.update_check === true}
+              onChange={(e) => set("general.update_check", String(e.currentTarget.checked))}
+            />
+            新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）
           </label>
           <p class="muted">タイムゾーン: {c.general?.timezone ?? "-"}</p>
         </div>

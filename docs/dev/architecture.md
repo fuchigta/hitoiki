@@ -21,7 +21,7 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 - キー入力の内容も回数も記録しない。低レベルのキーボード/マウスフック（`WH_KEYBOARD_LL` 等）、DLL インジェクション、他プロセスのメモリ読み取りは使わない。管理者権限を要求しない。
 - UI は Tauri の WebView 内でのみ表示する。ブラウザ向け配信やローカル HTTP サーバは持たない（`tauri.conf.json` の CSP は `default-src 'self'` ベース）。
 - ウインドウタイトル、プロンプト内容、カレンダー ICS URL はログ・診断メッセージに出さない。
-- ネットワークに出るのは、設定で明示した場合の「ICS 取得」「OpenAI 互換判定器」と、`hitoiki version --check` の実行時だけ。AI 振り返りは外部コマンドに委ね、Hitoiki 自身は通信しない。
+- ネットワークに出るのは、設定で明示した場合の「ICS 取得」「OpenAI 互換判定器」と、`hitoiki version --check` の実行時、`general.update_check = true` のときの 1 日 1 回の最新版確認だけ。AI 振り返りは外部コマンドに委ね、Hitoiki 自身は通信しない。
 
 ### 1.3 スコープ外
 
@@ -66,9 +66,10 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 | `hitoiki-agent-bridge` | エージェントログの増分取り込み。完了ごとに再計算を要求する |
 | `hitoiki-calendar` | `calendar.fetch_interval_min`（既定 15 分）ごとに ICS を同期 |
 | `hitoiki-push` | 60 秒ごとにプッシュを評価 |
+| `hitoiki-update` | `general.update_check = true` のときだけ、起動の 3 分後と以降 24 時間ごとに最新版を確認（[2.5](#25-更新の確認)） |
 | IPC サーバ | メッセージ受信。`task_changed` / `data_changed` は再計算を要求、`open_ui` は画面を開く |
 
-UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed` / `import_completed` / `open_ui` / `shutdown_requested`）を介して行う。アプリは `TauriSink`、ヘッドレスは `LogSink` を使う。
+UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed` / `import_completed` / `open_ui` / `shutdown_requested` / `update_available`）を介して行う。アプリは `TauriSink`、ヘッドレスは `LogSink` を使う。
 
 ### 2.4 収集器（Windows）
 
@@ -78,6 +79,18 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 - **除外**: `collect.exclude`（exe 名、タイトル正規表現。両方指定すると両方一致で除外）に一致したウインドウは `excluded = 1` とし、exe パスとタイトルを保存しない。`collect.drop_excluded = true` なら区間自体を作らない。既定でパスワードマネージャ（KeePass 系、1Password、Bitwarden）とプライベートブラウズのタイトルを除外する。
 - **Hitoiki 自身**: 前面ウインドウが Hitoiki 自身（exe 名 `hitoiki-app.exe`、または自プロセスの pid）の間は区間を作らない（記録の空白になる）。`collect.record_self = true` で記録する。
 - **異常終了への備え**: `Recorder` はハートビートを保存し、起動時に前回の未終了区間（`end_at` が NULL）を最後のハートビートで閉じる。
+
+### 2.5 更新の確認
+
+オプトインの機能で、`general.update_check`（`Option<bool>`）が `Some(true)` のときだけ動く。`None`（未設定）と `Some(false)` では通信しない。
+
+- 取得は `hitoiki-daemon` の `update::fetch_latest`（ureq で `https://api.github.com/repos/fuchigta/hitoiki/releases/latest` を GET、User-Agent は `hitoiki/<version>`）。`hitoiki version --check` も同じ関数を使う。識別子・利用状況は送らない。
+- 比較・判定・保存の純粋な部分は core の `service::update`（`v` 接頭辞を除いて数値で比較、プレリリース無視。確認の要否 `is_due`、通知の要否 `should_notify`）。時刻は `Clock` 経由で渡す。
+- `hitoiki-update` スレッドは、起動の 3 分後（最後の確認から 24 時間未満なら残りの時間）に確認し、以降 24 時間ごとに繰り返す。取得に失敗したときは何も保存せず、通知もせず（ログのみ）、1 時間後に再試行する。
+- `setting` テーブルのキー: `update.last_checked_at`（最後に確認した時刻。再起動しても 24 時間以内なら再確認しない）、`update.latest_version`（最後に分かった最新版）、`update.notified_version`（通知済みの版。同じ版は 1 回だけ通知）。
+- 通知は `RuntimeSink::update_available`。アプリ（`TauriSink`）はトーストを出し（一時停止中は出さない）、トレイに「新しいバージョン vX.Y.Z をダウンロード…」を出す。ヘッドレスはログのみ。トーストやメニューを押すとリリースページ（`https://github.com/fuchigta/hitoiki/releases/latest`）を既定のブラウザで開く。プッシュ通知の 1 日の上限などの抑制ルールとは別枠で、会議中・フォーカス中の保留は行わない。
+- `hitoiki status` の `update_available` は保存済みの `update.latest_version` から求める（status 自体はネットワークに出ない）。
+- 自動ダウンロード・自動インストールはしない。
 
 ## 3. データモデル
 
@@ -295,7 +308,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 | セクション | 主なキー（既定値） |
 |---|---|
-| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true） |
+| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true）、`update_check`（未設定=確認しない） |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
 | `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
@@ -319,7 +332,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
   - NSIS フック（`windows/hooks.nsh`）が PowerShell（`windows/hitoiki-path.ps1`）を呼び、インストール先をユーザー PATH（HKCU）へ重複なしで追加し、アンインストールで除去する。`REG_EXPAND_SZ` を保つためレジストリを展開なしで読み書きし、変更後に `WM_SETTINGCHANGE` を通知する。自動起動の Run エントリ（値名 `Hitoiki`、`lib.rs` で固定）もアンインストール時（更新を除く）に削除する。
   - アンインストールでユーザーデータ（`%APPDATA%\hitoiki`、`%LOCALAPPDATA%\hitoiki`）は消さない。標準の「アプリデータを削除」は `dev.hitoiki.app` フォルダのみが対象。
 - ライセンスは MIT OR Apache-2.0 のデュアル。依存クレートのライセンスは `cargo deny check`（`deny.toml`、CI でも実行）で検査し、permissive 以外を拒否する。
-- 自動更新は無い。ネットワークを使うのは `hitoiki version --check` の実行時のみ。
+- 自動更新は無い。ネットワークを使うのは `hitoiki version --check` の実行時と、`general.update_check = true` のときの 1 日 1 回の最新版確認のみ。
 - テストは `cargo test --workspace`。時刻は `Clock` トレイト経由で取得し、パイプライン・プッシュ判定は時刻を引数で受けるので決定的にテストできる。
 
 ## 14. 未検証事項

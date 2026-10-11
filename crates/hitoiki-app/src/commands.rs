@@ -328,6 +328,9 @@ pub fn config_set(app: AppHandle, state: S, key: String, value: String) -> AppRe
     if key == "general.autostart" {
         crate::apply_autostart(&app);
     }
+    if key == "general.update_check" {
+        tray::refresh(&app);
+    }
     Ok(json!({ "key": key, "path": path }))
 }
 

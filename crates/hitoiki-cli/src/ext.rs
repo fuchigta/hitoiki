@@ -269,60 +269,37 @@ fn run_host() -> Result<()> {
     Ok(())
 }
 
-const RELEASES_URL: &str = "https://api.github.com/repos/fuchigta/hitoiki/releases/latest";
-
 pub fn version_check(json: bool) -> Result<()> {
+    use hitoiki_core::service::update::{is_newer, normalize};
     let current = env!("CARGO_PKG_VERSION");
-    let resp = ureq::get(RELEASES_URL)
-        .set("User-Agent", &format!("hitoiki/{current}"))
-        .set("Accept", "application/vnd.github+json")
-        .timeout(Duration::from_secs(10))
-        .call();
-    let body: serde_json::Value = match resp {
-        Ok(r) => r
-            .into_json()
-            .map_err(|e| Error::Other(anyhow::anyhow!("応答を解釈できません: {e}")))?,
-        Err(ureq::Error::Status(404, _)) => {
-            let v = json!({"current": current, "latest": null, "update_available": false});
-            return emit(json, &v, || {
-                format!("hitoiki {current}\n公開されているリリースはありません。")
-            });
-        }
-        Err(e) => return Err(Error::Other(anyhow::anyhow!("最新版を確認できません: {e}"))),
+    let Some(rel) = hitoiki_daemon::update::fetch_latest(current).map_err(Error::Other)? else {
+        let v = json!({"current": current, "latest": null, "update_available": false});
+        return emit(json, &v, || {
+            format!(
+                "hitoiki {current}
+公開されているリリースはありません。"
+            )
+        });
     };
-    let tag = body["tag_name"].as_str().unwrap_or("").to_string();
-    let url = body["html_url"].as_str().map(str::to_string);
-    let available = is_newer(&tag, current);
+    let tag = rel.tag;
+    let url = Some(rel.url);
+    let available = is_newer(&normalize(&tag), current);
     let v = json!({"current": current, "latest": tag, "update_available": available, "url": url});
     emit(json, &v, || {
         if available {
             format!(
-                "hitoiki {current}\n新しいバージョンがあります: {tag}\n{}",
+                "hitoiki {current}
+新しいバージョンがあります: {tag}
+{}",
                 url.clone().unwrap_or_default()
             )
         } else {
-            format!("hitoiki {current}\n最新です（最新リリース: {tag}）。")
+            format!(
+                "hitoiki {current}
+最新です（最新リリース: {tag}）。"
+            )
         }
     })
-}
-
-fn parse_ver(s: &str) -> Option<Vec<u64>> {
-    let s = s.trim().trim_start_matches('v');
-    let core = s.split(['-', '+']).next()?;
-    core.split('.').map(|p| p.parse().ok()).collect()
-}
-
-/// `latest` が `current` より新しいか（解釈できなければ false）。
-pub fn is_newer(latest: &str, current: &str) -> bool {
-    match (parse_ver(latest), parse_ver(current)) {
-        (Some(mut a), Some(mut b)) => {
-            let n = a.len().max(b.len());
-            a.resize(n, 0);
-            b.resize(n, 0);
-            a > b
-        }
-        _ => false,
-    }
 }
 
 /// `hitoiki daemon`: ヘッドレス常駐（docs/dev/architecture.md「クレート構成とプロセスモデル」）。
@@ -407,19 +384,4 @@ pub fn ui(screen: Option<String>, json: bool) -> Result<()> {
             "常駐アプリに画面を開くよう伝えました".into()
         }
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn version_compare() {
-        assert!(is_newer("v0.2.0", "0.1.0"));
-        assert!(is_newer("0.1.1", "0.1.0"));
-        assert!(!is_newer("v0.1.0", "0.1.0"));
-        assert!(!is_newer("v0.1", "0.1.0"));
-        assert!(is_newer("1.0.0", "0.9.9"));
-        assert!(!is_newer("garbage", "0.1.0"));
-    }
 }

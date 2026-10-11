@@ -12,6 +12,7 @@ use hitoiki_core::config::Config;
 use hitoiki_core::push::{self, PushPayload, PushResponse};
 use hitoiki_core::service::record::{self, CheckInput};
 use hitoiki_core::timefmt::Range;
+use hitoiki_core::{Clock, SystemClock};
 use hitoiki_daemon::{AlreadyRunning, Runtime, RuntimeOptions, RuntimeSink};
 use std::sync::Arc;
 use tauri::{AppHandle, Manager};
@@ -51,6 +52,19 @@ impl RuntimeSink for TauriSink {
 
     fn open_ui(&self, screen: Option<&str>) {
         window::open_screen(&self.app, screen.unwrap_or("today"));
+    }
+
+    fn update_available(&self, version: &str, _url: &str) {
+        tracing::info!(version, "新しいバージョンがあります");
+        tray::refresh(&self.app);
+        let state = self.app.state::<AppState>();
+        if state.is_snoozed(SystemClock.now_ms()) {
+            // 通知の一時停止中はトーストを出さない（トレイのメニューには出る）。
+            return;
+        }
+        if let Err(e) = notify::show_push(&self.app, None, &notify::update_payload(version)) {
+            tracing::warn!("更新のトーストを出せませんでした: {e}");
+        }
     }
 
     fn shutdown_requested(&self) {
@@ -111,6 +125,14 @@ pub fn quit(app: &AppHandle) {
 /// `push_id` が無い（テスト通知）場合は、`energy` を直接チェックインとして記録する。
 pub fn handle_activation(app: &AppHandle, act: Activation) {
     tracing::info!("通知のアクティベーション: {act:?}");
+    // 更新のトースト: ボタンでも本体クリックでも、リリースページを開く。
+    if act.push_id.is_none()
+        && (act.action.as_deref() == Some(notify::UPDATE_ACTION)
+            || act.open_screen.as_deref() == Some(notify::UPDATE_OPEN))
+    {
+        notify::open_release_page();
+        return;
+    }
     let state = app.state::<AppState>();
     let note = act.input.clone().filter(|s| !s.trim().is_empty());
     // 入力欄だけの通知の送信ボタンは、アクション無し＋テキストとして扱う。

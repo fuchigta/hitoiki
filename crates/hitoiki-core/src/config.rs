@@ -25,6 +25,9 @@ pub struct Config {
 pub struct General {
     pub timezone: String,
     pub autostart: bool,
+    /// 新しいバージョンの確認（1 日 1 回、GitHub に問い合わせる）。
+    /// None（未設定）はまだ尋ねていない状態で、確認しない（オプトイン）。true / false は利用者の選択。
+    pub update_check: Option<bool>,
 }
 
 impl Default for General {
@@ -32,6 +35,7 @@ impl Default for General {
         Self {
             timezone: "Asia/Tokyo".into(),
             autostart: true,
+            update_check: None,
         }
     }
 }
@@ -480,6 +484,35 @@ mod tests {
         let s = toml::to_string(&c).unwrap();
         let c2: Config = toml::from_str(&s).unwrap();
         assert_eq!(c2.collect.idle_threshold_sec, 120);
+    }
+
+    #[test]
+    fn update_check_は未設定_true_false_を区別する() {
+        assert_eq!(Config::default().general.update_check, None);
+        let c: Config = toml::from_str(
+            "[general]
+timezone = \"UTC\"
+",
+        )
+        .unwrap();
+        assert_eq!(c.general.update_check, None);
+        let c: Config = toml::from_str(
+            "[general]
+update_check = true
+",
+        )
+        .unwrap();
+        assert_eq!(c.general.update_check, Some(true));
+        let c: Config = toml::from_str(
+            "[general]
+update_check = false
+",
+        )
+        .unwrap();
+        assert_eq!(c.general.update_check, Some(false));
+        // 未設定のまま書き出しても読み戻せる（TOML は None を省く）。
+        let s = toml::to_string(&Config::default()).unwrap();
+        assert_eq!(toml::from_str::<Config>(&s).unwrap().general.update_check, None);
     }
 
     #[test]

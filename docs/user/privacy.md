@@ -48,7 +48,8 @@ Hitoiki がネットワークに出るのは、次の場面だけです。いず
 |---|---|---|
 | ICS カレンダーの取得 | `calendar.sources` を設定したとき（定期） | 設定した URL への取得リクエスト |
 | OpenAI 互換の判定器 | `judge.enabled = true` かつ `type = "openai-compatible"` のバックエンドを使うとき | 区間のアプリ名・ウインドウタイトル・作業ディレクトリ、進行中のタスクなど |
-| 最新版の確認 | `hitoiki version --check` を実行したとき | GitHub Releases への問い合わせ |
+| 最新版の確認（手動） | `hitoiki version --check` を実行したとき | GitHub Releases への問い合わせ |
+| 最新版の確認（定期） | `general.update_check = true` にしたとき（オンボーディングか設定画面で選ぶ。未設定なら行わない）。起動の数分後と、その後 1 日 1 回 | GitHub Releases への GET リクエストだけ。User-Agent は `hitoiki/<バージョン>` で、識別子・利用状況・記録の内容は送らない |
 | `hitoiki doctor --network` | 指定したとき | カレンダー取得・判定器への疎通確認 |
 
 次の 2 つは Hitoiki 自身は通信しませんが、**外部コマンドが通信する可能性**があります。利用するコマンドの挙動を確認してください。

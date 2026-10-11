@@ -207,6 +207,10 @@ impl Runtime {
             let iv = opts.push_interval;
             h.threads.push(spawn("hitoiki-push", move || push_loop(sh, iv))?);
         }
+        {
+            let sh = shared.clone();
+            h.threads.push(spawn("hitoiki-update", move || update_loop(sh))?);
+        }
         tracing::info!("常駐処理を開始しました");
         Ok(h)
     }
@@ -396,6 +400,67 @@ fn push_loop(sh: Arc<Shared>, interval: Duration) {
         let cfg = sh.cfg();
         if let Err(e) = push_tick(&conn, &cfg, sh.clock.now_ms(), sh.sink.as_ref()) {
             tracing::warn!(error = %e, "プッシュ評価に失敗しました");
+        }
+    }
+}
+
+// ---- 更新の確認 ----
+
+/// `general.update_check = true` のときだけ、起動の数分後と、その後 24 時間ごとに最新版を確認する。
+/// 最後に確認した時刻は DB に保存するので、再起動しても 24 時間以内なら確認しない。
+fn update_loop(sh: Arc<Shared>) {
+    use crate::update::{check_once, fetch_latest, CheckOutcome, RETRY_AFTER};
+    use hitoiki_core::service::update as upd;
+
+    let conn = match sh.open_db() {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "更新の確認を開始できません");
+            return;
+        }
+    };
+    let current = env!("CARGO_PKG_VERSION");
+    // 有効になってから最初の確認だけ、起動直後の負荷を避けるために待つ。
+    let mut first = true;
+    loop {
+        if sh.cfg().general.update_check != Some(true) {
+            first = true;
+            if sh.stop.sleep(Duration::from_secs(60)) {
+                return;
+            }
+            continue;
+        }
+        let last = upd::load(&conn).ok().and_then(|s| s.last_checked_at);
+        let mut wait = upd::wait_until_due(last, sh.clock.now_ms());
+        if first {
+            wait = wait.max(upd::STARTUP_DELAY_MS);
+            first = false;
+        }
+        if sh.stop.sleep(Duration::from_millis(wait.max(0) as u64)) {
+            return;
+        }
+        let cfg_on = sh.cfg().general.update_check == Some(true);
+        if !cfg_on {
+            first = true;
+            continue;
+        }
+        let now = sh.clock.now_ms();
+        if !upd::is_due(upd::load(&conn).ok().and_then(|s| s.last_checked_at), now) {
+            continue;
+        }
+        match check_once(&conn, now, current, || fetch_latest(current), sh.sink.as_ref()) {
+            Ok(CheckOutcome::Failed) => {
+                if sh.stop.sleep(RETRY_AFTER) {
+                    return;
+                }
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!(error = %e, "更新の確認の保存に失敗しました");
+                if sh.stop.sleep(RETRY_AFTER) {
+                    return;
+                }
+            }
         }
     }
 }
