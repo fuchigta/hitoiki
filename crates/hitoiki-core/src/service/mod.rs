@@ -5,6 +5,7 @@
 
 pub mod block_template;
 pub mod context;
+pub mod correction;
 pub mod hint;
 pub mod ingest;
 pub mod log;
@@ -131,6 +132,8 @@ pub struct SegmentView {
     pub agent_session_id: Option<String>,
     pub exe_name: Option<String>,
     pub title: Option<String>,
+    /// PC 外で過ごした時間（実績の補正）。
+    pub offline: bool,
 }
 
 pub(crate) fn task_titles(conn: &Connection) -> Result<HashMap<String, String>> {
@@ -157,6 +160,7 @@ pub(crate) fn segment_view(tz: Tz, s: &ActivitySegment, titles: &HashMap<String,
         agent_session_id: s.agent_session_id.clone(),
         exe_name: s.exe_name.clone(),
         title: s.title.clone(),
+        offline: s.offline,
     }
 }
 
@@ -232,6 +236,7 @@ pub(crate) mod testutil {
             agent_session_id: None,
             exe_name: Some("Code.exe".into()),
             title: Some("main.rs".into()),
+            offline: false,
         };
         conn.execute(
             "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity_label, confidence, \

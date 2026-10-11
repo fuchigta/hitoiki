@@ -6,7 +6,7 @@ use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 const COLS: &str = "id, start_at, end_at, kind, task_id, activity_label, confidence, decided_by, status, \
-                    window_span_ids, agent_session_id, exe_name, title";
+                    window_span_ids, agent_session_id, exe_name, title, offline";
 
 fn from_row(r: &Row<'_>) -> rusqlite::Result<ActivitySegment> {
     let ids: String = r.get(9)?;
@@ -24,6 +24,7 @@ fn from_row(r: &Row<'_>) -> rusqlite::Result<ActivitySegment> {
         agent_session_id: r.get(10)?,
         exe_name: r.get(11)?,
         title: r.get(12)?,
+        offline: r.get::<_, i64>(13)? != 0,
     })
 }
 
@@ -85,7 +86,7 @@ pub fn replace_range(conn: &Connection, range: Range, segments: &[ActivitySegmen
     )?;
     {
         let mut stmt = conn.prepare(&format!(
-            "INSERT INTO activity_segment ({COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+            "INSERT INTO activity_segment ({COLS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
         ))?;
         for s in segments {
             stmt.execute(params![
@@ -102,6 +103,7 @@ pub fn replace_range(conn: &Connection, range: Range, segments: &[ActivitySegmen
                 s.agent_session_id,
                 s.exe_name,
                 s.title,
+                s.offline as i64,
             ])?;
         }
     }
@@ -149,6 +151,7 @@ mod tests {
             agent_session_id: None,
             exe_name: Some("Code.exe".into()),
             title: Some("x".into()),
+            offline: false,
         }
     }
 

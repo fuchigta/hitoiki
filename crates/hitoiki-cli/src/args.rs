@@ -261,20 +261,63 @@ pub enum ReviewCmd {
         #[arg(long)]
         all: bool,
     },
-    /// 区間を確定する（複数の ID を渡すと、まとめて同じ割り当てをする）
+    /// 区間を確定する。複数の ID を渡すとまとめて同じ割り当てをする。
+    /// `--from` / `--to` を渡すと、時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）
     Set {
-        /// 区間 ID（前方一致）。複数指定できる
-        #[arg(required = true)]
+        /// 区間 ID（前方一致）。複数指定できる（範囲指定のときは不要）
+        #[arg(required_unless_present = "from", conflicts_with_all = ["from", "to"])]
         segments: Vec<String>,
+        /// 割り当てるタスク
         #[arg(long)]
         task: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["from", "to"])]
         kind: Option<SegmentKind>,
         #[arg(long)]
         activity: Option<String>,
         /// 区間からルールを生成する
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["from", "to"])]
         rule: bool,
+        /// 範囲の開始（ISO 8601 / ローカル日時 / `HH:MM`）。境界にまたがる区間は範囲の内側だけを対象にする
+        #[arg(long, requires = "to")]
+        from: Option<String>,
+        /// 範囲の終了
+        #[arg(long, requires = "from")]
+        to: Option<String>,
+        /// 範囲指定のとき、タスクなしにする
+        #[arg(long, requires = "from", conflicts_with_all = ["task", "rest"])]
+        no_task: bool,
+        /// 範囲指定のとき、休憩にする
+        #[arg(long, requires = "from", conflicts_with_all = ["task", "no_task"])]
+        rest: bool,
+        /// 範囲指定のとき、ユーザー確定済みの区間も対象にする（`review.correct_include_confirmed`）
+        #[arg(long, requires = "from")]
+        include_confirmed: bool,
+        /// 範囲指定のとき、会議の区間も対象にする（`review.correct_include_meeting`）
+        #[arg(long, requires = "from")]
+        include_meeting: bool,
+        /// 範囲指定のとき、無操作・記録なしも PC 外の作業として対象にする（`review.correct_include_idle`）
+        #[arg(long, requires = "from")]
+        include_idle: bool,
+        /// 範囲指定のとき、対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`）。複数指定できる
+        #[arg(long, requires = "from", num_args = 1.., value_name = "SEGMENT")]
+        exclude: Vec<String>,
+        /// 範囲指定のとき、確定せずに対象と合計だけを表示する
+        #[arg(long, requires = "from")]
+        dry_run: bool,
+    },
+    /// 実績の補正（範囲指定の付け替え）の一覧
+    Corrections {
+        /// このタスクの補正だけ
+        #[arg(long)]
+        task: Option<String>,
+        /// この日（today / yesterday / YYYY-MM-DD）と重なる補正だけ
+        #[arg(long)]
+        date: Option<String>,
+    },
+    /// 実績の補正を取り消す（その補正で作った確定を削除して再計算する）
+    UndoCorrection {
+        /// 補正の ID（前方一致）
+        id: String,
     },
     /// 無操作の区間に分類をつける: `review idle <区間 ID>... <break|meeting|thinking|away>`
     /// （休憩 = 種別 break、会議 = 種別 meeting、考えごと = 作業 + 活動「考えごと」、離席 = 休憩 + 活動「離席」）

@@ -48,18 +48,23 @@ pub fn log(ctx: &Ctx, input: &LogInput) -> Result<Log> {
     let tz = ctx.tz()?;
     let range = ctx.range(&input.range)?;
     let titles = task_titles(ctx.conn)?;
-    let segments = repo::segment::list(ctx.conn, range)?
+    let segs = repo::segment::list(ctx.conn, range)?;
+    let segments = segs.iter().map(|s| segment_view(tz, s, &titles)).collect();
+    // 実績の補正で PC 外の時間として計上した部分は、もう「記録なし」ではない。
+    let covered: Vec<(Millis, Millis)> = segs
         .iter()
-        .map(|s| segment_view(tz, s, &titles))
+        .filter(|s| s.offline)
+        .map(|s| (s.start_at, s.end_at))
         .collect();
     let gaps = crate::recording::gaps(ctx.conn, range, ctx.now())?
         .into_iter()
-        .map(|g| GapView {
-            start_at: g.start_at,
-            end_at: g.end_at,
-            start: crate::timefmt::fmt_rfc3339(tz, g.start_at),
-            end: crate::timefmt::fmt_rfc3339(tz, g.end_at),
-            duration_ms: g.duration_ms(),
+        .flat_map(|g| super::correction::uncovered(g.start_at, g.end_at, &covered))
+        .map(|(s, e)| GapView {
+            start_at: s,
+            end_at: e,
+            start: crate::timefmt::fmt_rfc3339(tz, s),
+            end: crate::timefmt::fmt_rfc3339(tz, e),
+            duration_ms: e - s,
         })
         .collect();
     let raw = if input.raw {

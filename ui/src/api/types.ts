@@ -54,6 +54,8 @@ export interface SegmentView {
   agent_session_id: string | null;
   exe_name: string | null;
   title: string | null;
+  /** PC 外で過ごした時間（実績の補正で、無操作・記録なしを割り当てたもの）。 */
+  offline?: boolean;
 }
 
 export interface Task {
@@ -544,4 +546,95 @@ export interface CalendarEvent {
   location: string | null;
   is_busy: boolean;
   fetched_at: Millis;
+}
+
+// ===== 実績の補正 =====
+
+export type CorrectionCategory = "work" | "agent_dialog" | "confirmed" | "meeting" | "idle" | "gap";
+
+/** 補正の対象になりうる区間（範囲で切った後の部分）。記録なしの `id` は `gap:<開始のミリ秒>`。 */
+export interface CorrectionCandidate {
+  id: string;
+  gap: boolean;
+  start_at: Millis;
+  end_at: Millis;
+  start: string;
+  end: string;
+  duration_ms: number;
+  full_duration_ms: number;
+  kind: SegmentKind | null;
+  status: SegmentStatus | null;
+  task_id: string | null;
+  task_title: string | null;
+  activity_label: string | null;
+  exe_name: string | null;
+  title: string | null;
+  category: CorrectionCategory;
+  offline: boolean;
+  /** 割り当てると PC 外の時間として計上されるか（無操作・休憩・記録なし）。 */
+  becomes_offline: boolean;
+  checked: boolean;
+}
+
+export interface CorrectionCandidates {
+  range: RangeView;
+  /** 範囲の端の吸着の幅（秒、`review.snap_sec`）。 */
+  snap_sec: number;
+  candidates: CorrectionCandidate[];
+}
+
+export interface CorrectionInput {
+  start_at: Millis;
+  end_at: Millis;
+  task?: string;
+  no_task?: boolean;
+  rest?: boolean;
+  activity?: string;
+  /** 対象にする候補の ID。省略すると既定のチェック。 */
+  selected?: string[];
+}
+
+export interface CorrectionPreview {
+  range: RangeView;
+  target: string;
+  selected_count: number;
+  total_ms: number;
+  offline_ms: number;
+  excluded_count: number;
+  summary: string;
+  candidates: CorrectionCandidate[];
+}
+
+export interface CorrectionView {
+  id: string;
+  start_at: Millis;
+  end_at: Millis;
+  start: string;
+  end: string;
+  task_id: string | null;
+  task_title: string | null;
+  kind: SegmentKind | null;
+  activity_label: string | null;
+  total_ms: number;
+  offline_ms: number;
+  segment_count: number;
+  created_at: Millis;
+  created: string;
+}
+
+export interface CorrectionApplied {
+  correction: CorrectionView;
+  preview: CorrectionPreview;
+  override_ids: string[];
+}
+
+export interface CorrectionList {
+  count: number;
+  corrections: CorrectionView[];
+}
+
+export interface CorrectionUndone {
+  correction: CorrectionView;
+  overrides_removed: number;
+  range: RangeView;
 }

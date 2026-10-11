@@ -28,7 +28,7 @@ fn main() -> anyhow::Result<()> {
     });
     run_headless_with(opts, false)?;
 
-    let mut conn = db::open(&paths::db_file())?;
+    let conn = db::open(&paths::db_file())?;
     let count = |c: &rusqlite::Connection, t: &str| -> i64 {
         c.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
             .unwrap_or(-1)
@@ -46,12 +46,7 @@ fn main() -> anyhow::Result<()> {
         count(&conn, "activity_segment")
     );
     let now = SystemClock.now_ms();
-    let st = rebuild::rebuild(
-        &mut conn,
-        &Config::default(),
-        Range::new(now - 3_600_000, now),
-        now,
-    )?;
+    let st = rebuild::rebuild(&conn, &Config::default(), Range::new(now - 3_600_000, now), now)?;
     println!("rebuild 結果: 区間 {} 件", st.segments);
     drop(conn);
     let _ = std::fs::remove_dir_all(&home);

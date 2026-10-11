@@ -49,6 +49,15 @@ export const api = {
   reviewSuggestAccept: (input: T.RuleSuggestionRef) => call<T.CreatedRule>("review_suggest_accept", { input }),
   reviewSuggestDismiss: (input: T.RuleSuggestionRef) => call<void>("review_suggest_dismiss", { input }),
 
+  // 実績の補正（範囲指定の付け替え）
+  correctionCandidates: (start_at: number, end_at: number) =>
+    call<T.CorrectionCandidates>("correction_candidates", { start_at, end_at }),
+  correctionPreview: (input: T.CorrectionInput) => call<T.CorrectionPreview>("correction_preview", { input }),
+  correctionApply: (input: T.CorrectionInput) => call<T.CorrectionApplied>("correction_apply", { input }),
+  correctionList: (filter?: { task?: string; date?: string }) =>
+    call<T.CorrectionList>("correction_list", { filter }),
+  correctionUndo: (id: string) => call<T.CorrectionUndone>("correction_undo", { id }),
+
   // 計画
   blockAdd: (input: T.BlockInput) => call<T.TimeBlock>("block_add", { input }),
   blockList: (range?: T.RangeArgs) => call<T.BlockList>("block_list", { range }),

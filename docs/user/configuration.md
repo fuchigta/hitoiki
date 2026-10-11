@@ -29,7 +29,7 @@ hitoiki config get push.daily_limit
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）。[更新の確認](#更新の確認) を参照 |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
-| `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14） |
+| `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
@@ -50,6 +50,8 @@ hitoiki config get push.daily_limit
 - `review.min_sec`: 仕分けの一覧で既定表示する区間の最小の長さ（秒）。これ未満の短い要確認区間は既定で隠します（削除はしません）。「確認待ち」の件数も同じ基準で数えます。
 - `review.auto_break_locked_min`: 画面ロック・スリープによる無操作がこの分数以上なら、自動で休憩（根拠 `rule:locked`）にします。`0` で無効。ユーザーが確定した区間は変えません。
 - `review.trust_doing`: true にすると、進行中（doing）のタスクを仮で当てた区間を、確認待ちにせず自動（根拠 `doing`）にします。既定は false（確認待ち）。
+- `review.snap_sec`: 今日画面の「実績」の列で補正する範囲をドラッグするとき、端をこの秒数以内の区間の境目に吸着させます（既定 120 秒、`0` で吸着しない）。
+- `review.correct_include_confirmed` / `review.correct_include_meeting` / `review.correct_include_idle`: 実績の補正（[日々の使い方](./daily-use.md#実績の補正)）で、ユーザー確定済みの区間・会議・無操作と記録なしを最初からチェックするか（いずれも既定 false）。CLI の `--include-confirmed` / `--include-meeting` / `--include-idle` はこの設定を true に上書きします。
 - `review.rule_suggest_min_count` / `review.rule_suggest_snooze_days`: 同じ exe（または作業ディレクトリ）を同じタスクにこの回数以上確定したらルール化を提案します（`0` で提案しない）。断った組み合わせは、この日数のあいだ再提案しません。
 - `collect.rebuild_window_min`: 帰属判定を定期的に再計算する直近の範囲（分）。
 - `agent.prompt_excerpt_chars`: プロンプトの抜粋として保存する文字数。0 にすると抜粋を保存しません。

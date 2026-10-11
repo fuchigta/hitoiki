@@ -263,6 +263,7 @@ mod tests {
             agent_session_id: None,
             exe_name: Some("a.exe".into()),
             title: Some("t".into()),
+            offline: false,
         }
     }
 

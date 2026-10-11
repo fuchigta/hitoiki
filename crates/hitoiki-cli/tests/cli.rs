@@ -802,3 +802,140 @@ fn block_edit_delete_and_template_flow() {
         1
     );
 }
+
+#[test]
+fn review_set_by_range_dry_run_apply_list_and_undo() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let t = run(h, &["--json", "task", "add", "補正先"]);
+    let tid = t.json()["id"].as_str().unwrap().to_string();
+    let seg = |id: &str, s: &str, e: &str, kind: &str, status: &str| {
+        insert_segment(
+            h,
+            id,
+            &format!("2026-01-05 {s}"),
+            &format!("2026-01-05 {e}"),
+            kind,
+            None,
+            status,
+        )
+    };
+    seg("WORKSEG", "10:00", "10:30", "work", "needs_review");
+    seg("CONFSEG", "10:30", "10:40", "work", "confirmed");
+    seg("IDLESEG", "10:40", "10:50", "idle", "needs_review");
+    let range = ["--from", "2026-01-05 10:10", "--to", "2026-01-05 10:45"];
+    let mut base = vec!["--json", "review", "set"];
+    base.extend(range);
+
+    // --dry-run: 変更せず、対象と合計を返す。境界にまたがる区間は範囲の内側だけ（10:10-10:30 の 20 分）。
+    let mut args = base.clone();
+    args.extend(["--task", &tid, "--dry-run"]);
+    let o = run(h, &args);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let j = o.json();
+    assert_eq!(j["selected_count"], 1);
+    assert_eq!(j["total_ms"], 20 * 60_000);
+    assert_eq!(j["excluded_count"], 2);
+    let cands = j["candidates"].as_array().unwrap();
+    assert_eq!(cands.len(), 3);
+    assert_eq!(cands[0]["duration_ms"], 20 * 60_000);
+    assert_eq!(cands[0]["full_duration_ms"], 30 * 60_000);
+    assert_eq!(cands[2]["category"], "idle");
+    assert_eq!(cands[2]["checked"], false);
+    assert!(run(h, &["--json", "review", "corrections"]).json()["corrections"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    // 人間向けの出力にも確定前である旨と合計が出る。
+    let mut human = vec!["review", "set"];
+    human.extend(range);
+    human.extend(["--task", &tid, "--dry-run"]);
+    let h_out = run(h, &human);
+    assert!(h_out.stdout.contains("20分"), "{}", h_out.stdout);
+    assert!(h_out.stdout.contains("確定していません"), "{}", h_out.stdout);
+
+    // 適用（無操作も PC 外の作業として含める）。
+    let mut args = base.clone();
+    args.extend(["--task", &tid, "--include-idle"]);
+    let o = run(h, &args);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let j = o.json();
+    assert_eq!(j["preview"]["total_ms"], 25 * 60_000);
+    assert_eq!(j["preview"]["offline_ms"], 5 * 60_000);
+    let cid = j["correction"]["id"].as_str().unwrap().to_string();
+
+    let l = run(h, &["--json", "review", "corrections", "--task", &tid[..14]]).json();
+    assert_eq!(l["count"], 1);
+    assert_eq!(l["corrections"][0]["id"], cid.as_str());
+    assert_eq!(l["corrections"][0]["offline_ms"], 5 * 60_000);
+    assert_eq!(
+        run(h, &["--json", "review", "corrections", "--date", "2026-01-06"]).json()["count"],
+        0
+    );
+    let log = run(h, &["--json", "log", "--date", "2026-01-05"]).json();
+    let segs = log["segments"].as_array().unwrap();
+    let idle = segs
+        .iter()
+        .find(|s| s["start_at"] == ms("2026-01-05 10:40"))
+        .unwrap();
+    assert_eq!(
+        (idle["kind"].as_str(), idle["offline"].as_bool()),
+        (Some("work"), Some(true))
+    );
+
+    // 取り消し。
+    let u = run(h, &["--json", "review", "undo-correction", &cid[..12]]);
+    assert_eq!(u.code, 0, "{}", u.stderr);
+    assert_eq!(u.json()["overrides_removed"], 2);
+    assert_eq!(run(h, &["--json", "review", "corrections"]).json()["count"], 0);
+    assert_eq!(run(h, &["review", "undo-correction", &cid]).code, 3);
+}
+
+#[test]
+fn review_set_range_argument_errors() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let t = run(h, &["--json", "task", "add", "x"]);
+    let tid = t.json()["id"].as_str().unwrap().to_string();
+    insert_segment(
+        h,
+        "WORKSEG",
+        "2026-01-05 10:00",
+        "2026-01-05 10:30",
+        "work",
+        None,
+        "needs_review",
+    );
+    // 区間 ID と範囲は併用できない / --from には --to が必要 / 割り当て先が無い。
+    let both = [
+        "review", "set", "WORKSEG", "--from", "10:00", "--to", "11:00", "--task", &tid,
+    ];
+    assert_eq!(run(h, &both).code, 2);
+    assert_eq!(
+        run(h, &["review", "set", "--from", "10:00", "--task", &tid]).code,
+        2
+    );
+    let no_target = [
+        "review",
+        "set",
+        "--from",
+        "2026-01-05 10:00",
+        "--to",
+        "2026-01-05 11:00",
+    ];
+    assert_eq!(run(h, &no_target).code, 2);
+    // 存在しない除外 ID は対象なし(3)。
+    let bad_exclude = [
+        "review",
+        "set",
+        "--from",
+        "2026-01-05 10:00",
+        "--to",
+        "2026-01-05 11:00",
+        "--task",
+        &tid,
+        "--exclude",
+        "ZZZZ",
+    ];
+    assert_eq!(run(h, &bad_exclude).code, 3);
+}
