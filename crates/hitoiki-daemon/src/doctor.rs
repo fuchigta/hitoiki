@@ -1,4 +1,4 @@
-//! 診断（`hitoiki doctor`、12.2）。各項目を ok / warn / error と日本語メッセージで返す。
+//! 診断（`hitoiki doctor`、docs/architecture.md「CLI」）。各項目を ok / warn / error と日本語メッセージで返す。
 //!
 //! ネットワークへの実アクセスは `DoctorOptions::network` が true のときだけ行う。
 //! ウインドウタイトルやカレンダー URL などの内容はメッセージに含めない。

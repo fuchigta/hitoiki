@@ -1,4 +1,4 @@
-//! 7.1-1 タイムライン構築: window_span と idle_span から区間列を作る。
+//! docs/architecture.md「帰属判定パイプライン」のタイムライン構築: window_span と idle_span から区間列を作る。
 
 use super::piece::Piece;
 use crate::model::{IdleSpan, WindowSpan};

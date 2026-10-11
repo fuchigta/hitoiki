@@ -1,4 +1,4 @@
-//! タイムブロッキング（10 章、12.2 block）。
+//! タイムブロッキング（docs/architecture.md「データモデル」、docs/architecture.md「CLI」）。
 
 use super::{range_view, task_titles, Ctx, RangeArgs, RangeView};
 use crate::id::new_id;

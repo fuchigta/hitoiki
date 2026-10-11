@@ -1,4 +1,4 @@
-//! パイプラインのテーブルテスト（19章）。時刻は「分」で書き、ID 以外で比較する。
+//! パイプラインのテーブルテスト（docs/architecture.md「配布とライセンス」）。時刻は「分」で書き、ID 以外で比較する。
 
 use super::*;
 use crate::config::Config;
@@ -144,7 +144,7 @@ fn output_is_clipped_to_range() {
     assert_eq!(shape(&build(&i, None)), vec![(10, 20, Work)]);
 }
 
-// ===== 7.3 エージェント対話 =====
+// ===== エージェント対話 =====
 
 fn term(id: &str, s: i64, e: i64, title: &str) -> WindowSpan {
     win(id, s, e, "H1", "WindowsTerminal.exe", title)
@@ -340,7 +340,7 @@ fn same_window_same_title_sessions_split_by_nearest_past_submit() {
 #[test]
 fn merge_does_not_absorb_other_window_into_dialog() {
     // 端末20s → chrome25s → 端末20s → chrome25s → 端末20s → 送信。
-    // 吸収（既定 30 秒）で chrome の時間が対話に入ってはいけない（7.3 ラグを計上しない）。
+    // 吸収（既定 30 秒）で chrome の時間が対話に入ってはいけない（ラグを計上しない）。
     let mut i = agent_input();
     i.merge_gap = 30_000;
     let s = 1_000;
@@ -593,7 +593,7 @@ fn agent_task_by_cwd_rule_then_doing_then_none() {
     );
 }
 
-// ===== 7.2 会議 =====
+// ===== 会議 =====
 
 #[test]
 fn idle_overlapping_calendar_is_meeting() {
@@ -833,7 +833,7 @@ fn judge_only_asked_for_unruled_work() {
     assert_eq!(find(&o, 10).status, SegmentStatus::Auto);
 }
 
-// ===== 7.4 割り込み =====
+// ===== 割り込み =====
 
 fn interrupt_input() -> PipelineInput {
     let mut i = base();

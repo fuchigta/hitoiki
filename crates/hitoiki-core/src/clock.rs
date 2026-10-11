@@ -1,7 +1,7 @@
 use crate::Millis;
 use std::sync::atomic::{AtomicI64, Ordering};
 
-/// テスト可能な時計（19章）。時刻は必ずこれ経由で取得する。
+/// テスト可能な時計（docs/architecture.md「配布とライセンス」）。時刻は必ずこれ経由で取得する。
 pub trait Clock: Send + Sync {
     fn now_ms(&self) -> Millis;
 }

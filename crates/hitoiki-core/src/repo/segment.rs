@@ -58,7 +58,7 @@ pub fn get(conn: &Connection, id: &str) -> Result<ActivitySegment> {
     .ok_or_else(|| Error::NotFound(format!("区間 {id}")))
 }
 
-/// ID の前方一致で 1 件に解決する（12.1）。
+/// ID の前方一致で 1 件に解決する（docs/architecture.md「CLI」）。
 pub fn resolve(conn: &Connection, prefix: &str) -> Result<ActivitySegment> {
     let ids = super::resolve_prefix(conn, "activity_segment", prefix)?;
     get(conn, &ids)

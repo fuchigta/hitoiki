@@ -1,4 +1,4 @@
-//! 期間内の `activity_segment` の集計（10 章、12.2 report）。
+//! 期間内の `activity_segment` の集計（docs/architecture.md「CLI」）。
 //!
 //! 実績は常に区間から算出する（予実の「実績」フィールドは持たない）。
 

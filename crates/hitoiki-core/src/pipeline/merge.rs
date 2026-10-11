@@ -1,4 +1,4 @@
-//! 7.1-8 隣接する同一内容の区間の統合と、短い中断の吸収。
+//! docs/architecture.md「帰属判定パイプライン」の統合: 隣接する同一内容の区間の統合と、短い中断の吸収。
 
 use super::piece::Piece;
 use crate::model::{SegmentKind, SegmentStatus};
@@ -13,7 +13,7 @@ fn same_content(a: &Piece, b: &Piece) -> bool {
 }
 
 /// 前後の区間として、間の短い中断を吸収してよいか。
-/// エージェント対話・見守りは「そのウインドウにいた時間だけ」を計上するため（7.3、ラグを計上しない）、
+/// エージェント対話・見守りは「そのウインドウにいた時間だけ」を計上するため（docs/architecture.md「帰属判定パイプライン」、ラグを計上しない）、
 /// ユーザー確定（override）はユーザーが決めた範囲を広げないため、吸収しない。
 fn can_absorb_around(p: &Piece) -> bool {
     !matches!(p.kind, SegmentKind::AgentDialog | SegmentKind::AgentWatch)

@@ -1,4 +1,4 @@
-//! 無操作の収集（6.2）。`GetLastInputInfo` を 1 秒間隔でポーリングする。
+//! 無操作の収集（docs/architecture.md「収集器（Windows）」）。`GetLastInputInfo` を 1 秒間隔でポーリングする。
 //! 入力の内容・回数は取得しない（最終入力時刻のみ）。
 
 use crossbeam_channel::Sender;

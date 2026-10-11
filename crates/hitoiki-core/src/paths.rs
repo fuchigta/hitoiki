@@ -1,4 +1,4 @@
-//! ファイル配置（3.4）。環境変数 `HITOIKI_HOME` が設定されていれば、
+//! ファイル配置（docs/architecture.md「ファイル配置と設定」）。環境変数 `HITOIKI_HOME` が設定されていれば、
 //! すべてをその配下に置く（テスト・ポータブル利用向け）。
 
 use std::path::PathBuf;

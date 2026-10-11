@@ -1,4 +1,4 @@
-//! 7.1-4〜7, 9 / 7.4: override・ルール・判定器・割り込み・doing フォールバック・状態付け。
+//! docs/architecture.md「帰属判定パイプライン」: override・ルール・判定器・割り込み・doing フォールバック・状態付け。
 
 use super::piece::{relabel, split_at, Piece};
 use super::{doing_at, JudgeAnswer, PipelineInput, SegmentJudge};
@@ -136,7 +136,7 @@ fn context(input: &PipelineInput, t: crate::Millis) -> Option<Option<String>> {
         .map(|b| b.task_id.clone())
 }
 
-/// 7.4 割り込みの検出。
+/// 割り込みの検出（docs/architecture.md「帰属判定パイプライン」）。
 /// コミュニケーション系アプリが前面になり、その後「元のタスクに帰属しない作業」が
 /// interrupt_min 以上続いたら、その通信区間から元のタスクに戻る手前までを interrupt にする。
 pub(crate) fn detect_interrupts(input: &PipelineInput, pieces: &mut [Piece]) {

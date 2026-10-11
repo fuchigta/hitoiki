@@ -1,4 +1,4 @@
-//! ロック/スリープの収集（6.2）。非表示のトップレベルウインドウで
+//! ロック/スリープの収集（docs/architecture.md「収集器（Windows）」）。非表示のトップレベルウインドウで
 //! `WM_WTSSESSION_CHANGE` と `WM_POWERBROADCAST` を受ける。
 //! （`HWND_MESSAGE` のウインドウにはセッション通知が届かないため通常ウインドウを使う。）
 

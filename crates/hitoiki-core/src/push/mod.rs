@@ -1,4 +1,4 @@
-//! プッシュ通知の判定ロジック（9章、OS 非依存）。
+//! プッシュ通知の判定ロジック（docs/architecture.md「プッシュ通知」、OS 非依存）。
 //!
 //! - [`evaluate`]: 現在の状況 [`PushContext`] と設定から、出すべき通知 / 抑制 / 保留を純粋関数で決める。
 //! - [`store`]: `push_log` の読み書きと [`store::apply_response`]（応答の保存、checkin / hassle の作成）。
@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 pub use payload::{PushAction, PushInput, PushPayload};
 pub use store::{apply_response, PushResponse, ResponseOutcome};
 
-/// 通知トリガー（9.1）。`ALL` は同時に条件を満たした場合の優先順。
+/// 通知トリガー（docs/architecture.md「プッシュ通知」）。`ALL` は同時に条件を満たした場合の優先順。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PushTrigger {
@@ -195,7 +195,7 @@ pub enum PushDecision {
 /// ## 流れ
 /// 1. `cfg.enabled == false` なら空。`disabled_triggers` のトリガーは判定しない（ログも残さない）。
 /// 2. トリガー条件を満たしたものを [`PushTrigger::ALL`] の順に並べる。
-/// 3. 各候補に抑制ルール（9.2、`gate.rs` の doc 参照）を適用する。
+/// 3. 各候補に抑制ルール（docs/architecture.md「プッシュ通知」、`gate.rs` の doc 参照）を適用する。
 /// 4. 1 回の評価で `Deliver` になるのは最大 1 件（先に通ったものだけ。残りは次回の評価に回る）。
 pub fn evaluate(ctx: &PushContext, cfg: &Push) -> Vec<PushDecision> {
     if !cfg.enabled {

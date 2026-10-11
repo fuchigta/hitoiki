@@ -1,4 +1,4 @@
--- Hitoiki 初期スキーマ（設計書 5章）
+-- Hitoiki 初期スキーマ（docs/architecture.md「データモデル」）
 -- 時刻はすべて UTC の Unix ミリ秒（INTEGER）。ID は ULID（TEXT）。
 
 -- ===== 生データ層 =====
@@ -40,7 +40,7 @@ CREATE INDEX idx_agent_event_at ON agent_event(at);
 CREATE INDEX idx_agent_event_session ON agent_event(agent, session_id, at);
 CREATE UNIQUE INDEX uq_agent_event_dedup ON agent_event(agent, session_id, kind, at);
 
--- エージェントログの取り込み位置（13.1）
+-- エージェントログの取り込み位置（docs/architecture.md「エージェントアダプタ」）
 CREATE TABLE agent_ingest_offset (
   source_file TEXT PRIMARY KEY,
   agent       TEXT NOT NULL,
@@ -139,7 +139,7 @@ CREATE TABLE task (
   done_at          INTEGER
 );
 
--- doing の履歴（7.1-9 / 7.3 で「その時点の doing タスク」を再計算可能にするため）
+-- doing の履歴（docs/architecture.md「帰属判定パイプライン」で「その時点の doing タスク」を再計算可能にするため）
 CREATE TABLE task_doing_log (
   id       TEXT PRIMARY KEY,
   task_id  TEXT NOT NULL REFERENCES task(id),

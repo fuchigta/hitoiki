@@ -1,4 +1,4 @@
-//! エージェント（Claude Code / Codex CLI）のセッションログ取り込み（設計書 13 章）。
+//! エージェント（Claude Code / Codex CLI）のセッションログ取り込み（docs/architecture.md「エージェントアダプタ」）。
 //!
 //! フック設定を必須にせず、各エージェントが残す JSONL を増分解析して `agent_event` に保存する。
 
@@ -16,7 +16,7 @@ pub use watcher::{ImportNotice, Watcher};
 use hitoiki_core::model::AgentEvent;
 use std::path::{Path, PathBuf};
 
-/// エージェントログのアダプタ（13.1）。
+/// エージェントログのアダプタ（docs/architecture.md「エージェントアダプタ」）。
 pub trait AgentAdapter: Send + Sync {
     /// `agent_event.agent` に入る名前（`claude-code` / `codex`）。
     fn name(&self) -> &str;

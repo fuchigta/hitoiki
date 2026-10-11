@@ -1,4 +1,4 @@
-//! UI へ送る Tauri イベント（15.3）。発火は `emit_*` 経由に統一する。
+//! UI へ送る Tauri イベント（docs/architecture.md「GUI」）。発火は `emit_*` 経由に統一する。
 
 use crate::state::PushEvent;
 use serde_json::{json, Value};

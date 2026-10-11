@@ -1,6 +1,6 @@
 //! Claude Code のセッションログ（`~/.claude/projects/<encoded>/<session>.jsonl`）。
 //!
-//! 実ファイルで確認した形式（13.2）:
+//! 実ファイルで確認した形式（docs/architecture.md「エージェントアダプタ」）:
 //! - 1 行 1 JSON。`type` は user / assistant / system / attachment のほか、メタ行
 //!   （summary, last-prompt, mode, ai-title, file-history-snapshot 等。timestamp なし）が混在する。
 //! - 会話行は `timestamp`（RFC 3339）, `sessionId`, `cwd`, `gitBranch`, `isSidechain`, `isMeta` を持つ。
