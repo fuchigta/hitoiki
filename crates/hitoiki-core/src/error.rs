@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-/// コアのエラー。CLI の終了コード（12.1）に対応付けられるよう種別を持つ。
+/// コアのエラー。CLI の終了コード（docs/architecture.md「CLI」）に対応付けられるよう種別を持つ。
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("引数が不正です: {0}")]

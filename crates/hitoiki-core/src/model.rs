@@ -1,4 +1,4 @@
-//! ドメインモデル（5章）。DB の行と 1:1 に対応する構造体と、文字列で保存する列挙。
+//! ドメインモデル（docs/architecture.md「データモデル」）。DB の行と 1:1 に対応する構造体と、文字列で保存する列挙。
 
 use crate::{Error, Millis};
 use serde::{Deserialize, Serialize};

@@ -1,4 +1,4 @@
-//! OKR（10 章）。
+//! OKR（docs/architecture.md「データモデル」）。
 
 use super::Ctx;
 use crate::id::new_id;

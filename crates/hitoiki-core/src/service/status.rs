@@ -1,4 +1,4 @@
-//! `hitoiki status`: 現在の状況の要約（12.2）。
+//! `hitoiki status`: 現在の状況の要約（docs/architecture.md「CLI」）。
 
 use super::report::{self, ReportBy, ReportInput, ReportRow};
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};

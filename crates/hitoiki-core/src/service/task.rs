@@ -1,4 +1,4 @@
-//! タスクとタスク帰属ルールのユースケース（12.2 task コマンド群）。
+//! タスクとタスク帰属ルールのユースケース（docs/architecture.md「CLI」）。
 
 use super::Ctx;
 use crate::id::new_id;
@@ -25,7 +25,7 @@ pub struct TaskInput {
     pub external_url: Option<String>,
     pub planned_start_at: Option<Millis>,
     pub planned_end_at: Option<Millis>,
-    /// 割り込みタスク（kind=interrupt かつ urgent=1、10 章）。
+    /// 割り込みタスク（kind=interrupt かつ urgent=1）。
     pub interrupt: bool,
 }
 

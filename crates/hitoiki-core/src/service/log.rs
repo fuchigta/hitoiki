@@ -1,4 +1,4 @@
-//! `hitoiki log`: 区間一覧と、`--raw` での生データの時系列表示（12.2）。
+//! `hitoiki log`: 区間一覧と、`--raw` での生データの時系列表示（docs/architecture.md「CLI」）。
 
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};
 use crate::repo;

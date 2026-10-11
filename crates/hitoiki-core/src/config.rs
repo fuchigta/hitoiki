@@ -1,4 +1,4 @@
-//! 設定（16章）。`config.toml` が無い・項目が欠けている場合は既定値で補う。
+//! 設定（docs/architecture.md「ファイル配置と設定」）。`config.toml` が無い・項目が欠けている場合は既定値で補う。
 
 use crate::{paths, Error, Result};
 use serde::{Deserialize, Serialize};
@@ -44,10 +44,10 @@ pub struct Collect {
     pub terminal_exes: Vec<String>,
     pub communication_exes: Vec<String>,
     pub meeting_exes: Vec<String>,
-    /// 除外区間を丸ごと破棄する（false なら exe 名のみ保持、6.5）。
+    /// 除外区間を丸ごと破棄する（false なら exe 名のみ保持。docs/architecture.md「収集器（Windows）」）。
     pub drop_excluded: bool,
     pub exclude: Vec<ExcludeRule>,
-    /// 割り込み判定: コミュニケーション系の後に元タスク外作業が続く最小時間（7.4）。
+    /// 割り込み判定: コミュニケーション系の後に元タスク外作業が続く最小時間（docs/architecture.md「帰属判定パイプライン」）。
     pub interrupt_min_sec: u64,
     /// 帰属判定の定期実行で再計算する直近の範囲（分）。
     pub rebuild_window_min: u64,
@@ -153,7 +153,7 @@ pub struct Agent {
     /// 0 でプロンプト抜粋を保存しない。
     pub prompt_excerpt_chars: usize,
     pub watch_max_min: u64,
-    /// prompt_submit 時に前面がターミナル以外だった場合に遡る秒数（7.3）。
+    /// prompt_submit 時に前面がターミナル以外だった場合に遡る秒数（docs/architecture.md「帰属判定パイプライン」）。
     pub bind_lookback_sec: u64,
 }
 
@@ -293,7 +293,7 @@ pub enum JudgeBackend {
         command: Vec<String>,
         #[serde(default = "default_judge_timeout")]
         timeout_sec: u64,
-        /// true なら複数区間を `states` 配列でまとめて送る（8.3 バッチモード）。
+        /// true なら複数区間を `states` 配列でまとめて送る（docs/architecture.md「判定器」のバッチモード）。
         #[serde(default)]
         batch: bool,
     },
@@ -347,7 +347,7 @@ pub struct CalendarSource {
     pub name: String,
     #[serde(rename = "type")]
     pub kind: String,
-    /// 秘密情報。ログに出さないこと（14章）。
+    /// 秘密情報。ログに出さないこと（docs/architecture.md「カレンダー（ICS）」）。
     pub url: String,
 }
 

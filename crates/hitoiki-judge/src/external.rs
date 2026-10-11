@@ -1,4 +1,4 @@
-//! 外部コマンド判定器（8.3）。標準入力に JSON、標準出力から JSON。
+//! 外部コマンド判定器（docs/architecture.md「判定器」）。標準入力に JSON、標準出力から JSON。
 
 use crate::protocol::{Answers, Judge, JudgeRequest, JudgeResponse, QuestionSpec, State, PROTOCOL_VERSION};
 use anyhow::{anyhow, bail, Context};

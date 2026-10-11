@@ -16,7 +16,7 @@ use serde_json::json;
 use std::io::Read;
 use std::time::Duration;
 
-/// 失敗しても無視するデーモンへの通知（設計 3.3）。
+/// 失敗しても無視するデーモンへの通知（docs/architecture.md「クレート構成とプロセスモデル」）。
 pub fn notify_data(what: &str) {
     hitoiki_ipc::notify_best_effort(&Message::DataChanged { what: what.into() });
 }
@@ -325,7 +325,7 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     }
 }
 
-/// `hitoiki daemon`: ヘッドレス常駐（3.3）。
+/// `hitoiki daemon`: ヘッドレス常駐（docs/architecture.md「クレート構成とプロセスモデル」）。
 pub fn daemon() -> Result<()> {
     hitoiki_daemon::run_headless().map_err(Error::Other)
 }

@@ -3,7 +3,6 @@
 > **開発中です。** まだ機能は揃っておらず、仕様・コマンドは変わる可能性があります。
 
 「一息つきませんか」と寄り添って声をかける、個人用の自己管理ツールです。
-書籍「エンジニアのための自己管理入門」の考え方を日常業務に組み込むことを目的にしています。
 
 タスク・タイムマネジメント、モチベーション、アンガー・ストレス、スキルの4領域を1つのタイムライン上で統合し、記録・可視化・内省を支援します。
 コーディングエージェント（Claude Code など）との対話時間のような「名前の無い工数」を自動で捉え、タスクに紐づけて可視化することを重視しています。
@@ -111,7 +110,7 @@ cargo fmt --all
 cargo build --release -p hitoiki-cli -p hitoiki-app
 ```
 
-ワークスペース構成や設計の詳細は [`hitoiki-design.md`](./hitoiki-design.md) と [`CLAUDE.md`](./CLAUDE.md) を参照してください。
+ワークスペース構成や設計の詳細は [`docs/architecture.md`](./docs/architecture.md) と [`CLAUDE.md`](./CLAUDE.md) を参照してください。
 
 依存クレートのライセンスは [cargo-deny](https://github.com/EmbarkStudios/cargo-deny) で確認しています（`cargo deny check licenses`、CI でも実行）。
 

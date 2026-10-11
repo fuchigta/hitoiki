@@ -1,4 +1,4 @@
-//! 判定器のプロトコル型（8.3）。外部コマンドの JSON と同じ形。
+//! 判定器のプロトコル型（docs/architecture.md「判定器」）。外部コマンドの JSON と同じ形。
 //! 将来の Jev（Choice / Score / Bool の型付き問い + 確率）に合わせた形にしてある。
 
 use serde::{Deserialize, Serialize};

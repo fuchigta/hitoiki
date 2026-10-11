@@ -1,4 +1,4 @@
-//! 要確認区間の一覧と確定（P2、12.2 review）。
+//! 要確認区間の一覧と確定（docs/architecture.md「設計原則」、docs/architecture.md「CLI」）。
 
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};
 use crate::id::new_id;

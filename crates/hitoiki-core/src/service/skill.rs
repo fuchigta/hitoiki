@@ -1,4 +1,4 @@
-//! スキル（10 章）。
+//! スキル（docs/architecture.md「データモデル」）。
 
 use super::Ctx;
 use crate::id::new_id;

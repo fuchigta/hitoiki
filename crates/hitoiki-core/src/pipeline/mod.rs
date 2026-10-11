@@ -1,4 +1,4 @@
-//! 時間の帰属判定パイプライン（7章）。生データ → `activity_segment` の純粋関数。
+//! 時間の帰属判定パイプライン（docs/architecture.md「帰属判定パイプライン」）。生データ → `activity_segment` の純粋関数。
 //!
 //! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 判定器 →
 //! 割り込み → doing フォールバック → 状態付け → 統合。
@@ -22,7 +22,7 @@ use crate::Millis;
 pub(crate) use agent::norm_title;
 use piece::Piece;
 
-/// 判定器の答え（8章）。
+/// 判定器の答え（docs/architecture.md「判定器」）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct JudgeAnswer {
     pub task_id: Option<String>,

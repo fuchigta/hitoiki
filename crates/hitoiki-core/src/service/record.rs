@@ -1,4 +1,4 @@
-//! 手入力の記録: チェックイン、デイリーハッスル、ABC（10 章、12.2）。
+//! 手入力の記録: チェックイン、デイリーハッスル、ABC（docs/architecture.md「データモデル」、docs/architecture.md「CLI」）。
 
 use super::{check_1_5, Ctx, RangeArgs};
 use crate::id::new_id;

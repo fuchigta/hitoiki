@@ -1,4 +1,4 @@
-//! Tauri コマンド（15.3）。core の service 層を呼ぶだけの薄いラッパで、ロジックは持たない。
+//! Tauri コマンド（docs/architecture.md「GUI」）。core の service 層を呼ぶだけの薄いラッパで、ロジックは持たない。
 //! 引数名は UI との契約なので snake_case のまま受ける。
 
 use crate::dto::*;
