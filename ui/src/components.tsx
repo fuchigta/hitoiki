@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
-import { api, type AppError, type BlockView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
+import { api, type AppError, type BlockView, type GapView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
 import { leaveGuard } from "./edit-util";
 import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime } from "./lib";
 
@@ -120,13 +120,25 @@ interface TimelineProps {
   /** 1 日の範囲（その日の 0 時〜翌 0 時）。 */
   dayStart: Millis;
   dayEnd: Millis;
+  /** 記録なしの時間帯。実績の行に斜線で重ねる。 */
+  gaps?: GapView[];
 }
 
 const HOUR = 3600_000;
 
-export function Timeline({ segments, blocks, now, dayStart, dayEnd }: TimelineProps) {
-  const starts = [...segments.map((s) => s.start_at), ...blocks.map((b) => b.start_at), now];
-  const ends = [...segments.map((s) => s.end_at), ...blocks.map((b) => b.end_at), now];
+export function Timeline({ segments, blocks, now, dayStart, dayEnd, gaps = [] }: TimelineProps) {
+  const starts = [
+    ...segments.map((s) => s.start_at),
+    ...blocks.map((b) => b.start_at),
+    ...gaps.map((g) => g.start_at),
+    now,
+  ];
+  const ends = [
+    ...segments.map((s) => s.end_at),
+    ...blocks.map((b) => b.end_at),
+    ...gaps.map((g) => g.end_at),
+    now,
+  ];
   let lo = Math.floor((Math.min(...starts) - dayStart) / HOUR) * HOUR + dayStart;
   let hi = Math.ceil((Math.max(...ends) - dayStart) / HOUR) * HOUR + dayStart;
   // 少なくとも 8 時間の幅で表示する。
@@ -179,6 +191,14 @@ export function Timeline({ segments, blocks, now, dayStart, dayEnd }: TimelinePr
               title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}${s.status === "needs_review" ? "（要確認）" : ""}`}
             />
           ))}
+          {gaps.map((g) => (
+            <div
+              key={`gap-${g.start_at}`}
+              class="tl-item gap"
+              style={{ left: pos(g.start_at), width: width(g.start_at, g.end_at) }}
+              title={`${fmtTime(g.start_at)}–${fmtTime(g.end_at)} 記録なし（${fmtDur(g.duration_ms)}。収集が止まっていた時間帯です）`}
+            />
+          ))}
           {now >= lo && now <= hi && <div class="tl-now" style={{ left: pos(now) }} title="いま" />}
         </div>
       </div>
@@ -193,6 +213,12 @@ export function Timeline({ segments, blocks, now, dayStart, dayEnd }: TimelinePr
           <li>
             <i class="dot review" />
             要確認
+          </li>
+        )}
+        {gaps.length > 0 && (
+          <li>
+            <i class="dot gap" />
+            記録なし
           </li>
         )}
       </ul>

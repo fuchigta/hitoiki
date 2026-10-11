@@ -21,6 +21,7 @@ use crate::rules::{ActivityRuleSet, TaskRuleSet};
 use crate::timefmt::Range;
 use crate::Millis;
 pub(crate) use agent::norm_title;
+pub use agent::UnboundPrompt;
 use piece::Piece;
 
 /// 判定器の答え（docs/dev/architecture.md「判定器」）。
@@ -59,12 +60,14 @@ pub struct PipelineInput {
     pub idle_threshold: Millis,
     pub merge_gap: Millis,
     pub terminal_exes: Vec<String>,
+    pub agent_host_exes: Vec<String>,
     pub communication_exes: Vec<String>,
     pub meeting_exes: Vec<String>,
     pub transient_exes: Vec<String>,
     pub transient_max: Millis,
     pub watch_max: Millis,
     pub bind_lookback: Millis,
+    pub bind_unlisted: bool,
     pub interrupt_min: Millis,
     pub auto_confidence_threshold: f64,
 }
@@ -88,12 +91,14 @@ impl PipelineInput {
             idle_threshold: cfg.collect.idle_threshold_sec as Millis * 1000,
             merge_gap: cfg.collect.merge_gap_sec as Millis * 1000,
             terminal_exes: cfg.collect.terminal_exes.clone(),
+            agent_host_exes: cfg.collect.agent_host_exes.clone(),
             communication_exes: cfg.collect.communication_exes.clone(),
             meeting_exes: cfg.collect.meeting_exes.clone(),
             transient_exes: cfg.collect.transient_exes.clone(),
             transient_max: cfg.collect.transient_max_sec as Millis * 1000,
             watch_max: cfg.agent.watch_max_min as Millis * 60_000,
             bind_lookback: cfg.agent.bind_lookback_sec as Millis * 1000,
+            bind_unlisted: cfg.agent.bind_unlisted,
             interrupt_min: cfg.collect.interrupt_min_sec as Millis * 1000,
             auto_confidence_threshold: cfg.judge.auto_confidence_threshold,
         }
@@ -183,6 +188,13 @@ pub fn earliest_period_start(input: &PipelineInput) -> Option<Millis> {
     let task_rules = TaskRuleSet::new(&input.task_rules);
     let wl = timeline::window_layer(&input.windows, input.now);
     agent::earliest_period_start(input, &task_rules, &wl)
+}
+
+/// 出力範囲内の `prompt_submit` のうち、ウインドウに対応付けできなかったもの（診断用。`hitoiki doctor`）。
+pub fn unbound_prompts(input: &PipelineInput) -> Vec<UnboundPrompt> {
+    let task_rules = TaskRuleSet::new(&input.task_rules);
+    let wl = timeline::window_layer(&input.windows, input.now);
+    agent::unbound_prompts(input, &task_rules, &wl)
 }
 
 fn clip(pieces: &mut Vec<Piece>, range: Range) {
