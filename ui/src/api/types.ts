@@ -186,9 +186,20 @@ export interface Status {
   update_available?: string | null;
 }
 
+/** 記録なしの時間帯（収集器が動いていなかった区間。無操作・ロック・スリープとは別）。 */
+export interface GapView {
+  start_at: Millis;
+  end_at: Millis;
+  start: string;
+  end: string;
+  duration_ms: number;
+}
+
 export interface Log {
   range: RangeView;
   segments: SegmentView[];
+  /** 記録なしの時間帯（時刻順）。 */
+  gaps: GapView[];
   raw?: unknown[];
 }
 

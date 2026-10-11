@@ -47,6 +47,10 @@ pub struct Collect {
     pub merge_gap_sec: u64,
     pub poll_interval_sec: u64,
     pub terminal_exes: Vec<String>,
+    /// GUI のエージェントクライアント（Orca / Cursor など）の exe 名。`terminal_exes` と同じ扱いで、
+    /// エージェントとの対話時間を計上するウインドウとみなす。`terminal_exes` を書き換えている既存の設定でも
+    /// 既定値が効くように、別のキーにしている。
+    pub agent_host_exes: Vec<String>,
     pub communication_exes: Vec<String>,
     pub meeting_exes: Vec<String>,
     /// 通過系アプリの exe 名（タスクバー・スタートメニュー・Alt+Tab など、作業の合間に一瞬だけ前面になるもの）。
@@ -82,6 +86,9 @@ impl Default for Collect {
             ]
             .map(String::from)
             .to_vec(),
+            agent_host_exes: ["Orca.exe", "Cursor.exe", "Windsurf.exe", "Code - Insiders.exe"]
+                .map(String::from)
+                .to_vec(),
             communication_exes: ["ms-teams.exe", "Slack.exe", "olk.exe", "OUTLOOK.EXE"]
                 .map(String::from)
                 .to_vec(),
@@ -161,8 +168,12 @@ impl Collect {
     pub fn is_excluded(&self, exe_name: Option<&str>, title: Option<&str>) -> bool {
         self.exclude.iter().any(|r| r.matches(exe_name, title))
     }
+    /// エージェントとの対話を行うウインドウの exe か（`terminal_exes` または `agent_host_exes`）。
     pub fn is_terminal(&self, exe: &str) -> bool {
-        self.terminal_exes.iter().any(|e| e.eq_ignore_ascii_case(exe))
+        self.terminal_exes
+            .iter()
+            .chain(&self.agent_host_exes)
+            .any(|e| e.eq_ignore_ascii_case(exe))
     }
     pub fn is_communication(&self, exe: &str) -> bool {
         self.communication_exes
@@ -183,6 +194,9 @@ pub struct Agent {
     pub watch_max_min: u64,
     /// prompt_submit 時に前面がターミナル以外だった場合に遡る秒数（docs/dev/architecture.md「帰属判定パイプライン」）。
     pub bind_lookback_sec: u64,
+    /// true なら、`prompt_submit` 時の前面が一覧（`terminal_exes` / `agent_host_exes`）に無いアプリでも、
+    /// 除外・通過系・Hitoiki 自身・ブラウザ・コミュニケーション/会議系でなければそのウインドウにいたとみなして対応付ける。
+    pub bind_unlisted: bool,
 }
 
 impl Default for Agent {
@@ -192,6 +206,7 @@ impl Default for Agent {
             prompt_excerpt_chars: 200,
             watch_max_min: 10,
             bind_lookback_sec: 5,
+            bind_unlisted: true,
         }
     }
 }

@@ -258,9 +258,26 @@ pub fn suggestions(list: &[RuleSuggestion]) -> String {
     s
 }
 
+fn gap_line(tz: Tz, g: &hitoiki_core::service::log::GapView) -> String {
+    format!(
+        "{}-{}  記録なし（収集が止まっていた時間帯・{}）",
+        fmt_hm(tz, g.start_at),
+        fmt_hm(tz, g.end_at),
+        dur(g.duration_ms)
+    )
+}
+
 pub fn log(tz: Tz, l: &Log) -> String {
     let Some(raw) = &l.raw else {
-        return segments(tz, &l.segments);
+        let mut s = segments(tz, &l.segments);
+        for g in &l.gaps {
+            s += &format!(
+                "
+{}",
+                gap_line(tz, g)
+            );
+        }
+        return s;
     };
     // 区間と生データを時系列に混ぜる。
     let mut lines: Vec<(Millis, u8, String)> = Vec::new();
@@ -293,6 +310,9 @@ pub fn log(tz: Tz, l: &Log) -> String {
                 truncate(&e.summary, 70)
             ),
         ));
+    }
+    for g in &l.gaps {
+        lines.push((g.start_at, 1, gap_line(tz, g)));
     }
     lines.sort_by_key(|a| (a.0, a.1));
     if lines.is_empty() {

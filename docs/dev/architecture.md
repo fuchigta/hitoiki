@@ -79,6 +79,12 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 - **除外**: `collect.exclude`（exe 名、タイトル正規表現。両方指定すると両方一致で除外）に一致したウインドウは `excluded = 1` とし、exe パスとタイトルを保存しない。`collect.drop_excluded = true` なら区間自体を作らない。既定でパスワードマネージャ（KeePass 系、1Password、Bitwarden）とプライベートブラウズのタイトルを除外する。
 - **Hitoiki 自身**: 前面ウインドウが Hitoiki 自身（exe 名 `hitoiki-app.exe`、または自プロセスの pid）の間は区間を作らない（記録の空白になる）。`collect.record_self = true` で記録する。
 - **異常終了への備え**: `Recorder` はハートビートを保存し、起動時に前回の未終了区間（`end_at` が NULL）を最後のハートビートで閉じる。
+- **稼働の記録と「記録なし」**: `Recorder` は起動時に `setting` の `collector.runs`（JSON 配列。開始・最終ハートビート・正常停止か。60 日・400 件まで）へ新しい稼働を追加し、10 秒ごとのハートビートで最新の稼働の終了時刻を進め、正常停止時に `clean` を立てる。`recording::gaps` は、稼働と稼働のあいだ（クラッシュ、PC 終了、アプリ未起動）と、最後の稼働が止まってから現在まで（最後のハートビートが 30 秒より古い、または正常停止済み）を「記録なし」の区間として返す。1 分未満の空白と、最初の稼働より前（稼働の記録を持たない古い版の期間）は含めない。無操作・ロック・スリープ（`idle_span`）、Hitoiki 自身の前面（`record_self = false`）、除外の破棄は収集器が動いたうえでの空白なので「記録なし」ではない。スリープ中はプロセスごと止まるが、復帰後の最初のハートビートで稼働が続いたものになり、その間は `idle_span`（sleep）が説明する。前面・無操作・セッションの収集スレッドのどれかが停止要求なしに終了したときは、エラーをログに出して稼働のハートビートを止める（以降が「記録なし」に見える）。
+- **見える化**: `hitoiki log` と UI のログ取得（`Log.gaps`）は記録なしの区間を含み、今日画面のタイムラインは斜線で重ねる。`hitoiki doctor` の `collect` は直近 24 時間の記録停止を合計して 10 分以上なら警告する。トレイの先頭（とツールチップ）は、DB のハートビート（30 秒以内）から「記録中」/「記録停止中」を出す（`External` のときは daemon 側で収集中である旨を添える）。
+
+### 2.4.1 ログ
+
+`hitoiki-app` とヘッドレス daemon は、同じ `hitoiki_daemon::init_logging` で `%LOCALAPPDATA%\hitoiki\logs\hitoiki.log.<日付>`（日次ローテーション、14 日分。古いファイルはローテーション時に `tracing-appender` が削除する）と stderr に出す。起動・終了・Recorder の開始/停止・収集スレッドの異常終了・panic（場所のみ）を残す。ウインドウタイトル、プロンプト内容、ICS URL は出さない。
 
 ### 2.5 更新の確認
 
@@ -141,7 +147,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `abc_record` | ABC 理論の記録（`activating_event`, `belief`, `consequence_*`, `dispute`, `ai_dialog_md`） |
 | `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`） |
 | `push_log` | 通知ログ（トリガー、配信済みか、応答、`snoozed_until`、`suppressed_reason`） |
-| `setting` | キー・値の設定 |
+| `setting` | キー・値の設定（収集器の稼働は `collector.heartbeat` と `collector.runs`） |
 | `judge_cache` | 判定器の答えのキャッシュ（`key`, `answer_json`, `judge_name`, `created_at`）。保持期間 30 日 |
 
 予実について、実績入力フィールドは作らない。実績は常に `activity_segment` から算出する。
@@ -173,7 +179,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 計上するのは「ユーザーがそのセッションのウインドウにいた時間」だけである。応答完了から次の送信までのラグの間に別ウインドウにいた時間は、通常の作業として残る。
 
-- **セッションとウインドウの結び付け**: `prompt_submit` の時刻に前面だったウインドウが `collect.terminal_exes` のものならそれを使い、そうでなければ直前 `agent.bind_lookback_sec`（既定 5 秒）内の最も新しいターミナル系区間を使う。結び付けは `(hwnd, 正規化タイトル)` で行い、タイトルの先頭の記号（スピナー）と空白は `normalize_title` で除く。
+- **セッションとウインドウの結び付け**: 次の順に最初に見つかったものを使う。(1) `prompt_submit` の時刻に前面だったウインドウが `collect.terminal_exes` または `collect.agent_host_exes`（GUI のエージェントクライアント。既定は `Orca.exe`、`Cursor.exe`、`Windsurf.exe`、`Code - Insiders.exe`）のもの。(2) 直前 `agent.bind_lookback_sec`（既定 5 秒）内の最も新しい (1) の区間。(3) `agent.bind_unlisted = true`（既定）なら、送信時に前面だった一覧外のウインドウ。ただし除外ウインドウ、`transient_exes`、Hitoiki 自身、ブラウザ（chrome / msedge / firefox / brave / vivaldi / opera / arc / iexplore）、`communication_exes`、`meeting_exes` は対象外で、送信時刻が無操作（ロック・スリープを含む）の最中でもない。(3) は、人が打った送信なら直前に入力があるはずで、無操作中の送信（エージェント自身の自動投入など）や、ブラウザ・通信アプリなどの別作業の裏で動いたセッションを誤って対話時間にしないための歯止めである。それでも別の一覧外アプリで作業中の裏で送信されたものは対話時間に混ざりうるので、そのアプリを `communication_exes` などに入れるか `agent.bind_unlisted = false` にして一覧だけで判定する。対応付けできなかった送信は `hitoiki doctor` の `agent` が、直近 24 時間の件数と送信時の前面 exe 名（タイトルは出さない）で知らせる。結び付けは `(hwnd, 正規化タイトル)` で行い、タイトルの先頭の記号（スピナー）と空白は `normalize_title` で除く。
 - **agent_dialog**: ユーザーが送信（`prompt_submit`）するまでの「対象期間」のうち、結び付けたウインドウが前面で無操作でない部分。対象期間の開始は、直前の応答完了 / 直前の送信 / セッション開始（最初の送信とほぼ同時の開始は無いものとして扱う。`SESSION_START_GRACE` = 5 秒）。いずれも無ければ、送信直前で同じ `(hwnd, タイトル)` が連続していた区間の開始まで遡る。
 - **agent_watch**: 送信後、同じウインドウが前面のまま続いた時間。次の応答完了または次の送信、あるいは `agent.watch_max_min`（既定 10 分）で打ち切る。
 - **タスクの決定**: セッションの `cwd` / `git_branch` に対する `task_match_rule` が最優先（`rule`、確信度 1.0、`auto`）。無ければセッション開始時点の doing タスク（`doing`、確信度 0.5、`needs_review`）。どちらも無ければタスクなしで `needs_review`。
@@ -286,7 +292,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`okr`、`skill`、`report`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
 
-`doctor` は config / db / collect / agent / calendar / notify / judge / ai を ok・warn・error で診断する。ネットワークへの実アクセス（カレンダー取得・判定器への疎通）は `--network` 指定時だけ。
+`doctor` は config / db / collect / agent / calendar / notify / judge / ai を ok・warn・error で診断する。`collect` は直近 24 時間の記録停止（2.4）、`agent` は直近 24 時間のプロンプトのうちウインドウに対応付けできなかった件数（4.2）も見る。ネットワークへの実アクセス（カレンダー取得・判定器への疎通）は `--network` 指定時だけ。
 
 `native-host` は、ブラウザ拡張からの URL などを `context_hint` に保存するネイティブメッセージングホスト（4 バイト長 + JSON、1 MB 上限）で、Chrome/Edge/Firefox 向けのマニフェストとレジストリ登録を `install` が行う。
 
@@ -302,7 +308,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 |---|---|
 | 設定 | `%APPDATA%\hitoiki\config.toml` |
 | DB | `%LOCALAPPDATA%\hitoiki\hitoiki.db`（WAL。マイグレーション前のバックアップは同じ場所に `hitoiki.db.bak-<日時>`） |
-| ログ | `%LOCALAPPDATA%\hitoiki\logs\hitoiki.log.<日付>`（日次ローテーション） |
+| ログ | `%LOCALAPPDATA%\hitoiki\logs\hitoiki.log.<日付>`（日次ローテーション、14 日分。app と daemon で共通） |
 | 判定器・プラグイン | `%APPDATA%\hitoiki\plugins\` |
 | 質問セット | `%APPDATA%\hitoiki\questions\` |
 | 振り返りテンプレート | `%APPDATA%\hitoiki\templates\` |
@@ -317,9 +323,9 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | セクション | 主なキー（既定値） |
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true）、`update_check`（未設定=確認しない） |
-| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
+| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
 | `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14） |
-| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
+| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |

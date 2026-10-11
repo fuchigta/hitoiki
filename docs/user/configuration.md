@@ -28,9 +28,9 @@ hitoiki config get push.daily_limit
 | セクション | キー（既定値） |
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）。[更新の確認](#更新の確認) を参照 |
-| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
+| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
 | `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14） |
-| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
+| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
@@ -43,6 +43,8 @@ hitoiki config get push.daily_limit
 - `collect.idle_threshold_sec`: この秒数、入力が無ければ無操作区間にします（入力の内容は見ません）。
 - `collect.merge_gap_sec`: 同じ内容にはさまれた、この秒数以下の短い作業を吸収して 1 つの区間にまとめます。
 - `collect.terminal_exes` / `communication_exes` / `meeting_exes`: ターミナル系（エージェントとの対話の判定に使う）、コミュニケーション系（割り込みの判定に使う）、会議アプリの exe 名。
+- `collect.agent_host_exes`: GUI のエージェントクライアントの exe 名（既定は `Orca.exe`、`Cursor.exe`、`Windsurf.exe`、`Code - Insiders.exe`）。`terminal_exes` と同じく、そのウインドウが前面にいた時間をエージェントとの対話時間に数えます。`terminal_exes` を書き換えている設定でも既定の一覧が効くよう、別のキーにしています。自分が使うクライアントが無ければ追加してください。
+- `agent.bind_unlisted`: true（既定）なら、プロンプトを送った時に前面だったアプリが `terminal_exes` / `agent_host_exes` に無くても、そのウインドウで対話していたものとして数えます。ブラウザ、`explorer.exe` などの通過系、コミュニケーション・会議系、Hitoiki 自身、除外したウインドウ、入力が無い（無操作・ロック中の）時刻の送信は数えません。別のアプリで作業している裏でエージェントが動く使い方で、その作業が対話時間に混ざるときは false にして、一覧のアプリだけにします。
 - `collect.interrupt_min_sec`: コミュニケーション系アプリの後に別の作業が続いたとき、割り込みとみなす最小の長さ。
 - `collect.transient_exes` / `collect.transient_max_sec`: タスクバー、スタートメニュー、Alt+Tab などを担う「通過系」アプリの exe 名（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellExperienceHost.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`）と、通過とみなす最大の連続時間（秒）。通過系アプリが前面だった時間がこの長さ未満なら、独立した区間にせず直前の作業（無ければ直後の作業）に含めます。この長さ以上続いたとき（ファイラーで作業したときなど）は通常の区間のままです。記録（`window_span`）は変えないので、値を変えて `hitoiki rebuild` すると過去分にも反映できます。
 - `review.min_sec`: 仕分けの一覧で既定表示する区間の最小の長さ（秒）。これ未満の短い要確認区間は既定で隠します（削除はしません）。「確認待ち」の件数も同じ基準で数えます。

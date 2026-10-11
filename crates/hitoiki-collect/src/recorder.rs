@@ -45,6 +45,8 @@ pub struct Recorder {
     last_idle_change: Millis,
     /// ハートビートの保存間隔。
     pub heartbeat_interval: Duration,
+    /// false なら稼働の記録を進めない（収集器の一部が異常終了した後。記録なしとして見えるようにする）。
+    beating: bool,
 }
 
 impl Recorder {
@@ -56,6 +58,11 @@ impl Recorder {
             tracing::warn!(count = n, "前回の未終了区間を閉じました");
         }
         repo::set_heartbeat(&conn, clock.now_ms())?;
+        repo::begin_run(&conn, clock.now_ms())?;
+        tracing::info!(
+            last_heartbeat_age_sec = hb.map(|h| (clock.now_ms() - h) / 1000),
+            "収集を開始しました"
+        );
         Ok(Self {
             conn,
             cfg,
@@ -67,6 +74,7 @@ impl Recorder {
             locked: false,
             sleeping: false,
             heartbeat_interval: Duration::from_secs(10),
+            beating: true,
         })
     }
 
@@ -183,7 +191,10 @@ impl Recorder {
     }
 
     pub fn heartbeat(&self) -> Result<()> {
-        repo::set_heartbeat(&self.conn, self.clock.now_ms())?;
+        if self.beating {
+            repo::set_heartbeat(&self.conn, self.clock.now_ms())?;
+            repo::touch_run(&self.conn, self.clock.now_ms(), false)?;
+        }
         Ok(())
     }
 
@@ -199,7 +210,25 @@ impl Recorder {
         if let Some((id, _)) = self.idle_open.take() {
             repo::close_idle_span(&self.conn, &id, now.max(self.last_idle_change))?;
         }
-        self.heartbeat()
+        if self.beating {
+            repo::set_heartbeat(&self.conn, now)?;
+            repo::touch_run(&self.conn, now, true)?;
+        }
+        tracing::info!("収集を停止しました");
+        Ok(())
+    }
+
+    /// 収集器のチャネルが停止要求なしに閉じた（収集スレッドの異常終了）。原因調査用にログを残し、
+    /// 稼働の記録を止める（以降は「記録なし」として見える）。
+    fn collector_lost(&mut self, name: &str, stop: &StopToken) {
+        if stop.is_stopped() {
+            return;
+        }
+        tracing::error!(
+            collector = name,
+            "収集スレッドが停止要求なしに終了しました。以降の記録は不完全になります"
+        );
+        self.beating = false;
     }
 
     /// イベントを受けて書き込み続ける。`stop` が立つか全チャネルが閉じたら
@@ -217,15 +246,15 @@ impl Recorder {
             select! {
                 recv(fg) -> m => match m {
                     Ok(e) => log_err(self.on_foreground(e)),
-                    Err(_) => { fg_open = false; fg = never(); }
+                    Err(_) => { fg_open = false; fg = never(); self.collector_lost("foreground", &stop); }
                 },
                 recv(idle) -> m => match m {
                     Ok(e) => log_err(self.on_idle(e)),
-                    Err(_) => { idle_open = false; idle = never(); }
+                    Err(_) => { idle_open = false; idle = never(); self.collector_lost("idle", &stop); }
                 },
                 recv(sess) -> m => match m {
                     Ok(e) => log_err(self.on_session(e)),
-                    Err(_) => { sess_open = false; sess = never(); }
+                    Err(_) => { sess_open = false; sess = never(); self.collector_lost("session", &stop); }
                 },
                 default(Duration::from_millis(200)) => {}
             }
@@ -470,6 +499,38 @@ mod tests {
         let r = Recorder::new(conn, Collect::default(), clock).unwrap();
         assert_eq!(wins(&r), vec![(1_000, Some(4_000), None, false)]);
         assert_eq!(repo::get_heartbeat(&r.conn).unwrap(), Some(9_000));
+    }
+
+    #[test]
+    fn runs_track_heartbeat_and_clean_stop() {
+        let (mut r, clock) = rec(Collect::default());
+        clock.set(5_000);
+        r.heartbeat().unwrap();
+        let runs = repo::list_runs(&r.conn).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(
+            (runs[0].start_at, runs[0].end_at, runs[0].clean),
+            (1_000, 5_000, false)
+        );
+        clock.set(8_000);
+        r.shutdown().unwrap();
+        let runs = repo::list_runs(&r.conn).unwrap();
+        assert_eq!((runs[0].end_at, runs[0].clean), (8_000, true));
+    }
+
+    #[test]
+    fn lost_collector_stops_run_heartbeat() {
+        let (mut r, clock) = rec(Collect::default());
+        let stop = StopToken::new();
+        r.collector_lost("foreground", &stop);
+        clock.set(9_000);
+        r.heartbeat().unwrap();
+        assert_eq!(repo::list_runs(&r.conn).unwrap()[0].end_at, 1_000);
+        // 停止要求後の切断は異常ではない
+        let (mut r2, _) = rec(Collect::default());
+        stop.stop();
+        r2.collector_lost("foreground", &stop);
+        assert!(r2.beating);
     }
 
     #[test]

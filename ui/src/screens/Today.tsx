@@ -88,6 +88,7 @@ export function Today() {
             <Timeline
               segments={log.data.segments}
               blocks={blocks.data.blocks}
+              gaps={log.data.gaps}
               now={s.now}
               dayStart={s.today.range.start_at}
               dayEnd={s.today.range.end_at}
