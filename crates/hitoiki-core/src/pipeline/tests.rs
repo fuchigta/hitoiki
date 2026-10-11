@@ -507,6 +507,151 @@ fn bind_lookback_to_terminal_when_other_app_in_front() {
     assert!(of_kind(&o, AgentDialog).is_empty());
 }
 
+// 前面ウインドウの種類ごとの対応付け（agent_host_exes / 一覧外 / 除外など）。
+#[test]
+fn bind_by_foreground_exe_table() {
+    // (名前, 前面の exe, 除外, 無操作区間, bind_unlisted, 対応付けできる期待)
+    type Case = (&'static str, &'static str, bool, Option<(i64, i64)>, bool, bool);
+    let cases: Vec<Case> = vec![
+        (
+            "Orca.exe は既定の対話ウインドウ",
+            "Orca.exe",
+            false,
+            None,
+            true,
+            true,
+        ),
+        (
+            "Orca.exe は bind_unlisted に関係なく対応付ける",
+            "Orca.exe",
+            false,
+            None,
+            false,
+            true,
+        ),
+        (
+            "一覧外のアプリは bind_unlisted で対応付ける",
+            "Unknown.exe",
+            false,
+            None,
+            true,
+            true,
+        ),
+        (
+            "bind_unlisted=false なら一覧外は対応付けない",
+            "Unknown.exe",
+            false,
+            None,
+            false,
+            false,
+        ),
+        (
+            "一覧外のブラウザは対応付けない",
+            "chrome.exe",
+            false,
+            None,
+            true,
+            false,
+        ),
+        ("Edge も対応付けない", "MSEdge.exe", false, None, true, false),
+        ("通過系は対応付けない", "explorer.exe", false, None, true, false),
+        (
+            "コミュニケーション系は対応付けない",
+            "Slack.exe",
+            false,
+            None,
+            true,
+            false,
+        ),
+        ("会議系は対応付けない", "Zoom.exe", false, None, true, false),
+        (
+            "Hitoiki 自身は対応付けない",
+            "hitoiki-app.exe",
+            false,
+            None,
+            true,
+            false,
+        ),
+        (
+            "除外ウインドウは対応付けない",
+            "Unknown.exe",
+            true,
+            None,
+            true,
+            false,
+        ),
+        (
+            "送信時が無操作中なら一覧外は対応付けない",
+            "Unknown.exe",
+            false,
+            Some((9, 11)),
+            true,
+            false,
+        ),
+        (
+            "無操作中でも既知の対話ウインドウは対応付ける",
+            "Orca.exe",
+            false,
+            Some((9, 11)),
+            true,
+            true,
+        ),
+    ];
+    for (name, exe, excluded, idle_iv, unlisted, want) in cases {
+        let mut i = agent_input();
+        i.bind_unlisted = unlisted;
+        let mut w = win("W", 0, 30, "H9", exe, "agent");
+        w.excluded = excluded;
+        i.windows = vec![w];
+        if let Some((s, e)) = idle_iv {
+            i.idles = vec![idle("I", s, e)];
+        }
+        i.events = vec![ev("1", 0, "S", SessionStart), ev("2", 10, "S", PromptSubmit)];
+        let o = build(&i, None);
+        assert_eq!(!o.bindings.is_empty(), want, "{name}");
+        assert_eq!(
+            !of_kind(&o, AgentDialog).is_empty(),
+            want,
+            "{name}（agent_dialog）"
+        );
+        let un = unbound_prompts(&i);
+        assert_eq!(un.is_empty(), want, "{name}（unbound_prompts）");
+    }
+}
+
+#[test]
+fn orca_dialog_is_counted() {
+    let mut i = agent_input();
+    i.windows = vec![
+        win("W1", 0, 5, "H1", "Orca.exe", "Orca"),
+        win("W2", 5, 35, "H2", "chrome.exe", "docs"),
+        win("W3", 35, 37, "H1", "Orca.exe", "Orca"),
+    ];
+    i.events = vec![
+        ev("1", 0, "S", SessionStart),
+        ev("2", 1, "S", PromptSubmit),
+        ev("3", 5, "S", ResponseComplete),
+        ev("4", 37, "S", PromptSubmit),
+    ];
+    let o = build(&i, None);
+    assert_eq!(of_kind(&o, AgentDialog), vec![(0, 1), (35, 37)]);
+}
+
+#[test]
+fn unbound_prompts_report_exe_only() {
+    let mut i = agent_input();
+    i.windows = vec![win("W", 0, 30, "H2", "chrome.exe", "秘密のタイトル")];
+    i.events = vec![ev("1", 0, "S", SessionStart), ev("2", 10, "S", PromptSubmit)];
+    let un = unbound_prompts(&i);
+    assert_eq!(
+        un,
+        vec![UnboundPrompt {
+            at: 10 * M,
+            exe_name: Some("chrome.exe".into())
+        }]
+    );
+}
+
 #[test]
 fn watch_stops_at_idle() {
     let mut i = base();

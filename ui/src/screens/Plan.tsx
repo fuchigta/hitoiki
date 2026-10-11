@@ -51,6 +51,7 @@ export function Plan() {
               blocks={blocks.data.blocks}
               segments={log.data.segments}
               events={cal.data ?? []}
+              gaps={log.data.gaps}
               tasks={tasks.data?.tasks ?? []}
               reload={blocks.reload}
             />

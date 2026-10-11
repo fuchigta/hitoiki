@@ -314,6 +314,7 @@ export function Today() {
                 blocks={blockList}
                 segments={log.data.segments}
                 events={events}
+                gaps={log.data.gaps}
                 tasks={tasks.data?.tasks ?? []}
                 now={now}
                 reload={blocks.reload}
@@ -329,6 +330,7 @@ export function Today() {
                     {KIND_LABEL[k]}
                   </li>
                 ))}
+                {(log.data.gaps ?? []).length > 0 && (<li><i class="dot gap" />記録なし</li>)}
               </ul>
             </>
           ) : (

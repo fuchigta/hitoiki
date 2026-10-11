@@ -23,10 +23,22 @@ pub struct RawEntry {
     pub detail: serde_json::Value,
 }
 
+/// 記録が無かった時間帯（収集器が動いていなかった区間）。無操作・ロック・スリープとは別。
+#[derive(Debug, Clone, Serialize)]
+pub struct GapView {
+    pub start_at: Millis,
+    pub end_at: Millis,
+    pub start: String,
+    pub end: String,
+    pub duration_ms: i64,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct Log {
     pub range: RangeView,
     pub segments: Vec<SegmentView>,
+    /// 記録なしの時間帯（時刻順）。
+    pub gaps: Vec<GapView>,
     /// `raw` 指定時のみ。時刻順。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw: Option<Vec<RawEntry>>,
@@ -40,6 +52,16 @@ pub fn log(ctx: &Ctx, input: &LogInput) -> Result<Log> {
         .iter()
         .map(|s| segment_view(tz, s, &titles))
         .collect();
+    let gaps = crate::recording::gaps(ctx.conn, range, ctx.now())?
+        .into_iter()
+        .map(|g| GapView {
+            start_at: g.start_at,
+            end_at: g.end_at,
+            start: crate::timefmt::fmt_rfc3339(tz, g.start_at),
+            end: crate::timefmt::fmt_rfc3339(tz, g.end_at),
+            duration_ms: g.duration_ms(),
+        })
+        .collect();
     let raw = if input.raw {
         Some(raw_entries(ctx, range.start, range.end)?)
     } else {
@@ -48,6 +70,7 @@ pub fn log(ctx: &Ctx, input: &LogInput) -> Result<Log> {
     Ok(Log {
         range: range_view(tz, range),
         segments,
+        gaps,
         raw,
     })
 }
@@ -191,6 +214,7 @@ mod tests {
             .unwrap();
         let plain = log(&ctx, &LogInput::default()).unwrap();
         assert!(plain.raw.is_none());
+        assert!(plain.gaps.is_empty());
         assert_eq!(plain.segments.len(), 1);
         let l = log(
             &ctx,
@@ -203,5 +227,22 @@ mod tests {
         let raw = l.raw.unwrap();
         let order: Vec<_> = raw.iter().map(|r| r.source).collect();
         assert_eq!(order, ["idle_span", "agent_event", "window_span"]);
+    }
+
+    #[test]
+    fn gaps_come_from_collector_runs() {
+        use crate::repo::collect as repo;
+        let env = Env::new();
+        let ctx = env.ctx();
+        let now = ctx.now();
+        // 90 分前から 60 分前まで動き、停止。30 分前から再開して現在も動いている。
+        repo::begin_run(ctx.conn, now - 90 * 60_000).unwrap();
+        repo::touch_run(ctx.conn, now - 60 * 60_000, true).unwrap();
+        repo::begin_run(ctx.conn, now - 30 * 60_000).unwrap();
+        repo::touch_run(ctx.conn, now - 1_000, false).unwrap();
+        let l = log(&ctx, &LogInput::default()).unwrap();
+        assert_eq!(l.gaps.len(), 1);
+        assert_eq!(l.gaps[0].start_at, now - 60 * 60_000);
+        assert_eq!(l.gaps[0].duration_ms, 30 * 60_000);
     }
 }

@@ -1,6 +1,6 @@
 import type { ComponentChildren, RefObject } from "preact";
 import { useRef, useState } from "preact/hooks";
-import type { BlockView, CalendarEvent, Millis, SegmentView } from "./api";
+import type { BlockView, CalendarEvent, GapView, Millis, SegmentView } from "./api";
 import { KIND_LABEL, fmtTime } from "./lib";
 import { clickRange, currentBlock, dragRange, moveRange, nowPercent, resizeRange, timeToPercent, type TimeSpan } from "./plan-util";
 
@@ -29,6 +29,8 @@ export interface DayGridProps {
   blocks: BlockView[];
   segments: SegmentView[];
   events: CalendarEvent[];
+  /** 記録なしの時間帯（実績の列に斜線で重ねる）。 */
+  gaps?: GapView[];
   /** 現在時刻の線と「いまのブロック」を出すときに渡す。 */
   now?: Millis;
   /** 選択中の範囲（作成・編集のポップオーバーを開いている間、または配置のプレビュー）。 */
@@ -206,6 +208,14 @@ export function DayGrid(p: DayGridProps) {
             class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}`}
             style={pos(s.start_at, s.end_at)}
             title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}`}
+          />
+        ))}
+        {(p.gaps ?? []).map((g) => (
+          <div
+            key={`gap-${g.start_at}`}
+            class="vtl-item gap"
+            style={pos(g.start_at, g.end_at)}
+            title={`${fmtTime(g.start_at)}–${fmtTime(g.end_at)} 記録なし（収集が止まっていた時間帯です）`}
           />
         ))}
         {now}

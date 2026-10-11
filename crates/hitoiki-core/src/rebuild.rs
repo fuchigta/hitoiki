@@ -326,6 +326,17 @@ pub fn load_input(conn: &Connection, cfg: &Config, range: Range, now: Millis) ->
     Ok(input)
 }
 
+/// `range` 内の `prompt_submit` のうち、ウインドウに対応付けできなかったもの（診断用）。DB は変更しない。
+pub fn unbound_prompts(
+    conn: &Connection,
+    cfg: &Config,
+    range: Range,
+    now: Millis,
+) -> Result<Vec<pipeline::UnboundPrompt>> {
+    let input = load_input(conn, cfg, range, now)?;
+    Ok(pipeline::unbound_prompts(&input))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

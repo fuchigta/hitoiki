@@ -1,7 +1,7 @@
 import type { RefObject } from "preact";
 import { useState } from "preact/hooks";
 import { api } from "./api";
-import type { BlockInput, BlockView, CalendarEvent, Millis, SegmentView, TaskView } from "./api";
+import type { BlockInput, BlockView, CalendarEvent, GapView, Millis, SegmentView, TaskView } from "./api";
 import { BlockForm, blockTitle, type BlockDraft } from "./block-form";
 import { ErrorBox } from "./components";
 import { DayGrid } from "./day-grid";
@@ -17,6 +17,7 @@ interface Props {
   blocks: BlockView[];
   segments: SegmentView[];
   events: CalendarEvent[];
+  gaps?: GapView[];
   tasks: TaskView[];
   now?: Millis;
   /** ブロックを変えた後に呼ぶ（一覧の再取得）。 */
@@ -113,6 +114,7 @@ export function DayDesigner(p: Props) {
         blocks={p.blocks}
         segments={p.segments}
         events={p.events}
+        gaps={p.gaps}
         now={p.now}
         selection={selection}
         editingId={draft?.id ?? null}

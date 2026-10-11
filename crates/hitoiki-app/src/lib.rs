@@ -16,6 +16,9 @@ use state::AppState;
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
+/// ログ書き込みスレッドのガード（終了時に flush するため、`run` のスコープではなく静的に持つ）。
+static LOG_GUARD: std::sync::Mutex<Option<hitoiki_daemon::LogGuard>> = std::sync::Mutex::new(None);
+
 /// 引数から `--name value` の値を取る。
 pub fn arg_value(args: &[String], name: &str) -> Option<String> {
     args.iter()
@@ -37,12 +40,28 @@ pub fn apply_autostart(app: &AppHandle) {
 }
 
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "hitoiki_app=info".into()),
-        )
-        .init();
+    // ヘッドレス daemon と同じログ（%LOCALAPPDATA%\hitoiki\logs の日次ファイル）。作れなければ stderr のみ。
+    match hitoiki_daemon::init_logging() {
+        Ok(g) => {
+            // `app.run` はプロセスごと終了するので、終了処理（RunEvent::Exit）で明示的に flush する。
+            if let Ok(mut slot) = LOG_GUARD.lock() {
+                *slot = Some(g);
+            }
+        }
+        Err(e) => {
+            tracing_subscriber::fmt()
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+                )
+                .init();
+            tracing::warn!("ログファイルを作れないため stderr のみに出します: {e:#}");
+        }
+    }
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        args = ?std::env::args().skip(1).collect::<Vec<_>>(),
+        "hitoiki-app を起動します"
+    );
 
     let state = match AppState::open() {
         Ok(s) => s,
@@ -198,7 +217,15 @@ pub fn run() {
         // 全ウインドウを閉じても（暗黙の終了要求）トレイに常駐し続ける。明示的な終了（コード付き）は通す。
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
         // 終了時は必ず常駐処理を止める（Recorder が進行中の区間を閉じる）。
-        RunEvent::Exit => app.state::<AppState>().stop_runtime(),
+        RunEvent::Exit => {
+            tracing::info!("hitoiki-app を終了します");
+            app.state::<AppState>().stop_runtime();
+            tracing::info!("hitoiki-app を終了しました");
+            // ログ書き込みスレッドの残りを書き出す。
+            if let Ok(mut slot) = LOG_GUARD.lock() {
+                drop(slot.take());
+            }
+        }
         _ => {}
     });
 }
