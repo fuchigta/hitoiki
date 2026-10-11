@@ -155,6 +155,23 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 予実について、実績入力フィールドは作らない。実績は常に `activity_segment` から算出する。
 
+#### 編集と削除（参照の扱い）
+
+ユーザーが作るデータはすべて編集・削除できる（`service::{okr,skill,rule,record,settings}`、DB は `repo/edit.rs`）。外部キーは有効なので、参照される側を消す前に参照側を外す。削除の流れは `service::impact` に共通で、先に影響（`Impact`: 種類ごとの件数）を数え、影響があるのに `force` が無ければ `InvalidArgument`（CLI の終了コード 2）で失敗し、`dry_run` なら数えるだけで何も変えない。UI は dry_run で影響を確認ダイアログに出し、了承されたら `force` で削除する。
+
+| 消すもの | 参照の扱い |
+|---|---|
+| `objective` | 配下の `key_result` も消す。KR に紐付いた `task.key_result_id` は NULL に戻す（タスクは残す） |
+| `key_result` | 紐付いた `task.key_result_id` を NULL に戻す（タスクは残す） |
+| `skill` | `task_skill` と `activity_skill_rule` の該当行を消す。子スキルは `reparent`（削除するスキルの親へ付け替え。既定）か `delete`（子孫ごと削除）を選ぶ。プリセットのスキルも消せ、`skill import-preset` で戻せる。名前の変更・親の付け替えは循環と重複名を拒否する |
+| `task_match_rule` / `activity_rule` | 行を消す（他から参照されない）。`enabled` で無効化だけもできる。編集・削除すると派生層（区間の帰属と活動ラベル）が変わりうるので、常駐側へ再計算を要求する（CLI は `segments` の通知、アプリは `request_rebuild`）。再計算の既定範囲は今日で、過去の日は `hitoiki rebuild` で作り直す |
+| `hassle` | それを元にした `abc_record.hassle_id` を NULL に戻す（ABC 記録は残す） |
+| `checkin` / `abc_record` | 行を消す（参照なし） |
+| カレンダーソース（設定 `calendar.sources`） | 設定ファイルから外し、`calendar_event` のそのソースの行（取得済みコピー）も消す。名前の変更では `calendar_event.source` も付け替える（重複取り込みを防ぐ）。URL は秘密情報なので一覧・結果には出さずホスト名だけ見せる（`service::settings`） |
+| 活動ラベル（設定 `activity.labels`） | 判定器へ渡す候補の一覧。外しても過去の区間・ルールのラベルは残る。名前の変更では `activity_rule.activity_label` も付け替える |
+
+チェックイン・ハッスル・ABC の編集は内容の置き換えで、時刻（`at`）は変えない。reflection の回答は既存の `reflect answer` で上書きできる。
+
 ### 3.5 ブロックのテンプレート
 
 `service::block_template`（CLI の `block template`、Tauri のコマンドはこの薄いラッパー）。
