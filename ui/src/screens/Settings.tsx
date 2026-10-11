@@ -3,7 +3,10 @@ import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
-type Cfg = { general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean } };
+type Cfg = {
+  general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number };
+  review?: { trust_doing?: boolean; auto_break_locked_min?: number };
+};
 
 export function Settings() {
   const cfg = useAsync(() => api.configAll(), []);
@@ -64,6 +67,36 @@ export function Settings() {
           <button class="ghost" onClick={() => act.run(() => api.snooze(0))}>
             止めるのをやめる
           </button>
+        </div>
+      </Card>
+      <Card title="仕分け">
+        <div class="stack">
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={c.review?.trust_doing === true}
+              onChange={(e) => set("review.trust_doing", String(e.currentTarget.checked))}
+            />
+            始めたタスクを信頼する（進行中のタスクに仮で当てた時間も、確認待ちにしない）
+          </label>
+          <div class="form-row">
+            <Field label="ロック・スリープがこの分数以上なら自動で休憩にする（0 で無効）">
+              <input
+                type="number"
+                min="0"
+                value={c.review?.auto_break_locked_min ?? 10}
+                onChange={(e) => set("review.auto_break_locked_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
+              />
+            </Field>
+            <Field label="無操作がこの分数以上続いて戻ったら「さっきは？」と尋ねる（0 で無効）">
+              <input
+                type="number"
+                min="0"
+                value={c.push?.idle_return_min ?? 15}
+                onChange={(e) => set("push.idle_return_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
+              />
+            </Field>
+          </div>
         </div>
       </Card>
       <Card title="はじめに">

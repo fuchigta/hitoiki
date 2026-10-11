@@ -856,3 +856,151 @@ fn big_cfg() -> Push {
         ..Push::default()
     }
 }
+
+// ===== idle_return =====
+
+fn idle_ctx() -> PushContext {
+    // 10:00-10:30 の無操作から 10:32 に復帰した状況。
+    let mut ctx = PushContext::new(t(12, 10, 32), TZ);
+    ctx.last_idle = Some(ClosedIdle {
+        start_at: t(12, 10, 0),
+        end_at: t(12, 10, 30),
+    });
+    ctx
+}
+
+#[test]
+fn idle_return_fires_after_long_unplanned_idle() {
+    let ds = evaluate(&idle_ctx(), &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::IdleReturn]);
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    assert!(p.body.contains("30 分"));
+    assert_eq!(p.idle_range, Some((t(12, 10, 0), t(12, 10, 30))));
+    let ids: Vec<&str> = p.actions.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["idle_break", "idle_meeting", "idle_thinking", "idle_away"]);
+}
+
+#[test]
+fn idle_return_is_not_fired_when_short_old_planned_or_classified() {
+    // 短い（14 分 < 15 分）
+    let mut ctx = idle_ctx();
+    ctx.last_idle.as_mut().unwrap().start_at = t(12, 10, 16);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // ちょうど 15 分は発火
+    ctx.last_idle.as_mut().unwrap().start_at = t(12, 10, 15);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::IdleReturn]);
+    // 復帰から時間が経っている
+    let mut ctx = idle_ctx();
+    ctx.now = t(12, 10, 45);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // まだ無操作中
+    let mut ctx = idle_ctx();
+    ctx.idle.is_idle = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 予定（会議）と重なっている
+    let mut ctx = idle_ctx();
+    ctx.calendar_events = vec![event(t(12, 10, 5), t(12, 10, 25))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // すでに休憩として分類済み（長いロックの自動休憩など）
+    let mut ctx = idle_ctx();
+    ctx.recent_segments = vec![seg(SegmentKind::Break, t(12, 10, 0), t(12, 10, 30))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // ユーザー確定済み
+    let mut ctx = idle_ctx();
+    let mut s = seg(SegmentKind::Work, t(12, 10, 0), t(12, 10, 30));
+    s.status = SegmentStatus::Confirmed;
+    ctx.recent_segments = vec![s];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 要確認の無操作区間なら尋ねる
+    let mut ctx = idle_ctx();
+    let mut s = seg(SegmentKind::Idle, t(12, 10, 0), t(12, 10, 30));
+    s.status = SegmentStatus::NeedsReview;
+    ctx.recent_segments = vec![s];
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::IdleReturn]);
+}
+
+#[test]
+fn idle_return_can_be_disabled_and_is_not_repeated() {
+    let mut c = cfg();
+    c.idle_return_min = 0;
+    assert!(evaluate(&idle_ctx(), &c).is_empty());
+    let mut c = cfg();
+    c.disabled_triggers = vec!["idle_return".into()];
+    assert!(evaluate(&idle_ctx(), &c).is_empty());
+    // 同じ無操作について配信済みなら出さない。
+    let mut ctx = idle_ctx();
+    ctx.push_log.push(log("idle_return", t(12, 10, 31), true));
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 通知の一時停止中は抑制される（ログには抑制として残る）。
+    let mut ctx = idle_ctx();
+    let mut l = log("long_focus", t(12, 9, 0), true);
+    l.snoozed_until = Some(t(12, 11, 0));
+    ctx.push_log.push(l);
+    let ds = evaluate(&ctx, &cfg());
+    assert!(delivered(&ds).is_empty());
+    assert!(matches!(&ds[0], PushDecision::Suppress { reason, .. } if reason == "snoozed"));
+}
+
+#[test]
+fn idle_return_button_saves_override_and_labels_segment() {
+    let conn = db::open_in_memory().unwrap();
+    let (s, e) = (t(12, 10, 0), t(12, 10, 30));
+    conn.execute(
+        "INSERT INTO activity_segment (id, start_at, end_at, kind, status, window_span_ids) \
+         VALUES ('IDLE1', ?1, ?2, 'idle', 'needs_review', '[]')",
+        [s, e],
+    )
+    .unwrap();
+    let id = store::record_decision(
+        &conn,
+        &PushDecision::Deliver(payload::idle_return(s, e)),
+        t(12, 10, 31),
+    )
+    .unwrap()
+    .unwrap();
+    let out = store::apply_response(
+        &conn,
+        &id,
+        PushResponse {
+            action: Some("idle_thinking".into()),
+            value: None,
+            text: None,
+        },
+        t(12, 10, 32),
+        TZ,
+    )
+    .unwrap();
+    assert_eq!(out.idle_labeled, 1);
+    let (kind, label, status): (String, Option<String>, String) = conn
+        .query_row(
+            "SELECT kind, activity_label, status FROM activity_segment WHERE id = 'IDLE1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        (kind.as_str(), label.as_deref(), status.as_str()),
+        ("work", Some("考えごと"), "confirmed")
+    );
+    // 再計算でも残る override が期間全体に保存されている。
+    let ovs = crate::repo::overrides::list(&conn, crate::timefmt::Range::new(s, e)).unwrap();
+    assert_eq!(ovs.len(), 1);
+    assert_eq!((ovs[0].start_at, ovs[0].end_at), (s, e));
+    assert!(store::get_log(&conn, &id).unwrap().responded_at.is_some());
+
+    // 期間を持たない通知への idle_* は不正。
+    let other = deliver_log(&conn, PushTrigger::DayStart, 1000);
+    let r = store::apply_response(
+        &conn,
+        &other,
+        PushResponse {
+            action: Some("idle_break".into()),
+            ..Default::default()
+        },
+        2000,
+        TZ,
+    );
+    assert!(r.is_err());
+}

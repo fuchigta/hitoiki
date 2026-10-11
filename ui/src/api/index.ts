@@ -42,6 +42,12 @@ export const api = {
   log: (range?: T.RangeArgs, raw = false) => call<T.Log>("log", { range, raw }),
   reviewList: (range?: T.RangeArgs, all = false) => call<T.ReviewList>("review_list", { range, all }),
   reviewSet: (input: T.ReviewSetInput) => call<T.ReviewSetResult>("review_set", { input }),
+  reviewSetMany: (input: T.ReviewBatchInput) => call<T.ReviewBatchResult>("review_set_many", { input }),
+  reviewIdle: (segments: string[], preset: T.IdlePreset) =>
+    call<T.ReviewBatchResult>("review_idle", { segments, preset }),
+  reviewSuggestions: () => call<T.RuleSuggestion[]>("review_suggestions"),
+  reviewSuggestAccept: (input: T.RuleSuggestionRef) => call<T.CreatedRule>("review_suggest_accept", { input }),
+  reviewSuggestDismiss: (input: T.RuleSuggestionRef) => call<void>("review_suggest_dismiss", { input }),
 
   // 計画
   blockAdd: (input: T.BlockInput) => call<T.TimeBlock>("block_add", { input }),

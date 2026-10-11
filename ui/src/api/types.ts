@@ -220,6 +220,40 @@ export interface ReviewSetInput {
   rule?: boolean;
 }
 
+/** 無操作区間のワンタップ分類。休憩=break、会議=meeting、考えごと=作業+活動「考えごと」、離席=休憩+活動「離席」。 */
+export type IdlePreset = "break" | "meeting" | "thinking" | "away";
+
+export interface ReviewBatchInput {
+  segments: string[];
+  task?: string;
+  kind?: SegmentKind;
+  activity?: string;
+  rule?: boolean;
+}
+
+export interface ReviewBatchResult {
+  count: number;
+  segments: SegmentView[];
+  override_ids: string[];
+  rules: CreatedRule[];
+}
+
+/** ルール化の提案の識別（受け入れ・却下に渡す）。 */
+export interface RuleSuggestionRef {
+  task_id: string;
+  field: MatchField;
+  pattern: string;
+  pattern_type: PatternType;
+}
+
+export interface RuleSuggestion extends RuleSuggestionRef {
+  task_title: string | null;
+  /** 直近に同じ割り当てを確定した回数。 */
+  count: number;
+  /** 表示用の条件名（exe 名、または作業ディレクトリ）。 */
+  target: string;
+}
+
 export interface CreatedRule {
   rule_type: "task_match_rule" | "activity_rule";
   id: string;
@@ -378,6 +412,8 @@ export interface PushPayload {
   input: PushInput | null;
   /** 通知クリックで開く画面（例 "reflection/day_start"）。 */
   open_screen: string | null;
+  /** idle_return の対象期間 [開始, 終了]（無ければ省略）。 */
+  idle_range?: [Millis, Millis];
 }
 
 /** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */

@@ -103,6 +103,7 @@ fn check(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment], t: PushTrigge
     }
     match t {
         PushTrigger::DayStart => day_start(ctx, cfg),
+        PushTrigger::IdleReturn => idle_return(ctx, cfg),
         PushTrigger::DayEnd => day_end(ctx, cfg),
         PushTrigger::Weekly => weekly(ctx, cfg),
         PushTrigger::LongFocus => long_focus(ctx, cfg, segs),
@@ -127,6 +128,44 @@ fn day_start(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
         return None;
     }
     (!delivered_today(ctx, PushTrigger::DayStart)).then(payload::day_start)
+}
+
+/// idle_return: 予定外の無操作が `push.idle_return_min` 分以上続いたあとに戻ってきた（無操作の終了から
+/// `tuning.idle_return_recent_min` 分以内）。次の場合は尋ねない。
+/// - 無操作の間に busy な予定（終日を除く）が重なっていた（会議など、予定どおり）。
+/// - その時間がすでに分類済み（休憩・会議・確定）。長いロックの自動休憩もここに含まれる。
+/// - その無操作について配信済み。
+///
+/// `push.idle_return_min = 0` で無効。
+fn idle_return(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
+    if cfg.idle_return_min == 0 {
+        return None;
+    }
+    let idle = ctx.last_idle?;
+    let len = idle.end_at - idle.start_at;
+    if len < cfg.idle_return_min as Millis * MIN_MS
+        || idle.end_at > ctx.now
+        || ctx.now - idle.end_at > ctx.tuning.idle_return_recent_min as Millis * MIN_MS
+    {
+        return None;
+    }
+    let overlaps = |s: Millis, e: Millis| s < idle.end_at && e > idle.start_at;
+    if ctx
+        .calendar_events
+        .iter()
+        .any(|e| e.is_busy && !e.all_day && overlaps(e.start_at, e.end_at))
+    {
+        return None;
+    }
+    let classified = ctx.recent_segments.iter().any(|s| {
+        overlaps(s.start_at, s.end_at)
+            && (matches!(s.kind, SegmentKind::Break | SegmentKind::Meeting)
+                || s.status == crate::model::SegmentStatus::Confirmed)
+    });
+    if classified || delivered_since(ctx, PushTrigger::IdleReturn, idle.start_at) {
+        return None;
+    }
+    Some(payload::idle_return(idle.start_at, idle.end_at))
 }
 
 /// day_end: `day_end_at` 以降で `tuning.day_end_idle_min` 分以上無操作、

@@ -2,6 +2,7 @@
 //! 文言は押し付けない寄り添うトーンで、評価や良し悪しの断定をしない（docs/dev/architecture.md「設計原則」）。
 
 use super::PushTrigger;
+use crate::Millis;
 use serde::{Deserialize, Serialize};
 
 /// 通知のボタン。押すと [`super::PushResponse`] の `action` / `value` になる。
@@ -31,6 +32,9 @@ pub struct PushPayload {
     pub input: Option<PushInput>,
     /// 通知クリックで開くアプリの画面（例 "reflection/day_start"）。
     pub open_screen: Option<String>,
+    /// idle_return: 「さっきの無操作は？」の対象の期間 (開始, 終了)。ボタンの応答でこの期間に分類をつける。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_range: Option<(Millis, Millis)>,
 }
 
 fn scale(id: &str) -> Vec<PushAction> {
@@ -66,6 +70,7 @@ pub(crate) fn day_start() -> PushPayload {
         actions: scale("energy"),
         input: None,
         open_screen: Some("reflection/day_start".into()),
+        idle_range: None,
     }
 }
 
@@ -84,6 +89,7 @@ pub(crate) fn day_end(needs_review: u32) -> PushPayload {
         actions: vec![open_action("振り返りを開く")],
         input: None,
         open_screen: Some("reflection/day_end".into()),
+        idle_range: None,
     }
 }
 
@@ -95,6 +101,7 @@ pub(crate) fn weekly() -> PushPayload {
         actions: vec![open_action("週次の振り返りを開く")],
         input: None,
         open_screen: Some("reflection/weekly".into()),
+        idle_range: None,
     }
 }
 
@@ -109,6 +116,7 @@ pub(crate) fn long_focus(minutes: u64, label: Option<&str>) -> PushPayload {
         actions: scale("energy"),
         input: None,
         open_screen: Some("checkin".into()),
+        idle_range: None,
     }
 }
 
@@ -122,6 +130,7 @@ pub(crate) fn switch_spike(window_min: u64, count: u32) -> PushPayload {
         actions: scale("stress"),
         input: hassle_input(),
         open_screen: Some("hassle".into()),
+        idle_range: None,
     }
 }
 
@@ -133,6 +142,7 @@ pub(crate) fn after_interrupt() -> PushPayload {
         actions: scale("stress"),
         input: hassle_input(),
         open_screen: Some("hassle".into()),
+        idle_range: None,
     }
 }
 
@@ -144,6 +154,7 @@ pub(crate) fn meeting_overrun() -> PushPayload {
         actions: vec![],
         input: hassle_input(),
         open_screen: Some("hassle".into()),
+        idle_range: None,
     }
 }
 
@@ -155,5 +166,31 @@ pub(crate) fn late_work() -> PushPayload {
         actions: scale("energy"),
         input: None,
         open_screen: Some("checkin".into()),
+        idle_range: None,
     }
 }
+
+/// idle_return: 無操作から戻ったときに、その時間が何だったかを 1 タップで答えてもらう。
+/// ボタンの `id` は `idle_<分類>`（`service::review::IdlePreset` の ID）。
+pub(crate) fn idle_return(start: Millis, end: Millis) -> PushPayload {
+    let minutes = ((end - start) / 60_000).max(1);
+    PushPayload {
+        trigger: PushTrigger::IdleReturn,
+        title: "おかえりなさい".into(),
+        body: format!("さっきの {minutes} 分は、どう過ごしていましたか？ 答えなくても大丈夫です。"),
+        actions: crate::service::review::IdlePreset::ALL
+            .iter()
+            .map(|p| PushAction {
+                id: format!("{IDLE_ACTION_PREFIX}{}", p.as_str()),
+                label: p.label().into(),
+                value: None,
+            })
+            .collect(),
+        input: None,
+        open_screen: Some("review".into()),
+        idle_range: Some((start, end)),
+    }
+}
+
+/// idle_return のボタン ID の接頭辞。
+pub const IDLE_ACTION_PREFIX: &str = "idle_";

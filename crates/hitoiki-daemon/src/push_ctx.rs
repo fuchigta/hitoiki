@@ -8,7 +8,7 @@ use hitoiki_core::config::Config;
 use hitoiki_core::model::{
     ActivitySegment, CalendarEvent, IdleSpan, PushLog, SegmentStatus, TimeBlock, WindowSpan,
 };
-use hitoiki_core::push::{evaluate, store, IdleState, PushContext, PushDecision};
+use hitoiki_core::push::{evaluate, store, ClosedIdle, IdleState, PushContext, PushDecision};
 use hitoiki_core::repo::{calendar, raw, segment};
 use hitoiki_core::timefmt::{day_range, local_date_of, week_range, Range};
 use hitoiki_core::{Millis, Result};
@@ -57,6 +57,7 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
         .filter_map(|s| s.end_at)
         .filter(|&e| e <= now)
         .max();
+    ctx.last_idle = last_closed_idle(&snap.idle_spans, now);
     ctx.foreground_exe = snap
         .window_spans
         .iter()
@@ -70,6 +71,29 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
     ctx.push_log = snap.push_log;
     ctx.needs_review_count = snap.needs_review_count;
     ctx
+}
+
+/// 隣り合う無操作の記録（無操作 → ロックなど）をつなぐ最大の隙間。
+const IDLE_JOIN_GAP: Millis = 10_000;
+
+/// 終了済みの無操作区間を（重なり・ほぼ隣接なら）つないで、now までに終わった最も新しいものを返す。
+fn last_closed_idle(spans: &[IdleSpan], now: Millis) -> Option<ClosedIdle> {
+    let mut v: Vec<(Millis, Millis)> = spans
+        .iter()
+        .filter_map(|s| s.end_at.map(|e| (s.start_at, e)))
+        .filter(|&(s, e)| s < e && e <= now)
+        .collect();
+    v.sort_unstable();
+    let mut merged: Vec<(Millis, Millis)> = Vec::new();
+    for (s, e) in v {
+        match merged.last_mut() {
+            Some(l) if s <= l.1 + IDLE_JOIN_GAP => l.1 = l.1.max(e),
+            _ => merged.push((s, e)),
+        }
+    }
+    merged
+        .pop()
+        .map(|(start_at, end_at)| ClosedIdle { start_at, end_at })
 }
 
 /// DB から評価に必要な行を読む。
@@ -188,6 +212,29 @@ mod tests {
         let ctx = build_context(snap, &cfg(), DAY0 + 60 * MIN, chrono_tz::UTC);
         assert!(!ctx.idle.is_idle);
         assert_eq!(ctx.resumed_at, Some(DAY0 + 30 * MIN));
+    }
+
+    #[test]
+    fn last_idle_joins_adjacent_spans_and_ignores_open_and_future() {
+        let mut lock = idle("b", DAY0 + 13 * MIN, Some(DAY0 + 40 * MIN));
+        lock.reason = IdleReason::Locked;
+        let snap = PushSnapshot {
+            idle_spans: vec![
+                idle("old", DAY0, Some(DAY0 + 2 * MIN)),
+                idle("a", DAY0 + 10 * MIN, Some(DAY0 + 13 * MIN)),
+                lock,
+                // 未来の終了・進行中は対象外
+                idle("fut", DAY0 + 50 * MIN, Some(DAY0 + 90 * MIN)),
+            ],
+            ..Default::default()
+        };
+        let ctx = build_context(snap, &cfg(), DAY0 + 45 * MIN, chrono_tz::UTC);
+        let li = ctx.last_idle.unwrap();
+        assert_eq!((li.start_at, li.end_at), (DAY0 + 10 * MIN, DAY0 + 40 * MIN));
+        assert_eq!(
+            build_context(PushSnapshot::default(), &cfg(), DAY0, chrono_tz::UTC).last_idle,
+            None
+        );
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::model::{
     ActivityRule, MatchField, PatternType, SegmentKind, SegmentOverride, SegmentStatus, TaskMatchRule,
 };
 use crate::repo::{self, overrides, rule};
-use crate::{Error, Result};
+use crate::{Error, Millis, Result};
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 
@@ -131,113 +131,141 @@ fn derive_rule_source(
     ))
 }
 
+/// 同じタスクの同じ条件のルールを探し、無ければ作る。戻り値の bool は既存を再利用したか。
+fn ensure_task_rule(
+    ctx: &Ctx,
+    task_id: &str,
+    field: MatchField,
+    pattern: String,
+    ty: PatternType,
+) -> Result<(TaskMatchRule, bool)> {
+    if let Some(r) = rule::find_task_rule(ctx.conn, task_id, field, &pattern, ty)? {
+        return Ok((r, true));
+    }
+    let r = TaskMatchRule {
+        id: new_id(),
+        task_id: task_id.to_string(),
+        field,
+        pattern,
+        pattern_type: ty,
+        priority: 0,
+        enabled: true,
+    };
+    rule::insert_task_rule(ctx.conn, &r)?;
+    Ok((r, false))
+}
+
+fn created_task_rule(r: TaskMatchRule, reused: bool) -> CreatedRule {
+    CreatedRule {
+        rule_type: "task_match_rule",
+        id: r.id,
+        field: r.field,
+        pattern: r.pattern,
+        pattern_type: r.pattern_type,
+        task_id: Some(r.task_id),
+        activity_label: None,
+        reused,
+    }
+}
+
+/// 区間から `--rule` のルールを作る（タスク指定ならタスク帰属ルール、活動のみなら活動ルール）。
+fn create_rule(
+    ctx: &Ctx,
+    seg: &crate::model::ActivitySegment,
+    task_id: Option<&str>,
+    activity: Option<&str>,
+) -> Result<CreatedRule> {
+    let (field, pattern, ty) = derive_rule_source(ctx, seg)?;
+    if let Some(tid) = task_id {
+        let (r, reused) = ensure_task_rule(ctx, tid, field, pattern, ty)?;
+        return Ok(created_task_rule(r, reused));
+    }
+    let label = activity.expect("checked by caller").to_string();
+    let existing = rule::find_activity_rule(ctx.conn, field, &pattern, ty, &label)?;
+    let reused = existing.is_some();
+    let r = match existing {
+        Some(r) => r,
+        None => {
+            let r = ActivityRule {
+                id: new_id(),
+                field,
+                pattern,
+                pattern_type: ty,
+                activity_label: label,
+                priority: 0,
+                enabled: true,
+            };
+            rule::insert_activity_rule(ctx.conn, &r)?;
+            r
+        }
+    };
+    Ok(CreatedRule {
+        rule_type: "activity_rule",
+        id: r.id,
+        field: r.field,
+        pattern: r.pattern,
+        pattern_type: r.pattern_type,
+        task_id: None,
+        activity_label: Some(r.activity_label),
+        reused,
+    })
+}
+
+/// 区間の確定内容。`set` / `set_many` / 無操作のワンタップ仕分けが共有する。
+struct Decision {
+    task_id: Option<String>,
+    kind: Option<SegmentKind>,
+    activity: Option<String>,
+}
+
+/// 範囲 [start, end) を確定する: `segment_override` を作り、範囲に収まる `activity_segment` 行にも即時に反映する。
+/// 戻り値は作った override の ID。
+fn confirm_range(
+    conn: &rusqlite::Connection,
+    start: Millis,
+    end: Millis,
+    d: &Decision,
+    now: Millis,
+) -> Result<String> {
+    let ov = SegmentOverride {
+        id: new_id(),
+        start_at: start,
+        end_at: end,
+        kind: d.kind,
+        task_id: d.task_id.clone(),
+        activity_label: d.activity.clone(),
+        created_at: now,
+    };
+    overrides::insert(conn, &ov)?;
+    conn.execute(
+        "UPDATE activity_segment SET kind = COALESCE(?3, kind), task_id = COALESCE(?4, task_id), \
+         activity_label = COALESCE(?5, activity_label), status = 'confirmed', decided_by = 'user', \
+         confidence = 1.0 WHERE start_at >= ?1 AND end_at <= ?2",
+        params![start, end, d.kind, d.task_id, d.activity],
+    )?;
+    Ok(ov.id)
+}
+
 /// 区間を確定する。`segment_override` を作成し、対象の `activity_segment` 行も即時に反映する。
 pub fn set(ctx: &Ctx, input: &ReviewSetInput) -> Result<ReviewSetResult> {
     let tz = ctx.tz()?;
     let seg = repo::segment::resolve(ctx.conn, &input.segment)?;
-    if input.task.is_none() && input.kind.is_none() && input.activity.is_none() {
-        return Err(Error::InvalidArgument(
-            "--task / --kind / --activity のいずれかが必要です".into(),
-        ));
-    }
-    if input.rule && input.task.is_none() && input.activity.is_none() {
-        return Err(Error::InvalidArgument(
-            "--rule には --task または --activity が必要です".into(),
-        ));
-    }
-    let task_id = match &input.task {
-        Some(p) => Some(repo::task::resolve(ctx.conn, p)?.id),
-        None => None,
-    };
-    let activity = input
-        .activity
-        .as_deref()
-        .map(str::trim)
-        .filter(|a| !a.is_empty())
-        .map(String::from);
-    let now = ctx.now();
-    let tx = ctx.conn.unchecked_transaction()?;
-
-    let ov = SegmentOverride {
-        id: new_id(),
-        start_at: seg.start_at,
-        end_at: seg.end_at,
-        kind: input.kind,
-        task_id: task_id.clone(),
-        activity_label: activity.clone(),
-        created_at: now,
-    };
-    overrides::insert(ctx.conn, &ov)?;
-
-    ctx.conn.execute(
-        "UPDATE activity_segment SET kind = COALESCE(?2, kind), task_id = COALESCE(?3, task_id), \
-         activity_label = COALESCE(?4, activity_label), status = 'confirmed', decided_by = 'user', \
-         confidence = 1.0 WHERE id = ?1",
-        params![seg.id, input.kind, task_id, activity],
+    let d = decision(
+        ctx,
+        input.task.as_deref(),
+        input.kind,
+        input.activity.as_deref(),
+        input.rule,
     )?;
-
+    let tx = ctx.conn.unchecked_transaction()?;
+    let override_id = confirm_range(ctx.conn, seg.start_at, seg.end_at, &d, ctx.now())?;
     let created = if input.rule {
-        let (field, pattern, ty) = derive_rule_source(ctx, &seg)?;
-        if let Some(tid) = &task_id {
-            let existing = rule::find_task_rule(ctx.conn, tid, field, &pattern, ty)?;
-            let reused = existing.is_some();
-            let r = match existing {
-                Some(r) => r,
-                None => {
-                    let r = TaskMatchRule {
-                        id: new_id(),
-                        task_id: tid.clone(),
-                        field,
-                        pattern,
-                        pattern_type: ty,
-                        priority: 0,
-                        enabled: true,
-                    };
-                    rule::insert_task_rule(ctx.conn, &r)?;
-                    r
-                }
-            };
-            Some(CreatedRule {
-                rule_type: "task_match_rule",
-                id: r.id,
-                field: r.field,
-                pattern: r.pattern,
-                pattern_type: r.pattern_type,
-                task_id: Some(r.task_id),
-                activity_label: None,
-                reused,
-            })
-        } else {
-            let label = activity.clone().expect("checked above");
-            let existing = rule::find_activity_rule(ctx.conn, field, &pattern, ty, &label)?;
-            let reused = existing.is_some();
-            let r = match existing {
-                Some(r) => r,
-                None => {
-                    let r = ActivityRule {
-                        id: new_id(),
-                        field,
-                        pattern,
-                        pattern_type: ty,
-                        activity_label: label,
-                        priority: 0,
-                        enabled: true,
-                    };
-                    rule::insert_activity_rule(ctx.conn, &r)?;
-                    r
-                }
-            };
-            Some(CreatedRule {
-                rule_type: "activity_rule",
-                id: r.id,
-                field: r.field,
-                pattern: r.pattern,
-                pattern_type: r.pattern_type,
-                task_id: None,
-                activity_label: Some(r.activity_label),
-                reused,
-            })
-        }
+        Some(create_rule(
+            ctx,
+            &seg,
+            d.task_id.as_deref(),
+            d.activity.as_deref(),
+        )?)
     } else {
         None
     };
@@ -246,9 +274,398 @@ pub fn set(ctx: &Ctx, input: &ReviewSetInput) -> Result<ReviewSetResult> {
     let updated = repo::segment::get(ctx.conn, &seg.id)?;
     Ok(ReviewSetResult {
         segment: segment_view(tz, &updated, &task_titles(ctx.conn)?),
-        override_id: ov.id,
+        override_id,
         rule: created,
     })
+}
+
+/// 引数の検証とタスク ID の解決。
+fn decision(
+    ctx: &Ctx,
+    task: Option<&str>,
+    kind: Option<SegmentKind>,
+    activity: Option<&str>,
+    rule: bool,
+) -> Result<Decision> {
+    if task.is_none() && kind.is_none() && activity.is_none() {
+        return Err(Error::InvalidArgument(
+            "--task / --kind / --activity のいずれかが必要です".into(),
+        ));
+    }
+    if rule && task.is_none() && activity.is_none() {
+        return Err(Error::InvalidArgument(
+            "--rule には --task または --activity が必要です".into(),
+        ));
+    }
+    let task_id = match task {
+        Some(p) => Some(repo::task::resolve(ctx.conn, p)?.id),
+        None => None,
+    };
+    let activity = activity
+        .map(str::trim)
+        .filter(|a| !a.is_empty())
+        .map(String::from);
+    Ok(Decision {
+        task_id,
+        kind,
+        activity,
+    })
+}
+
+/// まとめて仕分ける入力。`segments` の全区間に同じ割り当てを適用する。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
+pub struct ReviewBatchInput {
+    /// 区間 ID（前方一致）の一覧。
+    pub segments: Vec<String>,
+    pub task: Option<String>,
+    pub kind: Option<SegmentKind>,
+    pub activity: Option<String>,
+    /// 各区間からルールを生成する（同じ条件のルールは 1 つにまとめる）。
+    pub rule: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ReviewBatchResult {
+    /// 確定した区間の数。
+    pub count: usize,
+    pub segments: Vec<SegmentView>,
+    pub override_ids: Vec<String>,
+    /// 生成した（または再利用した）ルール。同じ条件は 1 件にまとめる。
+    pub rules: Vec<CreatedRule>,
+}
+
+/// 複数の区間にまとめて同じ割り当てをする。1 つでも解決できなければ何も変更しない。
+pub fn set_many(ctx: &Ctx, input: &ReviewBatchInput) -> Result<ReviewBatchResult> {
+    if input.segments.is_empty() {
+        return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
+    }
+    let d = decision(
+        ctx,
+        input.task.as_deref(),
+        input.kind,
+        input.activity.as_deref(),
+        input.rule,
+    )?;
+    let mut segs = Vec::new();
+    for p in &input.segments {
+        let s = repo::segment::resolve(ctx.conn, p)?;
+        if !segs.iter().any(|x: &crate::model::ActivitySegment| x.id == s.id) {
+            segs.push(s);
+        }
+    }
+    apply_batch(ctx, &segs, &d, input.rule)
+}
+
+fn apply_batch(
+    ctx: &Ctx,
+    segs: &[crate::model::ActivitySegment],
+    d: &Decision,
+    with_rule: bool,
+) -> Result<ReviewBatchResult> {
+    let tz = ctx.tz()?;
+    let now = ctx.now();
+    let tx = ctx.conn.unchecked_transaction()?;
+    let mut override_ids = Vec::new();
+    let mut rules: Vec<CreatedRule> = Vec::new();
+    for seg in segs {
+        override_ids.push(confirm_range(ctx.conn, seg.start_at, seg.end_at, d, now)?);
+        if with_rule {
+            let r = create_rule(ctx, seg, d.task_id.as_deref(), d.activity.as_deref())?;
+            if !rules.iter().any(|x| x.id == r.id) {
+                rules.push(r);
+            }
+        }
+    }
+    tx.commit()?;
+    let titles = task_titles(ctx.conn)?;
+    let segments = segs
+        .iter()
+        .map(|s| Ok(segment_view(tz, &repo::segment::get(ctx.conn, &s.id)?, &titles)))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(ReviewBatchResult {
+        count: segments.len(),
+        segments,
+        override_ids,
+        rules,
+    })
+}
+
+// ===== 無操作区間のワンタップ仕分け =====
+
+/// 無操作（idle）区間につけるワンタップの分類。種別と活動ラベルの組で表し、`segment_override` として保存する
+/// （再計算しても残る）。新しい種別は作らず、既存の `break` / `meeting` / 活動ラベルで表す。
+///
+/// | 分類 | 種別 | 活動ラベル |
+/// |---|---|---|
+/// | 休憩 (`break`) | break | なし |
+/// | 会議 (`meeting`) | meeting | なし |
+/// | 考えごと (`thinking`) | work | 考えごと |
+/// | 離席 (`away`) | break | 離席 |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdlePreset {
+    Break,
+    Meeting,
+    Thinking,
+    Away,
+}
+
+impl IdlePreset {
+    pub const ALL: &'static [IdlePreset] = &[
+        IdlePreset::Break,
+        IdlePreset::Meeting,
+        IdlePreset::Thinking,
+        IdlePreset::Away,
+    ];
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            IdlePreset::Break => "break",
+            IdlePreset::Meeting => "meeting",
+            IdlePreset::Thinking => "thinking",
+            IdlePreset::Away => "away",
+        }
+    }
+
+    /// 表示名。
+    pub fn label(&self) -> &'static str {
+        match self {
+            IdlePreset::Break => "休憩",
+            IdlePreset::Meeting => "会議",
+            IdlePreset::Thinking => "考えごと",
+            IdlePreset::Away => "離席",
+        }
+    }
+
+    /// 上書きする (種別, 活動ラベル)。
+    pub fn kind_and_activity(&self) -> (SegmentKind, Option<&'static str>) {
+        match self {
+            IdlePreset::Break => (SegmentKind::Break, None),
+            IdlePreset::Meeting => (SegmentKind::Meeting, None),
+            IdlePreset::Thinking => (SegmentKind::Work, Some("考えごと")),
+            IdlePreset::Away => (SegmentKind::Break, Some("離席")),
+        }
+    }
+
+    fn decision(&self) -> Decision {
+        let (kind, activity) = self.kind_and_activity();
+        Decision {
+            task_id: None,
+            kind: Some(kind),
+            activity: activity.map(String::from),
+        }
+    }
+}
+
+impl std::str::FromStr for IdlePreset {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|p| p.as_str() == s)
+            .ok_or_else(|| {
+                Error::InvalidArgument(format!(
+                    "無操作の分類が不正です: {s} (候補: {})",
+                    Self::ALL
+                        .iter()
+                        .map(|p| p.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ))
+            })
+    }
+}
+
+/// 無操作区間（まとめて指定可）に分類をつける。無操作（または以前に分類した休憩・会議・考えごと）以外の区間が
+/// 混じっていたら、何も変更せずエラーにする。
+pub fn set_idle(ctx: &Ctx, segments: &[String], preset: IdlePreset) -> Result<ReviewBatchResult> {
+    if segments.is_empty() {
+        return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
+    }
+    let mut segs: Vec<crate::model::ActivitySegment> = Vec::new();
+    for p in segments {
+        let s = repo::segment::resolve(ctx.conn, p)?;
+        let was_idle = match s.kind {
+            SegmentKind::Idle | SegmentKind::Break | SegmentKind::Meeting => true,
+            SegmentKind::Work => s.activity_label.as_deref() == Some("考えごと"),
+            _ => false,
+        };
+        if !was_idle {
+            return Err(Error::InvalidArgument(format!(
+                "区間 {} は無操作ではありません（種別: {}）",
+                s.id, s.kind
+            )));
+        }
+        if !segs.iter().any(|x| x.id == s.id) {
+            segs.push(s);
+        }
+    }
+    apply_batch(ctx, &segs, &preset.decision(), false)
+}
+
+/// 無操作の期間 [start, end) に分類をつける（通知のボタン用）。期間全体への override を保存するので、
+/// 区間がまだ作られていなくても、次の再計算で反映される。戻り値は即時に反映した区間の数。
+pub fn set_idle_range(
+    conn: &rusqlite::Connection,
+    start: Millis,
+    end: Millis,
+    preset: IdlePreset,
+    now: Millis,
+) -> Result<usize> {
+    if start >= end {
+        return Err(Error::InvalidArgument("期間が不正です".into()));
+    }
+    let tx = conn.unchecked_transaction()?;
+    confirm_range(conn, start, end, &preset.decision(), now)?;
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM activity_segment WHERE start_at >= ?1 AND end_at <= ?2 AND status = 'confirmed'",
+        params![start, end],
+        |r| r.get(0),
+    )?;
+    tx.commit()?;
+    Ok(n as usize)
+}
+
+// ===== ルール化の提案 =====
+
+/// 提案を断った組み合わせを記録する `setting` のキー（値は `{ "<キー>": <再提案してよい時刻> }` の JSON）。
+const SUGGEST_DISMISSED_KEY: &str = "review.rule_suggest_dismissed";
+/// 提案のために数える、確定した区間の遡る日数。
+const SUGGEST_LOOKBACK_DAYS: i64 = 30;
+
+/// 提案するルールの内容（受け入れ・却下の指定にも使う）。
+#[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
+pub struct RuleSuggestionRef {
+    pub task_id: String,
+    pub field: MatchField,
+    pub pattern: String,
+    pub pattern_type: PatternType,
+}
+
+impl RuleSuggestionRef {
+    fn key(&self) -> String {
+        format!(
+            "{}|{}|{}|{}",
+            self.task_id, self.field, self.pattern_type, self.pattern
+        )
+    }
+}
+
+/// 「この条件はいつもこのタスクにしますか？」という提案。
+#[derive(Debug, Clone, Serialize)]
+pub struct RuleSuggestion {
+    #[serde(flatten)]
+    pub rule: RuleSuggestionRef,
+    pub task_title: Option<String>,
+    /// 直近に同じ割り当てを確定した回数。
+    pub count: u32,
+    /// 表示用の条件名（exe 名、または作業ディレクトリ）。
+    pub target: String,
+}
+
+/// 提案の元になる (field, pattern, type)。エージェント区間は作業ディレクトリ、それ以外は exe 名。
+/// 手がかりが無ければ None。
+fn suggest_source(
+    ctx: &Ctx,
+    seg: &crate::model::ActivitySegment,
+) -> Option<(MatchField, String, PatternType)> {
+    if seg.agent_session_id.is_some() {
+        return derive_rule_source(ctx, seg).ok();
+    }
+    let exe = seg.exe_name.as_deref().filter(|e| !e.is_empty())?;
+    Some((MatchField::Exe, exe.to_string(), PatternType::Contains))
+}
+
+fn load_dismissed(conn: &rusqlite::Connection) -> Result<std::collections::BTreeMap<String, Millis>> {
+    Ok(super::update::get(conn, SUGGEST_DISMISSED_KEY)?
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default())
+}
+
+/// ユーザーが確定した区間（decided_by = user）を (条件, タスク) ごとに数え、
+/// `review.rule_suggest_min_count` 回以上のものでルールが未登録・断られていないものを多い順に返す。
+pub fn suggest_rules(ctx: &Ctx) -> Result<Vec<RuleSuggestion>> {
+    let min = ctx.cfg.review.rule_suggest_min_count;
+    if min == 0 {
+        return Ok(vec![]);
+    }
+    let now = ctx.now();
+    let range = crate::timefmt::Range::new(now - SUGGEST_LOOKBACK_DAYS * 86_400_000, now + 1);
+    let dismissed = load_dismissed(ctx.conn)?;
+    let titles = task_titles(ctx.conn)?;
+    let mut counts: std::collections::BTreeMap<String, (RuleSuggestionRef, u32)> = Default::default();
+    for s in repo::segment::list_by_status(ctx.conn, range, SegmentStatus::Confirmed)? {
+        let (Some(tid), Some("user")) = (s.task_id.as_deref(), s.decided_by.as_deref()) else {
+            continue;
+        };
+        if !matches!(
+            s.kind,
+            SegmentKind::Work | SegmentKind::AgentDialog | SegmentKind::AgentWatch
+        ) {
+            continue;
+        }
+        let Some((field, pattern, pattern_type)) = suggest_source(ctx, &s) else {
+            continue;
+        };
+        let r = RuleSuggestionRef {
+            task_id: tid.to_string(),
+            field,
+            pattern,
+            pattern_type,
+        };
+        counts.entry(r.key()).or_insert((r, 0)).1 += 1;
+    }
+    let mut out = Vec::new();
+    for (key, (r, count)) in counts {
+        if count < min || dismissed.get(&key).is_some_and(|&until| until > now) {
+            continue;
+        }
+        // 完了済みなどで消えたタスクは提案しない。
+        let Some(title) = titles.get(&r.task_id) else {
+            continue;
+        };
+        if rule::find_task_rule(ctx.conn, &r.task_id, r.field, &r.pattern, r.pattern_type)?.is_some() {
+            continue;
+        }
+        out.push(RuleSuggestion {
+            target: r.pattern.trim_end_matches("/**").to_string(),
+            task_title: Some(title.clone()),
+            count,
+            rule: r,
+        });
+    }
+    out.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.rule.key().cmp(&b.rule.key()))
+    });
+    Ok(out)
+}
+
+/// 提案を受け入れ、タスク帰属ルールを追加する（同じ内容があれば再利用）。
+pub fn accept_suggestion(ctx: &Ctx, r: &RuleSuggestionRef) -> Result<CreatedRule> {
+    let task = repo::task::resolve(ctx.conn, &r.task_id)?;
+    rule::validate_pattern(&r.pattern, r.pattern_type)?;
+    let (rule, reused) = ensure_task_rule(ctx, &task.id, r.field, r.pattern.clone(), r.pattern_type)?;
+    Ok(created_task_rule(rule, reused))
+}
+
+/// 提案を断る。同じ組み合わせは `review.rule_suggest_snooze_days` 日のあいだ提案しない。
+pub fn dismiss_suggestion(ctx: &Ctx, r: &RuleSuggestionRef) -> Result<()> {
+    let now = ctx.now();
+    let mut map = load_dismissed(ctx.conn)?;
+    map.retain(|_, until| *until > now);
+    map.insert(
+        r.key(),
+        now + ctx.cfg.review.rule_suggest_snooze_days as Millis * 86_400_000,
+    );
+    super::update::put(
+        ctx.conn,
+        SUGGEST_DISMISSED_KEY,
+        &serde_json::to_string(&map).map_err(anyhow::Error::from)?,
+    )
 }
 
 #[cfg(test)]
@@ -494,5 +911,283 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(e.exit_code(), 3);
+    }
+
+    // ===== 無操作のワンタップ仕分け =====
+
+    fn seg_row(
+        conn: &rusqlite::Connection,
+        id: &str,
+    ) -> (SegmentKind, Option<String>, SegmentStatus, Option<String>) {
+        conn.query_row(
+            "SELECT kind, activity_label, status, decided_by FROM activity_segment WHERE id = ?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn idle_presets_map_to_kind_and_activity() {
+        use IdlePreset::*;
+        assert_eq!(Break.kind_and_activity(), (SegmentKind::Break, None));
+        assert_eq!(Meeting.kind_and_activity(), (SegmentKind::Meeting, None));
+        assert_eq!(
+            Thinking.kind_and_activity(),
+            (SegmentKind::Work, Some("考えごと"))
+        );
+        assert_eq!(Away.kind_and_activity(), (SegmentKind::Break, Some("離席")));
+        assert_eq!("away".parse::<IdlePreset>().unwrap(), Away);
+        assert_eq!("nap".parse::<IdlePreset>().unwrap_err().exit_code(), 2);
+    }
+
+    #[test]
+    fn set_idle_saves_override_for_each_preset() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        let cases = [
+            (IdlePreset::Break, SegmentKind::Break, None),
+            (IdlePreset::Meeting, SegmentKind::Meeting, None),
+            (IdlePreset::Thinking, SegmentKind::Work, Some("考えごと")),
+            (IdlePreset::Away, SegmentKind::Break, Some("離席")),
+        ];
+        for (i, (preset, kind, label)) in cases.into_iter().enumerate() {
+            let id = format!("IDLE{i}");
+            let s = d + i as i64 * 3_600_000;
+            insert_segment(
+                ctx.conn,
+                &id,
+                s,
+                s + 600_000,
+                SegmentKind::Idle,
+                None,
+                SegmentStatus::NeedsReview,
+            );
+            let r = set_idle(&ctx, std::slice::from_ref(&id), preset).unwrap();
+            assert_eq!(r.count, 1);
+            let (k, l, st, by) = seg_row(ctx.conn, &id);
+            assert_eq!(
+                (k, l.as_deref(), st, by.as_deref()),
+                (kind, label, SegmentStatus::Confirmed, Some("user"))
+            );
+            // 再計算で残る override が、区間の範囲に保存されている。
+            let ovs = overrides::list(ctx.conn, crate::timefmt::Range::new(s, s + 600_000)).unwrap();
+            assert_eq!(ovs.len(), 1);
+            assert_eq!(
+                (ovs[0].kind, ovs[0].activity_label.as_deref()),
+                (Some(kind), label)
+            );
+            assert_eq!(ovs[0].task_id, None);
+        }
+        // 仕分け済みの休憩は別の分類へ付け替えられる。
+        set_idle(&ctx, &["IDLE0".into()], IdlePreset::Away).unwrap();
+        assert_eq!(seg_row(ctx.conn, "IDLE0").1.as_deref(), Some("離席"));
+    }
+
+    #[test]
+    fn set_idle_rejects_non_idle_and_changes_nothing() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        insert_segment(
+            ctx.conn,
+            "I1",
+            d,
+            d + 600_000,
+            SegmentKind::Idle,
+            None,
+            SegmentStatus::NeedsReview,
+        );
+        insert_segment(
+            ctx.conn,
+            "W1",
+            d + 600_000,
+            d + 900_000,
+            SegmentKind::Work,
+            None,
+            SegmentStatus::NeedsReview,
+        );
+        let e = set_idle(&ctx, &["I1".into(), "W1".into()], IdlePreset::Break).unwrap_err();
+        assert_eq!(e.exit_code(), 2);
+        assert_eq!(seg_row(ctx.conn, "I1").2, SegmentStatus::NeedsReview);
+        assert!(
+            overrides::list(ctx.conn, crate::timefmt::Range::new(d, d + 900_000))
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(set_idle(&ctx, &[], IdlePreset::Break).unwrap_err().exit_code(), 2);
+    }
+
+    // ===== まとめて仕分け =====
+
+    #[test]
+    fn set_many_assigns_same_task_to_all_and_dedups_rule() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        for i in 0..3 {
+            insert_segment(
+                ctx.conn,
+                &format!("S{i}"),
+                d + i * 600_000,
+                d + (i + 1) * 600_000,
+                SegmentKind::Work,
+                None,
+                SegmentStatus::NeedsReview,
+            );
+        }
+        let t = mk_task(&ctx);
+        let r = set_many(
+            &ctx,
+            &ReviewBatchInput {
+                segments: vec!["S0".into(), "S1".into(), "S2".into(), "S1".into()],
+                task: Some(t.clone()),
+                activity: Some("開発".into()),
+                rule: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((r.count, r.override_ids.len()), (3, 3));
+        for i in 0..3 {
+            let v = &r.segments[i];
+            assert_eq!(
+                (v.status, v.task_id.as_deref(), v.activity_label.as_deref()),
+                (SegmentStatus::Confirmed, Some(t.as_str()), Some("開発"))
+            );
+        }
+        // 3 区間とも同じタイトル -> ルールは 1 つ
+        assert_eq!(r.rules.len(), 1);
+        assert_eq!(list(&ctx, &RangeArgs::default()).unwrap().count, 0);
+    }
+
+    #[test]
+    fn set_many_is_all_or_nothing() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        insert_segment(
+            ctx.conn,
+            "S0",
+            d,
+            d + 600_000,
+            SegmentKind::Work,
+            None,
+            SegmentStatus::NeedsReview,
+        );
+        let e = set_many(
+            &ctx,
+            &ReviewBatchInput {
+                segments: vec!["S0".into(), "NOPE".into()],
+                kind: Some(SegmentKind::Break),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.exit_code(), 3);
+        assert_eq!(seg_row(ctx.conn, "S0").2, SegmentStatus::NeedsReview);
+        let e = set_many(&ctx, &ReviewBatchInput::default()).unwrap_err();
+        assert_eq!(e.exit_code(), 2);
+    }
+
+    // ===== ルール化の提案 =====
+
+    /// ユーザーが確定した作業区間を n 件作る（exe は Code.exe）。
+    fn confirm_n(env: &Env, task: &str, n: i64, prefix: &str) {
+        let ctx = env.ctx();
+        let d = env.day_start();
+        for i in 0..n {
+            let id = format!("{prefix}{i}");
+            insert_segment(
+                ctx.conn,
+                &id,
+                d + i * 600_000,
+                d + (i + 1) * 600_000,
+                SegmentKind::Work,
+                Some(task),
+                SegmentStatus::Confirmed,
+            );
+            ctx.conn
+                .execute(
+                    "UPDATE activity_segment SET decided_by = 'user' WHERE id = ?1",
+                    [&id],
+                )
+                .unwrap();
+        }
+    }
+
+    #[test]
+    fn suggestion_appears_at_threshold_and_not_below() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let t = mk_task(&ctx);
+        confirm_n(&env, &t, 2, "A");
+        assert!(suggest_rules(&ctx).unwrap().is_empty());
+        confirm_n(&env, &t, 3, "B");
+        let s = suggest_rules(&ctx).unwrap();
+        assert_eq!(s.len(), 1);
+        assert_eq!((s[0].count, s[0].target.as_str()), (5, "Code.exe"));
+        assert_eq!(
+            (s[0].rule.field, s[0].rule.pattern_type),
+            (MatchField::Exe, PatternType::Contains)
+        );
+        assert_eq!(s[0].task_title.as_deref(), Some("T"));
+    }
+
+    #[test]
+    fn suggestion_ignores_auto_decisions_and_can_be_disabled() {
+        let mut env = Env::new();
+        let t = mk_task(&env.ctx());
+        confirm_n(&env, &t, 3, "A");
+        // 自動判定（decided_by が user でない）は数えない
+        env.conn
+            .execute(
+                "UPDATE activity_segment SET decided_by = 'rule' WHERE id = 'A0'",
+                [],
+            )
+            .unwrap();
+        assert!(suggest_rules(&env.ctx()).unwrap().is_empty());
+        env.conn
+            .execute(
+                "UPDATE activity_segment SET decided_by = 'user' WHERE id = 'A0'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(suggest_rules(&env.ctx()).unwrap().len(), 1);
+        env.cfg.review.rule_suggest_min_count = 0;
+        assert!(suggest_rules(&env.ctx()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn accepting_suggestion_adds_rule_and_hides_it() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let t = mk_task(&ctx);
+        confirm_n(&env, &t, 3, "A");
+        let s = suggest_rules(&ctx).unwrap().remove(0);
+        let r = accept_suggestion(&ctx, &s.rule).unwrap();
+        assert_eq!(
+            (r.rule_type, r.reused, r.pattern.as_str()),
+            ("task_match_rule", false, "Code.exe")
+        );
+        assert!(suggest_rules(&ctx).unwrap().is_empty());
+        assert!(accept_suggestion(&ctx, &s.rule).unwrap().reused);
+    }
+
+    #[test]
+    fn dismissed_suggestion_returns_after_snooze_days() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let t = mk_task(&ctx);
+        confirm_n(&env, &t, 3, "A");
+        let s = suggest_rules(&ctx).unwrap().remove(0);
+        dismiss_suggestion(&ctx, &s.rule).unwrap();
+        assert!(suggest_rules(&ctx).unwrap().is_empty());
+        env.clock.advance(13 * 86_400_000);
+        assert!(suggest_rules(&env.ctx()).unwrap().is_empty());
+        env.clock.advance(2 * 86_400_000);
+        // 14 日を過ぎれば再び提案する（確定した区間は 30 日以内）
+        assert_eq!(suggest_rules(&env.ctx()).unwrap().len(), 1);
     }
 }

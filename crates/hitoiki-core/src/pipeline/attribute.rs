@@ -209,8 +209,55 @@ pub(crate) fn apply_doing_fallback(input: &PipelineInput, pieces: &mut Vec<Piece
                 p.task_id = Some(t.to_string());
                 p.decided_by = Some("doing".into());
                 p.confidence = Some(0.5);
-                p.status = Some(SegmentStatus::NeedsReview);
+                // `review.trust_doing` なら、始めたタスクを信頼して要確認にしない。
+                p.status = Some(if input.trust_doing {
+                    SegmentStatus::Auto
+                } else {
+                    SegmentStatus::NeedsReview
+                });
             }
+        }
+    }
+}
+
+/// 画面ロック／スリープによる無操作が `review.auto_break_locked_min` 以上なら、その無操作区間を
+/// 自動で休憩（break、decided_by `rule:locked`、auto）にする。ユーザー確定済みの区間（decided_by あり）は対象外。
+/// 隣り合う無操作の記録（無操作 → ロック）は 1 つの区間にまとまっているので、区間に重なる
+/// ロック／スリープの記録の合計時間（区間への重なりのみ）で判定する。
+pub(crate) fn apply_locked_break(input: &PipelineInput, pieces: &mut [Piece]) {
+    if input.auto_break_locked <= 0 {
+        return;
+    }
+    let mut locked: Vec<(crate::Millis, crate::Millis)> = input
+        .idles
+        .iter()
+        .filter(|i| i.reason != IdleReason::NoInput)
+        .map(|i| (i.start_at, i.end_at.unwrap_or(input.now)))
+        .filter(|(s, e)| s < e)
+        .collect();
+    locked.sort_unstable();
+    for p in pieces.iter_mut() {
+        if p.kind != SegmentKind::Idle || p.decided_by.is_some() {
+            continue;
+        }
+        // 区間に重なるロック部分の和集合の長さ。
+        let (mut total, mut cur_end) = (0, crate::Millis::MIN);
+        for &(s, e) in &locked {
+            let (s, e) = (s.max(p.start), e.min(p.end));
+            if s >= e {
+                continue;
+            }
+            let s = s.max(cur_end);
+            if e > s {
+                total += e - s;
+                cur_end = e;
+            }
+        }
+        if total >= input.auto_break_locked {
+            p.kind = SegmentKind::Break;
+            p.decided_by = Some("rule:locked".into());
+            p.confidence = Some(1.0);
+            p.status = Some(SegmentStatus::Auto);
         }
     }
 }

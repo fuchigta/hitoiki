@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { api, type SegmentKind, type SegmentView } from "../api";
+import { api, type IdlePreset, type RuleSuggestion, type SegmentKind, type SegmentView } from "../api";
 import { Card, Empty, ErrorBox } from "../components";
 import { KIND_LABEL, KIND_ORDER, fmtDateTime, fmtDur, useAction, useAsync, useLiveTick } from "../lib";
 
@@ -21,6 +21,18 @@ export function Review() {
   const [showShort, setShowShort] = useState(false);
   const list = useAsync(() => api.reviewList({ date: period }, showShort), [period, showShort, tick]);
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), [tick]);
+  const suggestions = useAsync(() => api.reviewSuggestions(), [tick]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const toggle = (id: string) =>
+    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  const done = () => {
+    setSelected([]);
+    list.reload();
+    suggestions.reload();
+  };
+  // 一覧から消えた区間は選択から外す。
+  const visible = list.data?.segments ?? [];
+  const chosen = selected.filter((id) => visible.some((s) => s.id === id));
 
   return (
     <div class="stack">
@@ -46,16 +58,177 @@ export function Review() {
           </label>
         )}
       </div>
-      <ErrorBox error={list.error ?? tasks.error} />
+      <ErrorBox error={list.error ?? tasks.error ?? suggestions.error} />
+      {(suggestions.data ?? []).map((sg) => (
+        <SuggestionCard key={`${sg.task_id}|${sg.field}|${sg.pattern}`} sg={sg} onDone={done} />
+      ))}
+      {visible.length > 1 && (
+        <BatchBar
+          ids={chosen}
+          all={visible.map((s) => s.id)}
+          tasks={tasks.data?.tasks ?? []}
+          onSelect={setSelected}
+          onDone={done}
+        />
+      )}
       {list.data && list.data.segments.length === 0 && <Empty>
           {list.data.hidden_short > 0
             ? "確認が必要な区間はありません（短い区間のみ隠れています）。"
             : "確認が必要な区間はありません。"}
         </Empty>}
       {list.data?.segments.map((s) => (
-        <ReviewItem key={s.id} seg={s} tasks={tasks.data?.tasks ?? []} onDone={list.reload} />
+        <ReviewItem
+          key={s.id}
+          seg={s}
+          tasks={tasks.data?.tasks ?? []}
+          onDone={done}
+          selected={chosen.includes(s.id)}
+          onToggle={() => toggle(s.id)}
+        />
       ))}
     </div>
+  );
+}
+
+/** 無操作区間のワンタップ分類（core の `IdlePreset` と同じ並び）。 */
+const IDLE_PRESETS: { id: IdlePreset; label: string }[] = [
+  { id: "break", label: "休憩" },
+  { id: "meeting", label: "会議" },
+  { id: "thinking", label: "考えごと" },
+  { id: "away", label: "離席" },
+];
+
+/** 「Orca.exe はいつもこのタスクにしますか？」というルール化の提案。 */
+function SuggestionCard({ sg, onDone }: { sg: RuleSuggestion; onDone: () => void }) {
+  const act = useAction();
+  const ref = { task_id: sg.task_id, field: sg.field, pattern: sg.pattern, pattern_type: sg.pattern_type };
+  const accept = async () => {
+    if (await act.run(() => api.reviewSuggestAccept(ref))) onDone();
+  };
+  const dismiss = async () => {
+    // 戻り値は void なので、エラーが無かったかで判定する。
+    const r = await act.run(async () => {
+      await api.reviewSuggestDismiss(ref);
+      return true;
+    });
+    if (r) onDone();
+  };
+  return (
+    <Card>
+      <div class="row">
+        <span>
+          <strong>{sg.target}</strong> はいつも「{sg.task_title ?? "このタスク"}」にしますか？
+          <span class="muted"> （最近 {sg.count} 回、同じ割り当てを確定しました）</span>
+        </span>
+        <span class="spacer" />
+        <button class="ghost" disabled={act.busy} onClick={dismiss}>
+          今はしない
+        </button>
+        <button class="primary" disabled={act.busy} onClick={accept}>
+          ルールにする
+        </button>
+      </div>
+      <ErrorBox error={act.error} />
+    </Card>
+  );
+}
+
+/** 複数選択して、同じタスク・種別・活動をまとめて割り当てる。 */
+function BatchBar({
+  ids,
+  all,
+  tasks,
+  onSelect,
+  onDone,
+}: {
+  ids: string[];
+  all: string[];
+  tasks: { id: string; title: string }[];
+  onSelect: (ids: string[]) => void;
+  onDone: () => void;
+}) {
+  const [task, setTask] = useState("");
+  const [kind, setKind] = useState<SegmentKind | "">("");
+  const [activity, setActivity] = useState("");
+  const [rule, setRule] = useState(false);
+  const act = useAction();
+
+  const submit = async () => {
+    const r = await act.run(() =>
+      api.reviewSetMany({
+        segments: ids,
+        task: task || undefined,
+        kind: kind || undefined,
+        activity: activity.trim() || undefined,
+        rule,
+      }),
+    );
+    if (r) {
+      setTask("");
+      setKind("");
+      setActivity("");
+      setRule(false);
+      onDone();
+    }
+  };
+
+  return (
+    <Card>
+      <div class="row">
+        <label class="check">
+          <input
+            type="checkbox"
+            checked={ids.length === all.length}
+            onChange={(e) => onSelect(e.currentTarget.checked ? all : [])}
+          />
+          すべて選ぶ
+        </label>
+        <span class="muted">{ids.length > 0 ? `${ids.length}件を選択中` : "まとめて仕分けるには、区間を選んでください"}</span>
+      </div>
+      {ids.length > 0 && (
+        <>
+          <div class="form-row">
+            <label class="field">
+              <span>タスク</span>
+              <select value={task} onChange={(e) => setTask(e.currentTarget.value)}>
+                <option value="">（割り当てない）</option>
+                {tasks.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label class="field">
+              <span>種別</span>
+              <select value={kind} onChange={(e) => setKind(e.currentTarget.value as SegmentKind | "")}>
+                <option value="">（そのまま）</option>
+                {KIND_ORDER.map((k) => (
+                  <option key={k} value={k}>
+                    {KIND_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label class="field">
+              <span>活動</span>
+              <input value={activity} onInput={(e) => setActivity(e.currentTarget.value)} placeholder="例: コードレビュー" />
+            </label>
+          </div>
+          <div class="row">
+            <label class="check">
+              <input type="checkbox" checked={rule} onChange={(e) => setRule(e.currentTarget.checked)} />
+              この条件を常にこのタスクに
+            </label>
+            <span class="spacer" />
+            <button class="primary" disabled={act.busy || (!task && !kind && !activity.trim())} onClick={submit}>
+              {ids.length}件をまとめて確定
+            </button>
+          </div>
+        </>
+      )}
+      <ErrorBox error={act.error} />
+    </Card>
   );
 }
 
@@ -63,10 +236,14 @@ function ReviewItem({
   seg,
   tasks,
   onDone,
+  selected,
+  onToggle,
 }: {
   seg: SegmentView;
   tasks: { id: string; title: string }[];
   onDone: () => void;
+  selected: boolean;
+  onToggle: () => void;
 }) {
   const [task, setTask] = useState(seg.task_id ?? "");
   const [kind, setKind] = useState<SegmentKind | "">("");
@@ -87,6 +264,12 @@ function ReviewItem({
     if (r) onDone();
   };
 
+  // 無操作区間をワンタップで分類する。
+  const asIdle = async (preset: IdlePreset) => {
+    const r = await act.run(() => api.reviewIdle([seg.id], preset));
+    if (r) onDone();
+  };
+
   // 割り込みを新しいタスクにして割り当てる。
   const asInterrupt = async () => {
     const title = (seg.title || seg.exe_name || "割り込み").slice(0, 60);
@@ -100,6 +283,9 @@ function ReviewItem({
   return (
     <Card>
       <div class="review-head">
+        <label class="check" title="まとめて仕分けるために選ぶ">
+          <input type="checkbox" checked={selected} onChange={onToggle} aria-label="この区間を選ぶ" />
+        </label>
         <div>
           <strong>{seg.title || seg.exe_name || "（タイトルなし）"}</strong>
           <div class="muted">
@@ -109,6 +295,16 @@ function ReviewItem({
           </div>
         </div>
       </div>
+      {seg.kind === "idle" && (
+        <div class="row" role="group" aria-label="この無操作の時間は">
+          <span class="muted">この時間は</span>
+          {IDLE_PRESETS.map((p) => (
+            <button key={p.id} class="chip" disabled={act.busy} onClick={() => asIdle(p.id)}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
       <div class="form-row">
         <label class="field">
           <span>タスク</span>

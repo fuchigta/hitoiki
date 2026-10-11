@@ -367,7 +367,8 @@ button.ghost {
 }
 .review-head {
   display: flex;
-  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
 }
 
 /* 棒グラフ */

@@ -1,7 +1,7 @@
 //! 時間の帰属判定パイプライン（docs/dev/architecture.md「帰属判定パイプライン」）。生データ → `activity_segment` の純粋関数。
 //!
 //! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 通過系アプリの吸収 → 判定器 →
-//! 割り込み → doing フォールバック → 状態付け → 統合。
+//! 割り込み → doing フォールバック → ロック中の自動休憩 → 状態付け → 統合。
 //! （割り込み検出はルール結果を見る必要があるため doing フォールバックより前に行う。）
 
 mod agent;
@@ -70,6 +70,10 @@ pub struct PipelineInput {
     pub bind_unlisted: bool,
     pub interrupt_min: Millis,
     pub auto_confidence_threshold: f64,
+    /// ロック／スリープによる無操作をこの長さ以上なら自動で休憩にする。0 で無効。
+    pub auto_break_locked: Millis,
+    /// doing フォールバックで付けた区間を要確認にせず自動にする。
+    pub trust_doing: bool,
 }
 
 impl PipelineInput {
@@ -101,6 +105,8 @@ impl PipelineInput {
             bind_unlisted: cfg.agent.bind_unlisted,
             interrupt_min: cfg.collect.interrupt_min_sec as Millis * 1000,
             auto_confidence_threshold: cfg.judge.auto_confidence_threshold,
+            auto_break_locked: cfg.review.auto_break_locked_min as Millis * 60_000,
+            trust_doing: cfg.review.trust_doing,
         }
     }
 }
@@ -155,6 +161,8 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
     attribute::detect_interrupts(input, &mut pieces);
     // 9. doing フォールバック
     attribute::apply_doing_fallback(input, &mut pieces);
+    // 9b. 長いロック／スリープの無操作を自動で休憩にする
+    attribute::apply_locked_break(input, &mut pieces);
     // 7. 状態付け
     attribute::finalize_status(input, &mut pieces);
     // 8. 統合

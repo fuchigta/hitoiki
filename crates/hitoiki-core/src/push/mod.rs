@@ -27,6 +27,7 @@ pub use store::{apply_response, PushResponse, ResponseOutcome};
 #[serde(rename_all = "snake_case")]
 pub enum PushTrigger {
     DayStart,
+    IdleReturn,
     DayEnd,
     Weekly,
     AfterInterrupt,
@@ -39,6 +40,7 @@ pub enum PushTrigger {
 impl PushTrigger {
     pub const ALL: &'static [PushTrigger] = &[
         PushTrigger::DayStart,
+        PushTrigger::IdleReturn,
         PushTrigger::DayEnd,
         PushTrigger::Weekly,
         PushTrigger::AfterInterrupt,
@@ -52,6 +54,7 @@ impl PushTrigger {
     pub fn as_str(&self) -> &'static str {
         match self {
             PushTrigger::DayStart => "day_start",
+            PushTrigger::IdleReturn => "idle_return",
             PushTrigger::DayEnd => "day_end",
             PushTrigger::Weekly => "weekly",
             PushTrigger::AfterInterrupt => "after_interrupt",
@@ -82,6 +85,13 @@ pub struct IdleState {
     pub since_last_input_sec: u64,
 }
 
+/// 終わったばかりの無操作（ロック・スリープを含み、続いた記録は 1 つにまとめたもの）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ClosedIdle {
+    pub start_at: Millis,
+    pub end_at: Millis,
+}
+
 /// 設定に出していない内部しきい値。既定値で十分な想定。
 #[derive(Debug, Clone)]
 pub struct PushTuning {
@@ -99,6 +109,8 @@ pub struct PushTuning {
     pub focus_gap_sec: u64,
     /// 「いま作業中」とみなす、最終区間の終了から now までの許容秒数。
     pub active_slack_sec: u64,
+    /// idle_return: 無操作の終了からこの分数以内なら発火する。
+    pub idle_return_recent_min: u64,
     /// 会議の終了時刻が不明なときの保留時間（分）。
     pub meeting_defer_min: u64,
     /// どのトリガーでも、直前の通知からこの分数は空ける。
@@ -121,6 +133,7 @@ impl Default for PushTuning {
             meeting_overrun_max_min: 180,
             focus_gap_sec: 30,
             active_slack_sec: 60,
+            idle_return_recent_min: 10,
             meeting_defer_min: 5,
             min_gap_any_min: 10,
             response_window: 5,
@@ -140,6 +153,8 @@ pub struct PushContext {
     pub idle: IdleState,
     /// 直近のロック解除 / 無操作明けイベントの時刻（なければ None）。day_start の検知に使う。
     pub resumed_at: Option<Millis>,
+    /// 直近で終わった無操作（なければ None）。idle_return に使う。
+    pub last_idle: Option<ClosedIdle>,
     /// 今日の time_block。
     pub time_blocks: Vec<TimeBlock>,
     /// 今日前後のカレンダー予定。
@@ -166,6 +181,7 @@ impl PushContext {
             recent_segments: vec![],
             idle: IdleState::default(),
             resumed_at: None,
+            last_idle: None,
             time_blocks: vec![],
             calendar_events: vec![],
             push_log: vec![],

@@ -223,6 +223,9 @@ pub struct Push {
     pub long_focus_min: u64,
     pub switch_spike: SwitchSpike,
     pub late_work_after: String,
+    /// idle_return: 予定外の無操作がこの分数以上続いたあとの復帰で「さっきの N 分は？」と尋ねる。
+    /// 0 で無効（`disabled_triggers` に `idle_return` を入れても止められる）。
+    pub idle_return_min: u64,
     /// 無効にするトリガー ID。
     pub disabled_triggers: Vec<String>,
 }
@@ -239,6 +242,7 @@ impl Default for Push {
             long_focus_min: 90,
             switch_spike: SwitchSpike::default(),
             late_work_after: "20:00".into(),
+            idle_return_min: 15,
             disabled_triggers: vec![],
         }
     }
@@ -307,11 +311,26 @@ impl Default for Activity {
 pub struct Review {
     /// 仕分け一覧で既定表示する最小の長さ（秒）。これ未満の区間は既定で隠す（データは変えない）。
     pub min_sec: u64,
+    /// 画面ロック／スリープによる無操作がこの分数以上なら、自動で休憩（break）にする。0 で無効。
+    pub auto_break_locked_min: u64,
+    /// true なら、進行中（doing）のタスクを仮当てした区間も要確認にせず自動（auto）にする。
+    /// false（既定）なら従来どおり要確認にする。
+    pub trust_doing: bool,
+    /// 同じ exe の区間を同じタスクにこの回数以上確定したら、ルール化を提案する。0 で提案しない。
+    pub rule_suggest_min_count: u32,
+    /// ルール化の提案を断ったあと、同じ組み合わせを再び提案しない日数。
+    pub rule_suggest_snooze_days: u32,
 }
 
 impl Default for Review {
     fn default() -> Self {
-        Self { min_sec: 60 }
+        Self {
+            min_sec: 60,
+            auto_break_locked_min: 10,
+            trust_doing: false,
+            rule_suggest_min_count: 3,
+            rule_suggest_snooze_days: 14,
+        }
     }
 }
 
@@ -573,5 +592,26 @@ command = ["python", "x.py"]
         assert_eq!(c.collect.idle_threshold_sec, 300);
         assert_eq!(c.get_value("general.timezone").unwrap().as_str(), Some("UTC"));
         assert!(set_value(&p, "collect.idle_threshold_sec", "\"abc\"").is_err());
+    }
+
+    #[test]
+    fn review_と_push_の新しいキーの既定値() {
+        let c = Config::default();
+        assert_eq!(c.review.auto_break_locked_min, 10);
+        assert!(!c.review.trust_doing);
+        assert_eq!(
+            (c.review.rule_suggest_min_count, c.review.rule_suggest_snooze_days),
+            (3, 14)
+        );
+        assert_eq!(c.push.idle_return_min, 15);
+        let c: Config = toml::from_str(
+            "[review]
+trust_doing = true
+auto_break_locked_min = 0
+",
+        )
+        .unwrap();
+        assert!(c.review.trust_doing);
+        assert_eq!((c.review.auto_break_locked_min, c.review.min_sec), (0, 60));
     }
 }

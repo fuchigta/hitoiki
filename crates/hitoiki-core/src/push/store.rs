@@ -1,8 +1,10 @@
 //! push_log の読み書きと、通知への応答の反映（checkin / hassle / スヌーズ）。
 
-use super::{PushDecision, PushTrigger};
+use super::payload::IDLE_ACTION_PREFIX;
+use super::{PushDecision, PushPayload, PushTrigger};
 use crate::id::new_id;
 use crate::model::PushLog;
+use crate::service::review::{self, IdlePreset};
 use crate::timefmt::{day_range, local_date_of};
 use crate::{Error, Millis, Result};
 use chrono_tz::Tz;
@@ -105,6 +107,7 @@ pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
 /// 通知への応答。ボタン（`action` + `value`）とテキスト入力（`text`）のどちらか、または両方。
 ///
 /// `action` の値: `energy` / `stress`（value は 1〜5）、`snooze_15` / `snooze_60` / `snooze_today`、
+/// `idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`（idle_return の分類。value は無し）、
 /// `open`（アプリを開いた）、`dismiss`（閉じただけ。応答とは数えない）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PushResponse {
@@ -119,6 +122,8 @@ pub struct ResponseOutcome {
     pub checkin_id: Option<String>,
     pub hassle_id: Option<String>,
     pub snoozed_until: Option<Millis>,
+    /// idle_return への応答で分類をつけた無操作区間の数。
+    pub idle_labeled: usize,
 }
 
 fn check_scale(v: Option<i64>) -> Result<i64> {
@@ -157,6 +162,14 @@ pub fn apply_response(
             out.snoozed_until = Some(day_range(tz, local_date_of(tz, now)).end);
         }
         Some("open") | Some("dismiss") | None => {}
+        Some(other) if other.starts_with(IDLE_ACTION_PREFIX) => {
+            let preset: IdlePreset = other[IDLE_ACTION_PREFIX.len()..].parse()?;
+            let range = serde_json::from_str::<PushPayload>(&log.payload_json)
+                .ok()
+                .and_then(|p| p.idle_range)
+                .ok_or_else(|| Error::InvalidArgument("この通知には無操作の期間がありません".into()))?;
+            out.idle_labeled = review::set_idle_range(conn, range.0, range.1, preset, now)?;
+        }
         Some(other) => return Err(Error::InvalidArgument(format!("不明な応答アクション: {other}"))),
     }
 

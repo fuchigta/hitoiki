@@ -76,7 +76,7 @@ pub struct UpdateState {
     pub notified_version: Option<String>,
 }
 
-fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
+pub(crate) fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
     Ok(conn
         .query_row("SELECT value_json FROM setting WHERE key = ?1", [key], |r| {
             r.get(0)
@@ -84,7 +84,7 @@ fn get(conn: &Connection, key: &str) -> Result<Option<String>> {
         .optional()?)
 }
 
-fn put(conn: &Connection, key: &str, value: &str) -> Result<()> {
+pub(crate) fn put(conn: &Connection, key: &str, value: &str) -> Result<()> {
     conn.execute(
         "INSERT INTO setting(key, value_json) VALUES (?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value_json = excluded.value_json",
