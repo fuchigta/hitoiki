@@ -55,4 +55,4 @@ Conventional Commits 形式 `<type>(<scope>): <日本語の要約>`（spotter �
 
 ## リリース
 
-バージョンの上げ方、CHANGELOG の作り方、タグの push、インストーラー（NSIS）のローカルビルドは `docs/dev/release.md` にある。インストーラーの注意点（`externalBin` は `tauri.bundle.conf.json` にだけ書く、`productName` は `HitoikiApp` のままにする、自動起動エントリ名は `Hitoiki` 固定）も同文書を参照。
+バージョンの上げ方、CHANGELOG の作り方、タグの push、インストーラー（NSIS）のローカルビルドは `docs/dev/release.md` にある。インストーラーの注意点（`externalBin` は `tauri.bundle.conf.json` にだけ書く、`productName` は `Hitoiki`（インストール先がデータ置き場と同じフォルダになる）、自動起動エントリ名は `Hitoiki` 固定）も同文書を参照。

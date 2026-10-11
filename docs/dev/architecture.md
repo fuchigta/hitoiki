@@ -312,7 +312,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
   - `hitoiki-<ver>-windows-x64-setup.exe`（推奨。Tauri の NSIS インストーラー。MSI は作らない）
   - `hitoiki-<ver>-windows-x64.zip`（ポータブル版。`hitoiki.exe`、`hitoiki-app.exe`。展開のみで動作する）
 - インストーラーの仕様（`crates/hitoiki-app/tauri.conf.json`、`tauri.bundle.conf.json`、`windows/`）:
-  - `installMode: currentUser`（管理者権限不要）。既定のインストール先は `%LOCALAPPDATA%\HitoikiApp`。データ用の `%LOCALAPPDATA%\hitoiki` と大文字小文字を除いて同名にならないよう、製品名（`productName`）を `HitoikiApp` にしている。実行ファイル名は `mainBinaryName` で `hitoiki-app.exe` に固定する（収集器の自己除外が exe 名で判定するため）。
+  - `installMode: currentUser`（管理者権限不要）。製品名（`productName`）は `Hitoiki` で、既定のインストール先 `%LOCALAPPDATA%\Hitoiki` はデータ置き場 `%LOCALAPPDATA%\hitoiki` と同じフォルダになる（意図した構成。アンインストーラーは自分が置いたファイルだけを消し、フォルダは空のときだけ削除する）。実行ファイル名は `mainBinaryName` で `hitoiki-app.exe` に固定する（収集器の自己除外が exe 名で判定するため）。
   - CLI は `externalBin`（サイドカー）で同梱し、インストール先に `hitoiki.exe` として `hitoiki-app.exe` と並べる（CLI の `ui` と daemon が同じフォルダの `hitoiki-app.exe` を探すため）。`externalBin` はビルド時にファイルの存在を検査されるので、bundle 専用の `tauri.bundle.conf.json` に分けて `tauri build --config` で合成する。
   - NSIS フック（`windows/hooks.nsh`）が PowerShell（`windows/hitoiki-path.ps1`）を呼び、インストール先をユーザー PATH（HKCU）へ重複なしで追加し、アンインストールで除去する。`REG_EXPAND_SZ` を保つためレジストリを展開なしで読み書きし、変更後に `WM_SETTINGCHANGE` を通知する。自動起動の Run エントリ（値名 `Hitoiki`、`lib.rs` で固定）もアンインストール時（更新を除く）に削除する。
   - アンインストールでユーザーデータ（`%APPDATA%\hitoiki`、`%LOCALAPPDATA%\hitoiki`）は消さない。標準の「アプリデータを削除」は `dev.hitoiki.app` フォルダのみが対象。

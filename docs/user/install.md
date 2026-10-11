@@ -6,14 +6,14 @@ GitHub Releases から取得します。コード署名は付与していませ�
 
 1. [Releases](https://github.com/fuchigta/hitoiki/releases) から `hitoiki-<ver>-windows-x64-setup.exe` をダウンロードします。
 2. 実行します。SmartScreen の警告が出たら「詳細情報」→「実行」を選びます（[SmartScreen](#smartscreen-の警告が出る場合) を参照）。
-3. 画面の指示に従ってインストールします。管理者権限は不要で、既定のインストール先は `%LOCALAPPDATA%\HitoikiApp` です。Windows ではフォルダ名の大文字小文字が区別されないため、データ用の `%LOCALAPPDATA%\hitoiki` と衝突しないよう製品名を `HitoikiApp` にしています。
+3. 画面の指示に従ってインストールします。管理者権限は不要で、既定のインストール先は `%LOCALAPPDATA%\Hitoiki` です。このフォルダは DB・ログの置き場（`%LOCALAPPDATA%\hitoiki`）と同じです（Windows はフォルダ名の大文字小文字を区別しません）。プログラムとデータが同じフォルダに並ぶので、**フォルダごと手で削除しないでください**（記録も消えます）。アンインストールは下記の手順で行ってください。
 4. 完了画面の「実行」のチェックを入れたままにすると、そのまま起動して初回のオンボーディングが始まります（[はじめに](./getting-started.md)）。
 
 インストーラーが行うこと:
 
 - `hitoiki.exe`（CLI）と `hitoiki-app.exe`（常駐アプリ）を同じフォルダに置きます。
 - インストール先を**ユーザー**の環境変数 `Path` に追加します（重複追加はしません）。新しく開いたターミナルで `hitoiki --help` が使えます。
-- スタートメニューに登録します（スタートメニュー名は「HitoikiApp」です）。
+- スタートメニューに登録します（スタートメニュー名は「Hitoiki」です）。
 
 ## zip（ポータブル版）
 
@@ -42,8 +42,8 @@ GitHub Releases から取得します。コード署名は付与していませ�
 
 「設定 > アプリ > インストールされているアプリ」から行います。
 
-- **消えるもの**: インストール先のファイル、スタートメニューのショートカット、ユーザー `Path` に追加したエントリ、ログオン時の自動起動登録（`general.autostart`）。
-- **残るもの**: Hitoiki のデータは消しません。設定とプラグイン（`%APPDATA%\hitoiki`）、DB とログ（`%LOCALAPPDATA%\hitoiki`）が残ります。
+- **消えるもの**: インストーラーが置いたファイル（`hitoiki-app.exe`、`hitoiki.exe` など）、スタートメニューのショートカット、ユーザー `Path` に追加したエントリ、ログオン時の自動起動登録（`general.autostart`）。
+- **残るもの**: Hitoiki のデータは消しません。設定とプラグイン（`%APPDATA%\hitoiki`）、DB とログ（`%LOCALAPPDATA%\hitoiki`）が残ります。インストール先とデータ置き場は同じフォルダなので、アンインストール後もこのフォルダは残ります（意図した動作です）。
 - アンインストール画面の「アプリデータを削除」チェックは、Tauri の識別子（`dev.hitoiki.app`）名のフォルダ（`%APPDATA%\dev.hitoiki.app`、`%LOCALAPPDATA%\dev.hitoiki.app`、WebView2 のキャッシュなど）だけが対象です。Hitoiki の DB・設定は対象外なので、チェックしても消えません。
 - DB ごと消したい場合は、上記の `%APPDATA%\hitoiki` と `%LOCALAPPDATA%\hitoiki` を手動で削除してください。
 

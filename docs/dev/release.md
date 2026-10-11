@@ -80,7 +80,7 @@ cd crates/hitoiki-app
 注意点:
 
 - `externalBin`（サイドカー）は `tauri.bundle.conf.json` にだけ書きます。`tauri.conf.json` に書くと、サイドカーが無い状態の `cargo build` / `cargo test` が失敗します。
-- 製品名（`productName`）は `HitoikiApp` です。`Hitoiki` にすると、既定のインストール先が `%LOCALAPPDATA%\hitoiki`（データ置き場）と衝突します。
+- 製品名（`productName`）は `Hitoiki` です。既定のインストール先 `%LOCALAPPDATA%\Hitoiki` はデータ置き場（`%LOCALAPPDATA%\hitoiki`）と同じフォルダになります（意図した構成）。アンインストーラーは自分が置いたファイルだけを消し、フォルダは空のときだけ削除するのでデータは残ります。インストーラーに同梱するファイル名をデータのファイル名（`hitoiki.db`、`logs/`、`app-icon.png` など）と重ねないこと。
 - 自動起動エントリ名は `crates/hitoiki-app/src/lib.rs` で `Hitoiki` に固定しています。インストーラーのフック（`crates/hitoiki-app/windows/hitoiki-path.ps1`）もこの名前を削除します。
 - 実行ファイル名は `mainBinaryName` で `hitoiki-app.exe` に固定します（収集器が自己除外を exe 名で判定するため）。
 
