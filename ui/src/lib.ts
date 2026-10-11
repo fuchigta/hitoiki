@@ -157,6 +157,7 @@ export const SCREENS = [
   { id: "records", label: "記録" },
   { id: "okr", label: "OKR・スキル" },
   { id: "settings", label: "設定" },
+  { id: "onboarding", label: "はじめに" },
 ] as const;
 
 export type ScreenId = (typeof SCREENS)[number]["id"];
