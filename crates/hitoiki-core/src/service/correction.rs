@@ -856,7 +856,9 @@ mod tests {
         assert_eq!(by(40).task_id, None);
         assert_eq!(by(50).kind, SegmentKind::Idle);
         // override は範囲で切った期間で保存され、補正に結び付く。
-        let ovs = repo::overrides::list(ctx.conn, Range::new(m0, m0 + 200 * MIN)).unwrap();
+        // 同じミリ秒に作った override の並び（created_at, id）は ULID の乱数部で決まるので、開始時刻で並べ直す。
+        let mut ovs = repo::overrides::list(ctx.conn, Range::new(m0, m0 + 200 * MIN)).unwrap();
+        ovs.sort_by_key(|o| o.start_at);
         assert_eq!(ovs.len(), 2);
         assert!(ovs
             .iter()
