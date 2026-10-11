@@ -236,6 +236,19 @@ pub enum TaskCmd {
         #[arg(long)]
         dry_run: bool,
     },
+    /// タスクを選んで（または作って）すぐ開始する。割り込みで素早く切り替えるとき
+    Switch {
+        /// 未完了のタスクのタイトル（完全一致・部分一致）または ID（前方一致）
+        query: String,
+        /// 既存のタスクを探さず、query をタイトルとして新規作成して開始する
+        #[arg(long)]
+        new: bool,
+        /// 新規作成するタスクを割り込み（urgent=1）にする（--new が必要）
+        #[arg(long, requires = "new")]
+        interrupt: bool,
+    },
+    /// 直前まで doing だったタスクに戻る（割り込みが終わったとき）
+    Back,
     /// 帰属ルール
     #[command(subcommand)]
     Rule(RuleCmd),

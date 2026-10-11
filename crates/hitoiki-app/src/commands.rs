@@ -527,6 +527,14 @@ pub fn config_set(app: AppHandle, state: S, key: String, value: String) -> AppRe
     if key == "general.autostart" {
         crate::apply_autostart(&app);
     }
+    if key == "general.quick_entry_shortcut" {
+        // 保存した値を OS に登録し直す（失敗しても値は保存済み。理由を返す）。
+        let setting = Config::load()
+            .map(|c| c.general.quick_entry_shortcut)
+            .unwrap_or_default();
+        crate::quick::apply(&app, &setting).map_err(AppError::internal)?;
+        tray::refresh(&app);
+    }
     if key == "general.update_check" {
         tray::refresh(&app);
     }

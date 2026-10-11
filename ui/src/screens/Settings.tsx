@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
+import { QuickShortcutCard } from "../quick-shortcut";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = {
@@ -58,6 +59,7 @@ export function Settings() {
           <p class="muted">タイムゾーン: {c.general?.timezone ?? "-"}</p>
         </div>
       </Card>
+      <QuickShortcutCard />
       <Card title="通知">
         <div class="row">
           <button onClick={() => act.run(() => api.notifyTest())}>テスト通知を出す</button>

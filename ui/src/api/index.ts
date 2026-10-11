@@ -38,6 +38,15 @@ export const api = {
   taskDeletePreview: (id: string) => call<T.TaskDeletePreview>("task_delete_preview", { id }),
   taskDelete: (id: string) => call<T.TaskDeleteResult>("task_delete", { id }),
   ruleAdd: (input: T.RuleInput) => call<T.TaskMatchRule>("rule_add", { input }),
+  // クイック入力（割り込みなどで素早くタスクを切り替える）
+  quickPrevious: () => call<T.TaskView | null>("quick_previous"),
+  quickSwitch: (input: { query: string; new?: boolean; interrupt?: boolean }) =>
+    call<T.SwitchResult>("quick_switch", { input }),
+  quickBack: () => call<T.SwitchResult>("quick_back"),
+  quickClose: () => call<void>("quick_close"),
+  quickShortcutState: () => call<T.QuickShortcutState>("quick_shortcut_state"),
+  quickShortcutSet: (shortcut: string) => call<{ shortcut: string; registered: string | null }>("quick_shortcut_set", { shortcut }),
+
   ruleList: (task?: string) => call<{ rules: T.TaskMatchRule[] }>("rule_list", { task }),
 
   // 区間・仕分け
@@ -150,7 +159,7 @@ export const api = {
 
 // ===== イベント =====
 
-export type EventName = "segments-updated" | "push" | "doing-changed" | "import-completed" | "open-screen";
+export type EventName = "segments-updated" | "push" | "doing-changed" | "import-completed" | "open-screen" | "quick-open";
 
 export function on<P = unknown>(name: EventName, handler: (payload: P) => void): Promise<UnlistenFn> {
   return listen<P>(name, (e) => handler(e.payload));

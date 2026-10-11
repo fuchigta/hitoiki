@@ -152,6 +152,20 @@ export interface TaskChange {
   demoted: TaskView[];
 }
 
+export interface SwitchResult extends TaskChange {
+  /** 新規に作成したタスクか。 */
+  created: boolean;
+}
+
+export interface QuickShortcutState {
+  /** 設定値（空は無効）。 */
+  shortcut: string;
+  /** OS に登録できている正規形。 */
+  registered: string | null;
+  /** 直近の登録失敗の理由。 */
+  error: string | null;
+}
+
 export interface RuleInput {
   task: string;
   field: MatchField;

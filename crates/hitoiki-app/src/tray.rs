@@ -110,6 +110,11 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     let today_item = MenuItemBuilder::with_id("info-today", &today_text)
         .enabled(false)
         .build(app)?;
+    let quick_label = match crate::quick::registered() {
+        Some(s) => format!("タスクを素早く入力…（{s}）"),
+        None => "タスクを素早く入力…".to_string(),
+    };
+    let quick = MenuItemBuilder::with_id("quick", quick_label).build(app)?;
     let hassle = MenuItemBuilder::with_id("hassle", "ハッスルを記録…").build(app)?;
     let open = MenuItemBuilder::with_id("open", "UI を開く").build(app)?;
     let snooze = MenuItemBuilder::with_id(
@@ -168,6 +173,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
         .separator()
         .item(&switch)
         .item(&checkin)
+        .item(&quick)
         .item(&hassle)
         .item(&open)
         .separator()
@@ -276,6 +282,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
         }
     } else {
         match id {
+            "quick" => crate::quick::open(app),
             "hassle" => window::open_screen(app, "records"),
             "open" => window::open_screen(app, "today"),
             "snooze" => {

@@ -16,6 +16,7 @@ pub mod recording;
 pub mod repo;
 pub mod rules;
 pub mod service;
+pub mod shortcut;
 pub mod timefmt;
 
 pub use clock::{Clock, FixedClock, SystemClock};

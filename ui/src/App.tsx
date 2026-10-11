@@ -8,6 +8,7 @@ import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
 import { Plan } from "./screens/Plan";
 import { Popup } from "./screens/Popup";
+import { Quick } from "./screens/Quick";
 import { Records } from "./screens/Records";
 import { Reflect } from "./screens/Reflect";
 import { Report } from "./screens/Report";
@@ -45,7 +46,9 @@ function windowLabel(): string {
 }
 
 export function App() {
-  if (windowLabel() === "popup") return <Popup />;
+  const label = windowLabel();
+  if (label === "popup") return <Popup />;
+  if (label === "quick") return <Quick />;
   return <Main />;
 }
 

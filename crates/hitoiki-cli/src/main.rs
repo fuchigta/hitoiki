@@ -12,8 +12,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, log as log_svc, okr, plan, record, reflect, report, review, skill, status,
-    task, Ctx, RangeArgs,
+    self, context, correction, log as log_svc, okr, plan, quick, record, reflect, report, review, skill,
+    status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -716,6 +716,31 @@ fn parse_statuses(s: &Option<String>) -> Result<Vec<TaskStatus>> {
     Ok(out)
 }
 
+/// `task switch` / `task back` の出力（JSON は `created` を含む）。
+fn switch_emit(
+    json: bool,
+    r: &quick::SwitchResult,
+    done_msg: &dyn Fn(&str, &task::TaskView) -> String,
+) -> Result<()> {
+    ext::notify_task(Some(&r.change.task.task.id));
+    emit(json, r, || {
+        let verb = if r.created {
+            "作成して開始しました"
+        } else {
+            "開始しました"
+        };
+        let mut s = done_msg(verb, &r.change.task);
+        for d in &r.change.demoted {
+            s += &format!(
+                "
+{}",
+                done_msg("todo に戻しました", d)
+            );
+        }
+        s
+    })
+}
+
 fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
     let tz = ctx.tz()?;
     let done_msg =
@@ -757,6 +782,25 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
                 }
                 s
             })
+        }
+        TaskCmd::Switch {
+            query,
+            new,
+            interrupt,
+        } => {
+            let r = quick::switch(
+                ctx,
+                &quick::SwitchInput {
+                    query,
+                    new,
+                    interrupt,
+                },
+            )?;
+            switch_emit(json, &r, &done_msg)
+        }
+        TaskCmd::Back => {
+            let r = quick::back(ctx)?;
+            switch_emit(json, &r, &done_msg)
         }
         TaskCmd::Done { id } => {
             let v = task::done(ctx, &id)?;
