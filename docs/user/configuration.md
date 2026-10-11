@@ -29,9 +29,9 @@ hitoiki config get push.daily_limit
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）。[更新の確認](#更新の確認) を参照 |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
-| `review` | `min_sec`（60） |
+| `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`disabled_triggers` |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
 | `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |
@@ -46,6 +46,9 @@ hitoiki config get push.daily_limit
 - `collect.interrupt_min_sec`: コミュニケーション系アプリの後に別の作業が続いたとき、割り込みとみなす最小の長さ。
 - `collect.transient_exes` / `collect.transient_max_sec`: タスクバー、スタートメニュー、Alt+Tab などを担う「通過系」アプリの exe 名（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellExperienceHost.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`）と、通過とみなす最大の連続時間（秒）。通過系アプリが前面だった時間がこの長さ未満なら、独立した区間にせず直前の作業（無ければ直後の作業）に含めます。この長さ以上続いたとき（ファイラーで作業したときなど）は通常の区間のままです。記録（`window_span`）は変えないので、値を変えて `hitoiki rebuild` すると過去分にも反映できます。
 - `review.min_sec`: 仕分けの一覧で既定表示する区間の最小の長さ（秒）。これ未満の短い要確認区間は既定で隠します（削除はしません）。「確認待ち」の件数も同じ基準で数えます。
+- `review.auto_break_locked_min`: 画面ロック・スリープによる無操作がこの分数以上なら、自動で休憩（根拠 `rule:locked`）にします。`0` で無効。ユーザーが確定した区間は変えません。
+- `review.trust_doing`: true にすると、進行中（doing）のタスクを仮で当てた区間を、確認待ちにせず自動（根拠 `doing`）にします。既定は false（確認待ち）。
+- `review.rule_suggest_min_count` / `review.rule_suggest_snooze_days`: 同じ exe（または作業ディレクトリ）を同じタスクにこの回数以上確定したらルール化を提案します（`0` で提案しない）。断った組み合わせは、この日数のあいだ再提案しません。
 - `collect.rebuild_window_min`: 帰属判定を定期的に再計算する直近の範囲（分）。
 - `agent.prompt_excerpt_chars`: プロンプトの抜粋として保存する文字数。0 にすると抜粋を保存しません。
 - `agent.watch_max_min`: エージェントの応答待ち（見守り）として計上する最大の長さ（分）。
@@ -152,6 +155,7 @@ timeout_sec = 10
 - `push.long_focus_min`: 同じ作業が続いたときに声をかけるまでの時間（分）。
 - `push.switch_spike.window_min` / `push.switch_spike.count`: 切り替えが多いと判断する、期間（分）と回数。
 - `push.late_work_after`: 遅い時間の作業に声をかけ始める時刻。
+- `push.idle_return_min`: 予定外の無操作がこの分数以上続いたあと復帰したときに、「さっきの時間は？」と尋ねます（トリガー `idle_return`）。`0` で無効。`push.disabled_triggers` に `idle_return` を入れても止められます。
 - `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`day_end`、`weekly`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`late_work` のいずれか。
 
 通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。

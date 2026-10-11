@@ -1169,3 +1169,92 @@ fn transient_after_communication_does_not_cause_interrupt() {
     // チャット（120 秒）と explorer（30 秒）は 1 つの区間にまとまる
     assert_eq!(find_sec(&o, 600).end_at, 750 * S);
 }
+
+// ===== 長いロックの自動休憩 / 始めたタスクを信頼する =====
+
+fn locked(id: &str, s: i64, e: i64) -> IdleSpan {
+    IdleSpan {
+        reason: IdleReason::Locked,
+        ..idle(id, s, e)
+    }
+}
+
+#[test]
+fn locked_idle_over_threshold_becomes_auto_break() {
+    let mut i = base();
+    i.auto_break_locked = 10 * M;
+    i.windows = vec![
+        win("A", 0, 10, "H1", "chrome.exe", "x"),
+        win("B", 40, 50, "H1", "chrome.exe", "x"),
+    ];
+    // 無操作 3 分のあとロック 25 分（ひと続きの無操作区間になる）
+    i.idles = vec![idle("I1", 10, 13), locked("I2", 13, 38)];
+    let o = build(&i, None);
+    let s = find(&o, 10);
+    assert_eq!(s.kind, Break);
+    assert_eq!(
+        (s.decided_by.as_deref(), s.status, s.confidence),
+        (Some("rule:locked"), SegmentStatus::Auto, Some(1.0))
+    );
+    assert_eq!((s.start_at, s.end_at), (10 * M, 38 * M));
+}
+
+#[test]
+fn locked_idle_under_threshold_or_disabled_stays_idle() {
+    let mut i = base();
+    i.auto_break_locked = 10 * M;
+    i.windows = vec![
+        win("A", 0, 10, "H1", "chrome.exe", "x"),
+        win("B", 20, 30, "H1", "chrome.exe", "x"),
+    ];
+    i.idles = vec![locked("I1", 10, 19)];
+    let s = find(&build(&i, None), 10).clone();
+    assert_eq!((s.kind, s.status), (Idle, SegmentStatus::NeedsReview));
+    // ちょうど閾値なら休憩
+    i.idles = vec![locked("I1", 10, 20)];
+    assert_eq!(find(&build(&i, None), 10).kind, Break);
+    // 0 で無効
+    i.auto_break_locked = 0;
+    assert_eq!(find(&build(&i, None), 10).kind, Idle);
+    // 長い無操作でもロックでなければ対象外
+    i.auto_break_locked = 10 * M;
+    i.idles = vec![idle("I1", 10, 20)];
+    assert_eq!(find(&build(&i, None), 10).kind, Idle);
+}
+
+#[test]
+fn user_override_wins_over_locked_break() {
+    let mut i = base();
+    i.auto_break_locked = 10 * M;
+    i.windows = vec![
+        win("A", 0, 10, "H1", "chrome.exe", "x"),
+        win("B", 40, 50, "H1", "chrome.exe", "x"),
+    ];
+    i.idles = vec![locked("I1", 10, 38)];
+    i.overrides = vec![SegmentOverride {
+        id: "O".into(),
+        start_at: 10 * M,
+        end_at: 38 * M,
+        kind: Some(Meeting),
+        task_id: None,
+        activity_label: None,
+        created_at: 0,
+    }];
+    let s = find(&build(&i, None), 10).clone();
+    assert_eq!((s.kind, s.decided_by.as_deref()), (Meeting, Some("user")));
+}
+
+#[test]
+fn trust_doing_makes_fallback_auto() {
+    let mut i = base();
+    i.windows = vec![win("A", 0, 30, "H1", "chrome.exe", "x")];
+    i.doing_logs = vec![doing("T9", 10, Some(20))];
+    i.trust_doing = true;
+    let o = build(&i, None);
+    let s = find(&o, 10);
+    assert_eq!(s.task_id.as_deref(), Some("T9"));
+    assert_eq!(s.decided_by.as_deref(), Some("doing"));
+    assert_eq!(s.status, SegmentStatus::Auto);
+    // doing の外は従来どおり要確認
+    assert_eq!(find(&o, 0).status, SegmentStatus::NeedsReview);
+}

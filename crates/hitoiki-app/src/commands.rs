@@ -15,7 +15,10 @@ use hitoiki_core::service::plan::{self, BlockList};
 use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
 use hitoiki_core::service::reflect;
 use hitoiki_core::service::report::{self, Report, ReportBy, ReportInput};
-use hitoiki_core::service::review::{self, ReviewList, ReviewSetResult};
+use hitoiki_core::service::review::{
+    self, CreatedRule, IdlePreset, ReviewBatchInput, ReviewBatchResult, ReviewList, ReviewSetResult,
+    RuleSuggestion, RuleSuggestionRef,
+};
 use hitoiki_core::service::skill::{self, PresetImport, SkillList};
 use hitoiki_core::service::status::{self, Status};
 use hitoiki_core::service::task::{self, RuleList, TaskChange, TaskInput, TaskList, TaskShow, TaskView};
@@ -127,6 +130,50 @@ pub fn review_set(app: AppHandle, state: S, input: ReviewSetDto) -> AppResult<Re
     events::emit_segments_updated(&app);
     state.request_rebuild();
     Ok(v)
+}
+
+/// 複数の区間にまとめて同じ割り当てをする。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_set_many(app: AppHandle, state: S, input: ReviewBatchInput) -> AppResult<ReviewBatchResult> {
+    let v = state.with_ctx(|c| review::set_many(c, &input))?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
+}
+
+/// 無操作の区間に分類（休憩・会議・考えごと・離席）をつける。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_idle(
+    app: AppHandle,
+    state: S,
+    segments: Vec<String>,
+    preset: IdlePreset,
+) -> AppResult<ReviewBatchResult> {
+    let v = state.with_ctx(|c| review::set_idle(c, &segments, preset))?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
+}
+
+/// ルール化の提案の一覧。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_suggestions(state: S) -> AppResult<Vec<RuleSuggestion>> {
+    state.with_ctx(review::suggest_rules)
+}
+
+/// 提案を受け入れてルールを追加する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_suggest_accept(app: AppHandle, state: S, input: RuleSuggestionRef) -> AppResult<CreatedRule> {
+    let v = state.with_ctx(|c| review::accept_suggestion(c, &input))?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
+}
+
+/// 提案を断る（一定期間は同じ提案を出さない）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_suggest_dismiss(state: S, input: RuleSuggestionRef) -> AppResult<()> {
+    state.with_ctx(|c| review::dismiss_suggestion(c, &input))
 }
 
 // ===== 計画（ブロック） =====

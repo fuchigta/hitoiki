@@ -43,6 +43,7 @@ pub fn test_payload() -> PushPayload {
             placeholder: "一言メモ（任意）".into(),
         }),
         open_screen: Some("records".into()),
+        idle_range: None,
     }
 }
 
@@ -65,6 +66,7 @@ pub fn update_payload(version: &str) -> PushPayload {
         }],
         input: None,
         open_screen: Some(UPDATE_OPEN.into()),
+        idle_range: None,
     }
 }
 

@@ -162,7 +162,8 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_watch`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、override（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と override 済みの区間は対象外。吸収する区間は判定器に問い合わせず、吸収先の帰属（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
 7. **判定器**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
 8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに帰属しない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・判定器の結果を見るため、doing フォールバックより前に行う。
-9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing`・`needs_review` で付ける。doing の開始・終了時刻で区間を分割する。
+9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing` で付ける。状態は `needs_review`。ただし `review.trust_doing = true` なら `auto`（始めたタスクを信頼する）。doing の開始・終了時刻で区間を分割する。
+   - **ロック中の自動休憩**（`apply_locked_break`）: 判定の決まっていない（`decided_by` なし）無操作区間のうち、重なる `idle_span` の理由が `locked` / `sleep` のものの合計が `review.auto_break_locked_min`（既定 10 分、0 で無効）以上なら、`break`（`decided_by = rule:locked`、確信度 1.0、`auto`）にする。override と予定との突き合わせ（会議）は先に適用済みなので影響しない。
 10. **状態付け**: 状態が未決の区間は、確信度が `judge.auto_confidence_threshold`（既定 0.8）以上なら `auto`、未満または確信度なしなら `needs_review`。
 11. **統合**（`merge.rs`）: 隣接する同一内容（種別、タスク、ラベル、状態、セッション）の区間を連結し、同一内容にはさまれた `collect.merge_gap_sec`（既定 30 秒）以下の短い `work` を吸収する。`agent_dialog` / `agent_watch` と `confirmed` 区間は、時間を水増ししないため、前後の区間として短い中断を吸収することはない。
 
@@ -180,7 +181,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 ### 4.3 会議・予定
 
-busy で終日でない予定の時間帯について、無操作区間と、`meeting_exes` が前面の未固定作業区間を `meeting`（`decided_by = calendar`、確信度 1.0、`auto`）にする。予定タイトルが `task_match_rule`（`title` フィールド）に一致すればタスクも付く。予定と重ならない無操作区間は `needs_review` にする（休憩か離席かをユーザーが決める）。
+busy で終日でない予定の時間帯について、無操作区間と、`meeting_exes` が前面の未固定作業区間を `meeting`（`decided_by = calendar`、確信度 1.0、`auto`）にする。予定タイトルが `task_match_rule`（`title` フィールド）に一致すればタスクも付く。予定と重ならない無操作区間は `needs_review` にする（休憩か離席かをユーザーが決める）。決め方は、ロック・スリープが長ければ自動で休憩（4.1 の「ロック中の自動休憩」）、そうでなければ仕分け画面のワンタップ（4.7）。
 
 ### 4.4 ルールの評価
 
@@ -197,6 +198,12 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 - **範囲の拡張**: 境界をまたぐ既存区間を含むところまで広げる（区間を重ねない・欠けさせない）。範囲内の `prompt_submit` の対象期間の開始まで広げる（要求範囲の開始から最大 24 時間まで）。収束するまで繰り返す（上限 16 回）。
 - **排他**: 判定器の呼び出しを含む計算は書き込みトランザクションの外で行い、最後の「範囲の再確定 → 重なる区間の削除 → 挿入」を 1 つの `BEGIN IMMEDIATE` トランザクションで行う。範囲が読み込み時から変わっていたら（他の再計算が書き込んだら）読み直す。3 回失敗したら 4 回目は書き込みロックを取ったまま読み・計算・書き込みを行い、必ず終わらせる。
 - **書き込み**: `activity_segment` と `agent_session_window` を範囲内で全置換し、新しく得た判定器の答えを `judge_cache` に保存して古いものを削除する。
+
+### 4.7 仕分けの補助（`service/review.rs`）
+
+- **無操作のワンタップ分類**（`IdlePreset`）: 新しい種別は作らず、既存の種別と活動ラベルの組で表し、`segment_override` に保存する（再計算でも残る）。`break` = 種別 break、`meeting` = 種別 meeting、`thinking` = 種別 work + 活動「考えごと」（タスクなし）、`away` = 種別 break + 活動「離席」。`set_idle` は区間 ID 指定（CLI・UI）、`set_idle_range` は期間指定（通知のボタン。区間がまだ無くても期間全体の override を保存する）。
+- **一括割り当て**（`set_many`）: 複数の区間 ID に同じタスク・種別・活動（と `--rule`）を 1 つのトランザクションで適用する。同じ条件のルールは 1 つにまとめる。
+- **ルール化の提案**（`suggest_rules` / `accept_suggestion` / `dismiss_suggestion`）: 直近 30 日にユーザーが確定した（`decided_by = user`）作業系の区間を、(条件, タスク) ごとに数える。条件はエージェント区間なら作業ディレクトリ（`cwd` の glob）、それ以外は exe 名（`exe` の contains）。`review.rule_suggest_min_count`（既定 3）回以上で、同じルールが未登録かつ断られていないものを多い順に返す。受け入れは既存の `--rule` と同じ重複確認（`ensure_task_rule`）でルールを追加する。断った組み合わせは `setting` の `review.rule_suggest_dismissed`（キー → 再提案してよい時刻の JSON）に `review.rule_suggest_snooze_days`（既定 14）日分記録する。
 
 ## 5. エージェントアダプタ
 
@@ -244,6 +251,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 | `switch_spike` | 直近 `push.switch_spike.window_min`（15）分の切替回数が `count`（20）を超える |
 | `long_focus` | 同一キー（task、エージェントセッション、活動ラベルの順）の作業が `push.long_focus_min`（90）分以上連続 |
 | `late_work` | `push.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
+| `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次 |
 
 ### 8.2 抑制ルール
 
@@ -257,7 +265,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 ### 8.3 応答と表示
 
-- **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。
+- **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（override 保存。UI へは `segments_updated` を送り、再計算を要求する）。
 - **トースト**（`hitoiki-app/src/notify.rs`）: WinRT の `ToastNotificationManager` でボタン付きトーストを出す（ボタンは最大 5 個、入力欄は 1 つ）。AUMID は `Hitoiki.App`。起動時に `HKCU\Software\Classes\AppUserModelId\Hitoiki.App` へ `DisplayName` / `IconUri` / `IconBackgroundColor` を書き、`SetCurrentProcessExplicitAppUserModelID` で設定する。起動時に前回のトーストを履歴から消す（受け手がいないため）。ボタンの引数は `action=<id>&value=<値>&push=<push_id>&open=<画面>`。
 - **フォールバック**: トーストを出せない場合は、画面右下の小さなポップアップ窓（ラベル `popup`）に切り替える。UI へは Tauri イベント `push` も送る。
 - **一時停止**: アプリ側の一時停止中は表示しない。
@@ -310,9 +318,9 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true）、`update_check`（未設定=確認しない） |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
-| `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す） |
+| `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`disabled_triggers` |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
 | `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |

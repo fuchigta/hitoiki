@@ -39,7 +39,9 @@
 | コマンド | 内容 |
 |---|---|
 | `hitoiki review list [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`review.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
-| `hitoiki review set <SEGMENT> [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間から帰属ルールを作る |
+| `hitoiki review set <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間から帰属ルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `override_ids` / `rules` |
+| `hitoiki review idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
+| `hitoiki review suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目の帰属ルールを追加、`--dismiss N` で断る（`review.rule_suggest_snooze_days` 日は再提案しない） |
 | `hitoiki rebuild [--date D] [--from F] [--to T]` | 派生層（区間）を再計算 |
 
 ### 計画・記録

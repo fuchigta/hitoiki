@@ -141,24 +141,68 @@ fn run(cli: Cli) -> Result<()> {
                 emit(json, &l, || render::review_list(tz, &l))
             }
             ReviewCmd::Set {
-                segment,
+                mut segments,
                 task,
                 kind,
                 activity,
                 rule,
             } => {
-                let r = review::set(
-                    &ctx,
-                    &review::ReviewSetInput {
-                        segment,
-                        task,
-                        kind,
-                        activity,
-                        rule,
-                    },
-                )?;
+                if segments.len() == 1 {
+                    let r = review::set(
+                        &ctx,
+                        &review::ReviewSetInput {
+                            segment: segments.remove(0),
+                            task,
+                            kind,
+                            activity,
+                            rule,
+                        },
+                    )?;
+                    ext::notify_data("segments");
+                    emit(json, &r, || render::review_set(tz, &r))
+                } else {
+                    let r = review::set_many(
+                        &ctx,
+                        &review::ReviewBatchInput {
+                            segments,
+                            task,
+                            kind,
+                            activity,
+                            rule,
+                        },
+                    )?;
+                    ext::notify_data("segments");
+                    emit(json, &r, || render::review_batch(tz, &r))
+                }
+            }
+            ReviewCmd::Idle { mut args } => {
+                let preset: review::IdlePreset = args.pop().unwrap_or_default().parse()?;
+                let r = review::set_idle(&ctx, &args, preset)?;
                 ext::notify_data("segments");
-                emit(json, &r, || render::review_set(tz, &r))
+                emit(json, &r, || render::review_batch(tz, &r))
+            }
+            ReviewCmd::Suggest { accept, dismiss } => {
+                let list = review::suggest_rules(&ctx)?;
+                let pick = |n: usize| {
+                    n.checked_sub(1).and_then(|i| list.get(i)).ok_or_else(|| {
+                        hitoiki_core::Error::InvalidArgument(format!(
+                            "提案 {n} はありません（1〜{}）",
+                            list.len()
+                        ))
+                    })
+                };
+                if let Some(n) = accept {
+                    let r = review::accept_suggestion(&ctx, &pick(n)?.rule)?;
+                    ext::notify_data("segments");
+                    emit(json, &r, || render::rule_line(&r))
+                } else if let Some(n) = dismiss {
+                    review::dismiss_suggestion(&ctx, &pick(n)?.rule)?;
+                    emit(json, &serde_json::json!({ "dismissed": true }), || {
+                        "この提案は一定期間表示しません。".to_string()
+                    })
+                } else {
+                    emit(json, &list, || render::suggestions(&list))
+                }
             }
         },
         Cmd::Block(b) => match b {

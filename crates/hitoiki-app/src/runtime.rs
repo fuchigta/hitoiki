@@ -150,7 +150,11 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
         };
         match state.with_ctx(|c| push::apply_response(c.conn, push_id, resp, c.now(), c.tz()?)) {
             Ok(out) => {
-                changed = out.checkin_id.is_some() || out.hassle_id.is_some();
+                changed = out.checkin_id.is_some() || out.hassle_id.is_some() || out.idle_labeled > 0;
+                if out.idle_labeled > 0 || action.as_deref().is_some_and(|a| a.starts_with("idle_")) {
+                    // 無操作の分類は override で保存済み。区間への反映を早める。
+                    state.request_rebuild();
+                }
                 if let Some(until) = out.snoozed_until {
                     state.set_snooze_until(until);
                     tray::refresh(app);

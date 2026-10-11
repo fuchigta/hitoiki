@@ -9,7 +9,7 @@ use hitoiki_core::service::{
     okr::OkrList,
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
-    review::{CreatedRule, ReviewList, ReviewSetResult},
+    review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
     skill::{PresetImport, SkillList},
     status::Status,
     task::{RuleList, TaskList, TaskShow, TaskView},
@@ -201,7 +201,7 @@ fn short_threshold(sec: u64) -> String {
     }
 }
 
-fn rule_line(r: &CreatedRule) -> String {
+pub fn rule_line(r: &CreatedRule) -> String {
     format!(
         "ルール{}: {} {} {} ({})",
         if r.reused { "(既存)" } else { "を作成" },
@@ -219,6 +219,41 @@ pub fn review_set(tz: Tz, r: &ReviewSetResult) -> String {
     );
     if let Some(rule) = &r.rule {
         s += &format!("\n{}", rule_line(rule));
+    }
+    s
+}
+
+pub fn review_batch(tz: Tz, r: &ReviewBatchResult) -> String {
+    let mut s = format!(
+        "{} 件を確定しました:
+{}",
+        r.count,
+        segments(tz, &r.segments)
+    );
+    for rule in &r.rules {
+        s += &format!(
+            "
+{}",
+            rule_line(rule)
+        );
+    }
+    s
+}
+
+pub fn suggestions(list: &[RuleSuggestion]) -> String {
+    if list.is_empty() {
+        return "ルール化の提案はありません。".into();
+    }
+    let mut s = String::from("ルール化の提案（--accept N で追加、--dismiss N で断る）:");
+    for (i, r) in list.iter().enumerate() {
+        s += &format!(
+            "
+{}. {} はいつも「{}」にしますか？（{} 回確定）",
+            i + 1,
+            r.target,
+            r.task_title.as_deref().unwrap_or("?"),
+            r.count
+        );
     }
     s
 }

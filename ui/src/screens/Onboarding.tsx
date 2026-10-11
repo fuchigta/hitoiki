@@ -78,6 +78,8 @@ function Welcome() {
 }
 
 function TaskStep() {
+  const cfg = useAsync(() => api.configAll(), []);
+  const trustDoing = ((cfg.data ?? {}) as { review?: { trust_doing?: boolean } }).review?.trust_doing === true;
   const [title, setTitle] = useState("");
   const [started, setStarted] = useState<string | null>(null);
   const act = useAction();
@@ -103,6 +105,18 @@ function TaskStep() {
         <p>
           進行中（doing）のタスクがあると、ルールに当たらない時間はそのタスクの候補になります。
         </p>
+        <label class="check">
+          <input
+            type="checkbox"
+            checked={trustDoing}
+            disabled={act.busy}
+            onChange={async (e) => {
+              const v = e.currentTarget.checked;
+              if (await act.run(() => api.configSet("review.trust_doing", String(v)))) cfg.reload();
+            }}
+          />
+          始めたタスクを信頼する（進行中のタスクに仮で当てた時間を、確認待ちにしない）
+        </label>
         <ErrorBox error={act.error} />
         <form class="form-row" onSubmit={submit}>
           <Field label="タスク名">

@@ -261,9 +261,11 @@ pub enum ReviewCmd {
         #[arg(long)]
         all: bool,
     },
-    /// 区間を確定する
+    /// 区間を確定する（複数の ID を渡すと、まとめて同じ割り当てをする）
     Set {
-        segment: String,
+        /// 区間 ID（前方一致）。複数指定できる
+        #[arg(required = true)]
+        segments: Vec<String>,
         #[arg(long)]
         task: Option<String>,
         #[arg(long)]
@@ -273,6 +275,20 @@ pub enum ReviewCmd {
         /// 区間からルールを生成する
         #[arg(long)]
         rule: bool,
+    },
+    /// 無操作の区間に分類をつける: `review idle <区間 ID>... <break|meeting|thinking|away>`
+    /// （休憩 = 種別 break、会議 = 種別 meeting、考えごと = 作業 + 活動「考えごと」、離席 = 休憩 + 活動「離席」）
+    Idle {
+        /// 区間 ID（前方一致）を 1 つ以上、最後に分類
+        #[arg(required = true, num_args = 2.., value_name = "SEGMENT... PRESET")]
+        args: Vec<String>,
+    },
+    /// ルール化の提案を表示する。`--accept N` で N 番目をルールにし、`--dismiss N` で断る
+    Suggest {
+        #[arg(long, value_name = "N", conflicts_with = "dismiss")]
+        accept: Option<usize>,
+        #[arg(long, value_name = "N")]
+        dismiss: Option<usize>,
     },
 }
 
