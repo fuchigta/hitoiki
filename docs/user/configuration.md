@@ -27,7 +27,7 @@ hitoiki config get push.daily_limit
 
 | セクション | キー（既定値） |
 |---|---|
-| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動） |
+| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）。[更新の確認](#更新の確認) を参照 |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`disabled_triggers` |
@@ -152,3 +152,17 @@ timeout_sec = 10
 - `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`day_end`、`weekly`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`late_work` のいずれか。
 
 通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。
+
+## 更新の確認
+
+`general.update_check` は、新しいバージョンを確認するかどうかの選択です。
+
+- 未設定（既定）: まだ尋ねていない状態です。**確認しません**。
+- `true`: 常駐アプリ（または `hitoiki daemon`）が、起動の数分後と、その後 24 時間ごとに、GitHub Releases の最新版を問い合わせます。
+- `false`: 確認しません。
+
+```
+hitoiki config set general.update_check true
+```
+
+オンボーディングの「自動起動と通知」と、設定画面の「新しいバージョンを確認する」でも切り替えられます。新しい版が見つかると、トースト（初めて見つけたとき 1 回だけ）とトレイメニュー（見つかっている間）でお知らせし、`hitoiki status` にも表示します。ダウンロードやインストールは自動では行いません。送る情報は [プライバシー](./privacy.md#ネットワーク通信が発生する場面) を参照してください。

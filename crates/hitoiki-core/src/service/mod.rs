@@ -16,6 +16,7 @@ pub mod review;
 pub mod skill;
 pub mod status;
 pub mod task;
+pub mod update;
 
 use crate::config::Config;
 use crate::model::{ActivitySegment, SegmentKind, SegmentStatus};

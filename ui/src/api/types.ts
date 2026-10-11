@@ -182,6 +182,7 @@ export interface Status {
   today: TodaySummary;
   needs_review_count: number;
   unanswered_pushes: PushView[];
+  update_available?: string | null;
 }
 
 export interface Log {

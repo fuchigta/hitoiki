@@ -17,7 +17,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答のプッシュ |
+| `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答のプッシュ、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
 | `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `quadrant` / `okr` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
@@ -90,7 +90,7 @@
 | `hitoiki doctor [--network]` | 収集状態、エージェントログ、カレンダー、通知、判定器などの診断。`--network` でカレンダー取得・判定器への疎通も試す（ネットワークを使う） |
 | `hitoiki config path` | 設定ファイルのパス |
 | `hitoiki config get <KEY>` / `hitoiki config set <KEY> <VALUE>` | ドット区切りのキーで読み書き。値は TOML として解釈し、書き換え後に全体を検証 |
-| `hitoiki version [--check]` | バージョン表示。`--check` で GitHub Releases の最新版を確認（このときだけネットワークを使う） |
+| `hitoiki version [--check]` | バージョン表示。`--check` で GitHub Releases の最新版を確認（手動で実行したときのほか、`general.update_check = true` の常駐が 1 日 1 回行う確認と同じ処理） |
 | `hitoiki ingest context` | 補助コレクタ用の取り込み |
 | `hitoiki native-host [install\|uninstall] [--extension-id ID] [--firefox-extension-id ID]` | ブラウザ拡張のネイティブメッセージングホスト。`install` / `uninstall` で登録・解除 |
 

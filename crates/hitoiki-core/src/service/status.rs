@@ -48,6 +48,9 @@ pub struct Status {
     pub needs_review_count: i64,
     /// 当日の配信済みで未応答のプッシュ。
     pub unanswered_pushes: Vec<PushView>,
+    /// 保存済みの確認結果で、現在より新しい版があればそのバージョン（`v` なし）。
+    /// `general.update_check = true` のときだけ。ネットワークには出ない。
+    pub update_available: Option<String>,
 }
 
 pub fn status(ctx: &Ctx) -> Result<Status> {
@@ -127,6 +130,12 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         })
         .collect();
 
+    let update_available = if ctx.cfg.general.update_check == Some(true) {
+        super::update::available(ctx.conn, env!("CARGO_PKG_VERSION"))?
+    } else {
+        None
+    };
+
     Ok(Status {
         now,
         now_local: timefmt::fmt_rfc3339(tz, now),
@@ -135,6 +144,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         today,
         needs_review_count,
         unanswered_pushes,
+        update_available,
     })
 }
 

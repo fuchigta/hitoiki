@@ -19,6 +19,11 @@ pub trait RuntimeSink: Send + Sync {
     fn open_ui(&self, screen: Option<&str>);
     /// IPC で終了が要求された。呼び出し側が `RuntimeHandle::stop` を行うこと。
     fn shutdown_requested(&self);
+    /// 新しいバージョンが公開されている（`version` は `v` なし。同じ版では 1 回だけ呼ばれる）。
+    /// 既定はログに出すだけ。
+    fn update_available(&self, version: &str, url: &str) {
+        tracing::info!(version, url, "新しいバージョンがあります");
+    }
 }
 
 /// tracing に出すだけの実装。ウインドウタイトル等の内容は出さない。

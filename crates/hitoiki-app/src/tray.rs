@@ -5,7 +5,7 @@ use crate::{events, window};
 use hitoiki_core::model::{TaskKind, TaskStatus};
 use hitoiki_core::service::record::{self, CheckInput};
 use hitoiki_core::service::task::{self, TaskFilter};
-use hitoiki_core::service::{status, Ctx};
+use hitoiki_core::service::{status, update, Ctx};
 use hitoiki_core::{Clock, SystemClock};
 use tauri::menu::{Menu, MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -122,6 +122,20 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     )
     .build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "終了").build(app)?;
+    // 新しい版が見つかっている間だけ出す（保存済みの確認結果から。ネットワークには出ない）。
+    let update_item = match state.with_ctx(|c| {
+        if c.cfg.general.update_check == Some(true) {
+            update::available(c.conn, env!("CARGO_PKG_VERSION"))
+        } else {
+            Ok(None)
+        }
+    }) {
+        Ok(Some(v)) => Some(
+            MenuItemBuilder::with_id("update", format!("新しいバージョン v{v} をダウンロード…"))
+                .build(app)?,
+        ),
+        _ => None,
+    };
 
     // 収集を自前で行っていないときは、その理由をメニューに出す。
     let note = match state.runtime_mode() {
@@ -134,6 +148,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
             .enabled(false)
             .build(app)?;
         menu = menu.item(&item);
+    }
+    if let Some(item) = &update_item {
+        menu = menu.item(item);
     }
     let menu = menu
         .separator()
@@ -241,6 +258,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
                 state.set_snooze_until(until);
                 refresh(app);
             }
+            "update" => crate::notify::open_release_page(),
             "quit" => crate::runtime::quit(app),
             _ => {}
         }

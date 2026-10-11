@@ -46,6 +46,41 @@ pub fn test_payload() -> PushPayload {
     }
 }
 
+/// 更新のトーストのボタン `PushAction.id`。押すとリリースページをブラウザで開く。
+pub const UPDATE_ACTION: &str = "update";
+/// 更新のトーストの本体クリックを表す `open_screen` の値（画面名ではない）。
+pub const UPDATE_OPEN: &str = "update";
+
+/// 「新しいバージョンがあります」のトースト用ペイロード。`trigger` は型を満たすための値で、
+/// プッシュ通知（push_log）とは無関係。
+pub fn update_payload(version: &str) -> PushPayload {
+    PushPayload {
+        trigger: PushTrigger::LongFocus,
+        title: "ひといき".into(),
+        body: format!("新しいバージョン v{version} があります"),
+        actions: vec![PushAction {
+            id: UPDATE_ACTION.into(),
+            label: "ダウンロードページを開く".into(),
+            value: None,
+        }],
+        input: None,
+        open_screen: Some(UPDATE_OPEN.into()),
+    }
+}
+
+/// 最新リリースのページを既定のブラウザで開く（固定 URL。自動ダウンロードはしない）。
+pub fn open_release_page() {
+    let url = hitoiki_core::service::update::RELEASE_PAGE_URL;
+    let r = if cfg!(windows) {
+        std::process::Command::new("explorer.exe").arg(url).spawn()
+    } else {
+        std::process::Command::new("xdg-open").arg(url).spawn()
+    };
+    if let Err(e) = r {
+        tracing::warn!("リリースページを開けませんでした: {e}");
+    }
+}
+
 /// 起動時に一度呼ぶ。AUMID を登録する。失敗してもフォールバックがあるので致命的ではない。
 pub fn init() {
     if let Err(e) = platform::register() {
