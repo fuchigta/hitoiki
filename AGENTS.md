@@ -1,6 +1,6 @@
 # Hitoiki 開発メモ
 
-設計: `docs/architecture.md`（現在の実装に基づく設計ドキュメント。挙動を変えたら併せて更新する。コードと食い違う場合はコードが正）。
+設計: `docs/dev/architecture.md`（現在の実装に基づく設計ドキュメント。コードと食い違う場合はコードが正）。文書の構成は下の「ドキュメント」を参照。
 
 ## 守るべき制約（変更しない）
 
@@ -34,10 +34,25 @@
 - テスト: `cargo test --workspace`
 - Lint: `cargo clippy --workspace --all-targets -- -D warnings`
 - フォーマット: `cargo fmt --all`
+- 依存の検査: `cargo deny check`
+- コミット前・CI の検査: `spotter check`（v0.13.0 以上。設置と使い方は `docs/dev/development.md`）
 
-## インストーラー（NSIS）のビルド
+## ドキュメント
 
-- `ui` をビルド → `cargo build --release -p hitoiki-cli` → `target/release/hitoiki.exe` を `crates/hitoiki-app/binaries/hitoiki-x86_64-pc-windows-msvc.exe` にコピー → `cd crates/hitoiki-app && ../../ui/node_modules/.bin/tauri build --bundles nsis --config tauri.bundle.conf.json`（生成物は `target/release/bundle/nsis/`）。
-- `externalBin` は `tauri.bundle.conf.json` にだけ書く（`tauri.conf.json` に書くと、サイドカー未配置の `cargo build` / `cargo test` が失敗する）。
-- 製品名（`productName`）は `HitoikiApp`。`Hitoiki` にすると既定のインストール先が `%LOCALAPPDATA%\hitoiki`（データ置き場）と衝突する。
-- 自動起動エントリ名は `lib.rs` で `Hitoiki` に固定している。インストーラーのフックもこの名前を削除する。
+- 利用者向けは `docs/user/`（install / getting-started / daily-use / cli / configuration / privacy / troubleshooting）。README.md は概要とリンクだけにして薄く保つ。
+- 開発者向けは `docs/dev/`（architecture / development / release）。
+- 挙動を変えたら、対応する文書も同じコミットで更新する（ソースと文書の対応は `.spotter.yml` の `doc-sync` で検査される）。
+- 利用者向けの変更は `CHANGELOG.md` の `[Unreleased]` に反映する（リリース時にまとめて整える。手順は `docs/dev/release.md`）。
+
+## コミット規約
+
+Conventional Commits 形式 `<type>(<scope>): <日本語の要約>`（spotter の `commit-subject` で検査される）。
+
+- type: `feat` / `fix` / `perf` / `refactor` / `docs` / `test` / `build` / `ci` / `chore` / `revert`
+- scope は任意。crate 名から `hitoiki-` を除いたもの（`core`, `collect`, `collect-win`, `agents`, `calendar`, `judge`, `ipc`, `cli`, `daemon`, `app`）、または `ui`, `docs`, `release` など。
+- 破壊的変更は `!` を付ける（例: `feat(cli)!: ...`）。
+- 要約・本文は日本語。マージコミットは検査の対象外。
+
+## リリース
+
+バージョンの上げ方、CHANGELOG の作り方、タグの push、インストーラー（NSIS）のローカルビルドは `docs/dev/release.md` にある。インストーラーの注意点（`externalBin` は `tauri.bundle.conf.json` にだけ書く、`productName` は `HitoikiApp` のままにする、自動起動エントリ名は `Hitoiki` 固定）も同文書を参照。
