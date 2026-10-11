@@ -1,5 +1,6 @@
 import { api } from "../api";
 import { Bars, Card, Empty, ErrorBox, Timeline } from "../components";
+import { showStartGuide } from "../onboarding-util";
 import { KIND_LABEL, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
 
 export function Today() {
@@ -58,6 +59,24 @@ export function Today() {
             </p>
           </Card>
         </div>
+      )}
+
+      {s && log.data && showStartGuide(s.doing.length, log.data.segments.length) && (
+        <Card title="次にやること">
+          <ul>
+            {s.doing.length === 0 && (
+              <li>
+                <a href="#/tasks">タスク</a>を 1 つ作って開始すると、ルールに当たらない時間の候補になります。
+              </li>
+            )}
+            {log.data.segments.length === 0 && (
+              <li>記録はもう始まっています。しばらく使うと、ここにタイムラインが並びます。</li>
+            )}
+            <li>
+              使い方は<a href="#/onboarding">はじめに</a>でいつでも見られます。
+            </li>
+          </ul>
+        </Card>
       )}
 
       <Card title="タイムライン">

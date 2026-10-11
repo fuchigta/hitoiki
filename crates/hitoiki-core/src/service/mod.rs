@@ -7,6 +7,7 @@ pub mod context;
 pub mod ingest;
 pub mod log;
 pub mod okr;
+pub mod onboarding;
 pub mod plan;
 pub mod record;
 pub mod reflect;

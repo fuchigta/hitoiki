@@ -694,3 +694,28 @@ button.link.on {
   border-radius: 8px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
 }
+
+/* オンボーディング */
+.steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.steps li {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85em;
+  color: var(--muted, inherit);
+  background: var(--accent-soft);
+  opacity: 0.6;
+}
+.steps li.on {
+  opacity: 1;
+  font-weight: 600;
+}
+.steps li.done {
+  opacity: 0.85;
+}

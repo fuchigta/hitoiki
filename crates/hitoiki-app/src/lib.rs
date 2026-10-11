@@ -114,6 +114,9 @@ pub fn run() {
             commands::take_initial_screen,
             commands::push_respond,
             commands::notify_test,
+            commands::onboarding_status,
+            commands::onboarding_complete,
+            commands::onboarding_reset,
         ])
         .on_window_event(|window, event| {
             // メイン窓を閉じてもトレイに残る。
@@ -141,9 +144,20 @@ pub fn run() {
                 window::show_main(&handle);
             }
             // UI の読み込み前にイベントを送っても届かないので、状態に積んで UI が取りに来る。
-            handle
-                .state::<AppState>()
-                .set_initial_screen(arg_value(&args, "--screen").map(|s| window::normalize_screen(&s)));
+            // 画面指定が無く、オンボーディング未完了なら案内画面から始める。
+            let mut initial = arg_value(&args, "--screen").map(|s| window::normalize_screen(&s));
+            if initial.is_none() {
+                let state = handle.state::<AppState>();
+                let done = state
+                    .with_ctx(hitoiki_core::service::onboarding::status)
+                    .map(|s| s.completed)
+                    .unwrap_or(true);
+                if !done {
+                    initial = Some("onboarding".to_string());
+                    window::show_main(&handle);
+                }
+            }
+            handle.state::<AppState>().set_initial_screen(initial);
             // 通知の動作確認用: HITOIKI_APP_NOTIFY_TEST=1 で起動 2 秒後にテスト通知を出す。
             if std::env::var_os("HITOIKI_APP_NOTIFY_TEST").is_some() {
                 let h = handle.clone();

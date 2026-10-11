@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on } from "./api";
 import { RuntimeBanner } from "./components";
 import { SCREENS, loadTimeZone, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
+import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
 import { Plan } from "./screens/Plan";
 import { Popup } from "./screens/Popup";
@@ -24,6 +25,7 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   records: Records,
   okr: Okr,
   settings: Settings,
+  onboarding: Onboarding,
 };
 
 function windowLabel(): string {
@@ -74,7 +76,7 @@ function Main() {
     <div class="shell">
       <nav class="nav" aria-label="画面">
         <div class="brand">Hitoiki</div>
-        {SCREENS.map((s) => (
+        {SCREENS.filter((s) => s.id !== "onboarding").map((s) => (
           <a key={s.id} href={`#/${s.id}`} class={screen === s.id ? "on" : ""} aria-current={screen === s.id ? "page" : undefined}>
             {s.label}
           </a>

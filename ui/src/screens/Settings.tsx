@@ -58,6 +58,18 @@ export function Settings() {
           </button>
         </div>
       </Card>
+      <Card title="はじめに">
+        <div class="row">
+          <button
+            class="ghost"
+            onClick={async () => {
+              if (await act.run(() => api.onboardingReset())) location.hash = "#/onboarding";
+            }}
+          >
+            オンボーディングをもう一度見る
+          </button>
+        </div>
+      </Card>
       <Card title="設定ファイル">
         <p class="muted">
           {path.data?.path}

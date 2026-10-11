@@ -105,6 +105,11 @@ export const api = {
   }) => call<void>("push_respond", r),
   runtimeState: () => call<T.RuntimeMode>("runtime_state"),
   notifyTest: () => call<void>("notify_test"),
+
+  // オンボーディング
+  onboardingStatus: () => call<{ completed: boolean; completed_at: number | null }>("onboarding_status"),
+  onboardingComplete: () => call<{ completed: boolean; completed_at: number | null }>("onboarding_complete"),
+  onboardingReset: () => call<{ completed: boolean; completed_at: number | null }>("onboarding_reset"),
 };
 
 // ===== イベント =====

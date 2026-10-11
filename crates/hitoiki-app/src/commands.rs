@@ -10,6 +10,7 @@ use hitoiki_core::model::{AbcRecord, CalendarEvent, Checkin, Hassle, Reflection,
 use hitoiki_core::service::context::{self, ContextJson};
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
+use hitoiki_core::service::onboarding::{self, OnboardingStatus};
 use hitoiki_core::service::plan::{self, BlockList};
 use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
 use hitoiki_core::service::reflect;
@@ -396,6 +397,24 @@ pub fn push_respond(
 #[tauri::command(rename_all = "snake_case")]
 pub fn runtime_state(state: S) -> RuntimeMode {
     state.runtime_mode()
+}
+
+/// オンボーディングの完了状態。
+#[tauri::command(rename_all = "snake_case")]
+pub fn onboarding_status(state: S) -> AppResult<OnboardingStatus> {
+    state.with_ctx(onboarding::status)
+}
+
+/// オンボーディングを完了済みにする。
+#[tauri::command(rename_all = "snake_case")]
+pub fn onboarding_complete(state: S) -> AppResult<OnboardingStatus> {
+    state.with_ctx(onboarding::complete)
+}
+
+/// オンボーディングを未完了に戻す（設定画面の「もう一度見る」）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn onboarding_reset(state: S) -> AppResult<OnboardingStatus> {
+    state.with_ctx(onboarding::reset)
 }
 
 /// テスト通知（アクションボタン付きトースト）を出す。設定画面の動作確認用。

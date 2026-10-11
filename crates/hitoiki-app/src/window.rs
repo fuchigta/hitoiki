@@ -5,7 +5,16 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// 画面名として受け付ける値（`#/<screen>` に対応）。
 pub const SCREENS: &[&str] = &[
-    "today", "review", "tasks", "plan", "reflect", "report", "records", "okr", "settings",
+    "today",
+    "review",
+    "tasks",
+    "plan",
+    "reflect",
+    "report",
+    "records",
+    "okr",
+    "settings",
+    "onboarding",
 ];
 
 /// メイン窓を表示して前面に出す。
@@ -87,6 +96,7 @@ mod tests {
         assert_eq!(normalize_screen("reflection/xx"), "reflect");
         assert_eq!(normalize_screen("checkin"), "records");
         assert_eq!(normalize_screen("hassle"), "records");
+        assert_eq!(normalize_screen("onboarding"), "onboarding");
         assert_eq!(normalize_screen("nope"), "today");
     }
 }
