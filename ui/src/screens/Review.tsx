@@ -10,10 +10,16 @@ const PERIODS = [
   { id: "last-week", label: "先週" },
 ];
 
+/** 短い区間のしきい値の表記（「1分」「90秒」）。 */
+function fmtShortLimit(sec: number): string {
+  return sec >= 60 && sec % 60 === 0 ? `${sec / 60}分` : `${sec}秒`;
+}
+
 export function Review() {
   const [period, setPeriod] = useState("this-week");
   const tick = useLiveTick();
-  const list = useAsync(() => api.reviewList({ date: period }), [period, tick]);
+  const [showShort, setShowShort] = useState(false);
+  const list = useAsync(() => api.reviewList({ date: period }, showShort), [period, showShort, tick]);
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), [tick]);
 
   return (
@@ -27,9 +33,25 @@ export function Review() {
           ))}
         </select>
         <span class="muted">{list.data ? `${list.data.count}件` : ""}</span>
+        {list.data && (list.data.hidden_short > 0 || showShort) && (
+          <label class="row muted">
+            <input
+              type="checkbox"
+              checked={showShort}
+              onChange={(e) => setShowShort(e.currentTarget.checked)}
+            />
+            {showShort
+              ? `短い区間（${fmtShortLimit(list.data.min_sec)}未満）も表示中`
+              : `短い区間 ${list.data.hidden_short} 件を表示（${fmtShortLimit(list.data.min_sec)}未満）`}
+          </label>
+        )}
       </div>
       <ErrorBox error={list.error ?? tasks.error} />
-      {list.data && list.data.segments.length === 0 && <Empty>確認が必要な区間はありません。</Empty>}
+      {list.data && list.data.segments.length === 0 && <Empty>
+          {list.data.hidden_short > 0
+            ? "確認が必要な区間はありません（短い区間のみ隠れています）。"
+            : "確認が必要な区間はありません。"}
+        </Empty>}
       {list.data?.segments.map((s) => (
         <ReviewItem key={s.id} seg={s} tasks={tasks.data?.tasks ?? []} onDone={list.reload} />
       ))}

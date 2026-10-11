@@ -146,11 +146,12 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 3. **会議**（`meeting.rs`）: カレンダーの予定（busy、終日でない）と重なる無操作区間と、会議アプリ（`collect.meeting_exes`）が前面の作業区間を `meeting` にする（4.3）。
 4. **override**: `segment_override` を作成順に適用し、`confirmed` / `decided_by = user` / 確信度 1.0 にする（`attribute.rs`）。
 5. **ルール**: `task_match_rule` でタスクを決め（`decided_by = rule`、確信度 1.0）、`activity_rule` で活動ラベルを付ける。
-6. **判定器**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
-7. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに帰属しない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・判定器の結果を見るため、doing フォールバックより前に行う。
-8. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing`・`needs_review` で付ける。doing の開始・終了時刻で区間を分割する。
-9. **状態付け**: 状態が未決の区間は、確信度が `judge.auto_confidence_threshold`（既定 0.8）以上なら `auto`、未満または確信度なしなら `needs_review`。
-10. **統合**（`merge.rs`）: 隣接する同一内容（種別、タスク、ラベル、状態、セッション）の区間を連結し、同一内容にはさまれた `collect.merge_gap_sec`（既定 30 秒）以下の短い `work` を吸収する。`agent_dialog` / `agent_watch` と `confirmed` 区間は、時間を水増ししないため、前後の区間として短い中断を吸収することはない。
+6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_watch`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、override（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と override 済みの区間は対象外。吸収する区間は判定器に問い合わせず、吸収先の帰属（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
+7. **判定器**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
+8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに帰属しない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・判定器の結果を見るため、doing フォールバックより前に行う。
+9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing`・`needs_review` で付ける。doing の開始・終了時刻で区間を分割する。
+10. **状態付け**: 状態が未決の区間は、確信度が `judge.auto_confidence_threshold`（既定 0.8）以上なら `auto`、未満または確信度なしなら `needs_review`。
+11. **統合**（`merge.rs`）: 隣接する同一内容（種別、タスク、ラベル、状態、セッション）の区間を連結し、同一内容にはさまれた `collect.merge_gap_sec`（既定 30 秒）以下の短い `work` を吸収する。`agent_dialog` / `agent_watch` と `confirmed` 区間は、時間を水増ししないため、前後の区間として短い中断を吸収することはない。
 
 「固定」（`fixed`）フラグが付いた区間（対話・見守り・会議・override・予定外の無操作）は、後続の段階で上書きされない。
 
@@ -295,7 +296,8 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | セクション | 主なキー（既定値） |
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true） |
-| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180） |
+| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
+| `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |

@@ -38,7 +38,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki review list [--date D] [--from F] [--to T]` | 要確認（needs_review）の区間 |
+| `hitoiki review list [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`review.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
 | `hitoiki review set <SEGMENT> [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間から帰属ルールを作る |
 | `hitoiki rebuild [--date D] [--from F] [--to T]` | 派生層（区間）を再計算 |
 

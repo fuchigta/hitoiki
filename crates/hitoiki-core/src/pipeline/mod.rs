@@ -1,6 +1,6 @@
 //! 時間の帰属判定パイプライン（docs/dev/architecture.md「帰属判定パイプライン」）。生データ → `activity_segment` の純粋関数。
 //!
-//! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 判定器 →
+//! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 通過系アプリの吸収 → 判定器 →
 //! 割り込み → doing フォールバック → 状態付け → 統合。
 //! （割り込み検出はルール結果を見る必要があるため doing フォールバックより前に行う。）
 
@@ -12,6 +12,7 @@ mod piece;
 #[cfg(test)]
 mod tests;
 mod timeline;
+mod transient;
 
 use crate::config::Config;
 use crate::id::new_id;
@@ -60,6 +61,8 @@ pub struct PipelineInput {
     pub terminal_exes: Vec<String>,
     pub communication_exes: Vec<String>,
     pub meeting_exes: Vec<String>,
+    pub transient_exes: Vec<String>,
+    pub transient_max: Millis,
     pub watch_max: Millis,
     pub bind_lookback: Millis,
     pub interrupt_min: Millis,
@@ -87,6 +90,8 @@ impl PipelineInput {
             terminal_exes: cfg.collect.terminal_exes.clone(),
             communication_exes: cfg.collect.communication_exes.clone(),
             meeting_exes: cfg.collect.meeting_exes.clone(),
+            transient_exes: cfg.collect.transient_exes.clone(),
+            transient_max: cfg.collect.transient_max_sec as Millis * 1000,
             watch_max: cfg.agent.watch_max_min as Millis * 60_000,
             bind_lookback: cfg.agent.bind_lookback_sec as Millis * 1000,
             interrupt_min: cfg.collect.interrupt_min_sec as Millis * 1000,
@@ -118,6 +123,8 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
     let wl = timeline::window_layer(&input.windows, input.now);
     let idle = timeline::idle_intervals(&input.idles, input.now);
     let mut pieces = timeline::build_pieces(&input.windows, &wl, &idle);
+    // 通過系アプリの連続時間は範囲の切り取り前の長さで判定する（範囲の端で長い滞在が短く見えないように）。
+    transient::mark(input, &mut pieces);
 
     // 2. エージェント対話
     let bindings = agent::apply(input, &task_rules, &wl, &mut pieces);
@@ -131,10 +138,14 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
     attribute::apply_overrides(input, &mut pieces);
     // 5. ルール
     attribute::apply_rules(input, &task_rules, &activity_rules, &mut pieces);
+    // 5b. 通過系アプリの吸収先を決める（吸収する区間は判定器に問い合わせない）
+    let plan = transient::plan(&pieces);
     // 6. 判定器
     if let Some(j) = judge {
-        attribute::apply_judge(&mut pieces, j);
+        attribute::apply_judge(&mut pieces, j, &plan);
     }
+    // 6b. 通過系アプリの区間を前後の作業に吸収する
+    transient::apply(&mut pieces, &plan);
     // 10. 割り込み
     attribute::detect_interrupts(input, &mut pieces);
     // 9. doing フォールバック

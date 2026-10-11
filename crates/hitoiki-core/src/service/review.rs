@@ -13,24 +13,42 @@ use serde::Serialize;
 #[derive(Debug, Clone, Serialize)]
 pub struct ReviewList {
     pub range: RangeView,
+    /// 返した区間の数。
     pub count: usize,
     pub segments: Vec<SegmentView>,
+    /// `review.min_sec` 未満のため隠した区間の数（`all` のときは 0）。データは変更しない。
+    pub hidden_short: usize,
+    /// 短い区間とみなす長さ（秒、`review.min_sec`）。
+    pub min_sec: u64,
 }
 
-/// 範囲内の needs_review 区間。
+/// 範囲内の needs_review 区間のうち、`review.min_sec` 以上のもの。短い区間は隠し、件数を `hidden_short` で返す。
 pub fn list(ctx: &Ctx, args: &RangeArgs) -> Result<ReviewList> {
+    list_with(ctx, args, false)
+}
+
+/// `all` が true なら短い区間も含めて全件返す。
+pub fn list_with(ctx: &Ctx, args: &RangeArgs, all: bool) -> Result<ReviewList> {
     let tz = ctx.tz()?;
     let range = ctx.range(args)?;
     let titles = task_titles(ctx.conn)?;
-    let segments: Vec<SegmentView> =
-        repo::segment::list_by_status(ctx.conn, range, SegmentStatus::NeedsReview)?
-            .iter()
-            .map(|s| segment_view(tz, s, &titles))
-            .collect();
+    let min_sec = ctx.cfg.review.min_sec;
+    let min_ms = min_sec as i64 * 1000;
+    let mut hidden_short = 0;
+    let mut segments: Vec<SegmentView> = Vec::new();
+    for s in repo::segment::list_by_status(ctx.conn, range, SegmentStatus::NeedsReview)? {
+        if !all && s.end_at - s.start_at < min_ms {
+            hidden_short += 1;
+        } else {
+            segments.push(segment_view(tz, &s, &titles));
+        }
+    }
     Ok(ReviewList {
         range: range_view(tz, range),
         count: segments.len(),
         segments,
+        hidden_short,
+        min_sec,
     })
 }
 
@@ -253,6 +271,34 @@ mod tests {
     }
 
     #[test]
+    fn list_hides_short_segments_and_counts_them() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        let ins = |id: &str, s: i64, e: i64, st: SegmentStatus| {
+            insert_segment(ctx.conn, id, d + s, d + e, SegmentKind::Work, None, st)
+        };
+        ins("LONG", 0, 120_000, SegmentStatus::NeedsReview);
+        ins("EDGE", 120_000, 180_000, SegmentStatus::NeedsReview); // ちょうど 60 秒は表示
+        ins("SHORT1", 180_000, 239_999, SegmentStatus::NeedsReview);
+        ins("SHORT2", 240_000, 250_000, SegmentStatus::NeedsReview);
+        ins("AUTO", 250_000, 255_000, SegmentStatus::Auto); // 要確認でなければ数えない
+        let args = RangeArgs::default();
+
+        let l = list(&ctx, &args).unwrap();
+        assert_eq!((l.count, l.hidden_short, l.min_sec), (2, 2, 60));
+        assert_eq!(l.segments.len(), 2);
+
+        let all = list_with(&ctx, &args, true).unwrap();
+        assert_eq!((all.count, all.hidden_short), (4, 0));
+
+        // データは変えない
+        let (long, short) =
+            repo::segment::count_by_status_split(ctx.conn, SegmentStatus::NeedsReview, 60_000).unwrap();
+        assert_eq!((long, short), (2, 2));
+    }
+
+    #[test]
     fn list_and_set_updates_segment() {
         let env = Env::new();
         let ctx = env.ctx();
@@ -277,6 +323,7 @@ mod tests {
         );
         let l = list(&ctx, &RangeArgs::default()).unwrap();
         assert_eq!(l.count, 1);
+        assert_eq!(l.hidden_short, 0);
         let t = mk_task(&ctx);
         let r = set(
             &ctx,

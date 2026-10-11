@@ -44,8 +44,10 @@ pub struct Status {
     /// 直近の区間（新しい順に最大 5 件）。
     pub recent_segments: Vec<SegmentView>,
     pub today: TodaySummary,
-    /// 全期間の needs_review 件数。
+    /// 全期間の needs_review 件数のうち、`review.min_sec` 以上のもの（仕分け一覧の既定表示と同じ数え方）。
     pub needs_review_count: i64,
+    /// 全期間の needs_review のうち、`review.min_sec` 未満で既定では隠れている件数。
+    pub needs_review_short_count: i64,
     /// 当日の配信済みで未応答のプッシュ。
     pub unanswered_pushes: Vec<PushView>,
 }
@@ -110,10 +112,10 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         top_tasks: by_task.rows.into_iter().take(5).collect(),
     };
 
-    let needs_review_count: i64 = ctx.conn.query_row(
-        "SELECT COUNT(*) FROM activity_segment WHERE status = ?1",
-        [SegmentStatus::NeedsReview],
-        |r| r.get(0),
+    let (needs_review_count, needs_review_short_count) = repo::segment::count_by_status_split(
+        ctx.conn,
+        SegmentStatus::NeedsReview,
+        ctx.cfg.review.min_sec as i64 * 1000,
     )?;
 
     let unanswered_pushes = push::list_unanswered(ctx.conn, today_range.start, today_range.end)?
@@ -134,6 +136,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         recent_segments,
         today,
         needs_review_count,
+        needs_review_short_count,
         unanswered_pushes,
     })
 }
@@ -209,6 +212,7 @@ mod tests {
         assert_eq!(s.today.idle_ms, 10 * m);
         assert_eq!(s.today.top_tasks[0].label, "A");
         assert_eq!(s.needs_review_count, 1);
+        assert_eq!(s.needs_review_short_count, 0);
         assert_eq!(s.unanswered_pushes.len(), 1);
         assert_eq!(s.unanswered_pushes[0].id, "P1");
     }

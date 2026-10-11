@@ -48,6 +48,17 @@ pub fn list_by_status(
         .collect())
 }
 
+/// 全期間の指定状態の区間数を、長さが `min_ms` 以上のもの（長い）と未満のもの（短い）に分けて数える。
+pub fn count_by_status_split(conn: &Connection, status: SegmentStatus, min_ms: i64) -> Result<(i64, i64)> {
+    Ok(conn.query_row(
+        "SELECT COALESCE(SUM(CASE WHEN end_at - start_at >= ?2 THEN 1 ELSE 0 END), 0), \
+                COALESCE(SUM(CASE WHEN end_at - start_at < ?2 THEN 1 ELSE 0 END), 0) \
+         FROM activity_segment WHERE status = ?1",
+        params![status, min_ms],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?)
+}
+
 pub fn get(conn: &Connection, id: &str) -> Result<ActivitySegment> {
     conn.query_row(
         &format!("SELECT {COLS} FROM activity_segment WHERE id = ?1"),

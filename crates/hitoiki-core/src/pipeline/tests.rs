@@ -916,3 +916,256 @@ fn no_interrupt_without_doing_or_focus_block() {
     }];
     assert_eq!(of_kind(&build(&i, None), Interrupt), vec![(10, 20)]);
 }
+
+// ===== 通過系アプリの吸収 =====
+
+const S: Millis = 1000;
+
+/// 秒単位のウインドウ。
+fn wsec(id: &str, s: i64, e: i64, hwnd: &str, exe: &str, title: &str) -> WindowSpan {
+    let mut w = win(id, 0, 0, hwnd, exe, title);
+    w.start_at = s * S;
+    w.end_at = Some(e * S);
+    w
+}
+
+/// (開始秒, 終了秒, 種別) の列。
+fn shape_sec(o: &PipelineOutput) -> Vec<(i64, i64, SegmentKind)> {
+    o.segments
+        .iter()
+        .map(|s| (s.start_at / S, s.end_at / S, s.kind))
+        .collect()
+}
+
+fn find_sec(o: &PipelineOutput, start_sec: i64) -> &ActivitySegment {
+    o.segments
+        .iter()
+        .find(|s| s.start_at == start_sec * S)
+        .unwrap_or_else(|| panic!("{start_sec} 秒開始の区間なし: {:?}", shape_sec(o)))
+}
+
+fn transient_input() -> PipelineInput {
+    let mut i = base();
+    i.merge_gap = 0; // 吸収が merge_gap によるものではないことを確かめる
+    i.task_rules = vec![
+        rule("R1", "T1", MatchField::Exe, "devenv", 0),
+        rule("R2", "T2", MatchField::Exe, "winword", 0),
+    ];
+    i
+}
+
+#[test]
+fn transient_between_same_work_becomes_one_segment() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 630, "H2", "explorer.exe", "タスク切り替え"),
+        wsec("B", 630, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 1200, Work)]);
+    assert_eq!(o.segments[0].task_id.as_deref(), Some("T1"));
+    assert_eq!(o.segments[0].status, SegmentStatus::Auto);
+    assert_eq!(o.segments[0].exe_name.as_deref(), Some("devenv.exe"));
+    // 根拠のウインドウ ID には通過したウインドウも残る（生データは変えない）
+    assert_eq!(o.segments[0].window_span_ids, vec!["A", "E", "B"]);
+}
+
+#[test]
+fn transient_between_different_work_goes_to_previous() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 640, "H2", "explorer.exe", "x"),
+        wsec("B", 640, 1200, "H3", "WINWORD.EXE", "doc"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 640, Work), (640, 1200, Work)]);
+    assert_eq!(o.segments[0].task_id.as_deref(), Some("T1"));
+    assert_eq!(o.segments[1].task_id.as_deref(), Some("T2"));
+    assert!(o.segments.iter().all(|s| s.status == SegmentStatus::Auto));
+}
+
+#[test]
+fn long_transient_exe_is_a_normal_segment() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 660, "H2", "explorer.exe", "ファイル整理"), // ちょうど max（60 秒）は通常扱い
+        wsec("B", 660, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(
+        shape_sec(&o),
+        vec![(0, 600, Work), (600, 660, Work), (660, 1200, Work)]
+    );
+    assert_eq!(find_sec(&o, 600).status, SegmentStatus::NeedsReview);
+}
+
+#[test]
+fn consecutive_transient_exes_are_measured_together() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E1", 600, 630, "H2", "explorer.exe", "x"),
+        wsec("E2", 630, 670, "H3", "StartMenuExperienceHost.exe", "スタート"),
+        wsec("B", 670, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    // 合計 70 秒 >= 60 秒なので吸収しない
+    let o = build(&i, None);
+    assert_eq!(
+        o.segments
+            .iter()
+            .filter(|s| s.status == SegmentStatus::NeedsReview)
+            .count(),
+        1
+    );
+    assert_eq!(shape_sec(&o).len(), 3);
+
+    // 合計 50 秒なら吸収する
+    i.windows[2].end_at = Some(650 * S);
+    i.windows[3].start_at = 650 * S;
+    assert_eq!(shape_sec(&build(&i, None)), vec![(0, 1200, Work)]);
+}
+
+#[test]
+fn transient_at_start_of_day_goes_to_next() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("E", 0, 20, "H2", "explorer.exe", "x"),
+        wsec("B", 20, 600, "H1", "devenv.exe", "proj"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 600, Work)]);
+    assert_eq!(o.segments[0].task_id.as_deref(), Some("T1"));
+}
+
+#[test]
+fn transient_without_suitable_neighbor_stays_normal() {
+    let mut i = transient_input();
+    // 前後とも無い
+    i.windows = vec![wsec("E", 0, 20, "H2", "explorer.exe", "x")];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 20, Work)]);
+    assert_eq!(o.segments[0].status, SegmentStatus::NeedsReview);
+
+    // 直前が無操作で直後が無い: 吸収先が無い
+    i.windows = vec![wsec("E", 900, 920, "H2", "explorer.exe", "x")];
+    i.idles = vec![IdleSpan {
+        id: "I".into(),
+        start_at: 600 * S,
+        end_at: Some(900 * S),
+        reason: IdleReason::NoInput,
+    }];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(600, 900, Idle), (900, 920, Work)]);
+
+    // 直前が作業で直後が無操作: 直前の作業に吸収される
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 620, "H2", "explorer.exe", "x"),
+    ];
+    i.idles[0].start_at = 620 * S;
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 620, Work), (620, 900, Idle)]);
+}
+
+#[test]
+fn transient_exe_match_is_case_insensitive_and_configurable() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 630, "H2", "EXPLORER.EXE", "x"),
+        wsec("B", 630, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    assert_eq!(shape_sec(&build(&i, None)), vec![(0, 1200, Work)]);
+    i.transient_exes = vec!["Explorer.Exe".into()];
+    assert_eq!(shape_sec(&build(&i, None)), vec![(0, 1200, Work)]);
+    // 一覧が空なら従来どおり
+    i.transient_exes.clear();
+    assert_eq!(shape_sec(&build(&i, None)).len(), 3);
+}
+
+#[test]
+fn transient_with_rule_task_is_not_absorbed() {
+    let mut i = transient_input();
+    i.task_rules
+        .push(rule("R3", "T3", MatchField::Exe, "explorer", 0));
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 630, "H2", "explorer.exe", "x"),
+        wsec("B", 630, 1200, "H3", "WINWORD.EXE", "doc"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o).len(), 3);
+    assert_eq!(find_sec(&o, 600).task_id.as_deref(), Some("T3"));
+}
+
+#[test]
+fn override_wins_over_transient() {
+    let mut i = transient_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 630, "H2", "explorer.exe", "x"),
+        wsec("B", 630, 1200, "H3", "WINWORD.EXE", "doc"),
+    ];
+    i.overrides = vec![SegmentOverride {
+        id: "O".into(),
+        start_at: 600 * S,
+        end_at: 630 * S,
+        kind: None,
+        task_id: Some("T9".into()),
+        activity_label: None,
+        created_at: 0,
+    }];
+    let o = build(&i, None);
+    assert_eq!(
+        shape_sec(&o),
+        vec![(0, 600, Work), (600, 630, Work), (630, 1200, Work)]
+    );
+    let c = find_sec(&o, 600);
+    assert_eq!(
+        (c.task_id.as_deref(), c.status),
+        (Some("T9"), SegmentStatus::Confirmed)
+    );
+}
+
+#[test]
+fn transient_after_agent_dialog_does_not_extend_dialog() {
+    let mut i = transient_input();
+    i.watch_max = 0;
+    i.windows = vec![
+        term("W", 0, 20, "claude"),
+        wsec("E", 1200, 1230, "H2", "explorer.exe", "x"),
+    ];
+    i.events = vec![ev("1", 0, "S", SessionStart), ev("2", 20, "S", PromptSubmit)];
+    let o = build(&i, None);
+    assert_eq!(of_kind(&o, AgentDialog), vec![(0, 20)]);
+    // 直前が対話なので吸収先にならず、通常の区間として残る
+    assert_eq!(find_sec(&o, 1200).kind, Work);
+    assert_eq!(find_sec(&o, 1200).status, SegmentStatus::NeedsReview);
+
+    // 直後に通常の作業があればそちらへ吸収される（対話は伸びない）
+    i.windows.push(wsec("B", 1230, 1800, "H3", "devenv.exe", "proj"));
+    let o = build(&i, None);
+    assert_eq!(of_kind(&o, AgentDialog), vec![(0, 20)]);
+    assert_eq!(shape_sec(&o), vec![(0, 1200, AgentDialog), (1200, 1800, Work)]);
+    assert_eq!(find_sec(&o, 1200).task_id.as_deref(), Some("T1"));
+}
+
+#[test]
+fn transient_after_communication_does_not_cause_interrupt() {
+    let mut i = transient_input();
+    i.interrupt_min = 3 * M;
+    i.doing_logs = vec![doing("T1", 0, None)];
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("B", 600, 720, "H2", "ms-teams.exe", "chat"),
+        wsec("E", 720, 750, "H3", "explorer.exe", "x"),
+        wsec("C", 750, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    let o = build(&i, None);
+    assert!(of_kind(&o, Interrupt).is_empty());
+    // チャット（120 秒）と explorer（30 秒）は 1 つの区間にまとまる
+    assert_eq!(find_sec(&o, 600).end_at, 750 * S);
+}

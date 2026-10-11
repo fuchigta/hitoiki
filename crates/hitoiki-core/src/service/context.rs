@@ -321,12 +321,14 @@ fn plan_view(ctx: &Ctx, range: Range, tz: Tz) -> Result<Plan> {
     })
 }
 
+/// 要確認の件数。仕分け一覧の既定表示と同じく `review.min_sec` 以上のものだけを数える。
 fn needs_review_count(ctx: &Ctx) -> Result<i64> {
-    Ok(ctx.conn.query_row(
-        "SELECT COUNT(*) FROM activity_segment WHERE status = ?1",
-        [SegmentStatus::NeedsReview],
-        |r| r.get(0),
-    )?)
+    Ok(crate::repo::segment::count_by_status_split(
+        ctx.conn,
+        SegmentStatus::NeedsReview,
+        ctx.cfg.review.min_sec as i64 * 1000,
+    )?
+    .0)
 }
 
 fn diff_rows(cur: &[ReportRow], prev: &[ReportRow]) -> Vec<DiffRow> {

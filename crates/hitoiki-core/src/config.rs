@@ -17,6 +17,7 @@ pub struct Config {
     pub ai: Ai,
     pub calendar: Calendar,
     pub task: TaskConfig,
+    pub review: Review,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +45,11 @@ pub struct Collect {
     pub terminal_exes: Vec<String>,
     pub communication_exes: Vec<String>,
     pub meeting_exes: Vec<String>,
+    /// 通過系アプリの exe 名（タスクバー・スタートメニュー・Alt+Tab など、作業の合間に一瞬だけ前面になるもの）。
+    /// 連続して `transient_max_sec` 未満なら、独立した区間にせず前後の作業に吸収する。
+    pub transient_exes: Vec<String>,
+    /// 通過系アプリとみなす最大の連続時間（秒）。これ以上続いたら通常の作業区間として扱う。
+    pub transient_max_sec: u64,
     /// 除外区間を丸ごと破棄する（false なら exe 名のみ保持。docs/dev/architecture.md「収集器（Windows）」）。
     pub drop_excluded: bool,
     pub exclude: Vec<ExcludeRule>,
@@ -76,6 +82,20 @@ impl Default for Collect {
                 .map(String::from)
                 .to_vec(),
             meeting_exes: ["ms-teams.exe", "Zoom.exe"].map(String::from).to_vec(),
+            // ApplicationFrameHost.exe は UWP アプリの実体なので含めない。
+            transient_exes: [
+                "explorer.exe",
+                "StartMenuExperienceHost.exe",
+                "SearchHost.exe",
+                "SearchApp.exe",
+                "ShellExperienceHost.exe",
+                "ShellHost.exe",
+                "LockApp.exe",
+                "TextInputHost.exe",
+            ]
+            .map(String::from)
+            .to_vec(),
+            transient_max_sec: 60,
             drop_excluded: false,
             exclude: vec![
                 ExcludeRule {
@@ -259,6 +279,20 @@ impl Default for Activity {
             .map(String::from)
             .to_vec(),
         }
+    }
+}
+
+/// 仕分け（要確認の一覧）の設定。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Review {
+    /// 仕分け一覧で既定表示する最小の長さ（秒）。これ未満の区間は既定で隠す（データは変えない）。
+    pub min_sec: u64,
+}
+
+impl Default for Review {
+    fn default() -> Self {
+        Self { min_sec: 60 }
     }
 }
 

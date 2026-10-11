@@ -24,6 +24,8 @@ pub(crate) struct Piece {
     pub fixed: bool,
     /// exe/title の代表値を選ぶための、元になった最長区間の長さ。
     pub rep_len: Millis,
+    /// 通過系アプリの短い連続（`transient::mark` が付ける吸収の候補）。
+    pub transient: bool,
 }
 
 impl Piece {
@@ -44,6 +46,7 @@ impl Piece {
             title: if w.excluded { None } else { w.title.clone() },
             fixed: false,
             rep_len: end - start,
+            transient: false,
         }
     }
 
@@ -64,6 +67,7 @@ impl Piece {
             title: None,
             fixed: false,
             rep_len: end - start,
+            transient: false,
         }
     }
 
