@@ -19,19 +19,43 @@
 
 ## インストール
 
-現時点では GitHub Releases からバイナリを取得します。コード署名は付与していません。
+GitHub Releases から取得します。コード署名は付与していません。
+
+### インストーラー（推奨）
+
+1. [Releases](https://github.com/fuchigta/hitoiki/releases) から `hitoiki-<ver>-windows-x64-setup.exe` をダウンロードします。
+2. 実行します。SmartScreen の警告が出たら「詳細情報」→「実行」を選びます（下記）。
+3. 画面の指示に従ってインストールします。管理者権限は不要で、既定のインストール先は `%LOCALAPPDATA%\HitoikiApp` です（Windows ではフォルダ名の大文字小文字が区別されないため、データ用の `%LOCALAPPDATA%\hitoiki` と衝突しないよう製品名を `HitoikiApp` にしています）。
+4. 完了画面の「実行」のチェックを入れたままにすると、そのまま起動して初回のオンボーディングが始まります。
+
+インストーラーが行うこと:
+
+- `hitoiki.exe`（CLI）と `hitoiki-app.exe`（常駐アプリ）を同じフォルダに置きます。
+- インストール先を**ユーザー**の環境変数 `Path` に追加します（重複追加はしません）。新しく開いたターミナルで `hitoiki --help` が使えます。
+- スタートメニューに登録します（スタートメニュー名は「HitoikiApp」です）。
+
+アンインストールは「設定 > アプリ > インストールされているアプリ」から行います。
+
+- 消えるもの: インストール先のファイル、スタートメニューのショートカット、ユーザー `Path` に追加したエントリ、ログオン時の自動起動登録（`general.autostart`）。
+- 残るもの: **Hitoiki のデータ（`%APPDATA%\hitoiki` の設定とプラグイン、`%LOCALAPPDATA%\hitoiki` の DB とログ）は消しません。**
+- アンインストール画面の「アプリデータを削除」チェックは、Tauri の識別子（`dev.hitoiki.app`）名のフォルダ（`%APPDATA%\dev.hitoiki.app`、`%LOCALAPPDATA%\dev.hitoiki.app`、WebView2 のキャッシュなど）だけが対象です。Hitoiki の DB・設定は対象外なので、チェックしても消えません。DB ごと消したい場合は上記フォルダを手動で削除してください。
+- 更新するときは、新しいインストーラーをそのまま実行して上書きインストールできます（データはそのままです）。
+
+### zip（ポータブル版）
+
+インストーラーを使わず、展開するだけで使うこともできます。
 
 1. [Releases](https://github.com/fuchigta/hitoiki/releases) から `hitoiki-<ver>-windows-x64.zip` をダウンロードします。
 2. ダウンロードした zip を右クリックし、「プロパティ」を開きます。
 3. 「全般」タブ下部の「セキュリティ」欄にある **「ブロックの解除」** にチェックを入れ、「OK」を押します。
-4. zip を任意のフォルダ（例: `C:\Tools\hitoiki`）に展開します。
+4. zip を任意のフォルダ（例: `C:\Tools\hitoiki`）に展開します。`hitoiki.exe` と `hitoiki-app.exe` は同じフォルダに置いたままにしてください。
 5. 展開したフォルダを PATH に追加します（「環境変数」→ユーザー環境変数の `Path` に追加）。
 6. 新しいターミナルを開き、`hitoiki --help` で動作を確認します。
 
 ### SmartScreen の警告が出る場合
 
 コード署名がないため、実行時に「Windows によって PC が保護されました」と表示されることがあります。
-その場合は「詳細情報」→「実行」を選んでください。ダウンロード元が上記の公式 Releases であることを確認してから実行してください。
+その場合は「詳細情報」→「実行」を選んでください（zip の場合は上記の「ブロックの解除」でも回避できます）。ダウンロード元が上記の公式 Releases であることを確認してから実行してください。
 
 ## データの保存場所
 
@@ -70,7 +94,7 @@ hitoiki daemon
 
 ## 常駐アプリと UI
 
-zip には CLI（`hitoiki.exe`）に加えて、タスクトレイに常駐する GUI アプリ（`hitoiki-app.exe`）が入っています。
+インストーラーと zip には CLI（`hitoiki.exe`）に加えて、タスクトレイに常駐する GUI アプリ（`hitoiki-app.exe`）が入っています。
 
 - **`hitoiki-app.exe`**: 起動するとトレイに常駐し、ウインドウ・アプリの利用状況の収集、エージェントログの取り込み、判定の再計算、カレンダー同期、プッシュ通知をまとめて行います（実体は `hitoiki daemon` と同じ常駐処理です）。ウインドウを閉じても常駐を続け、トレイの「終了」で止まります（その時点の区間は閉じて保存されます）。`general.autostart = true` でログオン時に自動起動します。
 - **`hitoiki ui [画面]`**: 常駐アプリに画面を開かせます。画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings`。アプリが動いていなければ、同じフォルダの `hitoiki-app.exe` を `--screen <画面>` 付きで起動します。

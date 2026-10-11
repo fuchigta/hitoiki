@@ -35,14 +35,45 @@ jobs:
           npm ci
           npm run build
 
+      - name: Check version
+        shell: pwsh
+        run: |
+          # タグと tauri.conf.json の version が食い違うと、インストーラーの表示が実体と合わなくなる。
+          $ver = "${{ github.ref_name }}" -replace '^v', ''
+          $conf = (Get-Content crates/hitoiki-app/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($conf -ne $ver) { throw "tauri.conf.json の version ($conf) がタグ ($ver) と一致しません" }
+
+      # ポータブル版（zip）用。CLI と常駐アプリを素のバイナリとしてビルドする。
       - name: Build CLI and app
         run: cargo build --release -p hitoiki-cli -p hitoiki-app
 
-      - name: Package zip
+      # インストーラーには CLI をサイドカー（externalBin）として同梱する。
+      # Tauri はターゲットトリプル付きの名前を要求し、インストール時に接尾辞が外れて hitoiki.exe になる。
+      - name: Place CLI sidecar
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path crates/hitoiki-app/binaries | Out-Null
+          Copy-Item target/release/hitoiki.exe crates/hitoiki-app/binaries/hitoiki-x86_64-pc-windows-msvc.exe -ErrorAction Stop
+
+      # @tauri-apps/cli は ui/package.json の devDependency（npm ci 済み）。
+      - name: Build NSIS installer
+        working-directory: crates/hitoiki-app
+        run: ../../ui/node_modules/.bin/tauri build --bundles nsis --config tauri.bundle.conf.json
+
+      - name: Package artifacts
         id: pack
         shell: pwsh
         run: |
           $ver = "${{ github.ref_name }}" -replace '^v', ''
+
+          # インストーラー
+          $setup = Get-ChildItem target/release/bundle/nsis -Filter '*-setup.exe' | Select-Object -First 1
+          if (-not $setup) { throw 'インストーラーが生成されていません' }
+          $installer = "hitoiki-$ver-windows-x64-setup.exe"
+          Copy-Item $setup.FullName $installer
+          "installer=$installer" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+          # ポータブル版 zip
           $staging = Join-Path $env:RUNNER_TEMP "hitoiki-$ver"
           New-Item -ItemType Directory -Force -Path $staging | Out-Null
 
@@ -59,4 +90,6 @@ jobs:
       - name: Attach to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ steps.pack.outputs.zip }}
+          files: |
+            ${{ steps.pack.outputs.installer }}
+            ${{ steps.pack.outputs.zip }}
