@@ -18,6 +18,14 @@ fn norm_title(t: &str) -> String {
     hitoiki_core::rules::normalize_title(t)
 }
 
+/// Hitoiki 自身のウインドウか（exe 名が hitoiki-app.exe、または自プロセスの pid）。
+fn is_self(ev: &ForegroundChange) -> bool {
+    ev.exe_name
+        .as_deref()
+        .is_some_and(|e| e.eq_ignore_ascii_case("hitoiki-app.exe"))
+        || ev.pid == Some(i64::from(std::process::id()))
+}
+
 struct CurWin {
     hwnd: String,
     title: String,
@@ -75,7 +83,7 @@ impl Recorder {
             repo::close_window_span(&self.conn, &id, ev.at)?;
         }
         let excluded = self.cfg.is_excluded(ev.exe_name.as_deref(), Some(&ev.title));
-        let span_id = if excluded && self.cfg.drop_excluded {
+        let span_id = if (excluded && self.cfg.drop_excluded) || (!self.cfg.record_self && is_self(&ev)) {
             None
         } else {
             let id = new_id();
@@ -359,6 +367,38 @@ mod tests {
         assert_eq!(w.len(), 2);
         assert_eq!(w[0].1, Some(200));
         assert_eq!(w[1].0, 300);
+    }
+
+    #[test]
+    fn self_window_closes_span_and_creates_none() {
+        let (mut r, _) = rec(Collect::default());
+        r.on_foreground(fg(100, "1", "a.exe", "A")).unwrap();
+        r.on_foreground(fg(200, "2", "Hitoiki-App.exe", "Hitoiki"))
+            .unwrap();
+        // 自プロセスの pid でも対象（exe 名が別でも）
+        let mut own = fg(250, "3", "other.exe", "own");
+        own.pid = Some(i64::from(std::process::id()));
+        r.on_foreground(own).unwrap();
+        r.on_foreground(fg(300, "1", "a.exe", "A")).unwrap();
+        let w = wins(&r);
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0], (100, Some(200), Some("A".into()), false));
+        assert_eq!(w[1], (300, None, Some("A".into()), false));
+    }
+
+    #[test]
+    fn record_self_true_records_self_window() {
+        let cfg = Collect {
+            record_self: true,
+            ..Collect::default()
+        };
+        let (mut r, _) = rec(cfg);
+        r.on_foreground(fg(100, "1", "a.exe", "A")).unwrap();
+        r.on_foreground(fg(200, "2", "hitoiki-app.exe", "Hitoiki"))
+            .unwrap();
+        let w = wins(&r);
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[1], (200, None, Some("Hitoiki".into()), false));
     }
 
     #[test]

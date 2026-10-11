@@ -51,6 +51,9 @@ pub struct Collect {
     pub interrupt_min_sec: u64,
     /// 帰属判定の定期実行で再計算する直近の範囲（分）。
     pub rebuild_window_min: u64,
+    /// Hitoiki 自身のウインドウ（hitoiki-app.exe / 自プロセス）を前面にしている時間も記録する。
+    /// false（既定）なら記録の空白になる。
+    pub record_self: bool,
 }
 
 impl Default for Collect {
@@ -98,6 +101,7 @@ impl Default for Collect {
             ],
             interrupt_min_sec: 180,
             rebuild_window_min: 180,
+            record_self: false,
         }
     }
 }
