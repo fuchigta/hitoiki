@@ -76,6 +76,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 - **無操作**: `GetLastInputInfo` を 1 秒間隔でポーリングし、`collect.idle_threshold_sec` を超えたら無操作区間を開く（開始は最終入力時刻）。入力の内容は取らない。
 - **ロック/スリープ**: `WTSRegisterSessionNotification`（`WM_WTSSESSION_CHANGE`）と `WM_POWERBROADCAST`。`idle_span.reason` は `no_input` / `locked` / `sleep`。
 - **除外**: `collect.exclude`（exe 名、タイトル正規表現。両方指定すると両方一致で除外）に一致したウインドウは `excluded = 1` とし、exe パスとタイトルを保存しない。`collect.drop_excluded = true` なら区間自体を作らない。既定でパスワードマネージャ（KeePass 系、1Password、Bitwarden）とプライベートブラウズのタイトルを除外する。
+- **Hitoiki 自身**: 前面ウインドウが Hitoiki 自身（exe 名 `hitoiki-app.exe`、または自プロセスの pid）の間は区間を作らない（記録の空白になる）。`collect.record_self = true` で記録する。
 - **異常終了への備え**: `Recorder` はハートビートを保存し、起動時に前回の未終了区間（`end_at` が NULL）を最後のハートビートで閉じる。
 
 ## 3. データモデル
@@ -269,7 +270,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 ## 11. GUI
 
-`ui/` は React の SPA で、画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings` と、通知用の `popup`。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了を持つ。
+`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings`、初回起動時の `onboarding`、通知用の `popup`。オンボーディングの完了は `setting` テーブルの `onboarding.completed_at` で判定し（`service::onboarding`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了を持つ。
 
 ## 12. ファイル配置と設定
 
@@ -294,7 +295,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | セクション | 主なキー（既定値） |
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true） |
-| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180） |
+| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |

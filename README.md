@@ -71,8 +71,8 @@ hitoiki daemon
 
 zip には CLI（`hitoiki.exe`）に加えて、タスクトレイに常駐する GUI アプリ（`hitoiki-app.exe`）が入っています。
 
-- **`hitoiki-app.exe`**: 起動するとトレイに常駐し、ウインドウ・アプリの利用状況の収集、エージェントログの取り込み、判定の再計算、カレンダー同期、プッシュ通知をまとめて行います（実体は `hitoiki daemon` と同じ常駐処理です）。ウインドウを閉じても常駐を続け、トレイの「終了」で止まります（その時点の区間は閉じて保存されます）。`general.autostart = true` でログオン時に自動起動します。
-- **`hitoiki ui [画面]`**: 常駐アプリに画面を開かせます。画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings`。アプリが動いていなければ、同じフォルダの `hitoiki-app.exe` を `--screen <画面>` 付きで起動します。
+- **`hitoiki-app.exe`**: 起動するとトレイに常駐し、ウインドウ・アプリの利用状況の収集、エージェントログの取り込み、判定の再計算、カレンダー同期、プッシュ通知をまとめて行います（実体は `hitoiki daemon` と同じ常駐処理です）。ウインドウを閉じても常駐を続け、トレイの「終了」で止まります（その時点の区間は閉じて保存されます）。`general.autostart = true` でログオン時に自動起動します。初回起動時は使い方の案内（オンボーディング）が開きます（設定画面や `hitoiki ui onboarding` で再表示できます）。Hitoiki 自身のウインドウを操作している時間は記録しません（`collect.record_self = true` で記録）。
+- **`hitoiki ui [画面]`**: 常駐アプリに画面を開かせます。画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings` / `onboarding`。アプリが動いていなければ、同じフォルダの `hitoiki-app.exe` を `--screen <画面>` 付きで起動します。
 - **`hitoiki daemon`**: UI なしの常駐処理です。トースト通知は出ません（ログのみ）。`hitoiki daemon` が動いている間に `hitoiki-app.exe` を起動すると、アプリは UI だけで動き、収集は daemon 側で行われます（画面とトレイにその旨が表示されます）。
 - **`hitoiki doctor`**: 収集・DB・設定・AI コマンドなどの状態を診断します。うまく動かないときに最初に実行してください。
 
