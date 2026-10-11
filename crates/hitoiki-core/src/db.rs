@@ -9,6 +9,7 @@ use std::time::Duration;
 const MIGRATIONS: &[(i64, &str)] = &[
     (1, include_str!("../migrations/0001_init.sql")),
     (2, include_str!("../migrations/0002_judge_cache.sql")),
+    (3, include_str!("../migrations/0003_block_template.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。

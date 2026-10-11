@@ -134,6 +134,8 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `activity_rule` | 行動ログ → 活動ラベルのルール（タスク非依存） |
 | `segment_override` | ユーザーによる区間の確定（期間と、`kind` / `task_id` / `activity_label` の上書き。NULL の項目は元の値を保つ） |
 | `time_block` | 計画（タイムブロッキング）。`focus` が 1 のものは集中ブロック |
+| `block_template` / `block_template_item` | ブロックのテンプレート（働き方のパターン）。`block_template` は名前（一意）・説明・割り当てた曜日（`weekdays`、JSON 配列、1=月 … 7=日）、`block_template_item` はローカル時刻の 0 時からの分（`start_min` 0〜1439、`end_min` 1〜1440）・`label`・`focus`・任意の `task_id` |
+| `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `time_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
 | `objective` / `key_result` | OKR |
 | `skill` / `task_skill` / `activity_skill_rule` | スキル（階層あり、`preset` フラグ）とタスク・活動との紐づけ |
 | `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`、`note`） |
@@ -145,6 +147,19 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `judge_cache` | 判定器の答えのキャッシュ（`key`, `answer_json`, `judge_name`, `created_at`）。保持期間 30 日 |
 
 予実について、実績入力フィールドは作らない。実績は常に `activity_segment` から算出する。
+
+### 3.5 ブロックのテンプレート
+
+`service::block_template`（CLI の `block template`、Tauri のコマンドはこの薄いラッパー）。
+
+- **データ**: テンプレートは時刻をローカル時刻（0 時からの分）で持ち、日付を持たない。同じ名前は作れない。曜日は複数割り当てられ、同じ曜日に複数のテンプレートがあってもよい（`suggest` は該当するものをすべて返す）。
+- **適用**（`apply`）: 指定日（既定は今日）のローカル日付と時刻を `timefmt::local_minute_to_ms` で UTC に変換して `time_block` を作る。DST で存在しない時刻（春の空白）は存在する最初の時刻まで進め、2 回ある時刻（秋）は早い方を採る。開始と終了が同じ時刻に潰れたブロックは作らない。24:00 は翌日 0 時。
+- **重なり**: 既存の `time_block` と、`is_busy` で終日でないカレンダー予定を重なりとして数える（`preview` が項目ごとに列挙する）。`overlap = skip`（既定）は重なる項目を作らず `skipped` に返し、`overlay` は重ねて作る。
+- **取り消し**（`undo`）: 取り消していない直近の適用（`--date` ならその日に適用したもののうち直近）で作ったブロックを削除し、履歴に `undone_at` を付ける。すでに消されたブロックや、手で足したブロックは巻き込まない。
+- **保存**（`save_from`）: 指定日の `time_block` からテンプレートを作る。日をまたぐブロックはその日の範囲に切る。
+- 画面に 1 回だけ出す案内（閉じたら出さない）は `service::hint` が `setting` の `hint.<名前>.dismissed` に記録する。
+
+ブロックの編集（`service::plan::update`）は、時間・タスク・ラベル・集中をまるごと置き換える。ID は前方一致で指定できる。
 
 ## 4. 帰属判定パイプライン
 
