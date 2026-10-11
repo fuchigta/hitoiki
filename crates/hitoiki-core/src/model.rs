@@ -370,6 +370,19 @@ pub struct Reflection {
     pub questions_md: String,
     pub answers_md: Option<String>,
     pub summary_md: Option<String>,
+    /// 構造化出力（`service::structured::StructuredOutput` の JSON）。無ければ従来の Markdown のみ。
+    #[serde(default)]
+    pub structured_json: Option<String>,
+    /// 構造化された問いへの回答の対応表（`service::reflect::AnswersRecord` の JSON）。
+    #[serde(default)]
+    pub answers_json: Option<String>,
+}
+
+impl Reflection {
+    /// 回答（Markdown でも構造化でも）が 1 つでも保存されているか。
+    pub fn answered(&self) -> bool {
+        self.answers_md.is_some() || self.answers_json.is_some()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

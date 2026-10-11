@@ -67,6 +67,27 @@ fn emit<T: Serialize>(json: bool, v: &T, human: impl FnOnce() -> String) -> Resu
     }
 }
 
+/// `--json` 用の振り返り。保存された列に加えて、構造化された問い（`structured`）と回答の対応表（`answers`）を
+/// JSON のまま載せる（`structured_json` / `answers_json` は文字列のままなので、扱いやすい形を足す）。
+#[derive(Serialize)]
+struct ReflectionOut<'a> {
+    #[serde(flatten)]
+    r: &'a hitoiki_core::model::Reflection,
+    structured: Option<serde_json::Value>,
+    answers: Option<serde_json::Value>,
+}
+
+impl<'a> ReflectionOut<'a> {
+    fn new(r: &'a hitoiki_core::model::Reflection) -> Self {
+        let parse = |s: &Option<String>| s.as_deref().and_then(|j| serde_json::from_str(j).ok());
+        Self {
+            r,
+            structured: parse(&r.structured_json),
+            answers: parse(&r.answers_json),
+        }
+    }
+}
+
 /// `-` なら標準入力から読む。
 fn read_text(src: &str) -> Result<String> {
     if src == "-" {
@@ -608,7 +629,7 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
     let tz = ctx.tz()?;
     let generate = |kind: ReflectionKind, date: Option<String>| -> Result<()> {
         let r = reflect::reflect(ctx, kind, date.as_deref())?;
-        emit(json, &r, || render::reflection(tz, &r))
+        emit(json, &ReflectionOut::new(&r), || render::reflection(tz, &r))
     };
     match cmd {
         ReflectCmd::DayStart { date } => generate(ReflectionKind::DayStart, date),
@@ -619,8 +640,8 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
                 None | Some("-") => read_text("-")?,
                 Some(path) => std::fs::read_to_string(path)?,
             };
-            let r = reflect::answer(ctx, &id, &text)?;
-            emit(json, &r, || {
+            let r = reflect::answer_text(ctx, &id, &text)?;
+            emit(json, &ReflectionOut::new(&r), || {
                 format!("回答を保存しました: {}", render::short(&r.id))
             })
         }
@@ -633,7 +654,7 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
         }
         ReflectCmd::Show { id } => {
             let r = reflect::show(ctx, &id)?;
-            emit(json, &r, || render::reflection(tz, &r))
+            emit(json, &ReflectionOut::new(&r), || render::reflection(tz, &r))
         }
     }
 }

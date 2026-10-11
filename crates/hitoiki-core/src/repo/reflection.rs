@@ -6,8 +6,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub fn insert(conn: &Connection, r: &Reflection) -> Result<()> {
     conn.execute(
-        "INSERT INTO reflection (id, at, kind, context_json, questions_md, answers_md, summary_md) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        "INSERT INTO reflection (id, at, kind, context_json, questions_md, answers_md, summary_md, \
+         structured_json, answers_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
         params![
             r.id,
             r.at,
@@ -15,7 +15,9 @@ pub fn insert(conn: &Connection, r: &Reflection) -> Result<()> {
             r.context_json,
             r.questions_md,
             r.answers_md,
-            r.summary_md
+            r.summary_md,
+            r.structured_json,
+            r.answers_json
         ],
     )?;
     Ok(())
@@ -30,10 +32,13 @@ fn from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Reflection> {
         questions_md: r.get(4)?,
         answers_md: r.get(5)?,
         summary_md: r.get(6)?,
+        structured_json: r.get(7)?,
+        answers_json: r.get(8)?,
     })
 }
 
-const COLS: &str = "id, at, kind, context_json, questions_md, answers_md, summary_md";
+const COLS: &str =
+    "id, at, kind, context_json, questions_md, answers_md, summary_md, structured_json, answers_json";
 
 pub fn get(conn: &Connection, id: &str) -> Result<Reflection> {
     conn.query_row(
@@ -62,6 +67,28 @@ pub fn set_answers(conn: &Connection, id: &str, answers_md: &str) -> Result<()> 
     conn.execute(
         "UPDATE reflection SET answers_md = ?2 WHERE id = ?1",
         params![id, answers_md],
+    )?;
+    Ok(())
+}
+
+/// 構造化された回答を保存する。`answers_md` は自由記述の集約（無ければ NULL のまま）。
+pub fn set_structured_answers(
+    conn: &Connection,
+    id: &str,
+    answers_md: Option<&str>,
+    answers_json: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE reflection SET answers_md = ?2, answers_json = ?3 WHERE id = ?1",
+        params![id, answers_md, answers_json],
+    )?;
+    Ok(())
+}
+
+pub fn set_abc_dispute(conn: &Connection, id: &str, dispute: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE abc_record SET dispute = ?2 WHERE id = ?1",
+        params![id, dispute],
     )?;
     Ok(())
 }

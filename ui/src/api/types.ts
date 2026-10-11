@@ -526,6 +526,62 @@ export interface Reflection {
   questions_md: string;
   answers_md: string | null;
   summary_md: string | null;
+  /** 構造化出力（`StructuredOutput` の JSON 文字列）。null は従来の Markdown のみ。 */
+  structured_json: string | null;
+  /** 構造化された問いへの回答の対応表（`AnswersRecord` の JSON 文字列）。 */
+  answers_json: string | null;
+}
+
+export type QuestionKind = "checkin" | "hassle" | "abc" | "free";
+export type Scale = "energy" | "mood" | "stress";
+
+/** core の `service::structured::Question`。使わない項目は省略される。 */
+export interface Question {
+  kind: QuestionKind;
+  prompt: string;
+  scales?: Scale[];
+  erg_candidates?: ErgTag[];
+  examples?: string[];
+  activating_event?: string;
+  belief_prompt?: string;
+}
+
+export interface StructuredOutput {
+  summary?: string;
+  questions: Question[];
+}
+
+/** 保存済みの回答 1 件（どの問いに答え、どのレコードを作ったか）。 */
+export interface AnsweredItem {
+  index: number;
+  kind: QuestionKind;
+  record_id?: string;
+  text?: string;
+}
+
+export interface AnswersRecord {
+  items: AnsweredItem[];
+}
+
+/** core の `reflect::AnswerItem`（問いの種類で使う項目が決まる）。 */
+export interface AnswerItem {
+  index: number;
+  energy?: number;
+  mood?: number;
+  stress?: number;
+  erg?: ErgTag;
+  note?: string;
+  text?: string;
+  intensity?: number;
+  activating_event?: string;
+  belief?: string;
+  emotion?: string;
+  emotion_intensity?: number;
+  dispute?: string;
+}
+
+export interface AnswersInput {
+  answers: AnswerItem[];
 }
 
 /** 常駐処理の状態。 */

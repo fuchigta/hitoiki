@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### 追加
+
+- AI 振り返りを構造化出力に対応させました。問いを「チェックイン / ハッスル / ABC / 自由記述」の種類つきで受け取り、振り返り画面でその場に答えられます。チェックインは 1〜5 のボタンと ERG タグ、ハッスルはテキストと強さ、ABC は A（AI の候補を編集可）・B・C・反論のフォームで、答えは `checkin` / `hassle` / `abc_record` に保存され「記録」画面にも出ます（ABC は続けて掘り下げの問いも聞けます）。設定 `ai.structured`（`auto` / `on` / `off`、既定 `auto` は `claude` のときだけ）と `ai.structured_args` を追加しました。構造化に失敗したときは従来の Markdown の問いに自動で戻ります。CLI は `hitoiki reflect day_end` などが問いを種類ごとに表示し、`--json` で構造をそのまま返し、`hitoiki reflect answer <ID> --file F` に `{"answers":[{"index":0,"energy":3}]}` の JSON を渡せます（Markdown の回答も従来どおり使えます）。
+
 ## [0.4.0] - 2026-10-11
 
 ### 追加

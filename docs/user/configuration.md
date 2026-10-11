@@ -114,7 +114,17 @@ timeout_sec = 180
 
 - 既定は `claude -p` です。他のコマンドに替えるときは、プロンプトを標準入力から読み、回答を標準出力に書くものを指定します。
 - `timeout_sec` を超えると強制終了してエラーにします。終了コードが 0 以外、または出力が空の場合もエラーです。
-- 問いのテンプレートは組み込みですが、`%APPDATA%\hitoiki\templates`（`ai.templates_dir` で変更可）に同名の `day_start.md`、`day_end.md`、`weekly.md`、`abc_dispute.md` を置くとそちらが優先されます。
+- `structured` は、問いを JSON（種類つき）で受け取って画面で答えられるようにするかの設定です。`auto`（既定）は `command` の先頭が `claude`（パスの末尾のファイル名で判定）のときだけ構造化し、それ以外は従来の Markdown です。`on` は常に試み、`off` は使いません。構造化に失敗した場合（コマンドが対応していない、JSON が読めない、形式が合わない）は、従来の Markdown の問いに自動で切り替え、エラーはログに残します。
+- `structured_args` は、構造化のときに `command` の後ろへ付ける引数です。空（既定）なら `claude` 用の `["--output-format", "json", "--json-schema", "{schema}"]` を使います。`{schema}` は JSON Schema の文字列、`{schema_file}` は一時ファイルのパス（実行後に削除）に置き換わります。出力は、`structured_output` を持つ JSON（claude の形式。複数連結や配列も可）か、スキーマに従う JSON そのものを読みます。
+- Codex CLI の例: `command = ["codex", "exec"]`、`structured = "on"`、`structured_args = ["--output-schema", "{schema_file}"]`。**この組み合わせは未検証**です（Codex CLI で動作を確認していません）。うまく動かないときは `structured = "off"` にしてください。
+
+```toml
+[ai]
+structured = "auto"   # auto | on | off
+# structured_args = ["--output-format", "json", "--json-schema", "{schema}"]
+```
+
+- 問いのテンプレートは組み込みですが、`%APPDATA%\hitoiki\templates`（`ai.templates_dir` で変更可）に同名の `day_start.md`、`day_end.md`、`weekly.md`、`abc_dispute.md` を置くとそちらが優先されます。構造化出力用には `day_start_structured.md`、`day_end_structured.md`、`weekly_structured.md` があり、同じ場所に置けば優先されます（使う問いの種類と数の指示は、このテンプレートに書いてあります）。
 
 ## 判定器
 

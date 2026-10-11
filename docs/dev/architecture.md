@@ -148,7 +148,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`、`note`） |
 | `hassle` | デイリーハッスル（`text`, `intensity`, `segment_id`） |
 | `abc_record` | ABC 理論の記録（`activating_event`, `belief`, `consequence_*`, `dispute`, `ai_dialog_md`） |
-| `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`） |
+| `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`, `structured_json`, `answers_json`） |
 | `push_log` | 通知ログ（トリガー、配信済みか、応答、`snoozed_until`、`suppressed_reason`） |
 | `setting` | キー・値の設定（収集器の稼働は `collector.heartbeat` と `collector.runs`） |
 | `judge_cache` | 判定器の答えのキャッシュ（`key`, `answer_json`, `judge_name`, `created_at`）。保持期間 30 日 |
@@ -312,6 +312,8 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 - **コンテキスト**: `service/context.rs` の `ContextJson`（集計、計画、doing タスク、割り込み、ハッスル、ABC 記録、チェックイン、要確認件数、OKR、前週との差、ERG の分布など。種別ごとに含める項目が変わる）。`hitoiki context` で AI 用に JSON 出力もできる。
 - **テンプレート**: `crates/hitoiki-core/templates/{day_start,day_end,weekly,abc_dispute}.md` を組み込みで持つ。`{{context}}` や `{{date}}` などのプレースホルダを展開する。`ai.templates_dir`（未指定なら `%APPDATA%\hitoiki\templates`）に同名の `<name>.md` があればそちらを優先する。
 - **保存**: 生成した問いを `reflection.questions_md` に保存し、回答を `answers_md` に書く。
+- **構造化出力**（`service/structured.rs`、マイグレーション 0005）: `ai.structured`（`auto` は `ai.command` の先頭が claude のときだけ有効）が有効なら、`<kind>_structured` テンプレートで問いを JSON として受け取る。スキーマ（`schema_json()`）は `oneOf` を使わないフラットな形で、`summary` と `questions[]`（`kind` は `checkin` / `hassle` / `abc` / `free`、ほかに `prompt`、`scales`、`erg_candidates`、`examples`、`activating_event`、`belief_prompt`）。claude には `--output-format json --json-schema {schema}`（`ai.structured_args` で上書き。`{schema_file}` は一時ファイル）を付ける。出力は先頭から JSON 値を順に読み（連結・配列も可）、`structured_output` を持つオブジェクト（無ければ `questions` を持つもの）を採用する。種類ごとに使う kind と数の上限はテンプレート側で指示する（始業は free 中心と checkin、終業は checkin / hassle / free、週次は free / abc / hassle）。`abc_dispute` は従来の Markdown のまま。
+- **構造化の保存と回答**: 正規化した JSON を `structured_json`、表示互換の Markdown を `questions_md`、要約を `summary_md` に保存する。コマンド失敗・JSON 不正・`structured_output` 欠落・スキーマ違反のいずれでも、エラーをログに残して従来の Markdown の問いにフォールバックする（`structured_json` は NULL）。回答は `reflect::answer_structured`（Tauri の `reflect_answer_structured`、CLI の `reflect answer` に JSON を渡したとき）が、問いの種類で `checkin`（`record::check`）、`hassle`、`abc_record`（`abc_add` と反論）に保存し、自由記述は `answers_md` に集約する。reflection との紐付けは `answers_json`（問いの番号・種類・作成したレコードの ID）で持ち、回答済みの問いの二重保存を防ぐ。全体を 1 トランザクションで保存する。
 - **エージェントからの利用**: `hitoiki context`、`hitoiki reflect ...` を CLI から呼べる。なお Claude Code が `claude -p` を実行しても、その `entrypoint` が `sdk-` で始まるので作業時間には混ざらない（5 章）。
 
 ## 10. CLI

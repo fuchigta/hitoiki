@@ -11,6 +11,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (2, include_str!("../migrations/0002_judge_cache.sql")),
     (3, include_str!("../migrations/0003_block_template.sql")),
     (4, include_str!("../migrations/0004_correction.sql")),
+    (5, include_str!("../migrations/0005_reflection_structured.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。

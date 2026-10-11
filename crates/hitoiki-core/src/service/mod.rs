@@ -18,6 +18,7 @@ pub mod report;
 pub mod review;
 pub mod skill;
 pub mod status;
+pub mod structured;
 pub mod task;
 pub mod update;
 

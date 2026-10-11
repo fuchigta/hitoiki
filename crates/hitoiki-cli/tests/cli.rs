@@ -345,6 +345,101 @@ fn config_doctor_and_reflect() {
 }
 
 #[test]
+fn structured_reflection_show_and_answer() {
+    use hitoiki_core::model::{Reflection, ReflectionKind};
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    // AI は呼ばず、構造化された振り返りを直接保存しておく。
+    let structured = r#"{"summary":"要約","questions":[
+        {"kind":"checkin","prompt":"いまの調子は？","scales":["energy","mood"]},
+        {"kind":"hassle","prompt":"引っかかったことは？"},
+        {"kind":"abc","prompt":"場面を選んで","activating_event":"指摘された"},
+        {"kind":"free","prompt":"ひとことで"}]}"#;
+    let conn = db::open(&h.join("hitoiki.db")).unwrap();
+    hitoiki_core::repo::reflection::insert(
+        &conn,
+        &Reflection {
+            id: "01HZZZZZZZZZZZZZZZZZZZZZZZ".into(),
+            at: 1_000,
+            kind: ReflectionKind::DayEnd,
+            context_json: "{}".into(),
+            questions_md: "## 問い".into(),
+            answers_md: None,
+            summary_md: Some("要約".into()),
+            structured_json: Some(structured.to_string()),
+            answers_json: None,
+        },
+    )
+    .unwrap();
+    drop(conn);
+
+    // 人間向けの表示: 種類ごとの問いと番号
+    let s = run(h, &["reflect", "show", "01HZZZ"]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    for want in [
+        "[0] (チェックイン・未回答)",
+        "[1] (ハッスル・未回答)",
+        "A（出来事）の候補: 指摘された",
+        "[3] (自由記述",
+    ] {
+        assert!(s.stdout.contains(want), "{want}\n{}", s.stdout);
+    }
+    // --json は構造をそのまま返す
+    let j = run(h, &["--json", "reflect", "show", "01HZZZ"]).json();
+    assert_eq!(j["structured"]["questions"].as_array().unwrap().len(), 4);
+    assert_eq!(j["structured"]["questions"][2]["kind"], "abc");
+    assert!(j["answers"].is_null());
+
+    // 回答 JSON（標準入力）
+    let ans = r#"{"answers":[
+        {"index":0,"energy":3,"mood":4},
+        {"index":1,"text":"会議が長い","intensity":4},
+        {"index":2,"activating_event":"指摘された","belief":"向いていない","emotion":"落ち込み","emotion_intensity":3},
+        {"index":3,"text":"まあまあ"}]}"#;
+    let a = run_with_stdin(
+        h,
+        &["--json", "reflect", "answer", "01HZZZ", "--file", "-"],
+        Some(ans),
+    );
+    assert_eq!(a.code, 0, "{}", a.stderr);
+    let aj = a.json();
+    assert_eq!(aj["answers"]["items"].as_array().unwrap().len(), 4);
+    assert!(aj["answers_md"].as_str().unwrap().contains("まあまあ"));
+    // 保存先の確認: checkin / hassle / abc_record にそれぞれ 1 件
+    let conn = db::open(&h.join("hitoiki.db")).unwrap();
+    let hs = hitoiki_core::repo::record::list_hassles(&conn, 0, i64::MAX).unwrap();
+    assert_eq!(
+        (hs.len(), hs[0].text.as_str(), hs[0].intensity),
+        (1, "会議が長い", 4)
+    );
+    assert_eq!(
+        hitoiki_core::repo::record::list_checkins(&conn, 0, i64::MAX)
+            .unwrap()
+            .len(),
+        1
+    );
+    let abcs = hitoiki_core::repo::record::list_abc(&conn, 0, i64::MAX).unwrap();
+    assert_eq!((abcs.len(), abcs[0].belief.as_deref()), (1, Some("向いていない")));
+    drop(conn);
+    // 範囲外の番号は引数エラー（終了コード 2）
+    let bad = run_with_stdin(
+        h,
+        &["reflect", "answer", "01HZZZ", "--file", "-"],
+        Some(r#"{"answers":[{"index":9,"text":"x"}]}"#),
+    );
+    assert_eq!(bad.code, 2, "{}", bad.stderr);
+    // 従来の Markdown 形式も受け付ける（構造化された振り返りにも書ける）
+    let md = run_with_stdin(
+        h,
+        &["reflect", "answer", "01HZZZ", "--file", "-"],
+        Some("ふつうの Markdown の回答"),
+    );
+    assert_eq!(md.code, 0, "{}", md.stderr);
+    let shown = run(h, &["--json", "reflect", "show", "01HZZZ"]).json();
+    assert_eq!(shown["answers_md"], "ふつうの Markdown の回答");
+}
+
+#[test]
 fn rebuild_on_empty_db() {
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();

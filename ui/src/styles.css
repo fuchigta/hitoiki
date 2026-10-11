@@ -945,3 +945,14 @@ button.primary.attn {
   gap: 4px 10px;
   padding: 4px 0;
 }
+
+/* 振り返りの構造化された問い */
+.reflect-q {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px 12px;
+  margin: 0;
+}
+.reflect-q > p {
+  margin: 0;
+}

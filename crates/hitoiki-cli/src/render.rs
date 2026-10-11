@@ -554,17 +554,76 @@ pub fn preset_import(p: &PresetImport) -> String {
 }
 
 pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
-    let mut s = format!(
-        "# 振り返り {} ({}, {})\n\n{}",
-        short(&r.id),
-        r.kind,
-        dt(tz, r.at),
-        r.questions_md
-    );
-    if let Some(a) = &r.answers_md {
-        s += &format!("\n\n## 回答\n\n{a}");
+    use hitoiki_core::service::reflect::{structured_of, AnswersRecord};
+    use hitoiki_core::service::structured::{QuestionKind, Scale};
+    let head = format!("# 振り返り {} ({}, {})\n\n", short(&r.id), r.kind, dt(tz, r.at));
+    // 構造化されていない（または読めない）場合は従来の Markdown を出す。
+    let Some(out) = structured_of(r).ok().flatten() else {
+        let mut s = head + &r.questions_md;
+        if let Some(a) = &r.answers_md {
+            s += &format!("\n\n## 回答\n\n{a}");
+        }
+        return s;
+    };
+    let answered: AnswersRecord = r
+        .answers_json
+        .as_deref()
+        .and_then(|j| serde_json::from_str(j).ok())
+        .unwrap_or_default();
+    let mut s = head;
+    if let Some(sum) = &out.summary {
+        s += &format!("## 要約\n\n{sum}\n\n");
     }
-    s
+    s += "## 問い\n";
+    for (i, q) in out.questions.iter().enumerate() {
+        let mark = if answered.items.iter().any(|a| a.index == i) {
+            "回答済"
+        } else {
+            "未回答"
+        };
+        s += &format!("\n[{i}] ({}・{mark}) {}\n", q.kind.label(), q.prompt);
+        match q.kind {
+            QuestionKind::Checkin => {
+                let names: Vec<&str> = q.scales.iter().map(Scale::label).collect();
+                s += &format!("    尺度: {}（1〜5）\n", names.join("・"));
+                if !q.erg_candidates.is_empty() {
+                    let tags: Vec<String> = q.erg_candidates.iter().map(|t| t.to_string()).collect();
+                    s += &format!("    ERG タグの候補: {}\n", tags.join(", "));
+                }
+            }
+            QuestionKind::Abc => {
+                if let Some(a) = &q.activating_event {
+                    s += &format!("    A（出来事）の候補: {a}\n");
+                }
+                if let Some(b) = &q.belief_prompt {
+                    s += &format!("    B を探る問い: {b}\n");
+                }
+            }
+            _ => {}
+        }
+        if !q.examples.is_empty() {
+            s += &format!("    例: {}\n", q.examples.join(" / "));
+        }
+    }
+    if answered.items.is_empty() {
+        s += &format!(
+            "\n回答するには `hitoiki reflect answer {} --file F`（`-` で標準入力）に JSON を渡します。\
+             例: {{\"answers\":[{{\"index\":0,\"energy\":3,\"mood\":4}},{{\"index\":1,\"text\":\"...\",\"intensity\":3}}]}}\n",
+            short(&r.id)
+        );
+    } else {
+        s += "\n## 回答\n";
+        for a in &answered.items {
+            let label = out.questions[a.index.min(out.questions.len() - 1)].kind.label();
+            match (&a.record_id, &a.text) {
+                (Some(id), _) => s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id)),
+                (None, Some(t)) => s += &format!("\n[{}] {label}: {t}", a.index),
+                _ => {}
+            }
+        }
+        s += "\n";
+    }
+    s.trim_end().to_string()
 }
 
 pub fn reflection_list(tz: Tz, list: &[hitoiki_core::model::Reflection]) -> String {
@@ -578,7 +637,7 @@ pub fn reflection_list(tz: Tz, list: &[hitoiki_core::model::Reflection]) -> Stri
                 short(&r.id),
                 dt(tz, r.at),
                 r.kind.to_string(),
-                if r.answers_md.is_some() { "回答済" } else { "-" }.to_string(),
+                if r.answered() { "回答済" } else { "-" }.to_string(),
             ]
         })
         .collect::<Vec<_>>();
