@@ -1,4 +1,4 @@
-//! コマンド体系の定義（docs/architecture.md「CLI」）。
+//! コマンド体系の定義（docs/dev/architecture.md「CLI」）。
 
 use clap::{Args, Parser, Subcommand};
 use hitoiki_core::model::{ErgTag, MatchField, PatternType, SegmentKind, TaskKind};

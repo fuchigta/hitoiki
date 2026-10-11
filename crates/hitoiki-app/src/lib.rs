@@ -1,6 +1,6 @@
 //! Hitoiki の常駐 GUI（Tauri v2）。タスクトレイ常駐、UI ウインドウ、通知を担う。
 //!
-//! ロジックは持たず、`hitoiki-core` の service を呼ぶ（docs/architecture.md「GUI」）。本番ではローカルサーバもポートも持たない。
+//! ロジックは持たず、`hitoiki-core` の service を呼ぶ（docs/dev/architecture.md「GUI」）。本番ではローカルサーバもポートも持たない。
 
 pub mod commands;
 pub mod dto;

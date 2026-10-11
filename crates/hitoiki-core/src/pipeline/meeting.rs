@@ -1,4 +1,4 @@
-//! docs/architecture.md「帰属判定パイプライン」の無操作と予定の突き合わせ。
+//! docs/dev/architecture.md「帰属判定パイプライン」の無操作と予定の突き合わせ。
 
 use super::piece::{relabel, Piece};
 use super::PipelineInput;

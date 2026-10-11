@@ -1,4 +1,4 @@
-//! タスクとタスク帰属ルールのユースケース（docs/architecture.md「CLI」）。
+//! タスクとタスク帰属ルールのユースケース（docs/dev/architecture.md「CLI」）。
 
 use super::Ctx;
 use crate::id::new_id;

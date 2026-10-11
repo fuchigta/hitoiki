@@ -1,4 +1,4 @@
-//! タスクトレイ（docs/architecture.md「GUI」）。メニューは状態が変わるたびに作り直す。
+//! タスクトレイ（docs/dev/architecture.md「GUI」）。メニューは状態が変わるたびに作り直す。
 
 use crate::state::{AppState, RuntimeMode};
 use crate::{events, window};

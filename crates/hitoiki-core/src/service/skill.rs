@@ -1,4 +1,4 @@
-//! スキル（docs/architecture.md「データモデル」）。
+//! スキル（docs/dev/architecture.md「データモデル」）。
 
 use super::Ctx;
 use crate::id::new_id;

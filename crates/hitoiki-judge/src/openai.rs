@@ -1,4 +1,4 @@
-//! OpenAI 互換 Chat Completions 判定器（docs/architecture.md「判定器」）。LiteLLM プロキシ（AIGW）を想定。
+//! OpenAI 互換 Chat Completions 判定器（docs/dev/architecture.md「判定器」）。LiteLLM プロキシ（AIGW）を想定。
 //!
 //! 構造化出力（`json_schema`）で問い合わせ、サーバが 400/422 で拒否したら
 //! `json_object` モード（スキーマはプロンプトに埋め込む）に自動でフォールバックする。

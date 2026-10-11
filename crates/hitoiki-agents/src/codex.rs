@@ -1,6 +1,6 @@
 //! Codex CLI のセッションログ（`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`）。
 //!
-//! 公開されている形式に基づく（docs/architecture.md「エージェントアダプタ」。このマシンに実ログが無く未検証）:
+//! 公開されている形式に基づく（docs/dev/architecture.md「エージェントアダプタ」。このマシンに実ログが無く未検証）:
 //! - 新形式: 各行 `{"timestamp", "type": "session_meta"|"response_item"|"event_msg"|"turn_context", "payload": {..}}`。
 //!   `session_meta.payload` に `id`, `cwd`, `git.branch`。`event_msg.payload.type` が
 //!   `user_message`（入力。`message`）/ `task_complete` または `turn_complete`（応答完了）。

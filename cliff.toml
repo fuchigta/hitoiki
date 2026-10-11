@@ -1,0 +1,58 @@
+# git-cliff の設定。CHANGELOG.md の「下書き」を作るためのもの（docs/dev/release.md）。
+# 出力はそのまま CHANGELOG.md に貼らず、利用者目線で手直しして反映する。
+#
+#   git cliff --unreleased                # 前回のタグ以降の下書き
+#   git cliff --unreleased --tag vX.Y.Z   # 次の版の名前を付けた下書き
+#
+# commit_parsers の type 一覧は .spotter.yml の commit-subject（allowed_types）と一致させる
+# （spotter の consistency 検査が確認する）。
+
+[changelog]
+header = """
+# 変更履歴（下書き）
+
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim | upper_first }}
+{% for commit in commits %}\
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{% if commit.breaking %}[破壊的変更] {% endif %}{{ commit.message | split(pat="\n") | first | trim }} ({{ commit.id | truncate(length=7, end="") }})
+{% endfor %}\
+{% endfor %}
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+# Conventional Commits 形式でないコミット（形式を決める前の履歴）も「その他」に出す。
+filter_unconventional = false
+split_commits = false
+protect_breaking_commits = true
+filter_commits = false
+tag_pattern = "v[0-9].*"
+sort_commits = "oldest"
+commit_parsers = [
+    # マージコミットは出さない。
+    { message = "^Merge", skip = true },
+    { message = "^Bump the ", skip = true },
+    # 利用者に関係する type。
+    { message = "^feat", group = "追加" },
+    { message = "^fix", group = "修正" },
+    { message = "^perf", group = "性能改善" },
+    { message = "^revert", group = "取り消し" },
+    # 既定では出さない type（内部の変更が中心。必要なら手で拾う）。
+    { message = "^docs", skip = true },
+    { message = "^refactor", skip = true },
+    { message = "^test", skip = true },
+    { message = "^build", skip = true },
+    { message = "^ci", skip = true },
+    { message = "^chore", skip = true },
+    # 形式外のコミット。
+    { message = ".*", group = "その他（形式外のコミット）" },
+]

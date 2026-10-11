@@ -1,4 +1,4 @@
-//! hitoiki-calendar: カレンダーアダプタ（docs/architecture.md「カレンダー（ICS）」）。初期実装は ICS URL。
+//! hitoiki-calendar: カレンダーアダプタ（docs/dev/architecture.md「カレンダー（ICS）」）。初期実装は ICS URL。
 //!
 //! 取得（`IcsAdapter::fetch`）と解析（`parse_ics`）は分離している。
 //! URL は秘密情報なので、ログ・エラーメッセージには source 名だけを出す。

@@ -1,0 +1,117 @@
+# spotter の設定（コミット前のフックと CI で同じ検査を実行する）。
+# 設置と使い方は docs/dev/development.md を参照。
+required_version: v0.13.0
+
+checks:
+  # コミットの 1 行目: <type>(<scope>): <日本語の要約>（AGENTS.md「コミット規約」）。
+  # マージコミットは対象外。免除トレーラは既定で無効。
+  commit-subject:
+    type: commit-subject
+    allowed_types: [feat, fix, perf, refactor, docs, test, build, ci, chore, revert]
+
+  # cliff.toml の type 一覧（CHANGELOG の下書き）と allowed_types の二重管理を防ぐ。
+  commit-types-consistency:
+    type: consistency
+    sources:
+      - file: cliff.toml
+        extract: 'message = "\^([a-z]+)"'
+      - file: .spotter.yml
+        line: 'allowed_types:'
+        extract: 'allowed_types:\s*\[(.*)\]'
+        split: ','
+
+  # docs/user/*.md のファイルと README からのリンクが一致していること。
+  docs-user-consistency:
+    type: consistency
+    sources:
+      - glob: 'docs/user/*.md'
+        base: docs/user
+      - file: README.md
+        extract: '\]\(\./docs/user/([a-z-]+\.md)\)'
+
+  # ソースを変えたら対応する文書も同じコミット（範囲）で更新する。
+  # 細かすぎる対応はノイズになるので、まず主要なものだけに絞っている。
+  doc-sync:
+    type: doc-sync
+    pairs:
+      # CLI の定義 -> コマンド一覧
+      - paths: 'crates/hitoiki-cli/src/args.rs'
+        doc: docs/user/cli.md
+      # 設定 -> 設定の説明
+      - paths: 'crates/hitoiki-core/src/config.rs'
+        doc: docs/user/configuration.md
+      # 収集器: 記録する内容に関わる変更 -> プライバシー
+      - paths: 'crates/hitoiki-collect*/src/**'
+        doc: docs/user/privacy.md
+        when: '(?i)(excluded|record_self|SetWinEventHook|GetLastInputInfo|SetWindowsHookEx|WH_KEYBOARD|WH_MOUSE)'
+      # 収集器 -> アーキテクチャ
+      - paths: 'crates/hitoiki-collect*/src/**'
+        doc: docs/dev/architecture.md
+      # 帰属判定・再計算 -> アーキテクチャ
+      - paths: 'crates/hitoiki-core/src/pipeline/**'
+        doc: docs/dev/architecture.md
+        exclude: ['**/tests.rs']
+      - paths: 'crates/hitoiki-core/src/rebuild.rs'
+        doc: docs/dev/architecture.md
+      # スキーマ -> アーキテクチャ
+      - paths: 'crates/hitoiki-core/migrations/*.sql'
+        doc: docs/dev/architecture.md
+      # 通知の判定 -> アーキテクチャ
+      - paths: 'crates/hitoiki-core/src/push/**'
+        doc: docs/dev/architecture.md
+        exclude: ['**/tests.rs']
+      # UI の画面 -> 日々の使い方
+      - paths: 'ui/src/screens/**'
+        doc: docs/user/daily-use.md
+      # リリース・インストーラー -> リリース手順
+      - paths: '.github/workflows/release.yml'
+        doc: docs/dev/release.md
+      - paths: 'crates/hitoiki-app/tauri*.json'
+        doc: docs/dev/release.md
+        when: '"(productName|identifier|mainBinaryName|externalBin|installMode|installerHooks|nsis|resources|targets)"'
+      - paths: 'crates/hitoiki-app/windows/**'
+        doc: docs/dev/release.md
+      # インストーラーの挙動 -> インストール手順
+      - paths: 'crates/hitoiki-app/windows/**'
+        doc: docs/user/install.md
+      - paths: 'crates/hitoiki-app/tauri*.json'
+        doc: docs/user/install.md
+        when: '"(productName|identifier|installMode|installerHooks|nsis)"'
+      - paths: '.github/workflows/release.yml'
+        doc: docs/user/install.md
+        when: '(setup\.exe|windows-x64|\.zip)'
+
+  # 文書が挙げるパス（バッククォート内）が実在すること。
+  doc-paths:
+    type: doc-paths
+    docs: [README.md, AGENTS.md, CHANGELOG.md, 'docs/**/*.md']
+    path_prefixes: [crates, ui/src, docs, .github]
+    ignore:
+      - 'crates/hitoiki-core/templates/{day_start,day_end,weekly,abc_dispute}.md'  # ブレース展開の書き方
+      - 'crates/hitoiki-app/binaries/'  # ビルド時に配置する（Git 管理外）
+
+  # 文書の Markdown リンクが切れていないこと。
+  doc-links:
+    type: doc-links
+    check_anchors: true
+    docs: [README.md, AGENTS.md, CHANGELOG.md, 'docs/**/*.md']
+
+  # 混入させたくないファイル。
+  unwanted-files:
+    type: unwanted-files
+    max_bytes: 1048576
+    deny:
+      - { paths: '**/*.db', reason: 'データベース（利用者のデータが入る）' }
+      - { paths: '**/*.db-wal', reason: 'データベースの WAL' }
+      - { paths: '**/*.db-shm', reason: 'データベースの共有メモリ' }
+      - { paths: '**/*.db.bak-*', reason: 'データベースのバックアップ' }
+      - { paths: '**/*.log', reason: 'ログファイル' }
+      - { paths: 'target/**', reason: 'Rust のビルド成果物' }
+      - { paths: 'ui/dist/**', reason: 'UI のビルド成果物' }
+      - { paths: '**/node_modules/**', reason: 'npm の依存' }
+      - { paths: 'crates/hitoiki-app/binaries/**', reason: 'インストーラー用サイドカー（ビルド時に配置する）' }
+      - { paths: 'crates/hitoiki-app/gen/**', reason: 'Tauri の生成物' }
+      - { paths: '**/.env', reason: '環境変数・シークレット' }
+      - { paths: '**/.env.*', reason: '環境変数・シークレット' }
+      - { paths: '**/*.pem', reason: '秘密鍵' }
+      - { paths: '**/*.key', reason: '秘密鍵' }

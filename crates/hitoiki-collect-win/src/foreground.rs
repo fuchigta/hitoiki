@@ -1,4 +1,4 @@
-//! 前面ウインドウの収集（docs/architecture.md「収集器（Windows）」）。WinEventHook + ポーリング補正、専用メッセージループスレッド。
+//! 前面ウインドウの収集（docs/dev/architecture.md「収集器（Windows）」）。WinEventHook + ポーリング補正、専用メッセージループスレッド。
 
 use crossbeam_channel::Sender;
 use hitoiki_collect::{ForegroundChange, ForegroundCollector, StopToken};

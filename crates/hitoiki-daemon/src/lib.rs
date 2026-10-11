@@ -1,4 +1,4 @@
-//! Hitoiki の常駐処理ランタイム（docs/architecture.md「クレート構成とプロセスモデル」）。
+//! Hitoiki の常駐処理ランタイム（docs/dev/architecture.md「クレート構成とプロセスモデル」）。
 //!
 //! `hitoiki daemon`（ヘッドレス）と Tauri 常駐アプリの両方がこれを使う。
 //! UI への通知は [`RuntimeSink`] 経由で行う。
