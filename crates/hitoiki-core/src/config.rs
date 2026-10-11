@@ -398,6 +398,12 @@ pub struct Ai {
     pub timeout_sec: u64,
     /// 未指定なら `paths::templates_dir()`。
     pub templates_dir: Option<String>,
+    /// 構造化出力（問いを JSON で受け取り、画面で種類ごとに答える）を使うか。
+    pub structured: AiStructured,
+    /// 構造化出力のときに `command` の後ろへ付ける引数。空なら `claude` 用の既定
+    /// （`--output-format json --json-schema {schema}`）。`{schema}`（JSON Schema 文字列）と
+    /// `{schema_file}`（一時ファイルのパス。実行後に削除）を置換する。
+    pub structured_args: Vec<String>,
 }
 
 impl Default for Ai {
@@ -406,8 +412,23 @@ impl Default for Ai {
             command: vec!["claude".into(), "-p".into()],
             timeout_sec: 180,
             templates_dir: None,
+            structured: AiStructured::Auto,
+            structured_args: Vec::new(),
         }
     }
+}
+
+/// `ai.structured` の値。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum AiStructured {
+    /// `ai.command` の先頭が `claude` のときだけ構造化する。
+    #[default]
+    Auto,
+    /// 常に構造化を試みる（失敗したら Markdown にフォールバック）。
+    On,
+    /// 構造化しない（従来の Markdown）。
+    Off,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

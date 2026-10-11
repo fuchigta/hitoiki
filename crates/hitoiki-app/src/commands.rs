@@ -421,6 +421,16 @@ pub fn reflect_answer(state: S, id: String, answers_md: String) -> AppResult<Ref
     state.with_ctx(|c| reflect::answer(c, &id, &answers_md))
 }
 
+/// 構造化された問いへの回答を、種類ごとの保存先（チェックイン・ハッスル・ABC・自由記述）に保存する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn reflect_answer_structured(
+    state: S,
+    id: String,
+    answers: reflect::AnswersInput,
+) -> AppResult<Reflection> {
+    state.with_ctx(|c| reflect::answer_structured(c, &id, &answers))
+}
+
 /// 過去の振り返り（新しい順）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn reflect_list(state: S, kind: Option<String>, limit: Option<i64>) -> AppResult<Vec<Reflection>> {

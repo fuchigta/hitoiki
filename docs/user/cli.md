@@ -95,10 +95,21 @@
 | コマンド | 内容 |
 |---|---|
 | `hitoiki reflect day_start [--date D]` / `day_end` / `weekly` | AI で問いを生成して保存 |
-| `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力） |
+| `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力）。構造化された問いには JSON `{"answers":[{"index":0,"energy":3,"mood":4},{"index":1,"text":"…","intensity":3}]}` を渡す（下記）。Markdown の回答も受け付ける |
 | `hitoiki reflect list [--kind K] [--limit N]` | 保存済みの振り返り一覧（新しい順。`--kind` は `day_start` / `day_end` / `weekly`） |
 | `hitoiki reflect show <ID>` | 問いと回答の詳細 |
 | `hitoiki context --kind K [--date D]` | AI 用のコンテキストを JSON で出力 |
+
+構造化された振り返り（[設定](./configuration.md#ai-コマンド) の `ai.structured`）では、問いに `[0]`、`[1]` … の番号と種類（チェックイン・ハッスル・ABC・自由記述）が付いて表示されます。`--json` では `structured`（問い）と `answers`（回答済みの対応表）がそのまま入ります。回答 JSON の各要素は `index`（問いの番号）と、種類ごとの次の項目です。
+
+| 種類 | 項目 | 保存先 |
+|---|---|---|
+| チェックイン | `energy` / `mood` / `stress`（1〜5）、`erg`（`existence` / `relatedness` / `growth`）、`note` | `checkin` |
+| ハッスル | `text`、`intensity`（1〜5、省略時 3） | `hassle` |
+| ABC | `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論） | `abc_record` |
+| 自由記述 | `text` | 振り返りの回答（`answers_md`） |
+
+空の項目は読み飛ばし、回答済みの問いには答え直せません（不正な値が 1 件でもあれば何も保存しません）。保存した記録の ID は `answers` に入ります。
 
 ### エージェントのセッション
 

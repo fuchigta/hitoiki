@@ -4,11 +4,14 @@
 //! 標準出力を受け取る。
 
 use super::context::{self, ContextJson};
+use super::record::{self, AbcInput, CheckInput, HassleInput};
+use super::structured::{self, QuestionKind, StructuredOutput};
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{AbcRecord, Reflection, ReflectionKind};
+use crate::model::{AbcRecord, ErgTag, Reflection, ReflectionKind};
 use crate::repo::reflection as repo;
 use crate::{paths, timefmt, Error, Result};
+use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -21,6 +24,9 @@ pub fn builtin_template(name: &str) -> Option<&'static str> {
         "day_end" => Some(include_str!("../../templates/day_end.md")),
         "weekly" => Some(include_str!("../../templates/weekly.md")),
         "abc_dispute" => Some(include_str!("../../templates/abc_dispute.md")),
+        "day_start_structured" => Some(include_str!("../../templates/day_start_structured.md")),
+        "day_end_structured" => Some(include_str!("../../templates/day_end_structured.md")),
+        "weekly_structured" => Some(include_str!("../../templates/weekly_structured.md")),
         _ => None,
     }
 }
@@ -206,9 +212,18 @@ fn run_configured(ctx: &Ctx, prompt: &str) -> Result<String> {
     )
 }
 
-/// 指定した種別のプロンプトを組み立てる（AI は呼ばない）。
+/// 指定した種別のプロンプトを組み立てる（AI は呼ばない）。従来の Markdown 用。
 pub fn build_prompt(ctx: &Ctx, context: &ContextJson) -> Result<String> {
-    let tpl = load_template(ctx, context.kind.as_str())?;
+    build_prompt_named(ctx, context, context.kind.as_str())
+}
+
+/// 構造化出力用のプロンプト（テンプレート `<kind>_structured`）。
+pub fn build_structured_prompt(ctx: &Ctx, context: &ContextJson) -> Result<String> {
+    build_prompt_named(ctx, context, &format!("{}_structured", context.kind.as_str()))
+}
+
+fn build_prompt_named(ctx: &Ctx, context: &ContextJson, template: &str) -> Result<String> {
+    let tpl = load_template(ctx, template)?;
     let json = serde_json::to_string_pretty(context).map_err(anyhow::Error::from)?;
     Ok(render_template(
         &tpl,
@@ -220,22 +235,283 @@ pub fn build_prompt(ctx: &Ctx, context: &ContextJson) -> Result<String> {
     ))
 }
 
+/// 構造化出力で問いを生成する。コマンドの失敗・JSON 不正・スキーマ違反はすべてエラーで返す。
+fn generate_structured(ctx: &Ctx, c: &ContextJson) -> Result<StructuredOutput> {
+    let prompt = build_structured_prompt(ctx, c)?;
+    let schema = structured::schema_json();
+    // `_file` は実行が終わるまで保持する（Drop で一時スキーマファイルを消す）。
+    let (extra, _file) = structured::build_args(&ctx.cfg.ai, &schema)?;
+    let mut argv = ctx.cfg.ai.command.clone();
+    argv.extend(extra);
+    let out = run_ai(&argv, &prompt, Duration::from_secs(ctx.cfg.ai.timeout_sec.max(1)))?;
+    structured::parse_output(&out)
+}
+
 /// コンテキストを作り、AI で問いを生成して `reflection` に保存する。
+///
+/// `ai.structured` が有効なら構造化出力を試み、失敗したら（エラーはログに残して）従来の Markdown の問いに
+/// フォールバックする。
 pub fn reflect(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Reflection> {
     let c = context::context(ctx, kind, date)?;
-    let prompt = build_prompt(ctx, &c)?;
-    let questions = run_configured(ctx, &prompt)?;
+    let mut structured_out = None;
+    if structured::enabled(&ctx.cfg.ai) {
+        match generate_structured(ctx, &c) {
+            Ok(o) => structured_out = Some(o),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "構造化出力に失敗したので Markdown の問いにフォールバックします"
+            ),
+        }
+    }
+    let (questions_md, structured_json, summary_md) = match &structured_out {
+        Some(o) => (
+            o.to_markdown(),
+            Some(serde_json::to_string(o).map_err(anyhow::Error::from)?),
+            o.summary.clone(),
+        ),
+        None => {
+            let prompt = build_prompt(ctx, &c)?;
+            (run_configured(ctx, &prompt)?, None, None)
+        }
+    };
     let r = Reflection {
         id: new_id(),
         at: ctx.now(),
         kind,
         context_json: serde_json::to_string(&c).map_err(anyhow::Error::from)?,
-        questions_md: questions,
+        questions_md,
         answers_md: None,
-        summary_md: None,
+        summary_md,
+        structured_json,
+        answers_json: None,
     };
     repo::insert(ctx.conn, &r)?;
     Ok(r)
+}
+
+/// 構造化出力を取り出す（従来の Markdown のみの振り返りは `None`）。
+pub fn structured_of(r: &Reflection) -> Result<Option<StructuredOutput>> {
+    r.structured_json
+        .as_deref()
+        .map(|j| {
+            serde_json::from_str(j)
+                .map_err(|e| Error::Other(anyhow::anyhow!("structured_json を読めません: {e}")))
+        })
+        .transpose()
+}
+
+/// 構造化された問い 1 件への回答。使うフィールドは問いの種類で決まる。
+/// - checkin: `energy` / `mood` / `stress`（1〜5）、`erg`、`note`
+/// - hassle: `text`、`intensity`（1〜5、省略時 3）
+/// - abc: `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論）
+/// - free: `text`
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AnswerItem {
+    /// 問いの番号（0 始まり。`structured_json` の `questions` の添字）。
+    pub index: usize,
+    pub energy: Option<i64>,
+    pub mood: Option<i64>,
+    pub stress: Option<i64>,
+    pub erg: Option<ErgTag>,
+    pub note: Option<String>,
+    pub text: Option<String>,
+    pub intensity: Option<i64>,
+    pub activating_event: Option<String>,
+    pub belief: Option<String>,
+    pub emotion: Option<String>,
+    pub emotion_intensity: Option<i64>,
+    pub dispute: Option<String>,
+}
+
+/// `answer_structured` の入力（`hitoiki reflect answer` に渡す JSON もこの形）。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AnswersInput {
+    pub answers: Vec<AnswerItem>,
+}
+
+/// 保存済みの回答 1 件。どの問いに答え、どのレコードを作ったかの対応。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnsweredItem {
+    pub index: usize,
+    pub kind: QuestionKind,
+    /// checkin / hassle / abc の保存先（`checkin.id` / `hassle.id` / `abc_record.id`）。free は無し。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
+    /// free の回答本文。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+/// `reflection.answers_json` の中身。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnswersRecord {
+    pub items: Vec<AnsweredItem>,
+}
+
+fn nonblank(s: &Option<String>) -> Option<String> {
+    s.as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+}
+
+/// 構造化された問いへの回答を、種類ごとの保存先（`checkin` / `hassle` / `abc_record`、自由記述は
+/// `answers_md`）に保存する。空の回答は読み飛ばす。回答済みの問いには答え直せない。
+/// 1 件でも不正なら何も保存しない。
+pub fn answer_structured(ctx: &Ctx, id: &str, input: &AnswersInput) -> Result<Reflection> {
+    let r = repo::resolve(ctx.conn, id)?;
+    let out = structured_of(&r)?.ok_or_else(|| {
+        Error::InvalidArgument("この振り返りは構造化されていません。Markdown で回答してください".into())
+    })?;
+    let mut record: AnswersRecord = match r.answers_json.as_deref() {
+        Some(j) => serde_json::from_str(j)
+            .map_err(|e| Error::Other(anyhow::anyhow!("answers_json を読めません: {e}")))?,
+        None => AnswersRecord::default(),
+    };
+
+    let mut seen = Vec::new();
+    for a in &input.answers {
+        if a.index >= out.questions.len() {
+            return Err(Error::InvalidArgument(format!(
+                "問い {} はありません（0〜{}）",
+                a.index,
+                out.questions.len() - 1
+            )));
+        }
+        if seen.contains(&a.index) {
+            return Err(Error::InvalidArgument(format!(
+                "問い {} の回答が重複しています",
+                a.index
+            )));
+        }
+        if record.items.iter().any(|i| i.index == a.index) {
+            return Err(Error::InvalidArgument(format!("問い {} は回答済みです", a.index)));
+        }
+        seen.push(a.index);
+    }
+
+    let tx = ctx.conn.unchecked_transaction()?;
+    let mut added = 0;
+    for a in &input.answers {
+        let q = &out.questions[a.index];
+        let mut item = AnsweredItem {
+            index: a.index,
+            kind: q.kind,
+            record_id: None,
+            text: None,
+        };
+        match q.kind {
+            QuestionKind::Checkin => {
+                let note = nonblank(&a.note);
+                if a.energy.is_none()
+                    && a.mood.is_none()
+                    && a.stress.is_none()
+                    && a.erg.is_none()
+                    && note.is_none()
+                {
+                    continue;
+                }
+                let c = record::check(
+                    ctx,
+                    &CheckInput {
+                        energy: a.energy,
+                        mood: a.mood,
+                        stress: a.stress,
+                        erg: a.erg,
+                        note,
+                    },
+                )?;
+                item.record_id = Some(c.id);
+            }
+            QuestionKind::Hassle => {
+                let Some(text) = nonblank(&a.text) else { continue };
+                let h = record::hassle(
+                    ctx,
+                    &HassleInput {
+                        text,
+                        intensity: a.intensity,
+                    },
+                )?;
+                item.record_id = Some(h.id);
+            }
+            QuestionKind::Abc => {
+                let (event, belief, emotion, dispute) = (
+                    nonblank(&a.activating_event),
+                    nonblank(&a.belief),
+                    nonblank(&a.emotion),
+                    nonblank(&a.dispute),
+                );
+                if event.is_none()
+                    && belief.is_none()
+                    && emotion.is_none()
+                    && dispute.is_none()
+                    && a.emotion_intensity.is_none()
+                {
+                    continue;
+                }
+                let abc = record::abc_add(
+                    ctx,
+                    &AbcInput {
+                        activating_event: event,
+                        belief,
+                        consequence_emotion: emotion,
+                        consequence_intensity: a.emotion_intensity,
+                        from_hassle: None,
+                    },
+                )?;
+                if let Some(d) = dispute {
+                    repo::set_abc_dispute(ctx.conn, &abc.id, &d)?;
+                }
+                item.record_id = Some(abc.id);
+            }
+            QuestionKind::Free => {
+                let Some(text) = nonblank(&a.text) else { continue };
+                item.text = Some(text);
+            }
+        }
+        record.items.push(item);
+        added += 1;
+    }
+    if added == 0 {
+        return Err(Error::InvalidArgument("回答が空です".into()));
+    }
+    record.items.sort_by_key(|i| i.index);
+
+    let free: Vec<String> = record
+        .items
+        .iter()
+        .filter_map(|i| {
+            let text = i.text.as_deref()?;
+            Some(format!("### {}\n\n{}", out.questions[i.index].prompt, text))
+        })
+        .collect();
+    // 自由記述が無いときは、Markdown で先に書かれた回答があればそのまま残す。
+    let answers_md = if free.is_empty() {
+        r.answers_md.clone()
+    } else {
+        Some(free.join("\n\n"))
+    };
+    let json = serde_json::to_string(&record).map_err(anyhow::Error::from)?;
+    repo::set_structured_answers(ctx.conn, &r.id, answers_md.as_deref(), &json)?;
+    tx.commit()?;
+    repo::get(ctx.conn, &r.id)
+}
+
+/// CLI 用: `{"answers":[...]}` の JSON なら構造化された回答として、それ以外は従来どおり Markdown の回答として保存する。
+pub fn answer_text(ctx: &Ctx, id: &str, text: &str) -> Result<Reflection> {
+    let t = text.trim();
+    if t.starts_with('{') {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(t) {
+            if v.get("answers").is_some() {
+                let input: AnswersInput = serde_json::from_value(v)
+                    .map_err(|e| Error::InvalidArgument(format!("回答の JSON が不正です: {e}")))?;
+                return answer_structured(ctx, id, &input);
+            }
+        }
+    }
+    answer(ctx, id, text)
 }
 
 /// 回答を保存する（既存の回答は置き換える）。
@@ -410,6 +686,168 @@ mod tests {
         let ctx = env.ctx();
         assert!(reflect(&ctx, ReflectionKind::DayStart, None).is_err());
         assert!(list(&ctx, None, 10).unwrap().is_empty());
+    }
+
+    fn structured_env(mode: &str) -> Env {
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some(mode));
+        env.cfg.ai.structured = crate::config::AiStructured::On;
+        env.cfg.ai.structured_args = vec!["--structured".into(), "{schema}".into()];
+        env
+    }
+
+    #[test]
+    fn structured_prompt_has_context_and_kind_rules() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        for (k, forbidden) in [
+            (ReflectionKind::DayStart, "`hassle` と `abc` は使わない"),
+            (ReflectionKind::DayEnd, "`abc` は使わない"),
+            (ReflectionKind::Weekly, "`checkin` は使わない"),
+        ] {
+            let c = context::context(&ctx, k, None).unwrap();
+            let p = build_structured_prompt(&ctx, &c).unwrap();
+            assert!(!p.contains("{{context}}") && p.contains("\"version\": 1"), "{k}");
+            assert!(p.contains(forbidden), "{k}");
+        }
+    }
+
+    #[test]
+    fn structured_reflect_saves_json_and_markdown() {
+        let env = structured_env("structured");
+        let ctx = env.ctx();
+        let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        // 複数 JSON が連結された出力でも読み取れる
+        let s = structured_of(&r).unwrap().expect("構造化されている");
+        assert_eq!(s.questions.len(), 4);
+        assert_eq!(r.summary_md.as_deref(), Some("今日の要約"));
+        assert!(r.questions_md.contains("1. いまの調子は？"));
+        assert!(r.questions_md.contains("出来事の候補: レビューで指摘された"));
+        assert!(!r.answered());
+        let saved = show(&ctx, &r.id).unwrap();
+        assert_eq!(saved.structured_json, r.structured_json);
+    }
+
+    #[test]
+    fn structured_failures_fall_back_to_markdown() {
+        for mode in ["badjson", "badschema"] {
+            let env = structured_env(mode);
+            let ctx = env.ctx();
+            let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+            assert!(r.structured_json.is_none(), "{mode}");
+            assert_eq!(r.questions_md, "## 問い\n\n1. 従来の Markdown の問い", "{mode}");
+        }
+        // 構造化の引数でコマンドが失敗しても、引数なしで再実行した結果にフォールバックする
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("structured"));
+        env.cfg.ai.structured = crate::config::AiStructured::Off;
+        let r = reflect(&env.ctx(), ReflectionKind::DayEnd, None).unwrap();
+        assert!(r.structured_json.is_none());
+        // off ならプロンプトがそのまま（echo ではなく Markdown 応答）保存される
+        assert_eq!(r.questions_md, "## 問い\n\n1. 従来の Markdown の問い");
+    }
+
+    #[test]
+    fn answer_structured_routes_by_kind() {
+        let env = structured_env("structured");
+        let ctx = env.ctx();
+        let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        let input: AnswersInput = serde_json::from_str(
+            r#"{"answers":[
+              {"index":0,"energy":3,"mood":4,"erg":"growth","note":"普通"},
+              {"index":1,"text":"会議が長かった","intensity":4},
+              {"index":2,"activating_event":"レビューで指摘された","belief":"向いていない","emotion":"落ち込み","emotion_intensity":4,"dispute":"一部の指摘だけ"},
+              {"index":3,"text":"まあまあ"}
+            ]}"#,
+        )
+        .unwrap();
+        let a = answer_structured(&ctx, &r.id[..10], &input).unwrap();
+        assert!(a.answered());
+        let rec: AnswersRecord = serde_json::from_str(a.answers_json.as_ref().unwrap()).unwrap();
+        assert_eq!(rec.items.len(), 4);
+        assert_eq!(
+            a.answers_md.as_deref(),
+            Some("### ひとことで言うと？\n\nまあまあ")
+        );
+
+        // 保存先: checkin / hassle / abc_record
+        let conn = ctx.conn;
+        let cs = crate::repo::record::list_checkins(conn, 0, i64::MAX).unwrap();
+        assert_eq!(cs.len(), 1);
+        assert_eq!(
+            (cs[0].energy, cs[0].mood, cs[0].erg_tag),
+            (Some(3), Some(4), Some(ErgTag::Growth))
+        );
+        assert_eq!(rec.items[0].record_id.as_deref(), Some(cs[0].id.as_str()));
+        let hs = crate::repo::record::list_hassles(conn, 0, i64::MAX).unwrap();
+        assert_eq!((hs.len(), hs[0].intensity), (1, 4));
+        assert_eq!(rec.items[1].record_id.as_deref(), Some(hs[0].id.as_str()));
+        let abcs = crate::repo::record::list_abc(conn, 0, i64::MAX).unwrap();
+        assert_eq!(abcs.len(), 1);
+        assert_eq!(abcs[0].belief.as_deref(), Some("向いていない"));
+        assert_eq!(abcs[0].consequence_intensity, Some(4));
+        assert_eq!(abcs[0].dispute.as_deref(), Some("一部の指摘だけ"));
+        assert_eq!(rec.items[2].record_id.as_deref(), Some(abcs[0].id.as_str()));
+        assert_eq!(rec.items[3].record_id, None);
+
+        // 回答済みの問いには答え直せない
+        let again = AnswersInput {
+            answers: vec![AnswerItem {
+                index: 0,
+                energy: Some(1),
+                ..Default::default()
+            }],
+        };
+        assert!(answer_structured(&ctx, &r.id, &again).is_err());
+    }
+
+    #[test]
+    fn answer_structured_validates_without_partial_save() {
+        let env = structured_env("structured");
+        let ctx = env.ctx();
+        let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        let item = |index, f: &dyn Fn(&mut AnswerItem)| {
+            let mut a = AnswerItem {
+                index,
+                ..Default::default()
+            };
+            f(&mut a);
+            a
+        };
+        // 範囲外の番号、重複、空
+        for answers in [
+            vec![item(9, &|a| a.text = Some("x".into()))],
+            vec![
+                item(3, &|a| a.text = Some("x".into())),
+                item(3, &|a| a.text = Some("y".into())),
+            ],
+            vec![item(0, &|_| {}), item(3, &|a| a.text = Some("  ".into()))],
+        ] {
+            assert!(answer_structured(&ctx, &r.id, &AnswersInput { answers }).is_err());
+        }
+        // 後ろの項目が不正（強度 9）なら、前の checkin も保存されない
+        let bad = AnswersInput {
+            answers: vec![
+                item(0, &|a| a.energy = Some(3)),
+                item(1, &|a| {
+                    a.text = Some("x".into());
+                    a.intensity = Some(9);
+                }),
+            ],
+        };
+        assert!(answer_structured(&ctx, &r.id, &bad).is_err());
+        assert!(crate::repo::record::list_checkins(ctx.conn, 0, i64::MAX)
+            .unwrap()
+            .is_empty());
+        assert!(!show(&ctx, &r.id).unwrap().answered());
+        // Markdown のみの振り返りには使えない
+        let mut env2 = Env::new();
+        env2.cfg.ai.command = argv(None);
+        let md = reflect(&env2.ctx(), ReflectionKind::DayEnd, None).unwrap();
+        let ok = AnswersInput {
+            answers: vec![item(0, &|a| a.text = Some("x".into()))],
+        };
+        assert!(answer_structured(&env2.ctx(), &md.id, &ok).is_err());
     }
 
     #[test]

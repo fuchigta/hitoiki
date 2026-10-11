@@ -3,6 +3,8 @@ import { api, type Reflection, type ReflectionKind } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
 import { dateInput, fmtFull, useAction, useAsync } from "../lib";
 import { Markdown } from "../markdown";
+import { StructuredAnswer } from "../reflect-form";
+import { parseStructured } from "../reflect-util";
 
 const KINDS: { id: ReflectionKind; label: string; hint: string }[] = [
   { id: "day_start", label: "始業", hint: "昨日までを材料に、今日のはじまりを考えます。" },
@@ -72,6 +74,8 @@ export function Reflect() {
   };
 
   const info = KINDS.find((k) => k.id === kind)!;
+  // 構造化された問いは種類ごとのフォームで答える。構造化されていない（フォールバックした）ものは従来の表示。
+  const structured = current ? parseStructured(current) : null;
 
   return (
     <div class="stack">
@@ -114,7 +118,19 @@ export function Reflect() {
         <ErrorBox error={gen.error} />
       </Card>
 
-      {current && (
+      {current && structured && (
+        <Card title={`${info.label}の振り返り（${fmtFull(current.at)}）`}>
+          <StructuredAnswer
+            reflection={current}
+            onSaved={(r) => {
+              setCurrent(r);
+              past.reload();
+            }}
+          />
+        </Card>
+      )}
+
+      {current && !structured && (
         <Card title={`${info.label}の振り返り（${fmtFull(current.at)}）`}>
           <Markdown text={current.questions_md} />
           <form class="stack" onSubmit={submit}>
@@ -152,7 +168,7 @@ export function Reflect() {
               <button class={`link${current?.id === r.id ? " on" : ""}`} onClick={() => setCurrent(r)}>
                 {fmtFull(r.at)}
               </button>
-              {r.answers_md ? <span class="muted"> ・回答済み</span> : <span class="muted"> ・未回答</span>}
+              {r.answers_md || r.answers_json ? <span class="muted"> ・回答済み</span> : <span class="muted"> ・未回答</span>}
             </li>
           ))}
         </ul>

@@ -532,6 +532,7 @@ pub enum ReflectCmd {
         #[arg(long)]
         date: Option<String>,
     },
+    /// 回答を保存する。構造化された問いには `{"answers":[{"index":0,"energy":3}]}` の JSON を、従来の問いには Markdown を渡す
     Answer {
         id: String,
         /// 回答ファイル（`-` で標準入力）

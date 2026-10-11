@@ -98,6 +98,8 @@ export const api = {
     call<T.Reflection>("reflect_generate", { kind, date }),
   reflectAnswer: (id: string, answersMd: string) =>
     call<T.Reflection>("reflect_answer", { id, answers_md: answersMd }),
+  reflectAnswerStructured: (id: string, answers: T.AnswersInput) =>
+    call<T.Reflection>("reflect_answer_structured", { id, answers }),
   reflectList: (kind?: T.ReflectionKind, limit = 30) =>
     call<T.Reflection[]>("reflect_list", { kind, limit }),
   reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
