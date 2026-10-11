@@ -945,3 +945,80 @@ button.primary.attn {
   gap: 4px 10px;
   padding: 4px 0;
 }
+
+/* タスク選択（コンボボックス） */
+.picker {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.picker-input {
+  display: flex;
+  gap: 4px;
+}
+.picker-input input {
+  flex: 1;
+}
+.picker-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.picker-flag {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+.picker-flag.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
+}
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 3px;
+  max-height: 200px;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.picker-item {
+  padding: 6px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.picker-item.on {
+  background: var(--accent-soft);
+}
+.picker-item.create,
+.picker-item.back {
+  color: var(--accent);
+}
+
+/* クイック入力ウインドウ */
+.quick {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  box-sizing: border-box;
+}
+.quick .picker {
+  flex: 1;
+  min-height: 0;
+}
+.quick .picker-list {
+  max-height: none;
+  flex: 1;
+}
+.quick-done {
+  margin: auto;
+  font-size: 17px;
+}

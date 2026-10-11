@@ -2,6 +2,6 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Hitoiki のウインドウに許可する権限",
-  "windows": ["main", "popup"],
+  "windows": ["main", "popup", "quick"],
   "permissions": ["core:default"]
 }

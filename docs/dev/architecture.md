@@ -326,7 +326,9 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 ## 11. GUI
 
-`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings`、初回起動時の `onboarding`、通知用の `popup`。オンボーディングの完了は `setting` テーブルの `onboarding.completed_at` で判定し（`service::onboarding`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了を持つ。
+`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today` / `review` / `tasks` / `plan` / `reflect` / `report` / `records` / `okr` / `settings`、初回起動時の `onboarding`、通知用の `popup`、クイック入力用の `quick`（ウインドウラベルで切り替える小窓）。オンボーディングの完了は `setting` テーブルの `onboarding.completed_at` で判定し（`service::onboarding`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了に加え、「タスクを素早く入力…」でクイック入力を開く。
+
+クイック入力（`hitoiki-app/src/quick.rs`）: 設定 `general.quick_entry_shortcut`（既定 `Ctrl+Alt+Space`、`core::shortcut` が検証・正規化）を `tauri-plugin-global-shortcut` で登録する。Windows ではその実体は `RegisterHotKey`（global-hotkey クレート）で、OS から受け取るのは登録した組み合わせの押下通知だけであり、`WH_KEYBOARD_LL` などのフックやキー入力の記録は使わない（登録したキーが離されるまで、そのキー 1 つの押下状態を 50ms 間隔で見る処理はプラグイン内にあるが、離したときの通知は使わず、何も保存しない）。ウインドウ（ラベル `quick`、装飾なし・常に手前・タスクバー非表示）は起動時に非表示で作っておき、ショートカットで画面中央上寄せに出してフォーカスを取り、`quick-open` イベントで UI が入力を初期化する。フォーカスを失うと隠す。登録・解除は main スレッドで行われるため、設定を変えるコマンド（`quick_shortcut_set`）は async にしている。作成または選択して開始する処理と直前の doing の取得は core の `service::quick`（`switch` / `back` / `previous_doing`。直前の doing は `task_doing_log` の閉じたログのうち終了が最も新しい、未完了のタスク）で、CLI の `task switch` / `task back` と共通。ヘッドレスの daemon にはショートカットもウインドウも無い。UI の選択欄は `task-picker.tsx`（絞り込みと候補の組み立ては `task-picker-util.ts` の純粋関数）で、ブロックのフォームとクイック入力が共用する。
 
 ## 12. ファイル配置と設定
 

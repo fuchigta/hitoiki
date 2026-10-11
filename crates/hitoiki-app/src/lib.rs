@@ -7,6 +7,7 @@ pub mod dto;
 pub mod error;
 pub mod events;
 pub mod notify;
+pub mod quick;
 pub mod runtime;
 pub mod state;
 pub mod tray;
@@ -87,6 +88,8 @@ pub fn run() {
                 .arg("--background")
                 .build(),
         )
+        // クイック入力のグローバルショートカット（RegisterHotKey。登録は quick::init）。
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::status,
@@ -162,8 +165,20 @@ pub fn run() {
             commands::onboarding_status,
             commands::onboarding_complete,
             commands::onboarding_reset,
+            quick::quick_previous,
+            quick::quick_switch,
+            quick::quick_back,
+            quick::quick_close,
+            quick::quick_shortcut_state,
+            quick::quick_shortcut_set,
         ])
         .on_window_event(|window, event| {
+            // クイック入力は、フォーカスを失ったら隠す。
+            if window.label() == quick::LABEL {
+                if let WindowEvent::Focused(false) = event {
+                    let _ = window.hide();
+                }
+            }
             // メイン窓を閉じてもトレイに残る。
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
@@ -178,6 +193,7 @@ pub fn run() {
             tray::init(&handle)?;
             tray::start_refresh_loop(&handle);
             runtime::start_background(&handle);
+            quick::init(&handle);
 
             // 開発・テスト時(debug / HITOIKI_HOME 指定)は OS の自動起動設定に触らない。
             if !cfg!(debug_assertions) && std::env::var_os("HITOIKI_HOME").is_none() {

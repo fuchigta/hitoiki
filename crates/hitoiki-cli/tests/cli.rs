@@ -939,3 +939,48 @@ fn review_set_range_argument_errors() {
     ];
     assert_eq!(run(h, &bad_exclude).code, 3);
 }
+
+#[test]
+fn task_switch_と_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let a = run(h, &["--json", "task", "add", "設計レビュー"]);
+    let a_id = a.json()["id"].as_str().unwrap().to_string();
+    assert_eq!(run(h, &["task", "start", &a_id]).code, 0);
+
+    // 戻り先がまだ無い。
+    assert_eq!(run(h, &["task", "back"]).code, 3);
+
+    // 割り込みタスクを作って開始する。
+    let s = run(
+        h,
+        &["--json", "task", "switch", "障害対応", "--new", "--interrupt"],
+    );
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    let v = s.json();
+    assert_eq!(v["created"], true);
+    assert_eq!(v["task"]["status"], "doing");
+    assert_eq!(v["task"]["kind"], "interrupt");
+    assert_eq!(v["task"]["urgent"], true);
+    assert_eq!(v["demoted"][0]["id"], a_id.as_str());
+
+    // 直前の doing（設計レビュー）に戻る。
+    let b = run(h, &["--json", "task", "back"]);
+    assert_eq!(b.code, 0, "{}", b.stderr);
+    assert_eq!(b.json()["task"]["id"], a_id.as_str());
+    assert_eq!(b.json()["created"], false);
+    let st = run(h, &["--json", "status"]);
+    assert_eq!(st.json()["doing"][0]["task"]["title"], "設計レビュー");
+
+    // 既存タスクをタイトルの一部で選ぶ。
+    let t = run(h, &["task", "switch", "障害"]);
+    assert_eq!(t.code, 0, "{}", t.stderr);
+    assert!(t.stdout.contains("開始しました"), "{}", t.stdout);
+
+    // 終了コード: 対象なし 3、曖昧 4、引数エラー 2。
+    assert_eq!(run(h, &["task", "switch", "存在しない"]).code, 3);
+    assert_eq!(run(h, &["task", "add", "障害対応の振り返り"]).code, 0);
+    assert_eq!(run(h, &["task", "switch", "障害"]).code, 4);
+    assert_eq!(run(h, &["task", "switch", "  ", "--new"]).code, 2);
+    assert_eq!(run(h, &["task", "switch", "x", "--interrupt"]).code, 2);
+}

@@ -27,7 +27,7 @@ hitoiki config get push.daily_limit
 
 | セクション | キー（既定値） |
 |---|---|
-| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）。[更新の確認](#更新の確認) を参照 |
+| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）、`quick_entry_shortcut`（`Ctrl+Alt+Space`）。[更新の確認](#更新の確認)、[クイック入力のショートカット](#クイック入力のショートカット) を参照 |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
 | `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
@@ -165,6 +165,18 @@ timeout_sec = 10
 通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。
 
 ## 更新の確認
+
+## クイック入力のショートカット
+
+`general.quick_entry_shortcut` は、クイック入力の窓を開くグローバルショートカットです（既定 `Ctrl+Alt+Space`）。空文字（`""`）にすると無効になります。
+
+- 書き方は `Ctrl+Alt+Space` のように、修飾キー（`Ctrl` / `Alt` / `Shift` / `Super`＝Windows キー）を 1 つ以上と、主キー 1 つを `+` でつなぎます（大文字小文字は区別しません）。主キーは英数字、`F1`〜`F24`、`Space` / `Enter` / `Tab` / `Escape` / `Backspace` / `Delete` / `Insert` / `Home` / `End` / `PageUp` / `PageDown` / `Up` / `Down` / `Left` / `Right` です。解釈できない値は `config set` でエラーになり、保存されません。
+- 設定画面の「クイック入力」で、「キーを押して記録」を押してから組み合わせを押すか、文字で入力して保存します。他のアプリと衝突して登録できないときはエラーを表示し、それまでの設定を保ちます。変更は再起動なしで反映されます（`hitoiki config set` で書き換えた場合は、アプリを再起動すると反映されます）。
+- GUI アプリだけの機能です。ヘッドレスの daemon にはショートカットはありません。
+
+```
+hitoiki config set general.quick_entry_shortcut '"Ctrl+Shift+K"'
+```
 
 `general.update_check` は、新しいバージョンを確認するかどうかの選択です。
 

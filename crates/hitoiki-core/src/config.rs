@@ -28,6 +28,8 @@ pub struct General {
     /// 新しいバージョンの確認（1 日 1 回、GitHub に問い合わせる）。
     /// None（未設定）はまだ尋ねていない状態で、確認しない（オプトイン）。true / false は利用者の選択。
     pub update_check: Option<bool>,
+    /// クイック入力を開くグローバルショートカット（GUI のみ。例 `Ctrl+Alt+Space`）。空文字で無効。
+    pub quick_entry_shortcut: String,
 }
 
 impl Default for General {
@@ -36,6 +38,7 @@ impl Default for General {
             timezone: "Asia/Tokyo".into(),
             autostart: true,
             update_check: None,
+            quick_entry_shortcut: "Ctrl+Alt+Space".into(),
         }
     }
 }
@@ -468,6 +471,12 @@ impl Config {
         })
     }
 
+    /// 値の意味の検査（型では防げないもの）。`config set` が書き込む前に呼ぶ。
+    pub fn validate(&self) -> Result<()> {
+        crate::shortcut::parse(&self.general.quick_entry_shortcut)?;
+        Ok(())
+    }
+
     pub fn tz(&self) -> Result<chrono_tz::Tz> {
         crate::timefmt::parse_tz(&self.general.timezone)
     }
@@ -512,7 +521,9 @@ pub fn set_value(path: &Path, key: &str, raw: &str) -> Result<()> {
     }
     cur.insert(last.to_string(), value);
     let text = toml::to_string_pretty(&doc).map_err(anyhow::Error::from)?;
-    toml::from_str::<Config>(&text).map_err(|e| Error::InvalidArgument(format!("設定値が不正です: {e}")))?;
+    let cfg = toml::from_str::<Config>(&text)
+        .map_err(|e| Error::InvalidArgument(format!("設定値が不正です: {e}")))?;
+    cfg.validate()?;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -559,6 +570,28 @@ update_check = false
         // 未設定のまま書き出しても読み戻せる（TOML は None を省く）。
         let s = toml::to_string(&Config::default()).unwrap();
         assert_eq!(toml::from_str::<Config>(&s).unwrap().general.update_check, None);
+    }
+
+    #[test]
+    fn クイック入力のショートカットは既定値があり不正な値は保存できない() {
+        assert_eq!(Config::default().general.quick_entry_shortcut, "Ctrl+Alt+Space");
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("config.toml");
+        set_value(&p, "general.quick_entry_shortcut", "\"Ctrl+Shift+K\"").unwrap();
+        assert_eq!(
+            Config::load_from(&p).unwrap().general.quick_entry_shortcut,
+            "Ctrl+Shift+K"
+        );
+        // 空文字は無効化として保存できる。
+        set_value(&p, "general.quick_entry_shortcut", "\"\"").unwrap();
+        // 解釈できない値はエラーで、ファイルは変わらない。
+        for bad in ["\"Space\"", "\"Ctrl+Nope\"", "\"Ctrl+\"", "5"] {
+            assert!(
+                set_value(&p, "general.quick_entry_shortcut", bad).is_err(),
+                "{bad}"
+            );
+        }
+        assert_eq!(Config::load_from(&p).unwrap().general.quick_entry_shortcut, "");
     }
 
     #[test]

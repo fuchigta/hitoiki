@@ -1,8 +1,10 @@
 import { useState } from "preact/hooks";
-import type { AppError, BlockInput, Millis, TaskView } from "./api";
+import { api, type AppError, type BlockInput, type Millis, type TaskView } from "./api";
 import { ErrorBox, Field } from "./components";
-import { fmtTime, toMillis } from "./lib";
+import { fmtTime, toMillis, useAction } from "./lib";
 import { describeConflicts, findOverlaps } from "./plan-util";
+import { TaskPicker } from "./task-picker";
+import type { PickerItem } from "./task-picker-util";
 
 export interface BlockDraft {
   /** 既存のブロックを編集するときの ID。 */
@@ -45,6 +47,22 @@ export function BlockForm(p: Props) {
   const [task, setTask] = useState(d.task);
   const [label, setLabel] = useState(d.label);
   const [focus, setFocus] = useState(d.focus);
+  // この場で新規作成したタスク（親の一覧にはまだ載っていない）。
+  const [created, setCreated] = useState<TaskView[]>([]);
+  const creating = useAction();
+  const tasks = [...p.tasks, ...created.filter((c) => !p.tasks.some((t) => t.id === c.id))];
+
+  const pickTask = async (it: PickerItem) => {
+    if (it.kind === "create") {
+      const v = await creating.run(() => api.taskAdd({ title: it.title }));
+      if (v) {
+        setCreated((l) => [...l, v]);
+        setTask(v.id);
+      }
+    } else {
+      setTask(it.task.id);
+    }
+  };
 
   const s = toMillis(p.date, start);
   const e = toMillis(p.date, end);
@@ -66,16 +84,18 @@ export function BlockForm(p: Props) {
         <Field label="終了">
           <input type="time" value={end} onInput={(ev) => setEnd(ev.currentTarget.value)} />
         </Field>
-        <Field label="タスク">
-          <select value={task} onChange={(ev) => setTask(ev.currentTarget.value)}>
-            <option value="">（なし）</option>
-            {p.tasks.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.title}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <div class="field">
+          <span>タスク</span>
+          <TaskPicker
+            tasks={tasks}
+            selectedId={task || undefined}
+            ariaLabel="タスク"
+            placeholder="（なし）入力で絞り込み・新規作成"
+            disabled={creating.busy}
+            onPick={pickTask}
+            onClear={() => setTask("")}
+          />
+        </div>
         <Field label="ラベル">
           <input value={label} onInput={(ev) => setLabel(ev.currentTarget.value)} placeholder="任意" />
         </Field>
@@ -84,6 +104,7 @@ export function BlockForm(p: Props) {
         <input type="checkbox" checked={focus} onChange={(ev) => setFocus(ev.currentTarget.checked)} />
         集中の時間（この間は通知を控えます）
       </label>
+      <ErrorBox error={creating.error} />
       {invalid && <p class="muted">終了は開始より後にしてください。</p>}
       {hits.length > 0 && <p class="muted">重なり: {describeConflicts(hits)}（重ねても保存できます）</p>}
       <div class="row">

@@ -37,6 +37,13 @@ pub fn emit_import_completed(app: &AppHandle, source: &str) {
     emit(app, IMPORT_COMPLETED, json!({ "source": source }));
 }
 
+/// クイック入力ウインドウを開いた（UI が入力欄と候補を初期化する）。
+pub const QUICK_OPEN: &str = "quick-open";
+
+pub fn emit_quick_open(app: &AppHandle) {
+    emit(app, QUICK_OPEN, json!({}));
+}
+
 pub fn emit_open_screen(app: &AppHandle, screen: &str) {
     emit(app, OPEN_SCREEN, json!({ "screen": screen }));
 }
