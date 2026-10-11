@@ -1,5 +1,5 @@
-//! 通知の中身。「1 アクションで答えられる」ことを基本にする（docs/architecture.md「プッシュ通知」）。
-//! 文言は押し付けない寄り添うトーンで、評価や良し悪しの断定をしない（docs/architecture.md「設計原則」）。
+//! 通知の中身。「1 アクションで答えられる」ことを基本にする（docs/dev/architecture.md「プッシュ通知」）。
+//! 文言は押し付けない寄り添うトーンで、評価や良し悪しの断定をしない（docs/dev/architecture.md「設計原則」）。
 
 use super::PushTrigger;
 use serde::{Deserialize, Serialize};

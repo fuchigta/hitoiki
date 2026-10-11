@@ -18,7 +18,7 @@ pub mod task;
 use crate::{Error, Result};
 use rusqlite::Connection;
 
-/// `table` の `id` を前方一致で 1 件に解決する（docs/architecture.md「CLI」）。
+/// `table` の `id` を前方一致で 1 件に解決する（docs/dev/architecture.md「CLI」）。
 /// 0 件は `NotFound`、複数件は `Ambiguous`（候補を列挙）。完全一致があればそれを優先する。
 pub fn resolve_prefix(conn: &Connection, table: &str, prefix: &str) -> Result<String> {
     if prefix.is_empty() {

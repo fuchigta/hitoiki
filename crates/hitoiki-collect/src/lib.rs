@@ -1,4 +1,4 @@
-//! 収集器の OS 非依存部分: トレイト（docs/architecture.md「クレート構成とプロセスモデル」）、イベント型、DB へ書き込む状態機械 `Recorder`。
+//! 収集器の OS 非依存部分: トレイト（docs/dev/architecture.md「クレート構成とプロセスモデル」）、イベント型、DB へ書き込む状態機械 `Recorder`。
 
 mod mock;
 mod recorder;

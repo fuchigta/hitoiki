@@ -1,4 +1,4 @@
-//! ルールのパターンマッチ（docs/architecture.md「帰属判定パイプライン」）。glob / regex / contains を、パス区切り（`\` と `/`）と
+//! ルールのパターンマッチ（docs/dev/architecture.md「帰属判定パイプライン」）。glob / regex / contains を、パス区切り（`\` と `/`）と
 //! 大文字小文字を無視して評価する。
 
 use crate::model::{ActivityRule, MatchField, PatternType, TaskMatchRule};

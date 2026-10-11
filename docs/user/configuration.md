@@ -1,0 +1,154 @@
+# 設定
+
+## 場所
+
+| 用途 | パス |
+|---|---|
+| 設定ファイル | `%APPDATA%\hitoiki\config.toml` |
+| DB | `%LOCALAPPDATA%\hitoiki\hitoiki.db` |
+| ログ | `%LOCALAPPDATA%\hitoiki\logs\` |
+| 判定器・プラグイン | `%APPDATA%\hitoiki\plugins\` |
+| 質問セット | `%APPDATA%\hitoiki\questions\` |
+| 振り返りテンプレート | `%APPDATA%\hitoiki\templates\` |
+
+`HITOIKI_HOME` 環境変数を設定すると、設定・DB の置き場所をまとめて差し替えられます（テスト用）。
+
+`config.toml` が無い、または項目が欠けていれば既定値で補います。ファイルを直接編集するほか、`hitoiki config path` / `config get <KEY>` / `config set <KEY> <VALUE>`、または設定画面の「設定ファイル」で読み書きできます。キーはドット区切りで、値は TOML として解釈します（解釈できなければ文字列）。書き換え後は全体を検証し、不正なら保存しません。
+
+```powershell
+hitoiki config set collect.idle_threshold_sec 300
+hitoiki config set general.timezone '"UTC"'
+hitoiki config get push.daily_limit
+```
+
+設定の変更は、再計算・カレンダー・通知・判定器には次回から反映されます。**収集器とログ監視の設定の変更には、常駐アプリの再起動が必要**です。
+
+## 主なキー
+
+| セクション | キー（既定値） |
+|---|---|
+| `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動） |
+| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180） |
+| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5） |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`disabled_triggers` |
+| `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
+| `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
+| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |
+| `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources` |
+| `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
+
+各キーの意味:
+
+- `collect.idle_threshold_sec`: この秒数、入力が無ければ無操作区間にします（入力の内容は見ません）。
+- `collect.merge_gap_sec`: 同じ内容にはさまれた、この秒数以下の短い作業を吸収して 1 つの区間にまとめます。
+- `collect.terminal_exes` / `communication_exes` / `meeting_exes`: ターミナル系（エージェントとの対話の判定に使う）、コミュニケーション系（割り込みの判定に使う）、会議アプリの exe 名。
+- `collect.interrupt_min_sec`: コミュニケーション系アプリの後に別の作業が続いたとき、割り込みとみなす最小の長さ。
+- `collect.rebuild_window_min`: 帰属判定を定期的に再計算する直近の範囲（分）。
+- `agent.prompt_excerpt_chars`: プロンプトの抜粋として保存する文字数。0 にすると抜粋を保存しません。
+- `agent.watch_max_min`: エージェントの応答待ち（見守り）として計上する最大の長さ（分）。
+
+## 除外ルール
+
+`collect.exclude` に一致した前面ウインドウは、「除外」として記録し、アプリのパスとウインドウタイトルを保存しません（既定では exe 名だけを残します）。`collect.drop_excluded = true` にすると、区間自体を作りません。
+
+ルールは `exe`（exe 名。大文字小文字は区別しません）と `title_regex`（タイトルの正規表現）のどちらか、または両方を持ち、両方指定したときは両方に一致したときだけ除外します。
+
+既定の除外:
+
+- パスワードマネージャ: `KeePassXC.exe`、`KeePass.exe`、`1Password.exe`、`Bitwarden.exe`
+- プライベートブラウズのタイトル: `InPrivate|シークレット|Incognito|Private Browsing`
+
+既定を置き換えるため、`exclude` を `config.toml` に書くと既定の一覧は使われなくなります。既定も残したい場合は、既定の分も書き写してください。
+
+```toml
+[[collect.exclude]]
+exe = "KeePassXC.exe"
+
+[[collect.exclude]]
+title_regex = "InPrivate|シークレット|Incognito|Private Browsing"
+
+[[collect.exclude]]
+exe = "msedge.exe"
+title_regex = "社外秘"
+```
+
+## record_self
+
+`collect.record_self`（既定 false）は、Hitoiki 自身のウインドウ（`hitoiki-app.exe`）が前面にある時間を記録するかどうかです。false の間は、その時間は記録の空白になります。Hitoiki の画面を操作している時間を作業として数えたい場合だけ `true` にします。
+
+## カレンダー
+
+`calendar.sources` に ICS の URL を登録すると、予定を取り込み、会議の時間を自動で判定できます。
+
+```toml
+[[calendar.sources]]
+name = "仕事"
+type = "ics"
+url = "https://example.com/path/basic.ics"
+```
+
+- URL は秘密情報として扱います。ログやエラーメッセージには `name` だけを出します。他の人に見せないでください。
+- `calendar.fetch_interval_min` ごとに取得し、`past_days` 前から `future_days` 先までの予定を対象にします。繰り返し予定（RRULE）の展開と除外日（EXDATE）に対応します。
+- 取消された予定と、空き時間扱い（透過）の予定は、忙しい時間として数えません。
+- 動作確認は `hitoiki doctor --network` で行えます（この指定のときだけ実際に取得を試します）。
+
+## AI コマンド
+
+振り返りの問いの生成には、`ai.command` で指定した外部コマンドを使います。Hitoiki は推論を持たず、コマンドを子プロセスとして起動して標準入力にプロンプトを渡し、標準出力を受け取ります。
+
+```toml
+[ai]
+command = ["claude", "-p"]
+timeout_sec = 180
+```
+
+- 既定は `claude -p` です。他のコマンドに替えるときは、プロンプトを標準入力から読み、回答を標準出力に書くものを指定します。
+- `timeout_sec` を超えると強制終了してエラーにします。終了コードが 0 以外、または出力が空の場合もエラーです。
+- 問いのテンプレートは組み込みですが、`%APPDATA%\hitoiki\templates`（`ai.templates_dir` で変更可）に同名の `day_start.md`、`day_end.md`、`weekly.md`、`abc_dispute.md` を置くとそちらが優先されます。
+
+## 判定器
+
+ルールで帰属が決まらなかった作業区間を、外部の判定器に問い合わせて分類させる仕組みです。`judge.enabled`（既定 false）が false の間は、帰属ルールと進行中のタスクだけで判定します。
+
+```toml
+[judge]
+enabled = true
+default = "my-judge"
+auto_confidence_threshold = 0.8
+
+[judge.backends.my-judge]
+type = "external-command"
+command = ["python", "C:\\path\\to\\judge.py"]
+timeout_sec = 10
+batch = false
+
+[judge.backends.gateway]
+type = "openai-compatible"
+base_url = "https://example.com/v1"
+model = "model-name"
+api_key_env = "MY_API_KEY"
+timeout_sec = 10
+```
+
+- `external-command`: `command` を起動し、標準入力に JSON を渡して標準出力から JSON を受け取ります。`batch = true` で複数区間をまとめて送ります。
+- `openai-compatible`: `base_url` の `/chat/completions` に問い合わせます。API キーは設定ファイルには書かず、`api_key_env` で指した環境変数から読みます。
+- 確信度が `auto_confidence_threshold` 未満の答えは「要確認」になり、仕分けで確定します。
+- 答えは一定期間キャッシュされ、同じ内容の区間を何度も問い合わせません。
+- 質問セットは、`%APPDATA%\hitoiki\questions\*.toml` に置くと差し替えられます。
+
+判定器には、区間のアプリ名・ウインドウタイトル・作業ディレクトリ、進行中のタスクなどが渡されます。`openai-compatible` や、外部に通信する `external-command` を使うと、これらが接続先に送られます。会社の PC では、接続先が許可されているか確認してください（[プライバシー](./privacy.md)）。
+
+## 通知
+
+`push` セクションで通知の頻度と時刻を調整します。
+
+- `push.enabled`: false にすると通知を出しません。
+- `push.daily_limit`: 1 日に出す通知の上限。`push.min_interval_min`: 同じ種類の通知の最小間隔（分）。
+- `push.day_start_after` / `push.day_end_at`: 始業の通知を出し始める時刻と、終業の時刻。
+- `push.weekly.weekday` / `push.weekly.at`: 週次の振り返りの曜日（`fri` など）と時刻。
+- `push.long_focus_min`: 同じ作業が続いたときに声をかけるまでの時間（分）。
+- `push.switch_spike.window_min` / `push.switch_spike.count`: 切り替えが多いと判断する、期間（分）と回数。
+- `push.late_work_after`: 遅い時間の作業に声をかけ始める時刻。
+- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`day_end`、`weekly`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`late_work` のいずれか。
+
+通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。

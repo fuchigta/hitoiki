@@ -1,4 +1,4 @@
-//! OKR（docs/architecture.md「データモデル」）。
+//! OKR（docs/dev/architecture.md「データモデル」）。
 
 use super::Ctx;
 use crate::id::new_id;

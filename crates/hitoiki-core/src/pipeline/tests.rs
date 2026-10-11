@@ -1,4 +1,4 @@
-//! パイプラインのテーブルテスト（docs/architecture.md「配布とライセンス」）。時刻は「分」で書き、ID 以外で比較する。
+//! パイプラインのテーブルテスト（docs/dev/architecture.md「配布とライセンス」）。時刻は「分」で書き、ID 以外で比較する。
 
 use super::*;
 use crate::config::Config;

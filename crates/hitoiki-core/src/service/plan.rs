@@ -1,4 +1,4 @@
-//! タイムブロッキング（docs/architecture.md「データモデル」、docs/architecture.md「CLI」）。
+//! タイムブロッキング（docs/dev/architecture.md「データモデル」、docs/dev/architecture.md「CLI」）。
 
 use super::{range_view, task_titles, Ctx, RangeArgs, RangeView};
 use crate::id::new_id;

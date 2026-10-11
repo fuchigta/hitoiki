@@ -1,4 +1,4 @@
-//! 補助コレクタからの詳細コンテキストの取り込み（docs/architecture.md「CLI」）。`context_hint` に保存する。
+//! 補助コレクタからの詳細コンテキストの取り込み（docs/dev/architecture.md「CLI」）。`context_hint` に保存する。
 
 use super::Ctx;
 use crate::id::new_id;

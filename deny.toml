@@ -1,6 +1,6 @@
 # cargo-deny 設定
 # 実行: cargo deny check
-# 依存クレートは permissive ライセンスのみ許可する（CLAUDE.md / docs/architecture.md「配布とライセンス」）。
+# 依存クレートは permissive ライセンスのみ許可する（AGENTS.md / docs/dev/architecture.md「配布とライセンス」）。
 
 [graph]
 # 対象ターゲット。Windows 以外のターゲットも含めて依存を検査する。

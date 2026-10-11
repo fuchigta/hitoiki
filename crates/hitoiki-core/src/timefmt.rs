@@ -1,4 +1,4 @@
-//! 日時の解釈と表示（docs/architecture.md「CLI」: ISO 8601 / ローカル日付 / today 等のエイリアス）。
+//! 日時の解釈と表示（docs/dev/architecture.md「CLI」: ISO 8601 / ローカル日付 / today 等のエイリアス）。
 //! 保存は UTC ミリ秒、表示と日付境界は設定のタイムゾーンで扱う。
 
 use crate::{Error, Millis, Result};

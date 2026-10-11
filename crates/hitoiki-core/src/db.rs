@@ -1,4 +1,4 @@
-//! SQLite の接続とマイグレーション（WAL + busy_timeout、適用前にバックアップ。docs/architecture.md「データモデル」）。
+//! SQLite の接続とマイグレーション（WAL + busy_timeout、適用前にバックアップ。docs/dev/architecture.md「データモデル」）。
 
 use crate::Result;
 use rusqlite::Connection;
