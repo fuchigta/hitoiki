@@ -67,6 +67,17 @@
 | `hitoiki hassle <TEXT> [-i 1-5]` | デイリーハッスルの記録（強度の既定は 3） |
 | `hitoiki abc add [--a A] [--b B] [--c-emotion E] [--c-intensity 1-5] [--from-hassle ID]` | ABC 理論の記録 |
 | `hitoiki abc dispute <ID>` | AI で受け止め方を掘り下げる問いを生成 |
+| `hitoiki check list` / `hassle list` / `abc list` `[--date D] [--from F] [--to T]` | 記録の一覧（ID 付き。既定は今日） |
+| `hitoiki check edit <ID> [-e N] [-m N] [-s N] [--erg TAG] [--note TEXT]` | チェックインを編集（指定した項目だけ変える。`-e` `-m` `-s` に 0 でその項目を消す、`--note ""` でメモを消す） |
+| `hitoiki hassle edit <ID> [--text T] [-i 1-5]` | ハッスルを編集 |
+| `hitoiki abc edit <ID> [--a A] [--b B] [--c-emotion E] [--c-intensity N] [--dispute D]` | ABC の記録を編集（文字列は `""` で消す、`--c-intensity 0` で強度を消す） |
+| `hitoiki check delete <ID>` / `hassle delete <ID>` / `abc delete <ID>` `[--force] [--dry-run]` | 記録を削除。ハッスルを元にした ABC 記録があると `--force` が必要（ABC は残り、ハッスルとの紐付けだけ外れる） |
+
+`check` / `hassle` の本文が `list` `edit` `delete` と同じ語のときは、サブコマンドとして解釈されます。
+
+### 削除と影響
+
+削除コマンドは共通で、影響（紐付いているタスクの数など）があるときは `--force` を付けないと失敗します（終了コード 2）。`--dry-run` を付けると何も消さず、影響だけを表示します。`--json` では `{"dry_run": ..., "deleted": ..., "impact": {"lines": [{"label": ..., "count": ...}]}}` を返します。
 
 #### ブロックのテンプレート
 
@@ -85,9 +96,24 @@
 | `hitoiki okr add-objective <TITLE> [--from F] [--to T]` | Objective を追加 |
 | `hitoiki okr add-kr <OBJECTIVE> <TITLE> [--target N]` | KR を追加 |
 | `hitoiki okr list` | 一覧 |
-| `hitoiki skill add <NAME> [--parent P]` | スキルを追加 |
+| `hitoiki okr edit-objective <ID> [--title T] [--description D] [--from F] [--to T] [--clear-period] [--status active\|done\|dropped]` | Objective を編集（指定した項目だけ変える。`--description ""` で説明を消す） |
+| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N] [--status S] [--objective O]` | KR を編集（`--objective` で別の Objective へ付け替え） |
+| `hitoiki okr delete-objective <ID> [--force] [--dry-run]` | Objective を削除。配下の KR も消え、KR に紐付いたタスクは残って紐付けだけ外れる |
+| `hitoiki okr delete-kr <ID> [--force] [--dry-run]` | KR を削除。紐付いたタスクは残って紐付けだけ外れる |
+| `hitoiki skill add <NAME> [--parent P]` | スキルを追加（`--parent` は名前または ID） |
 | `hitoiki skill import-preset [NAME]` | 同梱プリセットを取り込む（省略で全部） |
 | `hitoiki skill list` | 一覧 |
+| `hitoiki skill edit <SKILL> [--name N] [--parent P \| --no-parent] [--description D]` | スキルを編集（名前または ID。取り込み済みのプリセットも可。自分や子孫を親にはできない） |
+| `hitoiki skill delete <SKILL> [--children reparent\|delete] [--force] [--dry-run]` | スキルを削除。タスクへの付与は外れる。子スキルは `reparent`（既定。親を付け替え）か `delete`（一緒に削除） |
+| `hitoiki task rule edit <RULE> [--field F] [--pattern P] [--type T] [--priority N] [--enable \| --disable]` | 帰属ルールを編集・有効/無効の切り替え |
+| `hitoiki task rule delete <RULE> [--dry-run]` | 帰属ルールを削除 |
+| `hitoiki activity-rule list` / `add --field F --pattern P --label L [--type T] [--priority N]` | 活動ルール（パターンから活動ラベルを当てる）の一覧・追加 |
+| `hitoiki activity-rule edit <RULE> [--field F] [--pattern P] [--type T] [--label L] [--priority N] [--enable \| --disable]` / `delete <RULE> [--dry-run]` | 活動ルールの編集・削除 |
+| `hitoiki activity-label list` / `add <L>` / `rename <FROM> <TO>` / `remove <L>` | 活動ラベルの候補（`activity.labels`）。`rename` は同じラベルの活動ルールも付け替える。`remove` しても過去の区間のラベルは残る |
+| `hitoiki calendar list` / `add <NAME> <URL>` | カレンダーソース（ICS）の一覧・追加。URL は表示しない（ホスト名のみ） |
+| `hitoiki calendar edit <NAME> [--new-name N] [--url U]` / `delete <NAME> [--force] [--dry-run]` | 編集・削除。削除すると取得済みの予定のコピーも消える（カレンダー側は変わらない） |
+
+ルールを変えたあとの再計算は、常駐処理が動いていれば今日の分が自動で行われます。過去の日へ反映するには `hitoiki rebuild --date D` を実行してください。
 
 ### 振り返り（AI）
 

@@ -63,7 +63,8 @@ pub enum Cmd {
     /// タイムブロッキング
     #[command(subcommand)]
     Block(BlockCmd),
-    /// コンディションの記録
+    /// コンディションの記録（`check list|edit|delete` で一覧・編集・削除）
+    #[command(args_conflicts_with_subcommands = true)]
     Check {
         /// エネルギー 1-5
         #[arg(short = 'e', long)]
@@ -79,14 +80,28 @@ pub enum Cmd {
         erg: Option<ErgTag>,
         #[arg(long)]
         note: Option<String>,
+        #[command(subcommand)]
+        cmd: Option<CheckCmd>,
     },
-    /// デイリーハッスルの記録
+    /// デイリーハッスルの記録（`hassle list|edit|delete` で一覧・編集・削除）
+    #[command(args_conflicts_with_subcommands = true)]
     Hassle {
-        text: String,
+        text: Option<String>,
         /// 強度 1-5（既定 3）
         #[arg(short = 'i', long)]
         intensity: Option<i64>,
+        #[command(subcommand)]
+        cmd: Option<HassleCmd>,
     },
+    /// 活動ルール（アプリ・タイトル等のパターンから活動ラベルを当てる）
+    #[command(subcommand, name = "activity-rule")]
+    ActivityRule(ActivityRuleCmd),
+    /// 活動ラベルの候補（判定器へ渡す一覧）
+    #[command(subcommand, name = "activity-label")]
+    ActivityLabel(LabelCmd),
+    /// カレンダーソース（ICS）
+    #[command(subcommand)]
+    Calendar(CalendarCmd),
     /// ABC 理論の記録
     #[command(subcommand)]
     Abc(AbcCmd),
@@ -248,6 +263,173 @@ pub enum RuleCmd {
     },
     List {
         id: Option<String>,
+    },
+    /// ルールを編集する（指定した項目だけ変える）
+    Edit {
+        /// ルールの ID（前方一致）
+        rule: String,
+        #[arg(long)]
+        field: Option<MatchField>,
+        #[arg(long)]
+        pattern: Option<String>,
+        #[arg(long = "type")]
+        pattern_type: Option<PatternType>,
+        #[arg(long)]
+        priority: Option<i64>,
+        /// 有効にする
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        /// 無効にする（ルールは残る）
+        #[arg(long)]
+        disable: bool,
+    },
+    /// ルールを削除する
+    Delete {
+        rule: String,
+        /// 削除せず、対象だけ表示する
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+/// 削除系コマンドの共通オプション。
+#[derive(Debug, Args, Clone, Copy)]
+pub struct DeleteOpts {
+    /// 影響があっても削除する
+    #[arg(long)]
+    pub force: bool,
+    /// 削除せず、影響だけ表示する
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CheckCmd {
+    /// チェックインの一覧
+    List {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+    /// チェックインを編集する（指定した項目だけ変える。-e/-m/-s に 0 を渡すとその項目を消す）
+    Edit {
+        id: String,
+        #[arg(short = 'e', long)]
+        energy: Option<i64>,
+        #[arg(short = 'm', long)]
+        mood: Option<i64>,
+        #[arg(short = 's', long)]
+        stress: Option<i64>,
+        #[arg(long)]
+        erg: Option<ErgTag>,
+        /// 空文字を渡すとメモを消す
+        #[arg(long)]
+        note: Option<String>,
+    },
+    Delete {
+        id: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HassleCmd {
+    List {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+    /// ハッスルを編集する
+    Edit {
+        id: String,
+        #[arg(long)]
+        text: Option<String>,
+        #[arg(short = 'i', long)]
+        intensity: Option<i64>,
+    },
+    /// ハッスルを削除する（元にした ABC 記録は残り、紐付けだけ外れる）
+    Delete {
+        id: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ActivityRuleCmd {
+    List,
+    Add {
+        #[arg(long)]
+        field: MatchField,
+        #[arg(long)]
+        pattern: String,
+        /// glob | regex | contains（既定 glob）
+        #[arg(long = "type")]
+        pattern_type: Option<PatternType>,
+        /// 当てる活動ラベル
+        #[arg(long)]
+        label: String,
+        #[arg(long, default_value_t = 0)]
+        priority: i64,
+    },
+    Edit {
+        rule: String,
+        #[arg(long)]
+        field: Option<MatchField>,
+        #[arg(long)]
+        pattern: Option<String>,
+        #[arg(long = "type")]
+        pattern_type: Option<PatternType>,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        priority: Option<i64>,
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+        #[arg(long)]
+        disable: bool,
+    },
+    Delete {
+        rule: String,
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum LabelCmd {
+    List,
+    Add {
+        label: String,
+    },
+    /// 名前を変える（同じラベルの活動ルールも付け替える）
+    Rename {
+        from: String,
+        to: String,
+    },
+    /// 候補から外す（過去の区間・ルールに付いたラベルは残る）
+    Remove {
+        label: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CalendarCmd {
+    /// ソースの一覧（URL は表示しない）
+    List,
+    /// ICS のソースを追加する
+    Add { name: String, url: String },
+    Edit {
+        name: String,
+        #[arg(long)]
+        new_name: Option<String>,
+        #[arg(long)]
+        url: Option<String>,
+    },
+    /// ソースを削除する（取得済みの予定のコピーも消える）
+    Delete {
+        name: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
     },
 }
 
@@ -472,6 +654,31 @@ pub enum AbcCmd {
     },
     /// AI で受け止め方を掘り下げる問いを生成
     Dispute { id: String },
+    /// ABC 記録の一覧
+    List {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+    /// ABC 記録を編集する（指定した項目だけ変える。文字列に空文字を渡すと消す。--c-intensity 0 で強度を消す）
+    Edit {
+        id: String,
+        #[arg(long = "a")]
+        a: Option<String>,
+        #[arg(long = "b")]
+        b: Option<String>,
+        #[arg(long)]
+        c_emotion: Option<String>,
+        #[arg(long)]
+        c_intensity: Option<i64>,
+        /// 反論・掘り下げのメモ
+        #[arg(long)]
+        dispute: Option<String>,
+    },
+    Delete {
+        id: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -490,6 +697,53 @@ pub enum OkrCmd {
         target: Option<String>,
     },
     List,
+    /// Objective を編集する（指定した項目だけ変える。--description "" で説明を消す）
+    EditObjective {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        from: Option<String>,
+        #[arg(long)]
+        to: Option<String>,
+        /// 期間を消す
+        #[arg(long)]
+        clear_period: bool,
+        /// active | done | dropped
+        #[arg(long)]
+        status: Option<String>,
+    },
+    /// Objective を削除する（配下の KR も消え、KR に紐付いたタスクは残って紐付けだけ外れる）
+    DeleteObjective {
+        id: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
+    },
+    /// KR を編集する（指定した項目だけ変える。--target "" で目標を消す）
+    EditKr {
+        id: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        target: Option<String>,
+        /// 現在値
+        #[arg(long)]
+        current: Option<String>,
+        /// active | done | dropped
+        #[arg(long)]
+        status: Option<String>,
+        /// 別の Objective へ付け替える
+        #[arg(long)]
+        objective: Option<String>,
+    },
+    /// KR を削除する（紐付いたタスクは残って紐付けだけ外れる）
+    DeleteKr {
+        id: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -504,6 +758,30 @@ pub enum SkillCmd {
         name: Option<String>,
     },
     List,
+    /// スキルを編集する（名前または ID。取り込み済みのプリセットも編集できる）
+    Edit {
+        skill: String,
+        #[arg(long)]
+        name: Option<String>,
+        /// 親スキル（名前または ID）
+        #[arg(long, conflicts_with = "no_parent")]
+        parent: Option<String>,
+        /// 親を外してトップレベルにする
+        #[arg(long)]
+        no_parent: bool,
+        /// 説明（空文字で消す）
+        #[arg(long)]
+        description: Option<String>,
+    },
+    /// スキルを削除する（タスクへの付与は外れる）
+    Delete {
+        skill: String,
+        /// 子スキルの扱い: reparent（親を付け替える・既定）/ delete（一緒に削除）
+        #[arg(long, default_value = "reparent")]
+        children: String,
+        #[command(flatten)]
+        opts: DeleteOpts,
+    },
 }
 
 #[derive(Debug, Subcommand)]
