@@ -44,10 +44,44 @@ impl Bound {
     }
 }
 
+fn exe_in(list: &[String], exe: &str) -> bool {
+    list.iter().any(|t| t.eq_ignore_ascii_case(exe))
+}
+
+/// エージェントとの対話を行うと分かっているウインドウか（`terminal_exes` または `agent_host_exes`）。
 fn is_terminal(input: &PipelineInput, w: &WindowSpan) -> bool {
     w.exe_name
         .as_deref()
-        .is_some_and(|e| input.terminal_exes.iter().any(|t| t.eq_ignore_ascii_case(e)))
+        .is_some_and(|e| exe_in(&input.terminal_exes, e) || exe_in(&input.agent_host_exes, e))
+}
+
+/// 一覧に無くても対話の場とはみなさないブラウザの exe 名。ブラウザでプロンプトを送ることは通常なく、
+/// ブラウザで調べものをしている裏でエージェントが動くことのほうが多い。
+const BROWSER_EXES: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "firefox.exe",
+    "brave.exe",
+    "vivaldi.exe",
+    "opera.exe",
+    "arc.exe",
+    "iexplore.exe",
+];
+
+/// 一覧に無い前面ウインドウを「そのウインドウにいた」とみなしてよいか。
+/// 除外、通過系、Hitoiki 自身、ブラウザ、コミュニケーション・会議系は対象外（誤検知を避ける）。
+fn is_bindable_unlisted(input: &PipelineInput, w: &WindowSpan) -> bool {
+    if w.excluded || w.hwnd.is_none() {
+        return false;
+    }
+    let Some(exe) = w.exe_name.as_deref() else {
+        return false;
+    };
+    !(exe.eq_ignore_ascii_case("hitoiki-app.exe")
+        || exe_in(&input.transient_exes, exe)
+        || exe_in(&input.communication_exes, exe)
+        || exe_in(&input.meeting_exes, exe)
+        || BROWSER_EXES.iter().any(|b| b.eq_ignore_ascii_case(exe)))
 }
 
 /// 時刻 `t` に前面だったウインドウ層の添字。区間の終端がちょうど `t` の場合も拾う。
@@ -57,7 +91,18 @@ fn wl_index_at(wl: &[WPiece], t: Millis) -> Option<usize> {
         .or_else(|| wl.iter().rposition(|p| p.end == t))
 }
 
-fn bind(input: &PipelineInput, wl: &[WPiece], t: Millis) -> Option<Bound> {
+/// `t` が無操作（ロック・スリープ含む）の最中か。
+fn idle_at(idle: &[(Millis, Millis)], t: Millis) -> bool {
+    idle.iter().any(|&(s, e)| s <= t && t < e)
+}
+
+/// `prompt_submit` の時刻 `t` に対応付けるウインドウを決める。優先順位:
+/// 1. `t` に前面だったウインドウが既知の対話ウインドウ（`terminal_exes` / `agent_host_exes`）
+/// 2. 直前 `bind_lookback` 内の最も新しい既知の対話ウインドウ（時刻ずれの吸収）
+/// 3. `agent.bind_unlisted` が true なら、`t` に前面だった一覧外のウインドウ（`is_bindable_unlisted` を満たし、
+///    `t` が無操作でないとき）。プロンプトを人が打ったなら直前に入力があるはずなので、無操作中の送信
+///    （エージェントの自動投入など）は対応付けない。
+fn bind(input: &PipelineInput, wl: &[WPiece], idle: &[(Millis, Millis)], t: Millis) -> Option<Bound> {
     let mk = |idx: usize| {
         let w = &input.windows[wl[idx].win];
         w.hwnd.as_ref().map(|h| Bound {
@@ -67,7 +112,8 @@ fn bind(input: &PipelineInput, wl: &[WPiece], t: Millis) -> Option<Bound> {
             wl_idx: idx,
         })
     };
-    if let Some(i) = wl_index_at(wl, t) {
+    let at = wl_index_at(wl, t);
+    if let Some(i) = at {
         if is_terminal(input, &input.windows[wl[i].win]) {
             if let Some(b) = mk(i) {
                 return Some(b);
@@ -76,12 +122,23 @@ fn bind(input: &PipelineInput, wl: &[WPiece], t: Millis) -> Option<Bound> {
     }
     // 直前 bind_lookback 内の最も新しいターミナル系区間。
     let from = t - input.bind_lookback;
-    wl.iter()
+    let near = wl
+        .iter()
         .enumerate()
         .rev()
         .filter(|(_, p)| p.end > from && p.start <= t)
         .find(|(_, p)| is_terminal(input, &input.windows[p.win]))
-        .and_then(|(i, _)| mk(i))
+        .and_then(|(i, _)| mk(i));
+    if near.is_some() {
+        return near;
+    }
+    if input.bind_unlisted && !idle_at(idle, t) {
+        let i = at?;
+        if is_bindable_unlisted(input, &input.windows[wl[i].win]) {
+            return mk(i);
+        }
+    }
+    None
 }
 
 /// セッションに紐づくタスク帰属の決定結果。
@@ -248,14 +305,41 @@ struct Plan {
 }
 
 fn plan(input: &PipelineInput, task_rules: &TaskRuleSet, wl: &[WPiece]) -> Vec<Plan> {
+    let idle = super::timeline::idle_intervals(&input.idles, input.now);
     build_jobs(input, task_rules)
         .into_iter()
         .filter_map(|job| {
-            let bound = bind(input, wl, job.t)?;
+            let bound = bind(input, wl, &idle, job.t)?;
             let ps = job
                 .period_start
                 .unwrap_or_else(|| backtrack_start(input, wl, &bound));
             Some(Plan { job, bound, ps })
+        })
+        .collect()
+}
+
+/// ウインドウに対応付けできなかった送信（診断用）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnboundPrompt {
+    pub at: Millis,
+    /// 送信時刻に前面だったウインドウの exe 名（分からなければ None）。タイトルは持たない。
+    pub exe_name: Option<String>,
+}
+
+/// 出力範囲内の送信のうち、ウインドウに対応付けできなかったもの（時刻順）。
+pub(crate) fn unbound_prompts(
+    input: &PipelineInput,
+    task_rules: &TaskRuleSet,
+    wl: &[WPiece],
+) -> Vec<UnboundPrompt> {
+    let idle = super::timeline::idle_intervals(&input.idles, input.now);
+    build_jobs(input, task_rules)
+        .into_iter()
+        .filter(|job| job.t >= input.range.start && job.t < input.range.end)
+        .filter(|job| bind(input, wl, &idle, job.t).is_none())
+        .map(|job| UnboundPrompt {
+            at: job.t,
+            exe_name: wl_index_at(wl, job.t).and_then(|i| input.windows[wl[i].win].exe_name.clone()),
         })
         .collect()
 }

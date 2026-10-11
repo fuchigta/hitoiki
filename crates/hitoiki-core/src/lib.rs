@@ -12,6 +12,7 @@ pub mod paths;
 pub mod pipeline;
 pub mod push;
 pub mod rebuild;
+pub mod recording;
 pub mod repo;
 pub mod rules;
 pub mod service;

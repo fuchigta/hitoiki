@@ -17,13 +17,23 @@ use tracing_subscriber::EnvFilter;
 /// ログ書き込みスレッドのガード。Drop で残りをフラッシュするので、終了まで保持する。
 pub struct LogGuard(#[allow(dead_code)] tracing_appender::non_blocking::WorkerGuard);
 
-/// ログを `paths::log_dir()` の日付ローテーションファイルと stderr に出す。
+/// ログファイルを残す日数（日次ローテーションのファイル数）。これより古いものは新しいファイルを作るときに削除される。
+pub const LOG_KEEP_DAYS: usize = 14;
+
+/// ログを `paths::log_dir()` の日付ローテーションファイル（`LOG_KEEP_DAYS` 日分）と stderr に出す。
+/// ヘッドレス daemon と常駐アプリの共通の初期化。ウインドウタイトル・プロンプト内容・ICS URL は
+/// ログに出さない（呼び出し側の規約）。panic も場所だけをログに残す（メッセージは出さない）。
 /// 既に初期化済み（テストなど）なら何もしない。
 pub fn init_logging() -> anyhow::Result<LogGuard> {
     let dir = paths::log_dir();
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("ログ用ディレクトリを作れません: {}", dir.display()))?;
-    let file = tracing_appender::rolling::daily(&dir, "hitoiki.log");
+    let file = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix("hitoiki.log")
+        .max_log_files(LOG_KEEP_DAYS)
+        .build(&dir)
+        .with_context(|| format!("ログファイルを開けません: {}", dir.display()))?;
     let (writer, guard) = tracing_appender::non_blocking(file);
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = tracing_subscriber::registry()
@@ -35,7 +45,25 @@ pub fn init_logging() -> anyhow::Result<LogGuard> {
                 .with_writer(writer),
         )
         .try_init();
+    install_panic_hook();
     Ok(LogGuard(guard))
+}
+
+fn install_panic_hook() {
+    let prev = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        match info.location() {
+            Some(l) => tracing::error!(
+                thread = thread.name().unwrap_or("?"),
+                file = l.file(),
+                line = l.line(),
+                "スレッドが panic しました"
+            ),
+            None => tracing::error!(thread = thread.name().unwrap_or("?"), "スレッドが panic しました"),
+        }
+        prev(info);
+    }));
 }
 
 /// daemon 実行ファイルと同じディレクトリの `hitoiki-app`。無ければ None。
@@ -93,6 +121,10 @@ impl RuntimeSink for HeadlessSink {
 /// 設定を読み、ログを初期化して常駐する。Ctrl+C または IPC の Shutdown で停止して戻る。
 pub fn run_headless() -> anyhow::Result<()> {
     let _guard = init_logging()?;
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "hitoiki daemon（ヘッドレス）を起動します"
+    );
     let cfg = Config::load().map_err(|e| anyhow::anyhow!("{e}"))?;
     run_headless_with(RuntimeOptions::new(cfg), true)
 }

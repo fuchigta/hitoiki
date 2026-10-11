@@ -138,11 +138,23 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     };
 
     // 収集を自前で行っていないときは、その理由をメニューに出す。
-    let note = match state.runtime_mode() {
-        RuntimeMode::External { message } | RuntimeMode::Failed { message } => Some(message),
+    let mode = state.runtime_mode();
+    let note = match &mode {
+        RuntimeMode::External { message } | RuntimeMode::Failed { message } => Some(message.clone()),
         _ => None,
     };
-    let mut menu = MenuBuilder::new(app).item(&doing_item).item(&today_item);
+    // 記録の状態は DB のハートビートで判定する（daemon 側で収集している場合も同じ）。
+    let recording = state
+        .with_ctx(|c| hitoiki_core::recording::is_recording(c.conn, c.now()))
+        .unwrap_or(false);
+    let rec_text = recording_text(&mode, recording);
+    let rec_item = MenuItemBuilder::with_id("info-recording", &rec_text)
+        .enabled(false)
+        .build(app)?;
+    let mut menu = MenuBuilder::new(app)
+        .item(&rec_item)
+        .item(&doing_item)
+        .item(&today_item);
     if let Some(m) = &note {
         let item = MenuItemBuilder::with_id("info-runtime", format!("※ {m}"))
             .enabled(false)
@@ -168,6 +180,20 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
         tooltip.push_str(&format!("\n{m}"));
     }
     Ok((menu, tooltip))
+}
+
+/// トレイの先頭に出す記録の状態。
+fn recording_text(mode: &RuntimeMode, recording: bool) -> String {
+    match (mode, recording) {
+        (RuntimeMode::Starting, _) => "記録: 開始しています".into(),
+        (RuntimeMode::External { .. }, true) => "記録中（daemon 側で収集）".into(),
+        (RuntimeMode::External { .. }, false) => {
+            "記録停止中（daemon 側の収集が止まっています。ログを確認してください）".into()
+        }
+        (RuntimeMode::Failed { .. }, _) => "記録停止中（常駐処理を起動できませんでした）".into(),
+        (RuntimeMode::Own, true) => "記録中".into(),
+        (RuntimeMode::Own, false) => "記録停止中（収集が止まっています。ログを確認してください）".into(),
+    }
 }
 
 /// トレイを作る。
@@ -267,7 +293,17 @@ fn on_menu_event(app: &AppHandle, id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::fmt_duration;
+    use super::{fmt_duration, recording_text};
+    use crate::state::RuntimeMode;
+
+    #[test]
+    fn 記録の状態の表示() {
+        assert_eq!(recording_text(&RuntimeMode::Own, true), "記録中");
+        assert!(recording_text(&RuntimeMode::Own, false).starts_with("記録停止中"));
+        let ext = RuntimeMode::External { message: "x".into() };
+        assert!(recording_text(&ext, true).contains("daemon"));
+        assert!(recording_text(&ext, false).starts_with("記録停止中"));
+    }
 
     #[test]
     fn 時間の表示() {
