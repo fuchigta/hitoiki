@@ -46,7 +46,7 @@ fn delivered_today(ctx: &PushContext, trigger: PushTrigger) -> bool {
     delivered_since(ctx, trigger, day.start)
 }
 
-/// 作業系の区間（時間を使っている区間）か。
+/// 作業系の区間（時間を使っている区間）か。無視（`ignored`）・無操作・休憩・割り込みは含めない。
 fn is_working(s: &ActivitySegment) -> bool {
     matches!(
         s.kind,
@@ -237,7 +237,13 @@ fn switch_spike(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Opt
         let from = ctx.now - window as Millis * MIN_MS;
         let cnt = segs
             .iter()
-            .filter(|s| s.end_at > from && !matches!(s.kind, SegmentKind::Idle | SegmentKind::Break))
+            .filter(|s| {
+                s.end_at > from
+                    && !matches!(
+                        s.kind,
+                        SegmentKind::Idle | SegmentKind::Break | SegmentKind::Ignored
+                    )
+            })
             .count();
         cnt.saturating_sub(1) as u32
     });

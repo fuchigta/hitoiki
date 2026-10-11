@@ -128,7 +128,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 ### 3.3 派生層
 
-`activity_segment`: 帰属判定の結果。`kind`（`work` / `agent_dialog` / `agent_watch` / `meeting` / `idle` / `break` / `interrupt`）、`task_id`、`activity_label`、`confidence`、`decided_by`（`rule` / `judge:<name>` / `calendar` / `user` / `doing`）、`status`（`auto` / `needs_review` / `confirmed`）、根拠の `window_span_ids`（JSON 配列）、`agent_session_id`、表示・判定用に非正規化した `exe_name` / `title`、PC 外の印 `offline` を持つ。
+`activity_segment`: 帰属判定の結果。`kind`（`work` / `agent_dialog` / `agent_watch` / `meeting` / `idle` / `break` / `interrupt` / `ignored`。`ignored` は集計・実績・通知に数えない時間で、4.8 参照）、`task_id`、`activity_label`、`confidence`、`decided_by`（`rule` / `judge:<name>` / `calendar` / `user` / `doing`）、`status`（`auto` / `needs_review` / `confirmed`）、根拠の `window_span_ids`（JSON 配列）、`agent_session_id`、表示・判定用に非正規化した `exe_name` / `title`、PC 外の印 `offline` を持つ。
 
 ### 3.4 ユーザー層
 
@@ -193,7 +193,8 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 3. **会議**（`meeting.rs`）: カレンダーの予定（busy、終日でない）と重なる無操作区間と、会議アプリ（`collect.meeting_exes`）が前面の作業区間を `meeting` にする（4.3）。
 4. **override**: `segment_override` を作成順に適用し、`confirmed` / `decided_by = user` / 確信度 1.0 にする（`attribute.rs`）。`offline` の override は、区間の無い部分（記録なし）にも区間を作る（3.6）。
 5. **ルール**: `task_match_rule` でタスクを決め（`decided_by = rule`、確信度 1.0）、`activity_rule` で活動ラベルを付ける。
-6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_watch`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、override（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と override 済みの区間は対象外。吸収する区間は判定器に問い合わせず、吸収先の帰属（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
+6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_watch`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、override（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま（`ignore_exes` の区間は次の無視になる）。`collect.ignore_exes` の exe は通過系としても扱う（和集合）。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と override 済みの区間は対象外。吸収する区間は判定器に問い合わせず、吸収先の帰属（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
+   - **無視**（`transient.rs` の `apply_ignore`）: `collect.ignore_exes` の `work` 区間のうち、吸収されなかったもの（`transient_max_sec` 以上続いた、または吸収先が無い）を `kind = ignored`（`decided_by = ignore`、確信度 1.0、`auto`、タスク・ラベルなし、`fixed`）にする。ルールで帰属が決まった区間と override 済みの区間は対象外。`ignored` は判定器・割り込み検出・doing フォールバック・統合での吸収（短い作業を間に挟んで取り込まない）の対象にならず、隣り合う無視は 1 区間にまとまる。
 7. **判定器**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
 8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに帰属しない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・判定器の結果を見るため、doing フォールバックより前に行う。
 9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing` で付ける。状態は `needs_review`。ただし `review.trust_doing = true` なら `auto`（始めたタスクを信頼する）。doing の開始・終了時刻で区間を分割する。
@@ -238,6 +239,15 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 - **無操作のワンタップ分類**（`IdlePreset`）: 新しい種別は作らず、既存の種別と活動ラベルの組で表し、`segment_override` に保存する（再計算でも残る）。`break` = 種別 break、`meeting` = 種別 meeting、`thinking` = 種別 work + 活動「考えごと」（タスクなし）、`away` = 種別 break + 活動「離席」。`set_idle` は区間 ID 指定（CLI・UI）、`set_idle_range` は期間指定（通知のボタン。区間がまだ無くても期間全体の override を保存する）。
 - **一括割り当て**（`set_many`）: 複数の区間 ID に同じタスク・種別・活動（と `--rule`）を 1 つのトランザクションで適用する。同じ条件のルールは 1 つにまとめる。
 - **ルール化の提案**（`suggest_rules` / `accept_suggestion` / `dismiss_suggestion`）: 直近 30 日にユーザーが確定した（`decided_by = user`）作業系の区間を、(条件, タスク) ごとに数える。条件はエージェント区間なら作業ディレクトリ（`cwd` の glob）、それ以外は exe 名（`exe` の contains）。`review.rule_suggest_min_count`（既定 3）回以上で、同じルールが未登録かつ断られていないものを多い順に返す。受け入れは既存の `--rule` と同じ重複確認（`ensure_task_rule`）でルールを追加する。断った組み合わせは `setting` の `review.rule_suggest_dismissed`（キー → 再提案してよい時刻の JSON）に `review.rule_suggest_snooze_days`（既定 14）日分記録する。
+
+### 4.8 無視（`ignored`）
+
+「ノイズのアプリ・区間を数えない」ための種別。生データ（`window_span` など）は変えず、派生層とユーザー層だけで実現する。
+
+- **表現**: 新しい `SegmentKind::Ignored` を追加した。既存の `idle` / `break` は「PC を使っていない」という意味を持ち、通知（`idle_return` など）・自動休憩・実績の補正（PC 外）に絡むため、流用すると意味が混ざる。また `work` + 活動ラベルのような擬似表現では、全集計・通知に除外条件を散らす必要がある。専用の種別なら除外は「種別が `ignored`」の 1 条件で済み、`segment_override.kind` でも同じ値で表せる（スキーマ変更なし）。
+- **発生源**: (1) `collect.ignore_exes` による自動の無視（4.1 の 6）。(2) ユーザーの手動（`review::ignore`）: 種別 `ignored`・`task_id = ''` の `segment_override`。取り消し（`review::unignore`）は、その override を削除して範囲を再計算する。リスト由来の無視は override ではなく、`ignore remove` で外して再計算する。`apply_overrides` は `kind = ignored` の override でタスク・ラベルを外す。
+- **数えない場所**: `report`（どの切り口でも除外し、別枠 `excluded.ignored_ms` に合計）、`status`（`today.ignored_ms`）、`context`（`ignored_minutes`）、タスクの実績（タスクなしなので数えない）、仕分け（`needs_review` にならない）、実績の補正の候補（付け替え対象にしない）、プッシュ（作業系ではないので `long_focus` / `late_work` / `switch_spike` に数えず、連続も途切れる）。今日のタイムラインには薄く表示する。
+- **無視リストの管理と提案**（`service/ignore.rs`）: `add` / `remove` は設定ファイルの `collect.ignore_exes` だけを `config::set_value` で書き換え（既定のままなら既定＋追加）、直近 7 日を `rebuild_with_judge` で再計算する。`suggest` は直近 N 日（既定 7）の `window_span` と `activity_segment` から候補を返す。基準は、既知のシステム系 exe（3 区間以上。記録時間が 30 分以上なら理由に明記）、10 秒未満が 7 割以上かつ 20 区間以上、要確認に 10 件以上かつ平均 60 秒未満、ユーザーが「無視」にした確定が 2 回以上、「タスクなし」にした確定が 5 回以上のいずれか。無視リスト済み、`ApplicationFrameHost.exe`、作業アプリ（`terminal_exes` / `agent_host_exes` / `communication_exes` / `meeting_exes`、ブラウザ、Hitoiki 自身）、断って 30 日以内（`setting` の `review.ignore_suggest_dismissed`）は除く。
 
 ## 5. エージェントアダプタ
 
@@ -351,7 +361,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | セクション | 主なキー（既定値） |
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true）、`update_check`（未設定=確認しない） |
-| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60） |
+| `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120: 補正の範囲選択の吸着幅）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（false: 補正の初期チェック） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |

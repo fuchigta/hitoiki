@@ -1,6 +1,6 @@
 //! 時間の帰属判定パイプライン（docs/dev/architecture.md「帰属判定パイプライン」）。生データ → `activity_segment` の純粋関数。
 //!
-//! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 通過系アプリの吸収 → 判定器 →
+//! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 通過系アプリの吸収・無視 → 判定器 →
 //! 割り込み → doing フォールバック → ロック中の自動休憩 → 状態付け → 統合。
 //! （割り込み検出はルール結果を見る必要があるため doing フォールバックより前に行う。）
 
@@ -20,8 +20,8 @@ use crate::model::*;
 use crate::rules::{ActivityRuleSet, TaskRuleSet};
 use crate::timefmt::Range;
 use crate::Millis;
-pub(crate) use agent::norm_title;
 pub use agent::UnboundPrompt;
+pub(crate) use agent::{norm_title, BROWSER_EXES};
 use piece::Piece;
 
 /// 判定器の答え（docs/dev/architecture.md「判定器」）。
@@ -64,6 +64,8 @@ pub struct PipelineInput {
     pub communication_exes: Vec<String>,
     pub meeting_exes: Vec<String>,
     pub transient_exes: Vec<String>,
+    /// 無視するアプリ（`collect.ignore_exes`）。通過系としても扱い、続いた分は `ignored` の区間にする。
+    pub ignore_exes: Vec<String>,
     pub transient_max: Millis,
     pub watch_max: Millis,
     pub bind_lookback: Millis,
@@ -99,6 +101,7 @@ impl PipelineInput {
             communication_exes: cfg.collect.communication_exes.clone(),
             meeting_exes: cfg.collect.meeting_exes.clone(),
             transient_exes: cfg.collect.transient_exes.clone(),
+            ignore_exes: cfg.collect.ignore_exes.clone(),
             transient_max: cfg.collect.transient_max_sec as Millis * 1000,
             watch_max: cfg.agent.watch_max_min as Millis * 60_000,
             bind_lookback: cfg.agent.bind_lookback_sec as Millis * 1000,
@@ -151,6 +154,8 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
     attribute::apply_rules(input, &task_rules, &activity_rules, &mut pieces);
     // 5b. 通過系アプリの吸収先を決める（吸収する区間は判定器に問い合わせない）
     let plan = transient::plan(&pieces);
+    // 5c. 無視するアプリの区間のうち、吸収されなかったものを「無視」にする
+    transient::apply_ignore(&mut pieces, &plan);
     // 6. 判定器
     if let Some(j) = judge {
         attribute::apply_judge(&mut pieces, j, &plan);

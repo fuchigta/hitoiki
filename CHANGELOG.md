@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### 追加
+
+- ノイズのアプリを「無視」できるようにしました。設定 `collect.ignore_exes`（既定は `explorer.exe`、`ShellExperienceHost.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`）のアプリが前面の時間は、短いもの（`collect.transient_max_sec` 未満）は前後の作業に含め、続いたものは「無視」の区間にして、集計・仕分け・レポート・タスクの実績・通知に数えません。記録は消えず、リストから外せば元に戻ります。
+- 区間をまとめて無視できるようにしました。仕分け画面と今日画面の「実績の付け替え」で選んだ区間を無視にでき、取り消せます。CLI は `hitoiki review ignore|unignore <区間 ID>...` です。
+- 仕分けの区間から「このアプリを今後も無視」で無視リストに追加できます（直近 7 日を再計算）。設定画面に「無視するアプリ」の一覧・追加・削除も加えました。CLI は `hitoiki ignore list|add|remove`。
+- 「これは無視しますか？」と提案する機能を追加しました。直近 7 日の記録から、短い区間が多いアプリなどを理由つきで仕分け画面の上に出します。断ると 30 日は出しません。CLI は `hitoiki ignore suggest [--accept EXE] [--dismiss EXE] [--days N]` です。
+
 ## [0.4.0] - 2026-10-11
 
 ### 追加

@@ -939,3 +939,68 @@ fn review_set_range_argument_errors() {
     ];
     assert_eq!(run(h, &bad_exclude).code, 3);
 }
+
+#[test]
+fn ignore_list_add_remove_suggest_and_segments() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    // 既定の一覧に explorer.exe がある
+    let o = run(h, &["ignore", "list", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    let v = o.json();
+    assert_eq!(v["customized"], false);
+    assert!(v["exes"].as_array().unwrap().iter().any(|e| e == "explorer.exe"));
+
+    // 追加は既定＋追加の形で設定ファイルに書かれ、二重追加は何もしない
+    let o = run(h, &["ignore", "add", "Noisy.exe", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["changed"], true);
+    let v = run(h, &["ignore", "list", "--json"]).json();
+    assert_eq!(v["customized"], true);
+    assert!(v["exes"].as_array().unwrap().iter().any(|e| e == "explorer.exe"));
+    assert!(v["exes"].as_array().unwrap().iter().any(|e| e == "Noisy.exe"));
+    assert_eq!(
+        run(h, &["ignore", "add", "noisy.exe", "--json"]).json()["changed"],
+        false
+    );
+
+    // 外す。無いものは終了コード 3、空の exe は 2
+    assert_eq!(run(h, &["ignore", "remove", "noisy.exe"]).code, 0);
+    assert_eq!(run(h, &["ignore", "remove", "noisy.exe"]).code, 3);
+    assert_eq!(run(h, &["ignore", "add", " "]).code, 2);
+
+    // 提案は空でも成功し、断る・引数エラーも規約どおり
+    let o = run(h, &["ignore", "suggest", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert!(o.json()["data"].as_array().unwrap().is_empty());
+    assert_eq!(run(h, &["ignore", "suggest", "--dismiss", "x.exe"]).code, 0);
+    assert_eq!(run(h, &["ignore", "suggest", "--days", "0"]).code, 2);
+
+    // 区間の無視。対象なしは 3
+    insert_segment(
+        h,
+        "IGN1",
+        "2026-10-10T10:00:00+09:00",
+        "2026-10-10T10:30:00+09:00",
+        "work",
+        None,
+        "needs_review",
+    );
+    let o = run(h, &["review", "ignore", "IGN1", "--json"]);
+    assert_eq!(o.code, 0, "{}", o.stderr);
+    assert_eq!(o.json()["segments"][0]["kind"], "ignored");
+    assert_eq!(run(h, &["review", "ignore", "NOPE"]).code, 3);
+    // 無視でない区間の取り消しは引数エラー
+    insert_segment(
+        h,
+        "WRK1",
+        "2026-10-10T11:00:00+09:00",
+        "2026-10-10T11:30:00+09:00",
+        "work",
+        None,
+        "needs_review",
+    );
+    assert_eq!(run(h, &["review", "unignore", "WRK1"]).code, 2);
+    // 取り消し（確定を削除して再計算）
+    assert_eq!(run(h, &["review", "unignore", "IGN1"]).code, 0);
+}

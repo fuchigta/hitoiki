@@ -128,6 +128,7 @@ pub fn kind_label(kind: SegmentKind) -> &'static str {
         SegmentKind::Idle => "無操作",
         SegmentKind::Break => "休憩",
         SegmentKind::Interrupt => "割り込み",
+        SegmentKind::Ignored => "無視",
     }
 }
 

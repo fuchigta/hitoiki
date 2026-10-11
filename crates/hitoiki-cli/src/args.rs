@@ -134,6 +134,9 @@ pub enum Cmd {
     Ingest(IngestCmd),
     /// ブラウザ拡張のネイティブメッセージングホスト（install / uninstall で登録・解除）
     NativeHost(NativeHostArgs),
+    /// 無視するアプリ（collect.ignore_exes）の管理と、無視の提案
+    #[command(subcommand)]
+    Ignore(IgnoreCmd),
     /// 設定
     #[command(subcommand)]
     Config(ConfigCmd),
@@ -318,6 +321,18 @@ pub enum ReviewCmd {
     UndoCorrection {
         /// 補正の ID（前方一致）
         id: String,
+    },
+    /// 区間を無視にする（集計・仕分け・レポートに数えない。`review unignore` で取り消せる）
+    Ignore {
+        /// 区間 ID（前方一致）を 1 つ以上
+        #[arg(required = true)]
+        segments: Vec<String>,
+    },
+    /// 無視にした区間を元に戻す（確定を削除して再計算する）
+    Unignore {
+        /// 区間 ID（前方一致）を 1 つ以上
+        #[arg(required = true)]
+        segments: Vec<String>,
     },
     /// 無操作の区間に分類をつける: `review idle <区間 ID>... <break|meeting|thinking|away>`
     /// （休憩 = 種別 break、会議 = 種別 meeting、考えごと = 作業 + 活動「考えごと」、離席 = 休憩 + 活動「離席」）
@@ -575,6 +590,26 @@ pub struct NativeHostArgs {
 #[derive(Debug, Subcommand)]
 pub enum IngestCmd {
     Context,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IgnoreCmd {
+    /// 無視リストの一覧
+    List,
+    /// アプリを無視リストに追加し、直近 7 日を再計算する
+    Add { exe: String },
+    /// アプリを無視リストから外し、直近 7 日を再計算する
+    Remove { exe: String },
+    /// 無視の提案を表示する。`--accept <exe>` で追加、`--dismiss <exe>` で 30 日間断る
+    Suggest {
+        #[arg(long, value_name = "EXE", conflicts_with = "dismiss")]
+        accept: Option<String>,
+        #[arg(long, value_name = "EXE")]
+        dismiss: Option<String>,
+        /// 遡る日数（既定 7）
+        #[arg(long)]
+        days: Option<i64>,
+    },
 }
 
 #[derive(Debug, Subcommand)]

@@ -361,6 +361,14 @@ pub fn report(tz: Tz, r: &Report) -> String {
     } else {
         s += &format!("\n{}", table(&[by, "時間", "割合", ""], &report_rows(&r.rows)));
     }
+    if r.excluded.ignored_ms > 0 {
+        s += &format!(
+            "
+
+無視した区間（集計に含めない）: {}",
+            dur(r.excluded.ignored_ms)
+        );
+    }
     if !r.include_idle && (r.excluded.idle_ms > 0 || r.excluded.break_ms > 0) {
         s += &format!(
             "\n\n合計から除外: 無操作 {} / 休憩 {}",
@@ -403,6 +411,13 @@ pub fn status(tz: Tz, st: &Status) -> String {
         dur(st.today.idle_ms),
         dur(st.today.break_ms)
     );
+    if st.today.ignored_ms > 0 {
+        s += &format!(
+            "無視した区間（集計に含めない）: {}
+",
+            dur(st.today.ignored_ms)
+        );
+    }
     for r in &st.today.by_kind {
         s += &format!("  {} {}\n", pad(&r.label, 20), dur(r.duration_ms));
     }
@@ -838,5 +853,55 @@ pub fn correction_undone(tz: Tz, r: &CorrUndone) -> String {
         short(&r.correction.id),
         dt(tz, r.correction.start_at),
         r.overrides_removed
+    )
+}
+
+pub fn ignore_list(l: &hitoiki_core::service::ignore::IgnoreList) -> String {
+    let mut s = format!(
+        "無視するアプリ（collect.ignore_exes、{}）:",
+        if l.customized { "変更済み" } else { "既定" }
+    );
+    for e in &l.exes {
+        s += &format!(
+            "
+  {e}"
+        );
+    }
+    s
+}
+
+pub fn ignore_change(c: &hitoiki_core::service::ignore::IgnoreChange, added: bool) -> String {
+    let verb = if added {
+        "無視リストに追加"
+    } else {
+        "無視リストから削除"
+    };
+    if !c.changed {
+        return format!("{} はすでに無視リストにあります。", c.exe);
+    }
+    let days = hitoiki_core::service::ignore::RECOMPUTE_DAYS;
+    format!("{}: {}（直近 {} 日を再計算しました）", verb, c.exe, days)
+}
+
+pub fn ignore_suggestions(list: &[hitoiki_core::service::ignore::IgnoreSuggestion], days: i64) -> String {
+    if list.is_empty() {
+        return format!("無視の提案はありません（直近 {days} 日）。");
+    }
+    let mut s =
+        format!("無視の提案（直近 {days} 日。--accept <exe> で無視リストに追加、--dismiss <exe> で断る）:");
+    for r in list {
+        s += &format!(
+            "
+- {}（要確認 {} 件）",
+            r.summary, r.review_count
+        );
+    }
+    s
+}
+
+pub fn unignored(r: &hitoiki_core::service::review::UnignoreResult) -> String {
+    format!(
+        "{} 件の無視を取り消しました（確定 {} 件を削除して再計算）。",
+        r.count, r.overrides_removed
     )
 }

@@ -15,10 +15,12 @@ fn same_content(a: &Piece, b: &Piece) -> bool {
 
 /// 前後の区間として、間の短い中断を吸収してよいか。
 /// エージェント対話・見守りは「そのウインドウにいた時間だけ」を計上するため（docs/dev/architecture.md「帰属判定パイプライン」、ラグを計上しない）、
-/// ユーザー確定（override）はユーザーが決めた範囲を広げないため、吸収しない。
+/// ユーザー確定（override）はユーザーが決めた範囲を広げないため、無視の区間は作業時間として数えない時間を挟んで作業を水増ししないため、吸収しない。
 fn can_absorb_around(p: &Piece) -> bool {
-    !matches!(p.kind, SegmentKind::AgentDialog | SegmentKind::AgentWatch)
-        && p.status != Some(SegmentStatus::Confirmed)
+    !matches!(
+        p.kind,
+        SegmentKind::AgentDialog | SegmentKind::AgentWatch | SegmentKind::Ignored
+    ) && p.status != Some(SegmentStatus::Confirmed)
 }
 
 /// `b` を `a` の後ろに連結する。ids は和集合。exe/title は同種の区間のうち長い方の代表値で、

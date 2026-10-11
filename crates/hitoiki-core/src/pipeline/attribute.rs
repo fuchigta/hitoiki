@@ -28,6 +28,11 @@ pub(crate) fn apply_overrides(input: &PipelineInput, pieces: &mut Vec<Piece>) {
         if o.offline {
             p.offline = true;
         }
+        // 無視の区間はタスクにも活動にも属さない。
+        if p.kind == SegmentKind::Ignored {
+            p.task_id = None;
+            p.label = None;
+        }
         p.status = Some(SegmentStatus::Confirmed);
         p.decided_by = Some("user".into());
         p.confidence = Some(1.0);
@@ -102,7 +107,12 @@ pub(crate) fn apply_rules(
                 p.confidence = Some(1.0);
             }
         }
-        if p.label.is_none() && !matches!(p.kind, SegmentKind::Idle | SegmentKind::Break) {
+        if p.label.is_none()
+            && !matches!(
+                p.kind,
+                SegmentKind::Idle | SegmentKind::Break | SegmentKind::Ignored
+            )
+        {
             if let Some(l) = activity_rules.find(&target) {
                 p.label = Some(l.to_string());
             }

@@ -23,6 +23,8 @@ pub struct TodaySummary {
     pub total_ms: i64,
     pub idle_ms: i64,
     pub break_ms: i64,
+    /// 無視した区間の合計（合計には含めない）。
+    pub ignored_ms: i64,
     pub by_kind: Vec<ReportRow>,
     /// 時間の長い順の上位 5 件。
     pub top_tasks: Vec<ReportRow>,
@@ -111,6 +113,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         total_ms: by_kind.total_ms,
         idle_ms: by_kind.excluded.idle_ms,
         break_ms: by_kind.excluded.break_ms,
+        ignored_ms: by_kind.excluded.ignored_ms,
         by_kind: by_kind.rows,
         top_tasks: by_task.rows.into_iter().take(5).collect(),
     };

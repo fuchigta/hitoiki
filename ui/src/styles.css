@@ -496,6 +496,7 @@ button.ghost {
 .k-interrupt { background: var(--k-interrupt); }
 .k-idle { background: var(--k-idle); }
 .k-break { background: var(--k-break); }
+.k-ignored { background: var(--k-break); opacity: 0.4; }
 .legend {
   list-style: none;
   display: flex;

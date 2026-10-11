@@ -57,7 +57,7 @@ fn is_terminal(input: &PipelineInput, w: &WindowSpan) -> bool {
 
 /// 一覧に無くても対話の場とはみなさないブラウザの exe 名。ブラウザでプロンプトを送ることは通常なく、
 /// ブラウザで調べものをしている裏でエージェントが動くことのほうが多い。
-const BROWSER_EXES: &[&str] = &[
+pub(crate) const BROWSER_EXES: &[&str] = &[
     "chrome.exe",
     "msedge.exe",
     "firefox.exe",
@@ -79,6 +79,7 @@ fn is_bindable_unlisted(input: &PipelineInput, w: &WindowSpan) -> bool {
     };
     !(exe.eq_ignore_ascii_case("hitoiki-app.exe")
         || exe_in(&input.transient_exes, exe)
+        || exe_in(&input.ignore_exes, exe)
         || exe_in(&input.communication_exes, exe)
         || exe_in(&input.meeting_exes, exe)
         || BROWSER_EXES.iter().any(|b| b.eq_ignore_ascii_case(exe)))

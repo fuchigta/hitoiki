@@ -76,6 +76,7 @@ str_enum!(
         Idle => "idle",
         Break => "break",
         Interrupt => "interrupt",
+        Ignored => "ignored",
     }
 );
 

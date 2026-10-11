@@ -7,6 +7,7 @@ pub mod block_template;
 pub mod context;
 pub mod correction;
 pub mod hint;
+pub mod ignore;
 pub mod ingest;
 pub mod log;
 pub mod okr;

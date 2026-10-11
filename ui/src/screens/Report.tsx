@@ -62,6 +62,9 @@ export function Report() {
               別枠: 無操作 {fmtDur(r.data.excluded.idle_ms)} ・ 休憩 {fmtDur(r.data.excluded.break_ms)}
             </p>
           )}
+          {r.data.excluded.ignored_ms > 0 && (
+            <p class="muted">無視した区間: {fmtDur(r.data.excluded.ignored_ms)}（合計には含めません）</p>
+          )}
           {r.data.note && <p class="muted">{r.data.note}</p>}
         </Card>
       )}

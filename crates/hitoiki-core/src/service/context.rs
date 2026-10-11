@@ -31,6 +31,8 @@ pub struct Summary {
     pub range: RangeView,
     pub total_minutes: i64,
     pub idle_minutes: i64,
+    /// 無視した区間（`ignored`）の分。`total_minutes` には含まれない。
+    pub ignored_minutes: i64,
     pub break_minutes: i64,
     pub by: BTreeMap<String, Vec<RowView>>,
 }
@@ -222,13 +224,14 @@ fn run_report(ctx: &Ctx, range: Range, tz: Tz, by: ReportBy) -> Result<Report> {
 
 fn summary(ctx: &Ctx, range: Range, tz: Tz, bys: &[ReportBy]) -> Result<Summary> {
     let mut by = BTreeMap::new();
-    let (mut total, mut idle, mut brk) = (0, 0, 0);
+    let (mut total, mut idle, mut brk, mut ignored) = (0, 0, 0, 0);
     for b in bys {
         let r = run_report(ctx, range, tz, *b)?;
         if *b == ReportBy::Kind {
             total = r.total_ms;
             idle = r.excluded.idle_ms;
             brk = r.excluded.break_ms;
+            ignored = r.excluded.ignored_ms;
         }
         by.insert(b.as_str().to_string(), rows(&r.rows));
     }
@@ -236,6 +239,7 @@ fn summary(ctx: &Ctx, range: Range, tz: Tz, bys: &[ReportBy]) -> Result<Summary>
         range: range_view(tz, range),
         total_minutes: total / 60_000,
         idle_minutes: idle / 60_000,
+        ignored_minutes: ignored / 60_000,
         break_minutes: brk / 60_000,
         by,
     })

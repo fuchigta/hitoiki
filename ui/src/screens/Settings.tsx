@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
+import { hasExe, normalizeExe } from "../ignore-util";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = {
@@ -99,6 +100,7 @@ export function Settings() {
           </div>
         </div>
       </Card>
+      <IgnoreCard />
       <Card title="はじめに">
         <div class="row">
           <button
@@ -139,5 +141,57 @@ export function Settings() {
         </details>
       </Card>
     </div>
+  );
+}
+
+/** 無視するアプリ（collect.ignore_exes）の一覧・追加・削除。変更すると直近 7 日を再計算する。 */
+function IgnoreCard() {
+  const list = useAsync(() => api.ignoreList(), []);
+  const [exe, setExe] = useState("");
+  const act = useAction();
+  const exes = list.data?.exes ?? [];
+  const name = normalizeExe(exe);
+  const add = async () => {
+    if (await act.run(() => api.ignoreAdd(name))) {
+      setExe("");
+      list.reload();
+    }
+  };
+  const remove = async (e: string) => {
+    if (await act.run(() => api.ignoreRemove(e))) list.reload();
+  };
+  return (
+    <Card title="無視するアプリ">
+      <div class="stack">
+        <p class="muted">
+          ここのアプリが前面の時間は、短いものは前後の作業に含め、続いたものは集計・仕分け・レポートに数えません。記録は消えず、外せば元に戻ります。
+          追加・削除すると直近 7 日を再計算します。
+        </p>
+        <ErrorBox error={list.error ?? act.error} />
+        <ul class="plain">
+          {exes.map((e) => (
+            <li key={e} class="row">
+              <span>{e}</span>
+              <span class="spacer" />
+              <button class="ghost" disabled={act.busy} onClick={() => remove(e)}>
+                外す
+              </button>
+            </li>
+          ))}
+        </ul>
+        <form
+          class="form-row"
+          onSubmit={(ev) => {
+            ev.preventDefault();
+            void add();
+          }}
+        >
+          <Field label="追加する exe 名">
+            <input value={exe} onInput={(e) => setExe(e.currentTarget.value)} placeholder="explorer.exe" />
+          </Field>
+          <button disabled={act.busy || !name || hasExe(exes, name)}>追加</button>
+        </form>
+      </div>
+    </Card>
   );
 }

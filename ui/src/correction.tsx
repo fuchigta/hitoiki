@@ -14,6 +14,7 @@ import {
   type CandidateFilter,
   type TargetChoice,
 } from "./correct-util";
+import { ignorableIds } from "./ignore-util";
 import { KIND_LABEL, fmtDur, fmtTime, useAction, useAsync } from "./lib";
 import type { TimeSpan } from "./plan-util";
 
@@ -52,6 +53,11 @@ interface Props {
 /** 実績の補正: 範囲に含まれる区間を一覧し、チェックしたものを 1 つのタスクへ付け替える。 */
 export function CorrectionPanel(p: Props) {
   const list = useAsync(() => api.correctionCandidates(p.span.start, p.span.end), [p.span.start, p.span.end]);
+  // 範囲内で無視にした区間（元に戻せるように並べる）。
+  const ignored = useAsync(
+    () => api.log({ from: new Date(p.span.start).toISOString(), to: new Date(p.span.end).toISOString() }),
+    [p.span.start, p.span.end],
+  );
   const [cands, setCands] = useState<CorrectionCandidate[]>([]);
   const [filter, setFilter] = useState<CandidateFilter>("all");
   const [choice, setChoice] = useState<TargetChoice>("none");
@@ -92,6 +98,26 @@ export function CorrectionPanel(p: Props) {
     }
   };
 
+  // チェックした区間を、付け替えずに無視にする（区間全体が対象）。
+  const ignoreChecked = async () => {
+    const ids = ignorableIds(cands.filter((c) => matchesFilter(c, filter)));
+    if (ids.length === 0) return;
+    if (await act.run(() => api.reviewIgnore(ids))) {
+      list.reload();
+      ignored.reload();
+      p.onChanged();
+    }
+  };
+
+  // 無視にした区間を元に戻す。
+  const restore = async (id: string) => {
+    if (await act.run(() => api.reviewUnignore([id]))) {
+      list.reload();
+      ignored.reload();
+      p.onChanged();
+    }
+  };
+
   const undo = async () => {
     if (!applied) return;
     const r = await act.run(() => api.correctionUndo(applied.correction.id));
@@ -111,7 +137,7 @@ export function CorrectionPanel(p: Props) {
         </button>
       }
     >
-      <ErrorBox error={list.error ?? act.error} />
+      <ErrorBox error={list.error ?? ignored.error ?? act.error} />
       {applied ? (
         <div class="stack">
           <p role="status">
@@ -222,10 +248,44 @@ export function CorrectionPanel(p: Props) {
             <button type="button" class="primary" disabled={act.busy || needTask || totals.selected === 0} onClick={confirm}>
               付け替える
             </button>
+            <button
+              type="button"
+              class="ghost"
+              disabled={act.busy || ignorableIds(visible).length === 0}
+              onClick={ignoreChecked}
+              title="チェックした区間を、タスクに付け替えず数えない時間にします（区間全体）"
+            >
+              チェックした区間を無視
+            </button>
             <button type="button" class="ghost" onClick={p.onClose}>
               やめる
             </button>
           </div>
+          {(ignored.data?.segments ?? []).filter((s) => s.kind === "ignored").length > 0 && (
+            <details>
+              <summary>無視した区間（元に戻せます）</summary>
+              <ul class="plain">
+                {(ignored.data?.segments ?? [])
+                  .filter((s) => s.kind === "ignored")
+                  .map((s) => (
+                    <li key={s.id} class="row">
+                      <span class="corr-time">
+                        {fmtTime(s.start_at)}–{fmtTime(s.end_at)}
+                      </span>
+                      <span class="corr-dur">{fmtDur(s.duration_ms)}</span>
+                      <span class="corr-what">{s.exe_name ?? ""}</span>
+                      {s.decided_by === "user" ? (
+                        <button type="button" class="ghost" disabled={act.busy} onClick={() => restore(s.id)}>
+                          元に戻す
+                        </button>
+                      ) : (
+                        <span class="muted">無視リストのアプリ（設定で外せます）</span>
+                      )}
+                    </li>
+                  ))}
+              </ul>
+            </details>
+          )}
         </div>
       )}
     </Card>

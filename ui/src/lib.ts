@@ -126,6 +126,7 @@ export const KIND_LABEL: Record<SegmentKind, string> = {
   idle: "無操作",
   break: "休憩",
   interrupt: "割り込み",
+  ignored: "無視",
 };
 
 export const KIND_ORDER: SegmentKind[] = [
@@ -136,6 +137,7 @@ export const KIND_ORDER: SegmentKind[] = [
   "interrupt",
   "idle",
   "break",
+  "ignored",
 ];
 
 export const STATUS_LABEL: Record<string, string> = {

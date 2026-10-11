@@ -239,10 +239,13 @@ fn confirm_range(
         correction_id: None,
     };
     overrides::insert(conn, &ov)?;
+    // task_id が空文字列なら「タスクなし」（外す）。無視（ignored）にする区間はタスクも活動も持たない。
     conn.execute(
-        "UPDATE activity_segment SET kind = COALESCE(?3, kind), task_id = COALESCE(?4, task_id), \
-         activity_label = COALESCE(?5, activity_label), status = 'confirmed', decided_by = 'user', \
-         confidence = 1.0 WHERE start_at >= ?1 AND end_at <= ?2",
+        "UPDATE activity_segment SET kind = COALESCE(?3, kind), \
+         task_id = CASE WHEN ?3 = 'ignored' OR ?4 = '' THEN NULL ELSE COALESCE(?4, task_id) END, \
+         activity_label = CASE WHEN ?3 = 'ignored' THEN NULL ELSE COALESCE(?5, activity_label) END, \
+         status = 'confirmed', decided_by = 'user', confidence = 1.0 \
+         WHERE start_at >= ?1 AND end_at <= ?2",
         params![start, end, d.kind, d.task_id, d.activity],
     )?;
     Ok(ov.id)
@@ -390,6 +393,97 @@ fn apply_batch(
         segments,
         override_ids,
         rules,
+    })
+}
+
+// ===== 区間の無視 =====
+
+/// 区間（まとめて指定可）を「無視」にする: 種別 `ignored`・タスクなしの override として保存する
+/// （集計・仕分け・レポート・タスクの実績に数えない。再計算でも残る）。生データは変えない。
+/// 取り消しは [`unignore`]。
+pub fn ignore(ctx: &Ctx, segments: &[String]) -> Result<ReviewBatchResult> {
+    if segments.is_empty() {
+        return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
+    }
+    let mut segs: Vec<crate::model::ActivitySegment> = Vec::new();
+    for p in segments {
+        let s = repo::segment::resolve(ctx.conn, p)?;
+        if !segs.iter().any(|x| x.id == s.id) {
+            segs.push(s);
+        }
+    }
+    let d = Decision {
+        task_id: Some(String::new()),
+        kind: Some(SegmentKind::Ignored),
+        activity: None,
+    };
+    apply_batch(ctx, &segs, &d, false)
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct UnignoreResult {
+    /// 無視を取り消した区間の数。
+    pub count: usize,
+    /// 削除した override の数。
+    pub overrides_removed: usize,
+    /// 再計算した範囲。
+    pub range: RangeView,
+}
+
+/// 「無視」にした区間（override）を取り消し、その範囲を再計算して元に戻す。
+/// アプリの無視リスト（`collect.ignore_exes`）による無視は override ではないので、`ignore remove` で外す。
+/// `judge` は再計算で使う判定器（無ければルールのみ）。
+pub fn unignore(
+    ctx: &Ctx,
+    segments: &[String],
+    judge: Option<&dyn crate::pipeline::SegmentJudge>,
+) -> Result<UnignoreResult> {
+    if segments.is_empty() {
+        return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
+    }
+    let tz = ctx.tz()?;
+    let mut segs: Vec<crate::model::ActivitySegment> = Vec::new();
+    for p in segments {
+        let s = repo::segment::resolve(ctx.conn, p)?;
+        if s.kind != SegmentKind::Ignored {
+            return Err(Error::InvalidArgument(format!(
+                "区間 {} は無視された区間ではありません（種別: {}）",
+                s.id, s.kind
+            )));
+        }
+        if !segs.iter().any(|x| x.id == s.id) {
+            segs.push(s);
+        }
+    }
+    let lo = segs.iter().map(|s| s.start_at).min().unwrap_or(0);
+    let hi = segs.iter().map(|s| s.end_at).max().unwrap_or(0);
+    let found: Vec<SegmentOverride> = overrides::list(ctx.conn, crate::timefmt::Range::new(lo, hi))?
+        .into_iter()
+        .filter(|o| o.kind == Some(SegmentKind::Ignored))
+        .filter(|o| {
+            segs.iter()
+                .any(|s| o.start_at < s.end_at && o.end_at > s.start_at)
+        })
+        .collect();
+    if found.is_empty() {
+        return Err(Error::InvalidArgument(
+            "この区間は無視リスト（collect.ignore_exes）による無視です。`hitoiki ignore remove <exe>` でアプリを外してください"
+                .into(),
+        ));
+    }
+    let range = crate::timefmt::Range::new(
+        found.iter().map(|o| o.start_at).min().unwrap_or(lo).min(lo),
+        found.iter().map(|o| o.end_at).max().unwrap_or(hi).max(hi),
+    );
+    let ids: Vec<String> = found.iter().map(|o| o.id.clone()).collect();
+    let tx = ctx.conn.unchecked_transaction()?;
+    let removed = overrides::delete_many(ctx.conn, &ids)?;
+    tx.commit()?;
+    let stats = crate::rebuild::rebuild_with_judge(ctx.conn, ctx.cfg, range, ctx.now(), judge)?;
+    Ok(UnignoreResult {
+        count: segs.len(),
+        overrides_removed: removed,
+        range: range_view(tz, stats.range),
     })
 }
 
@@ -1191,5 +1285,135 @@ mod tests {
         env.clock.advance(2 * 86_400_000);
         // 14 日を過ぎれば再び提案する（確定した区間は 30 日以内）
         assert_eq!(suggest_rules(&env.ctx()).unwrap().len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod ignore_tests {
+    use super::*;
+    use crate::service::testutil::{insert_segment, Env};
+    use crate::service::{report, RangeArgs};
+    use crate::timefmt::Range;
+
+    const MIN: Millis = 60_000;
+
+    fn wspan(conn: &rusqlite::Connection, id: &str, s: Millis, e: Millis, exe: &str) {
+        conn.execute(
+            "INSERT INTO window_span (id, start_at, end_at, hwnd, exe_name, title, excluded) VALUES (?1,?2,?3,?1,?4,'t',0)",
+            params![id, s, e, exe],
+        )
+        .unwrap();
+    }
+
+    fn total(ctx: &Ctx) -> i64 {
+        report::report(
+            ctx,
+            &report::ReportInput {
+                range: RangeArgs::default(),
+                by: report::ReportBy::Task,
+                include_idle: false,
+            },
+        )
+        .unwrap()
+        .total_ms
+    }
+
+    #[test]
+    fn ignore_many_then_unignore_restores() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        wspan(ctx.conn, "A", d, d + 30 * MIN, "devenv.exe");
+        wspan(ctx.conn, "B", d + 30 * MIN, d + 40 * MIN, "notepad.exe");
+        wspan(ctx.conn, "C", d + 40 * MIN, d + 70 * MIN, "devenv.exe");
+        let range = Range::new(d, d + 120 * MIN);
+        // devenv は T に帰属させ、notepad は別の区間として残す。
+        let t = crate::service::task::add(
+            &ctx,
+            &crate::service::task::TaskInput {
+                title: Some("T".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .task
+        .id;
+        ensure_task_rule(&ctx, &t, MatchField::Exe, "devenv".into(), PatternType::Contains).unwrap();
+        crate::rebuild::rebuild(ctx.conn, ctx.cfg, range, ctx.now()).unwrap();
+        let segs = repo::segment::list(ctx.conn, range).unwrap();
+        assert_eq!(total(&ctx), 70 * MIN);
+
+        let ids: Vec<String> = segs
+            .iter()
+            .filter(|s| s.exe_name.as_deref() == Some("notepad.exe"))
+            .map(|s| s.id.clone())
+            .collect();
+        let r = ignore(&ctx, &ids).unwrap();
+        assert_eq!(r.count, 1);
+        assert_eq!(r.segments[0].kind, SegmentKind::Ignored);
+        assert_eq!(r.segments[0].task_id, None);
+        assert_eq!(total(&ctx), 60 * MIN);
+        // 再計算しても残る
+        crate::rebuild::rebuild(ctx.conn, ctx.cfg, range, ctx.now()).unwrap();
+        assert_eq!(total(&ctx), 60 * MIN);
+        let ign: Vec<String> = repo::segment::list(ctx.conn, range)
+            .unwrap()
+            .into_iter()
+            .filter(|s| s.kind == SegmentKind::Ignored)
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(ign.len(), 1);
+
+        // 取り消し
+        let u = unignore(&ctx, &ign, None).unwrap();
+        assert_eq!((u.count, u.overrides_removed), (1, 1));
+        assert_eq!(total(&ctx), 70 * MIN);
+        // 生データは変わらない
+        let n: i64 = ctx
+            .conn
+            .query_row("SELECT COUNT(*) FROM window_span", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 3);
+    }
+
+    #[test]
+    fn unignore_rejects_non_ignored_and_list_ignored() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let d = env.day_start();
+        insert_segment(
+            ctx.conn,
+            "WWWW",
+            d,
+            d + MIN,
+            SegmentKind::Work,
+            None,
+            SegmentStatus::NeedsReview,
+        );
+        assert!(matches!(
+            unignore(&ctx, &["WWWW".into()], None),
+            Err(Error::InvalidArgument(_))
+        ));
+        // 無視リスト由来の無視（override なし）は取り消せない
+        insert_segment(
+            ctx.conn,
+            "IIII",
+            d + 2 * MIN,
+            d + 3 * MIN,
+            SegmentKind::Ignored,
+            None,
+            SegmentStatus::Auto,
+        );
+        assert!(matches!(
+            unignore(&ctx, &["IIII".into()], None),
+            Err(Error::InvalidArgument(_))
+        ));
+        // 無視の区間は要確認に出ない
+        assert!(list(&ctx, &RangeArgs::default())
+            .unwrap()
+            .segments
+            .iter()
+            .all(|s| s.id != "IIII"));
+        assert!(matches!(ignore(&ctx, &[]), Err(Error::InvalidArgument(_))));
     }
 }

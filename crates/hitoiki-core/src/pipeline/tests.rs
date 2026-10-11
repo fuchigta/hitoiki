@@ -1098,6 +1098,7 @@ fn find_sec(o: &PipelineOutput, start_sec: i64) -> &ActivitySegment {
 fn transient_input() -> PipelineInput {
     let mut i = base();
     i.merge_gap = 0; // 吸収が merge_gap によるものではないことを確かめる
+    i.ignore_exes.clear(); // 通過系アプリの吸収だけを確かめる（無視は ignore_* のテストで確かめる）
     i.task_rules = vec![
         rule("R1", "T1", MatchField::Exe, "devenv", 0),
         rule("R2", "T2", MatchField::Exe, "winword", 0),
@@ -1495,4 +1496,177 @@ fn empty_task_override_clears_task() {
     assert_eq!(find(&o, 0).task_id.as_deref(), Some("T1"));
     assert_eq!(find(&o, 10).task_id, None);
     assert_eq!(find(&o, 10).status, SegmentStatus::Confirmed);
+}
+
+// ===== 無視するアプリ（collect.ignore_exes） =====
+
+fn ignore_input() -> PipelineInput {
+    let mut i = transient_input();
+    i.ignore_exes = vec!["explorer.exe".into(), "ShellExperienceHost.exe".into()];
+    i
+}
+
+#[test]
+fn ignore_exe_short_is_absorbed_like_transient() {
+    let mut i = ignore_input();
+    i.transient_exes.clear(); // ignore_exes に入っていれば通過系としても扱う
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 630, "H2", "EXPLORER.EXE", "x"),
+        wsec("B", 630, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 1200, Work)]);
+    assert_eq!(o.segments[0].task_id.as_deref(), Some("T1"));
+}
+
+#[test]
+fn ignore_exe_long_becomes_ignored_segment() {
+    let mut i = ignore_input();
+    i.windows = vec![
+        wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
+        wsec("E", 600, 720, "H2", "explorer.exe", "ファイル整理"),
+        wsec("B", 720, 1200, "H1", "devenv.exe", "proj"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(
+        shape_sec(&o),
+        vec![(0, 600, Work), (600, 720, Ignored), (720, 1200, Work)]
+    );
+    let g = find_sec(&o, 600);
+    assert_eq!(g.status, SegmentStatus::Auto);
+    assert_eq!(g.decided_by.as_deref(), Some("ignore"));
+    assert_eq!((g.task_id.clone(), g.activity_label.clone()), (None, None));
+    // 生データへの根拠は残る
+    assert_eq!(g.window_span_ids, vec!["E"]);
+    // 無視は要確認にならない
+    assert!(o.segments.iter().all(|s| s.status != SegmentStatus::NeedsReview));
+}
+
+#[test]
+fn ignore_exe_without_neighbor_is_ignored_not_review() {
+    let mut i = ignore_input();
+    i.windows = vec![wsec("E", 0, 20, "H2", "explorer.exe", "x")];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 20, Ignored)]);
+}
+
+#[test]
+fn ignored_gets_no_doing_task_and_judge_is_not_asked() {
+    struct Panic;
+    impl SegmentJudge for Panic {
+        fn judge(&self, segs: &[ActivitySegment]) -> Vec<Option<JudgeAnswer>> {
+            assert!(segs.iter().all(|s| s.kind == Work), "無視の区間は問い合わせない");
+            vec![None; segs.len()]
+        }
+    }
+    let mut i = ignore_input();
+    i.doing_logs = vec![doing("T7", 0, None)];
+    i.windows = vec![wsec("E", 0, 600, "H2", "ShellExperienceHost.exe", "x")];
+    let o = build(&i, Some(&Panic));
+    assert_eq!(shape_sec(&o), vec![(0, 600, Ignored)]);
+    assert_eq!(o.segments[0].task_id, None);
+}
+
+#[test]
+fn adjacent_ignore_exes_form_one_ignored_segment() {
+    let mut i = ignore_input();
+    i.windows = vec![
+        wsec("E1", 600, 660, "H2", "ShellExperienceHost.exe", "x"),
+        wsec("E2", 660, 800, "H3", "explorer.exe", "y"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(600, 800, Ignored)]);
+}
+
+#[test]
+fn ignored_does_not_absorb_short_work_between() {
+    let mut i = ignore_input();
+    i.merge_gap = 30 * S;
+    i.windows = vec![
+        wsec("E1", 0, 120, "H2", "explorer.exe", "x"),
+        wsec("W", 120, 140, "H1", "notepad.exe", "n"),
+        wsec("E2", 140, 260, "H2", "explorer.exe", "x"),
+    ];
+    let o = build(&i, None);
+    assert_eq!(
+        shape_sec(&o),
+        vec![(0, 120, Ignored), (120, 140, Work), (140, 260, Ignored)]
+    );
+}
+
+#[test]
+fn rule_task_on_ignore_exe_is_not_ignored() {
+    let mut i = ignore_input();
+    i.task_rules
+        .push(rule("R3", "T3", MatchField::Exe, "explorer", 0));
+    i.windows = vec![wsec("E", 0, 600, "H2", "explorer.exe", "x")];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 600, Work)]);
+    assert_eq!(o.segments[0].task_id.as_deref(), Some("T3"));
+}
+
+fn ov(id: &str, s: i64, e: i64, kind: Option<SegmentKind>, task: Option<&str>) -> SegmentOverride {
+    SegmentOverride {
+        id: id.into(),
+        start_at: s * S,
+        end_at: e * S,
+        kind,
+        task_id: task.map(Into::into),
+        activity_label: None,
+        created_at: 0,
+        offline: false,
+        correction_id: None,
+    }
+}
+
+#[test]
+fn override_wins_over_ignore_exe() {
+    let mut i = ignore_input();
+    i.windows = vec![wsec("E", 0, 600, "H2", "explorer.exe", "x")];
+    i.overrides = vec![ov("O", 0, 600, None, Some("T9"))];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 600, Work)]);
+    assert_eq!(
+        (o.segments[0].task_id.as_deref(), o.segments[0].status),
+        (Some("T9"), SegmentStatus::Confirmed)
+    );
+}
+
+#[test]
+fn ignore_override_makes_ignored_segment_without_task() {
+    let mut i = ignore_input();
+    i.windows = vec![wsec("A", 0, 600, "H1", "devenv.exe", "proj")];
+    i.overrides = vec![ov("O", 100, 200, Some(Ignored), Some(""))];
+    let o = build(&i, None);
+    assert_eq!(
+        shape_sec(&o),
+        vec![(0, 100, Work), (100, 200, Ignored), (200, 600, Work)]
+    );
+    let g = find_sec(&o, 100);
+    assert_eq!(
+        (g.task_id.clone(), g.status, g.decided_by.as_deref()),
+        (None, SegmentStatus::Confirmed, Some("user"))
+    );
+    // 取り消す（override を外す）と元に戻る
+    i.overrides.clear();
+    assert_eq!(shape_sec(&build(&i, None)), vec![(0, 600, Work)]);
+}
+
+#[test]
+fn ignore_override_ignores_task_even_without_empty_task_id() {
+    let mut i = ignore_input();
+    i.windows = vec![wsec("A", 0, 600, "H1", "devenv.exe", "proj")];
+    i.overrides = vec![ov("O", 0, 600, Some(Ignored), None)];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 600, Ignored)]);
+    assert_eq!(o.segments[0].task_id, None);
+}
+
+#[test]
+fn ignore_exes_empty_keeps_old_behavior() {
+    let mut i = transient_input();
+    i.windows = vec![wsec("E", 0, 600, "H2", "explorer.exe", "x")];
+    let o = build(&i, None);
+    assert_eq!(shape_sec(&o), vec![(0, 600, Work)]);
 }

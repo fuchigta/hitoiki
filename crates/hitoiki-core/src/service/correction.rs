@@ -108,6 +108,8 @@ fn classify(s: &ActivitySegment) -> Category {
         SegmentKind::AgentDialog | SegmentKind::AgentWatch => Category::AgentDialog,
         SegmentKind::Meeting => Category::Meeting,
         SegmentKind::Idle | SegmentKind::Break => Category::Idle,
+        // 無視の区間は `candidates` が除くので、ここには来ない。
+        SegmentKind::Ignored => Category::Idle,
     }
 }
 
@@ -162,6 +164,10 @@ pub fn candidates(ctx: &Ctx, start_at: Millis, end_at: Millis, inc: Include) -> 
     let segs = repo::segment::list(ctx.conn, range)?;
     let mut out: Vec<Candidate> = Vec::new();
     for s in &segs {
+        // 無視した区間は付け替えの対象にしない（数えない時間なので、割り当てると意図せず実績に入る）。
+        if s.kind == SegmentKind::Ignored {
+            continue;
+        }
         let Some(r) = Range::new(s.start_at, s.end_at).intersect(&range) else {
             continue;
         };

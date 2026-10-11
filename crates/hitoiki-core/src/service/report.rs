@@ -84,6 +84,8 @@ pub struct ReportRow {
 pub struct Excluded {
     pub idle_ms: i64,
     pub break_ms: i64,
+    /// 無視した区間（`ignored`）の合計。`include_idle` に関わらず合計には含めない。
+    pub ignored_ms: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -175,6 +177,7 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
     let mut excluded = Excluded {
         idle_ms: 0,
         break_ms: 0,
+        ignored_ms: 0,
     };
     let mut total = 0i64;
     // (key, label) -> (ms, count, breakdown)
@@ -183,6 +186,11 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
     for s in &segs {
         let ms = repo::segment::clipped_len(s, range);
         if ms == 0 {
+            continue;
+        }
+        // 無視した区間は、集計のどの切り口でも数えない。
+        if s.kind == SegmentKind::Ignored {
+            excluded.ignored_ms += ms;
             continue;
         }
         if !input.include_idle {
@@ -475,5 +483,48 @@ mod tests {
         let r = report(&env.ctx(), &input(ReportBy::Kind)).unwrap();
         assert_eq!(r.total_ms, 30 * MIN);
         assert!("bogus".parse::<ReportBy>().is_err());
+    }
+}
+
+#[cfg(test)]
+mod ignored_tests {
+    use super::*;
+    use crate::model::SegmentStatus;
+    use crate::service::testutil::{insert_segment, Env};
+
+    #[test]
+    fn ignored_is_excluded_from_every_view() {
+        let env = Env::new();
+        let c = env.ctx();
+        let d = env.day_start();
+        const MIN: i64 = 60_000;
+        let st = SegmentStatus::Auto;
+        insert_segment(c.conn, "W", d, d + 30 * MIN, SegmentKind::Work, None, st);
+        insert_segment(
+            c.conn,
+            "G",
+            d + 30 * MIN,
+            d + 90 * MIN,
+            SegmentKind::Ignored,
+            None,
+            st,
+        );
+        for by in [ReportBy::Task, ReportBy::Kind, ReportBy::Activity] {
+            for include_idle in [false, true] {
+                let r = report(
+                    &c,
+                    &ReportInput {
+                        range: crate::service::RangeArgs::default(),
+                        by,
+                        include_idle,
+                    },
+                )
+                .unwrap();
+                assert_eq!(r.total_ms, 30 * MIN);
+                assert_eq!(r.excluded.ignored_ms, 60 * MIN);
+            }
+        }
+        let s = crate::service::status::status(&c).unwrap();
+        assert_eq!((s.today.total_ms, s.today.ignored_ms), (30 * MIN, 60 * MIN));
     }
 }
