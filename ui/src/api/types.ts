@@ -9,7 +9,8 @@ export type SegmentKind =
   | "meeting"
   | "idle"
   | "break"
-  | "interrupt";
+  | "interrupt"
+  | "ignored";
 export type SegmentStatus = "auto" | "needs_review" | "confirmed";
 export type TaskStatus = "todo" | "doing" | "done" | "dropped";
 export type TaskKind = "normal" | "interrupt";
@@ -188,7 +189,7 @@ export interface Report {
   by: ReportBy;
   total_ms: number;
   rows: ReportRow[];
-  excluded: { idle_ms: number; break_ms: number };
+  excluded: { idle_ms: number; break_ms: number; ignored_ms: number };
   include_idle: boolean;
   multi_attribution: boolean;
   note: string | null;
@@ -204,6 +205,8 @@ export interface TodaySummary {
   total_ms: number;
   idle_ms: number;
   break_ms: number;
+  /** 無視した区間の合計（合計には含めない）。 */
+  ignored_ms: number;
   by_kind: ReportRow[];
   top_tasks: ReportRow[];
 }
@@ -277,6 +280,45 @@ export interface ReviewBatchResult {
   segments: SegmentView[];
   override_ids: string[];
   rules: CreatedRule[];
+}
+
+/** 無視リスト（collect.ignore_exes）。 */
+export interface IgnoreList {
+  exes: string[];
+  default_exes: string[];
+  customized: boolean;
+}
+
+export interface IgnoreChange {
+  exe: string;
+  changed: boolean;
+  exes: string[];
+  recomputed: RangeView | null;
+}
+
+export interface IgnoreReason {
+  code: "system" | "flicker" | "review" | "user_ignored" | "user_no_task";
+  text: string;
+}
+
+/** 「これは無視しますか？」という提案。 */
+export interface IgnoreSuggestion {
+  exe: string;
+  reasons: IgnoreReason[];
+  span_count: number;
+  total_ms: number;
+  short_count: number;
+  short_ratio: number;
+  review_count: number;
+  user_ignored_count: number;
+  user_no_task_count: number;
+  summary: string;
+}
+
+export interface UnignoreResult {
+  count: number;
+  overrides_removed: number;
+  range: RangeView;
 }
 
 /** ルール化の提案の識別（受け入れ・却下に渡す）。 */

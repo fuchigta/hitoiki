@@ -1005,3 +1005,28 @@ fn idle_return_button_saves_override_and_labels_segment() {
     );
     assert!(r.is_err());
 }
+
+#[test]
+fn ignored_segments_do_not_count_as_work_for_push() {
+    let now = t(12, 11, 0);
+    // long_focus: 無視の区間は作業として数えない（最後が無視なら発火しない、間にあれば途切れる）
+    let mut ctx = PushContext::new(now, TZ);
+    let mut ign = seg(SegmentKind::Ignored, t(12, 10, 0), now);
+    ign.task_id = Some("T1".into());
+    ctx.recent_segments = vec![work("T1", t(12, 8, 0), t(12, 10, 0)), ign.clone()];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // late_work: 遅い時間帯でも無視の区間だけなら発火しない
+    let now = t(12, 21, 0);
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.recent_segments = vec![seg(SegmentKind::Ignored, t(12, 20, 30), now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // switch_spike: 無視の区間は切替に数えない
+    let now = t(12, 11, 0);
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.recent_segments = (0..15)
+        .map(|i| seg(SegmentKind::Ignored, now - (15 - i) * MIN, now - (14 - i) * MIN))
+        .collect();
+    let mut c = cfg();
+    c.switch_spike.count = 3;
+    assert!(evaluate(&ctx, &c).is_empty());
+}

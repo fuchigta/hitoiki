@@ -24,6 +24,15 @@ pub fn insert(conn: &Connection, o: &SegmentOverride) -> Result<()> {
     Ok(())
 }
 
+/// ID を指定して削除する。削除した数を返す。
+pub fn delete_many(conn: &Connection, ids: &[String]) -> Result<usize> {
+    let mut n = 0;
+    for id in ids {
+        n += conn.execute("DELETE FROM segment_override WHERE id = ?1", [id])?;
+    }
+    Ok(n)
+}
+
 /// 範囲と重なるオーバーライド（作成順）。
 pub fn list(conn: &Connection, range: Range) -> Result<Vec<SegmentOverride>> {
     let mut stmt = conn.prepare(

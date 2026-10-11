@@ -17,6 +17,7 @@ use hitoiki_core::service::correction::{
     Include, Preview as CorrectionPreview, UndoResult as CorrectionUndone,
 };
 use hitoiki_core::service::hint;
+use hitoiki_core::service::ignore;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
 use hitoiki_core::service::onboarding::{self, OnboardingStatus};
@@ -201,6 +202,81 @@ pub fn review_suggest_accept(app: AppHandle, state: S, input: RuleSuggestionRef)
 #[tauri::command(rename_all = "snake_case")]
 pub fn review_suggest_dismiss(state: S, input: RuleSuggestionRef) -> AppResult<()> {
     state.with_ctx(|c| review::dismiss_suggestion(c, &input))
+}
+
+// ===== 無視するアプリ・区間 =====
+
+/// 区間（まとめて指定可）を無視にする。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_ignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResult<ReviewBatchResult> {
+    let v = state.with_ctx(|c| review::ignore(c, &segments))?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
+}
+
+/// 無視にした区間を元に戻す（確定を削除して再計算する）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn review_unignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResult<review::UnignoreResult> {
+    let v = state.with_ctx(|c| {
+        let day = c.range(&RangeArgs::default())?;
+        let judge = hitoiki_daemon::build_judge(c.conn, c.cfg, day);
+        review::unignore(c, &segments, judge.as_deref())
+    })?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub fn ignore_list(state: S) -> AppResult<ignore::IgnoreList> {
+    state.with_ctx(|c| Ok(ignore::list(c.cfg)))
+}
+
+/// アプリを無視リストに追加し、直近 7 日を再計算する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn ignore_add(app: AppHandle, state: S, exe: String) -> AppResult<ignore::IgnoreChange> {
+    ignore_change(app, state, |c, judge| {
+        ignore::add(c, &paths::config_file(), &exe, judge)
+    })
+}
+
+/// アプリを無視リストから外し、直近 7 日を再計算する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn ignore_remove(app: AppHandle, state: S, exe: String) -> AppResult<ignore::IgnoreChange> {
+    ignore_change(app, state, |c, judge| {
+        ignore::remove(c, &paths::config_file(), &exe, judge)
+    })
+}
+
+fn ignore_change(
+    app: AppHandle,
+    state: S,
+    f: impl FnOnce(
+        &hitoiki_core::service::Ctx,
+        Option<&dyn hitoiki_core::pipeline::SegmentJudge>,
+    ) -> hitoiki_core::Result<ignore::IgnoreChange>,
+) -> AppResult<ignore::IgnoreChange> {
+    let v = state.with_own_ctx(|c| {
+        let day = c.range(&RangeArgs::default())?;
+        let judge = hitoiki_daemon::build_judge(c.conn, c.cfg, day);
+        f(c, judge.as_deref())
+    })?;
+    state.apply_config();
+    events::emit_segments_updated(&app);
+    Ok(v)
+}
+
+/// 無視の提案（既定は直近 7 日）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn ignore_suggestions(state: S, days: Option<i64>) -> AppResult<Vec<ignore::IgnoreSuggestion>> {
+    state.with_ctx(|c| ignore::suggest(c, days.unwrap_or(ignore::SUGGEST_DAYS)))
+}
+
+/// 無視の提案を断る（30 日間は同じアプリを提案しない）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn ignore_suggest_dismiss(state: S, exe: String) -> AppResult<()> {
+    state.with_ctx(|c| ignore::dismiss(c, &exe))
 }
 
 // ===== 実績の補正 =====

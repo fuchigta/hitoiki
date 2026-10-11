@@ -26,6 +26,8 @@ pub(crate) struct Piece {
     pub rep_len: Millis,
     /// 通過系アプリの短い連続（`transient::mark` が付ける吸収の候補）。
     pub transient: bool,
+    /// 無視するアプリ（`collect.ignore_exes`）の区間。吸収されなかったものは `ignored` にする。
+    pub ignore: bool,
     /// PC 外で過ごした時間（override の `offline`）。
     pub offline: bool,
 }
@@ -49,6 +51,7 @@ impl Piece {
             fixed: false,
             rep_len: end - start,
             transient: false,
+            ignore: false,
             offline: false,
         }
     }
@@ -71,6 +74,7 @@ impl Piece {
             fixed: false,
             rep_len: end - start,
             transient: false,
+            ignore: false,
             offline: false,
         }
     }

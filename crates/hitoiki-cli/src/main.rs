@@ -383,6 +383,17 @@ fn run(cli: Cli) -> Result<()> {
                 ext::notify_data("segments");
                 emit(json, &r, || render::correction_undone(tz, &r))
             }
+            ReviewCmd::Ignore { segments } => {
+                let r = review::ignore(&ctx, &segments)?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::review_batch(tz, &r))
+            }
+            ReviewCmd::Unignore { segments } => {
+                let judge = ext::judge_for(&ctx, None)?;
+                let r = review::unignore(&ctx, &segments, judge.as_deref())?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::unignored(&r))
+            }
             ReviewCmd::Idle { mut args } => {
                 let preset: review::IdlePreset = args.pop().unwrap_or_default().parse()?;
                 let r = review::set_idle(&ctx, &args, preset)?;
@@ -413,6 +424,51 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
         },
+        Cmd::Ignore(c) => {
+            use service::ignore as ign;
+            let cfg_path = paths::config_file();
+            match c {
+                IgnoreCmd::List => {
+                    let l = ign::list(&Config::load_from(&cfg_path)?);
+                    emit(json, &l, || render::ignore_list(&l))
+                }
+                IgnoreCmd::Add { exe } => {
+                    let judge = ext::judge_for(&ctx, None)?;
+                    let r = ign::add(&ctx, &cfg_path, &exe, judge.as_deref())?;
+                    ext::notify_data("segments");
+                    emit(json, &r, || render::ignore_change(&r, true))
+                }
+                IgnoreCmd::Remove { exe } => {
+                    let judge = ext::judge_for(&ctx, None)?;
+                    let r = ign::remove(&ctx, &cfg_path, &exe, judge.as_deref())?;
+                    ext::notify_data("segments");
+                    emit(json, &r, || render::ignore_change(&r, false))
+                }
+                IgnoreCmd::Suggest {
+                    accept,
+                    dismiss,
+                    days,
+                } => {
+                    let days = days.unwrap_or(ign::SUGGEST_DAYS);
+                    if let Some(exe) = accept {
+                        let judge = ext::judge_for(&ctx, None)?;
+                        let r = ign::add(&ctx, &cfg_path, &exe, judge.as_deref())?;
+                        ext::notify_data("segments");
+                        emit(json, &r, || render::ignore_change(&r, true))
+                    } else if let Some(exe) = dismiss {
+                        ign::dismiss(&ctx, &exe)?;
+                        emit(
+                            json,
+                            &serde_json::json!({ "dismissed": true, "exe": exe }),
+                            || format!("{exe} の提案は {} 日間表示しません。", ign::DISMISS_DAYS),
+                        )
+                    } else {
+                        let l = ign::suggest(&ctx, days)?;
+                        emit(json, &l, || render::ignore_suggestions(&l, days))
+                    }
+                }
+            }
+        }
         Cmd::Block(b) => match b {
             BlockCmd::Add {
                 start,

@@ -59,8 +59,14 @@ pub struct Collect {
     /// 通過系アプリの exe 名（タスクバー・スタートメニュー・Alt+Tab など、作業の合間に一瞬だけ前面になるもの）。
     /// 連続して `transient_max_sec` 未満なら、独立した区間にせず前後の作業に吸収する。
     pub transient_exes: Vec<String>,
-    /// 通過系アプリとみなす最大の連続時間（秒）。これ以上続いたら通常の作業区間として扱う。
+    /// 通過系アプリとみなす最大の連続時間（秒）。これ以上続いたら通常の作業区間として扱う
+    /// （`ignore_exes` の exe は「無視」の区間になる）。
     pub transient_max_sec: u64,
+    /// 無視するアプリの exe 名（大文字小文字を区別しない）。ノイズになるシステム系のアプリ向け。
+    /// 前面の時間は、`transient_max_sec` 未満なら通過系と同じく前後の作業に吸収し、それ以上続いたものは
+    /// 「無視」の区間（`ignored`）にして、集計・仕分け・レポート・タスクの実績・通知に数えない。
+    /// ここに入れた exe は `transient_exes` にも入っているものとして扱う。生データ（`window_span`）は変えない。
+    pub ignore_exes: Vec<String>,
     /// 除外区間を丸ごと破棄する（false なら exe 名のみ保持。docs/dev/architecture.md「収集器（Windows）」）。
     pub drop_excluded: bool,
     pub exclude: Vec<ExcludeRule>,
@@ -110,6 +116,18 @@ impl Default for Collect {
             .map(String::from)
             .to_vec(),
             transient_max_sec: 60,
+            ignore_exes: [
+                "explorer.exe",
+                "ShellExperienceHost.exe",
+                "StartMenuExperienceHost.exe",
+                "SearchHost.exe",
+                "SearchApp.exe",
+                "ShellHost.exe",
+                "LockApp.exe",
+                "TextInputHost.exe",
+            ]
+            .map(String::from)
+            .to_vec(),
             drop_excluded: false,
             exclude: vec![
                 ExcludeRule {
@@ -185,6 +203,10 @@ impl Collect {
     }
     pub fn is_meeting_app(&self, exe: &str) -> bool {
         self.meeting_exes.iter().any(|e| e.eq_ignore_ascii_case(exe))
+    }
+    /// 無視するアプリの exe か（`ignore_exes`）。
+    pub fn is_ignored(&self, exe: &str) -> bool {
+        self.ignore_exes.iter().any(|e| e.eq_ignore_ascii_case(exe))
     }
 }
 

@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
-import { api, type IdlePreset, type RuleSuggestion, type SegmentKind, type SegmentView } from "../api";
+import { api, type IdlePreset, type IgnoreSuggestion, type RuleSuggestion, type SegmentKind, type SegmentView } from "../api";
 import { Card, Empty, ErrorBox } from "../components";
+import { suggestionLine } from "../ignore-util";
 import { KIND_LABEL, KIND_ORDER, fmtDateTime, fmtDur, useAction, useAsync, useLiveTick } from "../lib";
 
 const PERIODS = [
@@ -22,6 +23,7 @@ export function Review() {
   const list = useAsync(() => api.reviewList({ date: period }, showShort), [period, showShort, tick]);
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), [tick]);
   const suggestions = useAsync(() => api.reviewSuggestions(), [tick]);
+  const ignoreSuggestions = useAsync(() => api.ignoreSuggestions(), [tick]);
   const [selected, setSelected] = useState<string[]>([]);
   const toggle = (id: string) =>
     setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
@@ -29,6 +31,7 @@ export function Review() {
     setSelected([]);
     list.reload();
     suggestions.reload();
+    ignoreSuggestions.reload();
   };
   // 一覧から消えた区間は選択から外す。
   const visible = list.data?.segments ?? [];
@@ -58,7 +61,10 @@ export function Review() {
           </label>
         )}
       </div>
-      <ErrorBox error={list.error ?? tasks.error ?? suggestions.error} />
+      <ErrorBox error={list.error ?? tasks.error ?? suggestions.error ?? ignoreSuggestions.error} />
+      {(ignoreSuggestions.data ?? []).slice(0, 3).map((sg) => (
+        <IgnoreSuggestionCard key={sg.exe} sg={sg} onDone={done} />
+      ))}
       {(suggestions.data ?? []).map((sg) => (
         <SuggestionCard key={`${sg.task_id}|${sg.field}|${sg.pattern}`} sg={sg} onDone={done} />
       ))}
@@ -133,6 +139,39 @@ function SuggestionCard({ sg, onDone }: { sg: RuleSuggestion; onDone: () => void
   );
 }
 
+/** 「explorer.exe は短い区間が 214 件（合計 16.5分）。無視しますか？」という無視の提案。 */
+function IgnoreSuggestionCard({ sg, onDone }: { sg: IgnoreSuggestion; onDone: () => void }) {
+  const act = useAction();
+  const accept = async () => {
+    if (await act.run(() => api.ignoreAdd(sg.exe))) onDone();
+  };
+  const dismiss = async () => {
+    const r = await act.run(async () => {
+      await api.ignoreSuggestDismiss(sg.exe);
+      return true;
+    });
+    if (r) onDone();
+  };
+  return (
+    <Card>
+      <div class="row">
+        <span>
+          {suggestionLine(sg)}無視しますか？
+          <span class="muted"> （{sg.reasons.map((r) => r.text).join("、")}。無視しても記録は消えず、いつでも戻せます）</span>
+        </span>
+        <span class="spacer" />
+        <button class="ghost" disabled={act.busy} onClick={dismiss}>
+          今回はしない
+        </button>
+        <button class="primary" disabled={act.busy} onClick={accept}>
+          無視する
+        </button>
+      </div>
+      <ErrorBox error={act.error} />
+    </Card>
+  );
+}
+
 /** 複数選択して、同じタスク・種別・活動をまとめて割り当てる。 */
 function BatchBar({
   ids,
@@ -170,6 +209,10 @@ function BatchBar({
       setRule(false);
       onDone();
     }
+  };
+
+  const ignoreAll = async () => {
+    if (await act.run(() => api.reviewIgnore(ids))) onDone();
   };
 
   return (
@@ -221,6 +264,9 @@ function BatchBar({
               この条件を常にこのタスクに
             </label>
             <span class="spacer" />
+            <button class="ghost" disabled={act.busy} onClick={ignoreAll} title="数えない時間にします。区間の操作からいつでも戻せます">
+              {ids.length}件を無視する
+            </button>
             <button class="primary" disabled={act.busy || (!task && !kind && !activity.trim())} onClick={submit}>
               {ids.length}件をまとめて確定
             </button>
@@ -268,6 +314,16 @@ function ReviewItem({
   const asIdle = async (preset: IdlePreset) => {
     const r = await act.run(() => api.reviewIdle([seg.id], preset));
     if (r) onDone();
+  };
+
+  // この区間だけを無視する。
+  const ignoreThis = async () => {
+    if (await act.run(() => api.reviewIgnore([seg.id]))) onDone();
+  };
+
+  // このアプリを今後も無視する（無視リストに追加し、直近 7 日を再計算する）。
+  const ignoreApp = async () => {
+    if (seg.exe_name && (await act.run(() => api.ignoreAdd(seg.exe_name!)))) onDone();
   };
 
   // 割り込みを新しいタスクにして割り当てる。
@@ -339,6 +395,19 @@ function ReviewItem({
           この条件を常にこのタスクに
         </label>
         <span class="spacer" />
+        <button class="ghost" disabled={act.busy} onClick={ignoreThis} title="この区間を数えない時間にします">
+          この区間を無視
+        </button>
+        {seg.exe_name && (
+          <button
+            class="ghost"
+            disabled={act.busy}
+            onClick={ignoreApp}
+            title="無視リスト（collect.ignore_exes）に追加し、直近 7 日を再計算します"
+          >
+            {seg.exe_name} を今後も無視
+          </button>
+        )}
         <button class="ghost" disabled={act.busy} onClick={asInterrupt} title="この区間をタイトルから新しい割り込みタスクにして割り当てます">
           割り込みとしてタスク化
         </button>

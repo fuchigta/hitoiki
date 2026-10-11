@@ -60,6 +60,15 @@ export const api = {
   reviewSuggestAccept: (input: T.RuleSuggestionRef) => call<T.CreatedRule>("review_suggest_accept", { input }),
   reviewSuggestDismiss: (input: T.RuleSuggestionRef) => call<void>("review_suggest_dismiss", { input }),
 
+  // 無視するアプリ・区間
+  reviewIgnore: (segments: string[]) => call<T.ReviewBatchResult>("review_ignore", { segments }),
+  reviewUnignore: (segments: string[]) => call<T.UnignoreResult>("review_unignore", { segments }),
+  ignoreList: () => call<T.IgnoreList>("ignore_list"),
+  ignoreAdd: (exe: string) => call<T.IgnoreChange>("ignore_add", { exe }),
+  ignoreRemove: (exe: string) => call<T.IgnoreChange>("ignore_remove", { exe }),
+  ignoreSuggestions: (days?: number) => call<T.IgnoreSuggestion[]>("ignore_suggestions", { days }),
+  ignoreSuggestDismiss: (exe: string) => call<void>("ignore_suggest_dismiss", { exe }),
+
   // 実績の補正（範囲指定の付け替え）
   correctionCandidates: (start_at: number, end_at: number) =>
     call<T.CorrectionCandidates>("correction_candidates", { start_at, end_at }),

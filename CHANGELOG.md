@@ -11,6 +11,10 @@
 - クイック入力を追加しました。割り込みなどのとき、グローバルショートカット（既定 `Ctrl+Alt+Space`。設定 `general.quick_entry_shortcut`、空で無効）かトレイの「タスクを素早く入力…」で小さな入力窓を開き、タスクを選ぶか新しく作って、すぐ開始できます。先頭の `!` か Tab で割り込みとして作成でき、候補の先頭の「戻る」で直前まで進行中だったタスクに戻れます。ショートカットは設定画面で（キーを押して記録、衝突時はエラー表示）再起動なしで変更できます。登録は `RegisterHotKey` で、キー入力は記録しません。ヘッドレスの daemon には付きません。
 - CLI に `hitoiki task switch <タイトルまたは ID> [--new] [--interrupt]` と `hitoiki task back` を追加しました。
 - 今日のデザインのブロックのフォームで、タスクを検索できる選択欄にしました。入力で絞り込み、一致がなければその場でタスクを新規作成して割り当てられます。
+- ノイズのアプリを「無視」できるようにしました。設定 `collect.ignore_exes`（既定は `explorer.exe`、`ShellExperienceHost.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`）のアプリが前面の時間は、短いもの（`collect.transient_max_sec` 未満）は前後の作業に含め、続いたものは「無視」の区間にして、集計・仕分け・レポート・タスクの実績・通知に数えません。記録は消えず、リストから外せば元に戻ります。
+- 区間をまとめて無視できるようにしました。仕分け画面と今日画面の「実績の付け替え」で選んだ区間を無視にでき、取り消せます。CLI は `hitoiki review ignore|unignore <区間 ID>...` です。
+- 仕分けの区間から「このアプリを今後も無視」で無視リストに追加できます（直近 7 日を再計算）。設定画面に「無視するアプリ」の一覧・追加・削除も加えました。CLI は `hitoiki ignore list|add|remove`。
+- 「これは無視しますか？」と提案する機能を追加しました。直近 7 日の記録から、短い区間が多いアプリなどを理由つきで仕分け画面の上に出します。断ると 30 日は出しません。CLI は `hitoiki ignore suggest [--accept EXE] [--dismiss EXE] [--days N]` です。
 
 ## [0.4.0] - 2026-10-11
 

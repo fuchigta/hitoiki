@@ -234,7 +234,8 @@ export function Today() {
             <p class="muted">
               エージェント対話 {fmtDur(digest.agentMs)}
               <br />
-              無操作 {fmtDur(s.today.idle_ms)} ・ 休憩 {fmtDur(s.today.break_ms)}（合計には含めません）
+              無操作 {fmtDur(s.today.idle_ms)} ・ 休憩 {fmtDur(s.today.break_ms)}
+              {s.today.ignored_ms > 0 ? ` ・ 無視 ${fmtDur(s.today.ignored_ms)}` : ""}（合計には含めません）
             </p>
           </Card>
           <Card title="確認待ち">

@@ -48,6 +48,11 @@
 | `hitoiki review undo-correction <ID>` | 補正を取り消す。その補正で作った確定を削除して、範囲を再計算する（ID は前方一致。存在しなければ終了コード 3） |
 | `hitoiki review idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
 | `hitoiki review suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目の帰属ルールを追加、`--dismiss N` で断る（`review.rule_suggest_snooze_days` 日は再提案しない） |
+| `hitoiki review ignore <SEGMENT>...` | 区間を「無視」にする（種別 `ignored`・タスクなしの確定として保存。集計・レポート・タスクの実績に数えない。再計算でも残る）。1 つでも解決できなければ何も変更しない（終了コード 3） |
+| `hitoiki review unignore <SEGMENT>...` | `review ignore` で無視にした区間を元に戻す（確定を削除して再計算）。無視でない区間、または無視リスト（`collect.ignore_exes`）による無視は終了コード 2 |
+| `hitoiki ignore list` | 無視リスト（`collect.ignore_exes`）の一覧。`--json` は `exes` / `default_exes` / `customized` |
+| `hitoiki ignore add <EXE>` / `ignore remove <EXE>` | 無視リストに追加／から削除し（設定ファイルの `collect.ignore_exes` だけを書き換える。既定のままなら既定＋追加の形）、直近 7 日を再計算する。すでにある追加は `changed: false`、無い exe の削除は終了コード 3、空の exe は 2 |
+| `hitoiki ignore suggest [--accept EXE] [--dismiss EXE] [--days N]` | 無視の提案を一覧する（既定は直近 7 日。区間数・合計・短い区間の割合・要確認件数と理由つき）。`--accept` は `ignore add` と同じ、`--dismiss` はそのアプリを 30 日間提案しない。`--days` が 1 未満なら終了コード 2 |
 | `hitoiki rebuild [--date D] [--from F] [--to T]` | 派生層（区間）を再計算 |
 
 ### 計画・記録
