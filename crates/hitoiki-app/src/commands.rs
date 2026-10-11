@@ -12,6 +12,10 @@ use hitoiki_core::service::block_template::{
     TemplateView, UndoResult,
 };
 use hitoiki_core::service::context::{self, ContextJson};
+use hitoiki_core::service::correction::{
+    self, ApplyResult as CorrectionApplied, CandidateList, CorrectionFilter, CorrectionInput, CorrectionList,
+    Include, Preview as CorrectionPreview, UndoResult as CorrectionUndone,
+};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
@@ -179,6 +183,49 @@ pub fn review_suggest_accept(app: AppHandle, state: S, input: RuleSuggestionRef)
 #[tauri::command(rename_all = "snake_case")]
 pub fn review_suggest_dismiss(state: S, input: RuleSuggestionRef) -> AppResult<()> {
     state.with_ctx(|c| review::dismiss_suggestion(c, &input))
+}
+
+// ===== 実績の補正 =====
+
+/// 範囲の候補（既定のチェックつき）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn correction_candidates(state: S, start_at: i64, end_at: i64) -> AppResult<CandidateList> {
+    state.with_ctx(|c| correction::candidates(c, start_at, end_at, Include::from_config(c)))
+}
+
+/// 確定前のプレビュー（DB は変更しない）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn correction_preview(state: S, input: CorrectionInput) -> AppResult<CorrectionPreview> {
+    state.with_ctx(|c| correction::preview(c, &input))
+}
+
+/// 補正を確定する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn correction_apply(app: AppHandle, state: S, input: CorrectionInput) -> AppResult<CorrectionApplied> {
+    let v = state.with_ctx(|c| correction::apply(c, &input))?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
+}
+
+/// 補正の一覧。
+#[tauri::command(rename_all = "snake_case")]
+pub fn correction_list(state: S, filter: Option<CorrectionFilter>) -> AppResult<CorrectionList> {
+    let f = filter.unwrap_or_default();
+    state.with_ctx(|c| correction::list(c, &f))
+}
+
+/// 補正を取り消す（その補正で作った確定を削除して、範囲を再計算する）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn correction_undo(app: AppHandle, state: S, id: String) -> AppResult<CorrectionUndone> {
+    let v = state.with_ctx(|c| {
+        let day = c.range(&RangeArgs::default())?;
+        let judge = hitoiki_daemon::build_judge(c.conn, c.cfg, day);
+        correction::undo(c, &id, judge.as_deref())
+    })?;
+    events::emit_segments_updated(&app);
+    state.request_rebuild();
+    Ok(v)
 }
 
 // ===== 計画（ブロック） =====

@@ -10,6 +10,7 @@ fn same_content(a: &Piece, b: &Piece) -> bool {
         && a.label == b.label
         && a.status == b.status
         && a.session == b.session
+        && a.offline == b.offline
 }
 
 /// 前後の区間として、間の短い中断を吸収してよいか。

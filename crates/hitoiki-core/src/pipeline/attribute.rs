@@ -8,32 +8,79 @@ use crate::rules::{ActivityRuleSet, MatchTarget, TaskRuleSet};
 use std::collections::HashMap;
 
 /// ユーザー確定（override）。最優先で、確定状態にする。None の項目は元の値を保つ。
+/// `task_id` が空文字列なら「タスクなし」（元のタスクを外す）。
+/// `offline` の override は、範囲のうち区間が無い部分（記録なし）にも区間を作る（PC 外で過ごした時間）。
 pub(crate) fn apply_overrides(input: &PipelineInput, pieces: &mut Vec<Piece>) {
     let mut ovs: Vec<&SegmentOverride> = input.overrides.iter().collect();
     ovs.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
+    let apply = |o: &SegmentOverride, p: &mut Piece| {
+        if let Some(k) = o.kind {
+            p.kind = k;
+        }
+        match o.task_id.as_deref() {
+            Some("") => p.task_id = None,
+            Some(t) => p.task_id = Some(t.to_string()),
+            None => {}
+        }
+        if let Some(l) = &o.activity_label {
+            p.label = Some(l.clone());
+        }
+        if o.offline {
+            p.offline = true;
+        }
+        p.status = Some(SegmentStatus::Confirmed);
+        p.decided_by = Some("user".into());
+        p.confidence = Some(1.0);
+        p.fixed = true;
+    };
     for o in ovs {
-        relabel(
-            pieces,
-            o.start_at,
-            o.end_at,
-            |_| true,
-            |p| {
-                if let Some(k) = o.kind {
-                    p.kind = k;
-                }
-                if let Some(t) = &o.task_id {
-                    p.task_id = Some(t.clone());
-                }
-                if let Some(l) = &o.activity_label {
-                    p.label = Some(l.clone());
-                }
-                p.status = Some(SegmentStatus::Confirmed);
-                p.decided_by = Some("user".into());
-                p.confidence = Some(1.0);
-                p.fixed = true;
-            },
-        );
+        relabel(pieces, o.start_at, o.end_at, |_| true, |p| apply(o, p));
+        if o.offline {
+            fill_uncovered(input, pieces, o, |p| apply(o, p));
+        }
     }
+}
+
+/// `offline` の override の範囲（出力範囲と現在時刻に切る）のうち、区間が無い部分に区間を作る。
+/// 収集器が動いていなかった時間（記録なし）を、PC 外の作業として計上するため。種別は override に従い、無ければ作業。
+fn fill_uncovered(
+    input: &PipelineInput,
+    pieces: &mut Vec<Piece>,
+    o: &SegmentOverride,
+    apply: impl Fn(&mut Piece),
+) {
+    let lo = o.start_at.max(input.range.start);
+    let hi = o.end_at.min(input.range.end).min(input.now);
+    if lo >= hi {
+        return;
+    }
+    let mut covered: Vec<(crate::Millis, crate::Millis)> = pieces
+        .iter()
+        .filter(|p| p.start < hi && p.end > lo)
+        .map(|p| (p.start, p.end))
+        .collect();
+    covered.sort_unstable();
+    let mut cur = lo;
+    let mut added = Vec::new();
+    for (s, e) in covered {
+        if s > cur {
+            added.push((cur, s.min(hi)));
+        }
+        cur = cur.max(e);
+        if cur >= hi {
+            break;
+        }
+    }
+    if cur < hi {
+        added.push((cur, hi));
+    }
+    for (s, e) in added {
+        let mut p = Piece::idle(s, e);
+        p.kind = SegmentKind::Work;
+        apply(&mut p);
+        pieces.push(p);
+    }
+    pieces.sort_by_key(|p| (p.start, p.end));
 }
 
 /// task_match_rule → activity_rule。
@@ -78,6 +125,7 @@ fn to_segment(p: &Piece) -> ActivitySegment {
         agent_session_id: p.session.clone(),
         exe_name: p.exe.clone(),
         title: p.title.clone(),
+        offline: p.offline,
     }
 }
 

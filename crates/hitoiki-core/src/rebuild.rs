@@ -12,7 +12,7 @@ use crate::pipeline::{self, norm_title, JudgeAnswer, PipelineInput, PipelineOutp
 use crate::repo::{raw, segment};
 use crate::timefmt::Range;
 use crate::{Millis, Result};
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::cell::RefCell;
 use std::collections::HashMap;
 
@@ -37,13 +37,13 @@ pub struct RebuildStats {
 }
 
 /// 範囲の派生層（`activity_segment` と `agent_session_window`）を作り直す。
-pub fn rebuild(conn: &mut Connection, cfg: &Config, range: Range, now: Millis) -> Result<RebuildStats> {
+pub fn rebuild(conn: &Connection, cfg: &Config, range: Range, now: Millis) -> Result<RebuildStats> {
     rebuild_with_judge(conn, cfg, range, now, None)
 }
 
 /// 判定器つきの再計算。判定器の答えは `judge_cache` にキャッシュし、同じ内容の区間は問い合わせない。
 pub fn rebuild_with_judge(
-    conn: &mut Connection,
+    conn: &Connection,
     cfg: &Config,
     range: Range,
     now: Millis,
@@ -56,7 +56,7 @@ pub fn rebuild_with_judge(
     for attempt in 1..=MAX_ATTEMPTS {
         if attempt == MAX_ATTEMPTS {
             // 最後は書き込みロックを取ったまま読み・計算・書き込みを行う（必ず終わらせる）。
-            let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
             let (resolved, input) = resolve_range(&tx, cfg, range, now)?;
             let out = run_pipeline(&tx, &input, cache.as_ref());
             let stats = write(&tx, resolved, &out, cache.as_ref(), now)?;
@@ -66,7 +66,7 @@ pub fn rebuild_with_judge(
         // 判定器の呼び出しを含む計算は書き込みトランザクションの外で行う。
         let (resolved, input) = resolve_range(conn, cfg, range, now)?;
         let out = run_pipeline(conn, &input, cache.as_ref());
-        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
         let (again, _) = resolve_range(&tx, cfg, range, now)?;
         if again != resolved {
             tracing::debug!(attempt, "再計算中に範囲が変わったため読み直します");
@@ -351,7 +351,7 @@ mod tests {
 
     #[test]
     fn rebuild_roundtrip() {
-        let mut conn = db::open_in_memory().unwrap();
+        let conn = db::open_in_memory().unwrap();
         let cfg = Config::default();
         let ins_win = "INSERT INTO window_span (id, start_at, end_at, hwnd, exe_name, title, excluded) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)";
         exec(
@@ -394,7 +394,7 @@ mod tests {
 
         let range = Range::new(0, 60 * M);
         let now = 50 * M;
-        let stats = rebuild(&mut conn, &cfg, range, now).unwrap();
+        let stats = rebuild(&conn, &cfg, range, now).unwrap();
         assert_eq!(stats.bindings, 2);
         let segs = segment::list(&conn, range).unwrap();
         assert_eq!(segs.len() as usize, stats.segments);
@@ -425,7 +425,7 @@ mod tests {
         assert_eq!(wins[1].bound_at, 45 * M);
 
         // 再実行しても結果は変わらない（ID 以外）。
-        let again = rebuild(&mut conn, &cfg, Range::new(20 * M, 30 * M), now).unwrap();
+        let again = rebuild(&conn, &cfg, Range::new(20 * M, 30 * M), now).unwrap();
         assert_eq!(again.range, Range::new(10 * M, 40 * M));
         let segs2 = segment::list(&conn, range).unwrap();
         let strip = |v: &[ActivitySegment]| -> Vec<_> {
@@ -538,21 +538,21 @@ mod tests {
         let window = cfg.collect.rebuild_window_min as i64 * M;
 
         // 常駐の定期再計算（直近 180 分）を 1 分ごとに模す
-        let mut rolling = db::open_in_memory().unwrap();
+        let rolling = db::open_in_memory().unwrap();
         seed_rules(&rolling);
         let end = 260 * M;
         let mut now = M;
         while now <= end {
             sync_raw(&rolling, &wins, &evs, now);
-            rebuild(&mut rolling, &cfg, Range::new(now - window, now), now).unwrap();
+            rebuild(&rolling, &cfg, Range::new(now - window, now), now).unwrap();
             now += M;
         }
 
         // 最後に全範囲で一度だけ作った場合
-        let mut full = db::open_in_memory().unwrap();
+        let full = db::open_in_memory().unwrap();
         seed_rules(&full);
         sync_raw(&full, &wins, &evs, end);
-        rebuild(&mut full, &cfg, Range::new(0, end), end).unwrap();
+        rebuild(&full, &cfg, Range::new(0, end), end).unwrap();
 
         let all = Range::new(0, end);
         let r = normalized(&segment::list(&rolling, all).unwrap());
@@ -568,7 +568,7 @@ mod tests {
     #[test]
     fn rolling_range_extends_to_period_start() {
         // 直前の全範囲再計算の後、範囲外から始まる対象期間を持つ送信が来る
-        let mut conn = db::open_in_memory().unwrap();
+        let conn = db::open_in_memory().unwrap();
         seed_rules(&conn);
         let cfg = Config::default();
         let wins: Vec<Win> = vec![
@@ -582,10 +582,10 @@ mod tests {
             ("E2", 2, "S", "response_complete"),
         ];
         sync_raw(&conn, &wins, &evs, 150 * M);
-        rebuild(&mut conn, &cfg, Range::new(0, 150 * M), 150 * M).unwrap();
+        rebuild(&conn, &cfg, Range::new(0, 150 * M), 150 * M).unwrap();
         evs.push(("E3", 210, "S", "prompt_submit"));
         sync_raw(&conn, &wins, &evs, 211 * M);
-        let st = rebuild(&mut conn, &cfg, Range::new(31 * M, 211 * M), 211 * M).unwrap();
+        let st = rebuild(&conn, &cfg, Range::new(31 * M, 211 * M), 211 * M).unwrap();
         assert_eq!(st.range.start, 2 * M);
         let segs = segment::list(&conn, Range::new(0, 300 * M)).unwrap();
         assert!(segs
@@ -614,7 +614,7 @@ mod tests {
     fn concurrent_rebuilds_do_not_overlap() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("hitoiki.db");
-        let mut a = db::open(&path).unwrap();
+        let a = db::open(&path).unwrap();
         let cfg = Config::default();
         let now = 95 * M;
         let wins: Vec<Win> = vec![
@@ -629,11 +629,11 @@ mod tests {
         let cfg_b = cfg.clone();
         let judge = Interleave {
             other: std::cell::RefCell::new(Some(Box::new(move || {
-                let mut b = db::open(&path_b).unwrap();
-                rebuild(&mut b, &cfg_b, Range::new(0, 60 * M), now).unwrap();
+                let b = db::open(&path_b).unwrap();
+                rebuild(&b, &cfg_b, Range::new(0, 60 * M), now).unwrap();
             }))),
         };
-        let st = rebuild_with_judge(&mut a, &cfg, Range::new(30 * M, 90 * M), now, Some(&judge)).unwrap();
+        let st = rebuild_with_judge(&a, &cfg, Range::new(30 * M, 90 * M), now, Some(&judge)).unwrap();
         // B が書いた 25〜60 の区間が A の範囲の開始をまたぐので、A は範囲を広げてやり直す。
         assert_eq!(st.range, Range::new(25 * M, 90 * M));
         assert_no_overlap(&a);
@@ -667,7 +667,7 @@ mod tests {
 
     #[test]
     fn judge_answers_are_cached() {
-        let mut conn = db::open_in_memory().unwrap();
+        let conn = db::open_in_memory().unwrap();
         exec(
             &conn,
             "INSERT INTO task (id, title, created_at, updated_at) VALUES ('T1', 't', 0, 0)",
@@ -685,7 +685,7 @@ mod tests {
         // 毎分の定期再計算を模す。進行中のウインドウが伸びても同じ内容なら問い合わせない。
         for now in [50 * M, 51 * M, 52 * M, 53 * M] {
             sync_raw(&conn, &wins, &[], now);
-            rebuild_with_judge(&mut conn, &cfg, Range::new(now - 180 * M, now), now, Some(&j)).unwrap();
+            rebuild_with_judge(&conn, &cfg, Range::new(now - 180 * M, now), now, Some(&j)).unwrap();
         }
         assert_eq!(j.asked.get(), 3);
         let segs = segment::list(&conn, Range::new(0, 53 * M)).unwrap();
@@ -700,14 +700,14 @@ mod tests {
             "INSERT INTO task (id, title, created_at, updated_at) VALUES ('T2', 'u', 0, 0)",
             &[],
         );
-        rebuild_with_judge(&mut conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
+        rebuild_with_judge(&conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
         assert_eq!(j.asked.get(), 6);
-        rebuild_with_judge(&mut conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
+        rebuild_with_judge(&conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
         assert_eq!(j.asked.get(), 6);
 
         // 判定器（judge.default）が変われば問い合わせ直す
         cfg.judge.default = "other".into();
-        rebuild_with_judge(&mut conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
+        rebuild_with_judge(&conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
         assert_eq!(j.asked.get(), 9);
     }
 }

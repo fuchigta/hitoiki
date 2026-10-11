@@ -184,6 +184,7 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
             agent_session_id: p.session,
             exe_name: p.exe,
             title: p.title,
+            offline: p.offline,
         })
         .collect();
     PipelineOutput { segments, bindings }

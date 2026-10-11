@@ -331,7 +331,8 @@ fn run_rebuild(sh: &Shared, conn: &mut Connection) -> anyhow::Result<RebuildStat
     Ok(rebuild_with_judge(conn, &cfg, range, now, judge.as_deref())?)
 }
 
-fn build_judge(conn: &Connection, cfg: &Config, range: Range) -> Option<Box<dyn SegmentJudge>> {
+/// 設定から判定器を構築する（無効・構築失敗のときは None）。取り消しなど、再計算を行う呼び出し側でも使う。
+pub fn build_judge(conn: &Connection, cfg: &Config, range: Range) -> Option<Box<dyn SegmentJudge>> {
     if !cfg.judge.enabled {
         return None;
     }

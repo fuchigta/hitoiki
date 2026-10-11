@@ -13,5 +13,5 @@ pub mod update;
 pub use doctor::{doctor, doctor_with, DoctorItem, DoctorOptions, DoctorReport, Status};
 pub use headless::{init_logging, run_headless, run_headless_with, LogGuard};
 pub use push_ctx::{build_context, load_snapshot, push_tick, PushSnapshot};
-pub use runtime::{AlreadyRunning, Runtime, RuntimeHandle, RuntimeOptions};
+pub use runtime::{build_judge, AlreadyRunning, Runtime, RuntimeHandle, RuntimeOptions};
 pub use sink::{LogSink, RuntimeSink};

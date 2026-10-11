@@ -5,6 +5,10 @@ use chrono_tz::Tz;
 use hitoiki_core::model::{Checkin, Hassle, KeyResult, Objective, TaskMatchRule, TimeBlock};
 use hitoiki_core::repo::segment::kind_label;
 use hitoiki_core::service::{
+    correction::{
+        ApplyResult as CorrApplied, Candidate, CorrectionList, CorrectionView, Preview as CorrPreview,
+        UndoResult as CorrUndone,
+    },
     log::Log,
     okr::OkrList,
     plan::BlockList,
@@ -729,4 +733,110 @@ pub fn template_suggest(s: &Suggestion) -> String {
     }
     let names: Vec<_> = s.templates.iter().map(|t| t.name.as_str()).collect();
     format!("{} のパターン: {}", s.date, names.join("、"))
+}
+
+// ===== 実績の補正 =====
+
+fn candidate_row(tz: Tz, c: &Candidate) -> Vec<String> {
+    let what = if c.gap {
+        "記録なし".to_string()
+    } else {
+        let kind = c.kind.map(kind_label).unwrap_or("-");
+        match (&c.task_title, &c.activity_label) {
+            (Some(t), Some(a)) => format!("{kind} {} / {a}", truncate(t, 24)),
+            (Some(t), None) => format!("{kind} {}", truncate(t, 24)),
+            (None, Some(a)) => format!("{kind} / {a}"),
+            (None, None) => kind.to_string(),
+        }
+    };
+    vec![
+        if c.checked { "[x]".into() } else { "[ ]".into() },
+        if c.gap { c.id.clone() } else { short(&c.id) },
+        format!("{}-{}", fmt_hm(tz, c.start_at), fmt_hm(tz, c.end_at)),
+        dur(c.duration_ms),
+        what,
+        if c.becomes_offline {
+            "PC 外".into()
+        } else {
+            String::new()
+        },
+        c.status.map(|s| s.to_string()).unwrap_or_default(),
+    ]
+}
+
+pub fn correction_preview(tz: Tz, p: &CorrPreview) -> String {
+    let rows: Vec<Vec<String>> = p.candidates.iter().map(|c| candidate_row(tz, c)).collect();
+    let body = if rows.is_empty() {
+        "範囲に含まれる区間はありません。".to_string()
+    } else {
+        table(&["", "ID", "時刻", "長さ", "内容", "", "状態"], &rows)
+    };
+    format!(
+        "{body}
+{}
+（確定していません。--dry-run を外すと適用します）",
+        p.summary
+    )
+}
+
+pub fn correction_applied(tz: Tz, r: &CorrApplied) -> String {
+    format!(
+        "補正しました（ID {}）: {}
+取り消すには `hitoiki review undo-correction {}`",
+        short(&r.correction.id),
+        r.preview.summary,
+        short(&r.correction.id)
+    ) + &format!(
+        "
+対象 {} 件、{} 〜 {}",
+        r.preview.selected_count,
+        dt(tz, r.correction.start_at),
+        fmt_hm(tz, r.correction.end_at)
+    )
+}
+
+fn correction_target(c: &CorrectionView) -> String {
+    let base = match (&c.task_title, c.kind) {
+        (Some(t), _) => t.clone(),
+        (None, Some(_)) => "休憩".to_string(),
+        (None, None) => "タスクなし".to_string(),
+    };
+    match &c.activity_label {
+        Some(a) => format!("{base} / {a}"),
+        None => base,
+    }
+}
+
+pub fn corrections(tz: Tz, l: &CorrectionList) -> String {
+    if l.corrections.is_empty() {
+        return "補正はありません。".into();
+    }
+    let rows: Vec<Vec<String>> = l
+        .corrections
+        .iter()
+        .map(|c| {
+            vec![
+                short(&c.id),
+                format!("{} - {}", dt(tz, c.start_at), fmt_hm(tz, c.end_at)),
+                dur(c.total_ms),
+                if c.offline_ms > 0 {
+                    dur(c.offline_ms)
+                } else {
+                    String::new()
+                },
+                c.segment_count.to_string(),
+                truncate(&correction_target(c), 40),
+            ]
+        })
+        .collect();
+    table(&["ID", "時間帯", "合計", "PC 外", "区間", "割り当て先"], &rows)
+}
+
+pub fn correction_undone(tz: Tz, r: &CorrUndone) -> String {
+    format!(
+        "補正を取り消しました: {} {}（確定 {} 件を削除して再計算）",
+        short(&r.correction.id),
+        dt(tz, r.correction.start_at),
+        r.overrides_removed
+    )
 }

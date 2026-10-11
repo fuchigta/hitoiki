@@ -40,6 +40,9 @@
 |---|---|
 | `hitoiki review list [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`review.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
 | `hitoiki review set <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間から帰属ルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `override_ids` / `rules` |
+| `hitoiki review set --from F --to T (--task ID \| --no-task \| --rest) [--activity A] [--include-confirmed] [--include-meeting] [--include-idle] [--exclude SEGMENT...] [--dry-run]` | 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）。区間 ID とは併用できない。境界にまたがる区間は範囲の内側だけが対象。最初のチェックは通常の作業とエージェント対話が ON で、確定済み・会議・無操作と記録なしは OFF（`--include-*` か設定 `review.correct_include_*` で ON）。`--exclude` には対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`。`--dry-run` の出力で分かる）。無操作・記録なしは種別 work の「PC 外」として計上される。`--dry-run` は確定せず、候補（`checked`）と合計を表示する。`--json` は適用時 `correction` / `preview` / `override_ids`、`--dry-run` 時は `preview` の内容（`summary` / `total_ms` / `offline_ms` / `excluded_count` / `candidates`） |
+| `hitoiki review corrections [--task ID] [--date D]` | 補正の一覧（新しい順）。`--task` でそのタスクへの補正だけ、`--date` でその日と重なるものだけ |
+| `hitoiki review undo-correction <ID>` | 補正を取り消す。その補正で作った確定を削除して、範囲を再計算する（ID は前方一致。存在しなければ終了コード 3） |
 | `hitoiki review idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
 | `hitoiki review suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目の帰属ルールを追加、`--dismiss N` で断る（`review.rule_suggest_snooze_days` 日は再提案しない） |
 | `hitoiki rebuild [--date D] [--from F] [--to T]` | 派生層（区間）を再計算 |

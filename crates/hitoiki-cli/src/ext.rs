@@ -30,31 +30,45 @@ pub fn notify_task(task_id: Option<&str>) {
 /// 前後に広げる量（判定器へ渡すカレンダーの範囲）。
 const CAL_MARGIN_MS: i64 = 24 * 60 * 60 * 1000;
 
+/// 再計算に使う判定器（`judge.enabled` が false なら None）。`range` はカレンダーの文脈に使う（None は今日の前後）。
+pub fn judge_for(
+    ctx: &Ctx,
+    range: Option<Range>,
+) -> Result<Option<Box<dyn hitoiki_core::pipeline::SegmentJudge>>> {
+    let cfg = ctx.cfg;
+    if !cfg.judge.enabled {
+        return Ok(None);
+    }
+    let conn = ctx.conn;
+    let tz = ctx.tz()?;
+    let range = match range {
+        Some(r) => r,
+        None => ctx.range(&hitoiki_core::service::RangeArgs::default())?,
+    };
+    let mut jc = hitoiki_judge::JudgeContext::new(tz);
+    jc.open_tasks = repo::task::list(conn, &[TaskStatus::Todo, TaskStatus::Doing], None)?;
+    jc.doing_task = repo::task::list_doing(conn)?.into_iter().next();
+    jc.skills = repo::skill::list(conn)?;
+    jc.calendar = repo::calendar::list(
+        conn,
+        Range::new(range.start - CAL_MARGIN_MS, range.end + CAL_MARGIN_MS),
+    )?;
+    hitoiki_judge::from_config(cfg, jc).map_err(Error::Other)
+}
+
 pub fn rebuild(from: Option<String>, to: Option<String>, date: Option<String>, json: bool) -> Result<()> {
     let cfg = Config::load()?;
-    let mut conn = db::open(&paths::db_file())?;
+    let conn = db::open(&paths::db_file())?;
     let clock = SystemClock;
     let (tz, range, now, judge) = {
         let ctx = Ctx::new(&conn, &cfg, &clock);
         let tz = ctx.tz()?;
         let now = ctx.now();
         let range = ctx.range(&hitoiki_core::service::RangeArgs { date, from, to })?;
-        let judge = if cfg.judge.enabled {
-            let mut jc = hitoiki_judge::JudgeContext::new(tz);
-            jc.open_tasks = repo::task::list(&conn, &[TaskStatus::Todo, TaskStatus::Doing], None)?;
-            jc.doing_task = repo::task::list_doing(&conn)?.into_iter().next();
-            jc.skills = repo::skill::list(&conn)?;
-            jc.calendar = repo::calendar::list(
-                &conn,
-                Range::new(range.start - CAL_MARGIN_MS, range.end + CAL_MARGIN_MS),
-            )?;
-            hitoiki_judge::from_config(&cfg, jc).map_err(Error::Other)?
-        } else {
-            None
-        };
+        let judge = judge_for(&ctx, Some(range))?;
         (tz, range, now, judge)
     };
-    let stats = hitoiki_core::rebuild::rebuild_with_judge(&mut conn, &cfg, range, now, judge.as_deref())?;
+    let stats = hitoiki_core::rebuild::rebuild_with_judge(&conn, &cfg, range, now, judge.as_deref())?;
     notify_data("segments");
     let v = json!({
         "range": {

@@ -235,6 +235,8 @@ fn confirm_range(
         task_id: d.task_id.clone(),
         activity_label: d.activity.clone(),
         created_at: now,
+        offline: false,
+        correction_id: None,
     };
     overrides::insert(conn, &ov)?;
     conn.execute(

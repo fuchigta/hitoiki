@@ -33,6 +33,7 @@ fn seg(kind: SegmentKind, start: Millis, end: Millis) -> ActivitySegment {
         agent_session_id: None,
         exe_name: None,
         title: None,
+        offline: false,
     }
 }
 

@@ -204,6 +204,9 @@ pub struct ActivitySegment {
     pub agent_session_id: Option<String>,
     pub exe_name: Option<String>,
     pub title: Option<String>,
+    /// PC 外で過ごした時間（実績の補正で無操作・記録なしの範囲を割り当てたもの）。
+    #[serde(default)]
+    pub offline: bool,
 }
 
 // ===== ユーザー層 =====
@@ -263,9 +266,16 @@ pub struct SegmentOverride {
     pub start_at: Millis,
     pub end_at: Millis,
     pub kind: Option<SegmentKind>,
+    /// 割り当てるタスク。空文字列は「タスクなし」（元のタスクを外す）。None は元の値を保つ。
     pub task_id: Option<String>,
     pub activity_label: Option<String>,
     pub created_at: Millis,
+    /// PC 外の時間の印。true なら、範囲のうち区間が無い部分（記録なし）にも区間を作る。
+    #[serde(default)]
+    pub offline: bool,
+    /// この override を作った補正（`segment_correction.id`）。補正以外は None。
+    #[serde(default)]
+    pub correction_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

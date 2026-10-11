@@ -97,7 +97,7 @@ pub fn calendar_events(conn: &Connection, range: Range) -> Result<Vec<CalendarEv
 /// 範囲と重なる `segment_override`（作成順）。
 pub fn segment_overrides(conn: &Connection, range: Range) -> Result<Vec<SegmentOverride>> {
     let mut stmt = conn.prepare(
-        "SELECT id, start_at, end_at, kind, task_id, activity_label, created_at
+        "SELECT id, start_at, end_at, kind, task_id, activity_label, created_at, offline, correction_id
          FROM segment_override WHERE start_at < ?2 AND end_at > ?1 ORDER BY created_at, id",
     )?;
     let rows = stmt.query_map(params![range.start, range.end], |r| {
@@ -109,6 +109,8 @@ pub fn segment_overrides(conn: &Connection, range: Range) -> Result<Vec<SegmentO
             task_id: r.get(4)?,
             activity_label: r.get(5)?,
             created_at: r.get(6)?,
+            offline: r.get::<_, i64>(7)? != 0,
+            correction_id: r.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)

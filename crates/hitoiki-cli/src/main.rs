@@ -12,8 +12,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, log as log_svc, okr, plan, record, reflect, report, review, skill, status, task, Ctx,
-    RangeArgs,
+    self, context, correction, log as log_svc, okr, plan, record, reflect, report, review, skill, status,
+    task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -285,8 +285,46 @@ fn run(cli: Cli) -> Result<()> {
                 kind,
                 activity,
                 rule,
+                from,
+                to,
+                no_task,
+                rest,
+                include_confirmed,
+                include_meeting,
+                include_idle,
+                exclude,
+                dry_run,
             } => {
-                if segments.len() == 1 {
+                if let (Some(from), Some(to)) = (from, to) {
+                    // 範囲指定の付け替え（実績の補正）。
+                    let range = ctx.range(&RangeArgs {
+                        date: None,
+                        from: Some(from),
+                        to: Some(to),
+                    })?;
+                    let flag = |b: bool| b.then_some(true);
+                    let input = correction::CorrectionInput {
+                        start_at: range.start,
+                        end_at: range.end,
+                        task,
+                        no_task,
+                        rest,
+                        activity,
+                        selected: None,
+                        include_confirmed: flag(include_confirmed),
+                        include_meeting: flag(include_meeting),
+                        include_idle: flag(include_idle),
+                        exclude,
+                    };
+                    if dry_run {
+                        let p = correction::preview(&ctx, &input)?;
+                        emit(json, &p, || render::correction_preview(tz, &p))
+                    } else {
+                        let r = correction::apply(&ctx, &input)?;
+                        ext::notify_data("segments");
+                        emit(json, &r, || render::correction_applied(tz, &r))
+                    }
+                } else if segments.len() == 1 {
                     let r = review::set(
                         &ctx,
                         &review::ReviewSetInput {
@@ -313,6 +351,16 @@ fn run(cli: Cli) -> Result<()> {
                     ext::notify_data("segments");
                     emit(json, &r, || render::review_batch(tz, &r))
                 }
+            }
+            ReviewCmd::Corrections { task, date } => {
+                let l = correction::list(&ctx, &correction::CorrectionFilter { task, date })?;
+                emit(json, &l, || render::corrections(tz, &l))
+            }
+            ReviewCmd::UndoCorrection { id } => {
+                let judge = ext::judge_for(&ctx, None)?;
+                let r = correction::undo(&ctx, &id, judge.as_deref())?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::correction_undone(tz, &r))
             }
             ReviewCmd::Idle { mut args } => {
                 let preset: review::IdlePreset = args.pop().unwrap_or_default().parse()?;

@@ -399,6 +399,8 @@ fn merge_does_not_absorb_into_confirmed_override() {
         task_id: Some("T1".into()),
         activity_label: None,
         created_at: 0,
+        offline: false,
+        correction_id: None,
     };
     i.overrides = vec![ov("O1", 0, 10 * M), ov("O2", 10 * M + 20_000, 20 * M)];
     let o = build(&i, None);
@@ -791,6 +793,8 @@ fn override_wins_and_splits() {
         task_id: Some("T2".into()),
         activity_label: Some("休憩".into()),
         created_at: 0,
+        offline: false,
+        correction_id: None,
     }];
     let o = build(&i, None);
     assert_eq!(shape(&o), vec![(0, 10, Work), (10, 20, Break), (20, 30, Work)]);
@@ -819,6 +823,8 @@ fn override_keeps_unspecified_fields() {
         task_id: None,
         activity_label: Some("設計".into()),
         created_at: 0,
+        offline: false,
+        correction_id: None,
     }];
     let o = build(&i, None);
     let s = find(&o, 0);
@@ -1262,6 +1268,8 @@ fn override_wins_over_transient() {
         task_id: Some("T9".into()),
         activity_label: None,
         created_at: 0,
+        offline: false,
+        correction_id: None,
     }];
     let o = build(&i, None);
     assert_eq!(
@@ -1384,6 +1392,8 @@ fn user_override_wins_over_locked_break() {
         task_id: None,
         activity_label: None,
         created_at: 0,
+        offline: false,
+        correction_id: None,
     }];
     let s = find(&build(&i, None), 10).clone();
     assert_eq!((s.kind, s.decided_by.as_deref()), (Meeting, Some("user")));
@@ -1402,4 +1412,87 @@ fn trust_doing_makes_fallback_auto() {
     assert_eq!(s.status, SegmentStatus::Auto);
     // doing の外は従来どおり要確認
     assert_eq!(find(&o, 0).status, SegmentStatus::NeedsReview);
+}
+
+// ===== 実績の補正（PC 外の作業） =====
+
+fn corr_override(id: &str, s: i64, e: i64, offline: bool) -> SegmentOverride {
+    SegmentOverride {
+        id: id.into(),
+        start_at: s * M,
+        end_at: e * M,
+        kind: if offline { Some(Work) } else { None },
+        task_id: Some("T1".into()),
+        activity_label: None,
+        created_at: 0,
+        offline,
+        correction_id: Some("C".into()),
+    }
+}
+
+#[test]
+fn offline_override_creates_segment_in_recording_gap() {
+    let mut i = base();
+    i.windows = vec![
+        win("A", 0, 10, "H1", "a.exe", "x"),
+        win("B", 20, 30, "H1", "a.exe", "x"),
+    ];
+    i.overrides = vec![corr_override("O", 10, 20, true)];
+    let o = build(&i, None);
+    assert_eq!(shape(&o), vec![(0, 10, Work), (10, 20, Work), (20, 30, Work)]);
+    let g = find(&o, 10);
+    assert!(g.offline);
+    assert_eq!(
+        (g.task_id.as_deref(), g.status),
+        (Some("T1"), SegmentStatus::Confirmed)
+    );
+    assert!(!find(&o, 0).offline && !find(&o, 20).offline);
+}
+
+#[test]
+fn offline_override_turns_idle_into_work_and_fills_the_rest() {
+    let mut i = base();
+    i.windows = vec![win("A", 0, 10, "H1", "a.exe", "x")];
+    i.idles = vec![idle("I", 10, 15)];
+    // 無操作 10-15 と、その先の記録なし 15-20 をまとめて補正する。
+    i.overrides = vec![corr_override("O", 10, 20, true)];
+    let o = build(&i, None);
+    assert_eq!(shape(&o), vec![(0, 10, Work), (10, 20, Work)]);
+    assert!(find(&o, 10).offline);
+}
+
+#[test]
+fn non_offline_override_does_not_fill_gaps() {
+    let mut i = base();
+    i.windows = vec![win("A", 0, 10, "H1", "a.exe", "x")];
+    i.overrides = vec![corr_override("O", 10, 20, false)];
+    let o = build(&i, None);
+    assert_eq!(shape(&o), vec![(0, 10, Work)]);
+}
+
+#[test]
+fn offline_fill_stops_at_now_and_range() {
+    let mut i = base();
+    i.now = 15 * M;
+    i.overrides = vec![corr_override("O", 10, 20, true)];
+    let o = build(&i, None);
+    assert_eq!(shape(&o), vec![(10, 15, Work)]);
+    let mut i = base();
+    i.range = Range::new(12 * M, 1000 * M);
+    i.overrides = vec![corr_override("O", 10, 20, true)];
+    assert_eq!(shape(&build(&i, None)), vec![(12, 20, Work)]);
+}
+
+#[test]
+fn empty_task_override_clears_task() {
+    let mut i = base();
+    i.windows = vec![win("A", 0, 30, "H1", "a.exe", "docs")];
+    i.task_rules = vec![rule("R", "T1", MatchField::Title, "docs", 0)];
+    let mut ov = corr_override("O", 10, 20, false);
+    ov.task_id = Some(String::new());
+    i.overrides = vec![ov];
+    let o = build(&i, None);
+    assert_eq!(find(&o, 0).task_id.as_deref(), Some("T1"));
+    assert_eq!(find(&o, 10).task_id, None);
+    assert_eq!(find(&o, 10).status, SegmentStatus::Confirmed);
 }

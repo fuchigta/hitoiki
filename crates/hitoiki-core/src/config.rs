@@ -320,6 +320,14 @@ pub struct Review {
     pub rule_suggest_min_count: u32,
     /// ルール化の提案を断ったあと、同じ組み合わせを再び提案しない日数。
     pub rule_suggest_snooze_days: u32,
+    /// 実績の補正で、範囲の端をこの秒数以内の区間の境目に吸着させる。0 で吸着しない。
+    pub snap_sec: u64,
+    /// 実績の補正で、ユーザー確定済みの区間を最初からチェックする。
+    pub correct_include_confirmed: bool,
+    /// 実績の補正で、会議（カレンダー由来）の区間を最初からチェックする。
+    pub correct_include_meeting: bool,
+    /// 実績の補正で、無操作・記録なしの区間を最初からチェックする（PC 外の作業として計上する）。
+    pub correct_include_idle: bool,
 }
 
 impl Default for Review {
@@ -330,6 +338,10 @@ impl Default for Review {
             trust_doing: false,
             rule_suggest_min_count: 3,
             rule_suggest_snooze_days: 14,
+            snap_sec: 120,
+            correct_include_confirmed: false,
+            correct_include_meeting: false,
+            correct_include_idle: false,
         }
     }
 }
@@ -604,6 +616,12 @@ command = ["python", "x.py"]
             (3, 14)
         );
         assert_eq!(c.push.idle_return_min, 15);
+        assert_eq!(c.review.snap_sec, 120);
+        assert!(
+            !c.review.correct_include_confirmed
+                && !c.review.correct_include_meeting
+                && !c.review.correct_include_idle
+        );
         let c: Config = toml::from_str(
             "[review]
 trust_doing = true
