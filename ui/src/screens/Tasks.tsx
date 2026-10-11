@@ -1,7 +1,23 @@
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type MatchField, type PatternType, type TaskStatus, type TaskView } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
+import { defaultBodyMode, isDirty, isSaveShortcut, leaveGuard, parseEstimate, parseSkills, type TaskDraft } from "../edit-util";
 import { STATUS_LABEL, fmtDur, useAction, useAsync, useLiveTick } from "../lib";
+import { Markdown } from "../markdown";
+
+/** 「保存しました」を出しておく時間。 */
+const SAVED_NOTICE_MS = 4000;
+
+function draftOf(task: TaskView): TaskDraft {
+  return {
+    title: task.title,
+    body: task.body_md,
+    urgent: !!task.urgent,
+    important: !!task.important,
+    est: task.estimate_min != null ? String(task.estimate_min) : "",
+    skills: task.skills.join(", "),
+  };
+}
 
 const FILTERS: { id: string; label: string; statuses: TaskStatus[] }[] = [
   { id: "open", label: "未完了", statuses: ["todo", "doing"] },
@@ -37,7 +53,13 @@ export function Tasks() {
         <ul class="tasklist">
           {list.data?.tasks.map((t) => (
             <li key={t.id} class={selected === t.id ? "sel" : ""}>
-              <button class="task-row" onClick={() => setSelected(t.id)}>
+              <button
+                class="task-row"
+                onClick={() => {
+                  // 未保存の編集があれば、確認してから別のタスクへ切り替える。
+                  if (t.id !== selected) leaveGuard.requestLeave(() => setSelected(t.id));
+                }}
+              >
                 <span class={`status s-${t.status}`}>{STATUS_LABEL[t.status]}</span>
                 <span class="title">{t.title}</span>
                 {t.kind === "interrupt" && <span class="tag">割り込み</span>}
@@ -114,7 +136,14 @@ function TaskDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
           </button>
         )}
       </div>
-      <EditForm task={task} busy={act.busy} onSave={(input) => after(() => api.taskEdit(task.id, input))} />
+      <EditForm
+        task={task}
+        busy={act.busy}
+        onSaved={() => {
+          show.reload();
+          onChanged();
+        }}
+      />
       <h3>帰属ルール</h3>
       {rules.length === 0 && <Empty>ルールはありません。</Empty>}
       <ul class="plain">
@@ -132,77 +161,138 @@ function TaskDetail({ id, onChanged }: { id: string; onChanged: () => void }) {
   );
 }
 
-function EditForm({
-  task,
-  busy,
-  onSave,
-}: {
-  task: TaskView;
-  busy: boolean;
-  onSave: (input: {
-    title: string;
-    body: string;
-    urgent: boolean;
-    important: boolean;
-    estimate_min?: number;
-    skills: string[];
-    clear_skills: boolean;
-  }) => void;
-}) {
-  const [title, setTitle] = useState(task.title);
-  const [body, setBody] = useState(task.body_md);
-  const [urgent, setUrgent] = useState(!!task.urgent);
-  const [important, setImportant] = useState(!!task.important);
-  const [est, setEst] = useState(task.estimate_min != null ? String(task.estimate_min) : "");
-  const [skills, setSkills] = useState(task.skills.join(", "));
+function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSaved: () => void }) {
+  const [draft, setDraft] = useState<TaskDraft>(() => draftOf(task));
+  // 保存済みの値。保存に成功するたびに、そのとき保存した値に更新する。
+  const [saved, setSaved] = useState<TaskDraft>(draft);
+  const [mode, setMode] = useState(() => defaultBodyMode(task.body_md));
+  const [notice, setNotice] = useState(false);
+  const act = useAction();
+  const formRef = useRef<HTMLFormElement>(null);
+  const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
+  const dirty = isDirty(saved, draft);
+
+  // 未保存の状態を離脱ガードへ伝える。閉じる・再読み込みでの確認（beforeunload）も同じ条件。
+  useEffect(() => {
+    leaveGuard.setDirty(dirty);
+  }, [dirty]);
+  useEffect(() => () => leaveGuard.setDirty(false), []);
+  useEffect(() => {
+    if (!dirty) return;
+    const h = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
+
+  // 「保存しました」は数秒で消す。
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(false), SAVED_NOTICE_MS);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  const canSave = !busy && !act.busy && !!draft.title.trim();
+  const save = async () => {
+    if (!canSave) return;
+    const sent = draft;
+    const list = parseSkills(sent.skills);
+    setNotice(false);
+    const r = await act.run(() =>
+      api.taskEdit(task.id, {
+        title: sent.title,
+        body: sent.body,
+        urgent: sent.urgent,
+        important: sent.important,
+        estimate_min: parseEstimate(sent.est),
+        skills: list,
+        // 空にして保存したら、付いていたスキルを全て外す。
+        clear_skills: list.length === 0 && task.skills.length > 0,
+      }),
+    );
+    if (r !== undefined) {
+      setSaved(sent);
+      setNotice(true);
+      onSaved();
+    }
+  };
+
+  const saveBar = (
+    <div class="save-bar">
+      <button class={dirty ? "primary attn" : "primary"} disabled={!canSave}>
+        保存
+      </button>
+      {dirty && (
+        <span class="note dirty" role="status">
+          未保存の変更があります
+        </span>
+      )}
+      {!dirty && notice && (
+        <span class="note saved" role="status">
+          保存しました
+        </span>
+      )}
+      <ErrorBox error={act.error} />
+    </div>
+  );
+
   return (
     <form
+      ref={formRef}
       class="stack"
       onSubmit={(e) => {
         e.preventDefault();
-        const n = parseInt(est, 10);
-        const list = skills
-          .split(/[,、]/)
-          .map((x) => x.trim())
-          .filter(Boolean);
-        onSave({
-          title,
-          body,
-          urgent,
-          important,
-          estimate_min: Number.isFinite(n) ? n : undefined,
-          skills: list,
-          // 空にして保存したら、付いていたスキルを全て外す。
-          clear_skills: list.length === 0 && task.skills.length > 0,
-        });
+        save();
+      }}
+      onKeyDown={(e) => {
+        if (isSaveShortcut(e)) {
+          e.preventDefault();
+          formRef.current?.requestSubmit();
+        }
       }}
     >
       <Field label="タイトル">
-        <input value={title} onInput={(e) => setTitle(e.currentTarget.value)} />
+        <input value={draft.title} onInput={(e) => set("title", e.currentTarget.value)} />
       </Field>
-      <Field label="本文（Markdown）">
-        <textarea rows={8} value={body} onInput={(e) => setBody(e.currentTarget.value)} />
-      </Field>
+      <div class="field">
+        <div class="row">
+          <span>本文（Markdown）</span>
+          <span class="spacer" />
+          <button type="button" class={mode === "edit" ? "chip on" : "chip"} onClick={() => setMode("edit")}>
+            編集
+          </button>
+          <button type="button" class={mode === "preview" ? "chip on" : "chip"} onClick={() => setMode("preview")}>
+            プレビュー
+          </button>
+        </div>
+        {mode === "edit" ? (
+          <textarea rows={8} value={draft.body} aria-label="本文（Markdown）" onInput={(e) => set("body", e.currentTarget.value)} />
+        ) : draft.body.trim() ? (
+          <Markdown text={draft.body} />
+        ) : (
+          <Empty>本文はありません。</Empty>
+        )}
+      </div>
+      {saveBar}
       <Field label="スキル（カンマ区切り。空にすると全て外します）">
-        <input value={skills} onInput={(e) => setSkills(e.currentTarget.value)} />
+        <input value={draft.skills} onInput={(e) => set("skills", e.currentTarget.value)} />
       </Field>
       <div class="row">
         <label class="check">
-          <input type="checkbox" checked={urgent} onChange={(e) => setUrgent(e.currentTarget.checked)} />
+          <input type="checkbox" checked={draft.urgent} onChange={(e) => set("urgent", e.currentTarget.checked)} />
           緊急
         </label>
         <label class="check">
-          <input type="checkbox" checked={important} onChange={(e) => setImportant(e.currentTarget.checked)} />
+          <input type="checkbox" checked={draft.important} onChange={(e) => set("important", e.currentTarget.checked)} />
           重要
         </label>
         <Field label="見積（分）">
-          <input class="narrow" inputMode="numeric" value={est} onInput={(e) => setEst(e.currentTarget.value)} />
+          <input class="narrow" inputMode="numeric" value={draft.est} onInput={(e) => set("est", e.currentTarget.value)} />
         </Field>
-        <span class="spacer" />
-        <button class="primary" disabled={busy || !title.trim()}>
-          保存
-        </button>
       </div>
+      {saveBar}
     </form>
   );
 }

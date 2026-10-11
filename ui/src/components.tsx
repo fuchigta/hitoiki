@@ -1,6 +1,7 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api, type AppError, type BlockView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
+import { leaveGuard } from "./edit-util";
 import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime } from "./lib";
 
 export function ErrorBox({ error }: { error: AppError | null }) {
@@ -37,6 +38,38 @@ export function Card({ title, children, aside }: { title?: string; children: Com
       )}
       {children}
     </section>
+  );
+}
+
+/** 未保存の変更があるまま移動しようとしたときの確認（`window.confirm` の代わりのアプリ内 UI）。 */
+export function LeaveConfirm() {
+  const [, setN] = useState(0);
+  useEffect(() => leaveGuard.subscribe(() => setN((x) => x + 1)), []);
+  const open = leaveGuard.hasPending();
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: KeyboardEvent) => {
+      if (e.key === "Escape") leaveGuard.cancel();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [open]);
+  if (!open) return null;
+  return (
+    <div class="modal-back">
+      <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="leave-title">
+        <p id="leave-title">未保存の変更があります。破棄して移動しますか？</p>
+        <div class="row">
+          <span class="spacer" />
+          <button autoFocus onClick={() => leaveGuard.cancel()}>
+            キャンセル
+          </button>
+          <button class="primary" onClick={() => leaveGuard.discard()}>
+            破棄して移動
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

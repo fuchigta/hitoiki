@@ -584,6 +584,52 @@ button.link.on {
   box-shadow: inset 3px 0 0 var(--warn);
 }
 
+/* タスク編集の保存まわり */
+.save-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.save-bar .note {
+  font-size: 13px;
+}
+.save-bar .note.dirty {
+  color: var(--warn);
+  font-weight: 600;
+}
+.save-bar .note.saved {
+  color: var(--accent);
+}
+button.primary.attn {
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  font-weight: 600;
+}
+
+/* 離脱確認（アプリ内ダイアログ） */
+.modal-back {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.modal p {
+  margin: 0;
+}
+
 /* 縦型タイムライン（計画画面のドラッグ操作） */
 .vtl {
   position: relative;
