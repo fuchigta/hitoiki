@@ -122,6 +122,31 @@ export interface TaskShow {
   tracked_segments: number;
 }
 
+/** タスク削除の影響の見積もり。 */
+export interface TaskDeletePreview {
+  task_id: string;
+  title: string;
+  status: TaskStatus;
+  segments: number;
+  tracked_ms: number;
+  overrides: number;
+  corrections: number;
+  rules: number;
+  skills: number;
+  blocks: number;
+  template_items: number;
+  doing_logs: number;
+  is_doing: boolean;
+  needs_force: boolean;
+  /** 影響の日本語の説明。 */
+  summary: string;
+}
+
+export interface TaskDeleteResult {
+  deleted: TaskDeletePreview;
+  range: RangeView | null;
+}
+
 export interface TaskChange {
   task: TaskView;
   demoted: TaskView[];

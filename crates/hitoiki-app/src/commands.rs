@@ -103,6 +103,24 @@ pub fn task_drop(app: AppHandle, state: S, id: String) -> AppResult<TaskView> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
+pub fn task_delete_preview(state: S, id: String) -> AppResult<task::DeletePreview> {
+    state.with_ctx(|c| task::delete_preview(c, &id))
+}
+
+/// 誤入力のタスクを削除する。UI は確認ダイアログで影響を見せたあとに呼ぶので `force` で実行する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn task_delete(app: AppHandle, state: S, id: String) -> AppResult<task::DeleteResult> {
+    let v = state.with_ctx(|c| {
+        let day = c.range(&RangeArgs::default())?;
+        let judge = hitoiki_daemon::build_judge(c.conn, c.cfg, day);
+        task::delete(c, &id, true, judge.as_deref())
+    })?;
+    events::emit_segments_updated(&app);
+    doing_changed(&app);
+    Ok(v)
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn rule_add(state: S, input: RuleInputDto) -> AppResult<hitoiki_core::model::TaskMatchRule> {
     let input = input.into();
     let v = state.with_ctx(|c| task::rule_add(c, &input))?;

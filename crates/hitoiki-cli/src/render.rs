@@ -16,7 +16,7 @@ use hitoiki_core::service::{
     review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
     skill::{PresetImport, SkillList},
     status::Status,
-    task::{RuleList, TaskList, TaskShow, TaskView},
+    task::{DeletePreview, DeleteResult, RuleList, TaskList, TaskShow, TaskView},
     SegmentView,
 };
 use hitoiki_core::timefmt::{fmt_duration, fmt_hm, to_local};
@@ -114,6 +114,36 @@ pub fn task_show(tz: Tz, v: &TaskShow) -> String {
     );
     if !v.rules.is_empty() {
         s += &format!("\n\n帰属ルール:\n{}", rules_table(&v.rules));
+    }
+    s
+}
+
+pub fn task_delete_preview(p: &DeletePreview) -> String {
+    format!(
+        "削除の影響（実行はしていません）: {} {}
+{}",
+        short(&p.task_id),
+        p.title,
+        p.summary
+    )
+}
+
+pub fn task_deleted(tz: Tz, r: &DeleteResult) -> String {
+    let d = &r.deleted;
+    let mut s = format!(
+        "削除しました: {} {}
+{}",
+        short(&d.task_id),
+        d.title,
+        d.summary
+    );
+    if let Some(range) = &r.range {
+        s += &format!(
+            "
+再計算した範囲: {} - {}",
+            dt(tz, range.start_at),
+            dt(tz, range.end_at)
+        );
     }
     s
 }

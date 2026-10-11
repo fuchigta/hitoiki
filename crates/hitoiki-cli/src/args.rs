@@ -226,6 +226,16 @@ pub enum TaskCmd {
     Drop {
         id: String,
     },
+    /// 誤入力のタスクを削除する（やめる=記録として残す / 削除=無かったことにする）
+    Delete {
+        id: String,
+        /// 計上済みの時間・確定済みの割り当てがあっても削除する
+        #[arg(long)]
+        force: bool,
+        /// 削除せず、影響だけを表示する
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// 帰属ルール
     #[command(subcommand)]
     Rule(RuleCmd),

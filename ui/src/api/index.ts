@@ -35,6 +35,8 @@ export const api = {
   taskStart: (id: string) => call<T.TaskChange>("task_start", { id }),
   taskDone: (id: string) => call<T.TaskView>("task_done", { id }),
   taskDrop: (id: string) => call<T.TaskView>("task_drop", { id }),
+  taskDeletePreview: (id: string) => call<T.TaskDeletePreview>("task_delete_preview", { id }),
+  taskDelete: (id: string) => call<T.TaskDeleteResult>("task_delete", { id }),
   ruleAdd: (input: T.RuleInput) => call<T.TaskMatchRule>("rule_add", { input }),
   ruleList: (task?: string) => call<{ rules: T.TaskMatchRule[] }>("rule_list", { task }),
 

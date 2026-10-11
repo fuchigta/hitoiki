@@ -97,6 +97,8 @@ pub fn run() {
             commands::task_start,
             commands::task_done,
             commands::task_drop,
+            commands::task_delete_preview,
+            commands::task_delete,
             commands::rule_add,
             commands::rule_list,
             commands::log,
