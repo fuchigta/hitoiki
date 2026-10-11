@@ -1,7 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on } from "./api";
-import { RuntimeBanner } from "./components";
+import { LeaveConfirm, RuntimeBanner } from "./components";
+import { leaveGuard } from "./edit-util";
 import { SCREENS, loadTimeZone, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
 import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
@@ -28,6 +29,13 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   onboarding: Onboarding,
 };
 
+/** 画面を切り替える。未保存の変更があれば確認してから。 */
+function goto(hash: string) {
+  leaveGuard.requestLeave(() => {
+    location.hash = hash;
+  });
+}
+
 function windowLabel(): string {
   try {
     return getCurrentWindow().label;
@@ -53,7 +61,7 @@ function Main() {
   // `hitoiki ui <screen>`・トレイ・通知からの画面切り替え。
   useEffect(() => {
     const off = on<{ screen: string }>("open-screen", (p) => {
-      location.hash = `#/${p.screen}`;
+      goto(`#/${p.screen}`);
     }).catch(() => () => {});
     return () => {
       off.then((f) => f());
@@ -65,7 +73,7 @@ function Main() {
     api
       .takeInitialScreen()
       .then((s) => {
-        if (s) location.hash = `#/${s}`;
+        if (s) goto(`#/${s}`);
       })
       .catch(() => {});
   }, []);
@@ -77,7 +85,19 @@ function Main() {
       <nav class="nav" aria-label="画面">
         <div class="brand">Hitoiki</div>
         {SCREENS.filter((s) => s.id !== "onboarding").map((s) => (
-          <a key={s.id} href={`#/${s.id}`} class={screen === s.id ? "on" : ""} aria-current={screen === s.id ? "page" : undefined}>
+          <a
+            key={s.id}
+            href={`#/${s.id}`}
+            class={screen === s.id ? "on" : ""}
+            aria-current={screen === s.id ? "page" : undefined}
+            onClick={(e) => {
+              // 未保存の変更があれば、確認を挟んでから移動する。
+              if (leaveGuard.isDirty() && screen !== s.id) {
+                e.preventDefault();
+                goto(`#/${s.id}`);
+              }
+            }}
+          >
             {s.label}
           </a>
         ))}
@@ -87,6 +107,7 @@ function Main() {
         <RuntimeBanner />
         <View key={tzVersion} />
       </main>
+      <LeaveConfirm />
     </div>
   );
 }
