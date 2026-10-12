@@ -108,10 +108,12 @@
 | `hitoiki okr add-kr <OBJECTIVE> <TITLE> [--target N]` | KR を追加 |
 | `hitoiki okr list` | 一覧 |
 | `hitoiki okr edit-objective <ID> [--title T] [--description D] [--from F] [--to T] [--clear-period] [--status active\|done\|dropped]` | Objective を編集（指定した項目だけ変える。`--description ""` で説明を消す） |
-| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N] [--status S] [--objective O] [--measure time\|days\|done] [--day-min N]` | KR を編集（`--objective` で別の Objective へ付け替え）。`--measure` は何を軸に見るか（時間 / 回数 / 完了数。既定 `time`）、`--day-min` は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15） |
+| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N [--note M]] [--status S] [--objective O] [--measure time\|days\|done] [--day-min N]` | KR を編集（`--objective` で別の Objective へ付け替え）。`--measure` は何を軸に見るか（時間 / 回数 / 完了数。既定 `time`）、`--day-min` は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15） |
 | `hitoiki okr link <KR> <TASK>...` | タスクを KR に紐付ける（KR は ID の前方一致かタイトル、タスクは ID の前方一致）。別の KR に紐付いていたタスクは付け替える（JSON の `linked[].previous_kr` に元の KR）。1 つでも見つからなければ何も変えず終了コード 3 |
 | `hitoiki okr unlink <TASK>...` | タスクの KR との紐付けを外す。KR に紐付いていないタスクは何もしない（JSON は `unlinked`） |
 | `hitoiki okr show <KR> [--date D] [--from F] [--to T] [--json]` | KR の集計。選んだ軸の値（時間 / 取り組んだ日 / 完了数）と補助の値、週ごとの時間、スキル別の時間（複数のスキルが付いたタスクは各スキルに全時間）、見積の合計と実績、紐付いたタスクを出す。期間の既定は Objective の期間、無ければ直近 8 週。時間は無操作・休憩・無視を除く。目標・現在値は並べるだけで、達成率や評価は出さない |
+| `hitoiki okr progress <KR> <VALUE> [--note N]` | KR の現在値を記録する。現在値を更新し、履歴に 1 行残す（同じ値でも残るので、メモだけ足したいときにも使える）。`edit-kr --current` でも、値が変わったときは履歴が残る（`--note` でメモを添えられる） |
+| `hitoiki okr history <KR> [--date D] [--from F] [--to T] [--json]` | KR の現在値の履歴を、週ごとの時間と並べて出す。週ごとに「その週の終わり時点の現在値」と、紐付いたタスクにかけた時間（`okr show` の週ごとの時間と同じ数え方）、続けて値の履歴の全件（日時・値・メモ）。期間の既定は `okr show` と同じ。目標との比較や評価は出さない。JSON の `weeks[].value` は値の先頭の数値（数として読めなければ null）、`text` は入力した値そのもの |
 | `hitoiki okr delete-objective <ID> [--force] [--dry-run]` | Objective を削除。配下の KR も消え、KR に紐付いたタスクは残って紐付けだけ外れる |
 | `hitoiki okr delete-kr <ID> [--force] [--dry-run]` | KR を削除。紐付いたタスクは残って紐付けだけ外れる |
 | `hitoiki skill add <NAME> [--parent P]` | スキルを追加（`--parent` は名前または ID） |

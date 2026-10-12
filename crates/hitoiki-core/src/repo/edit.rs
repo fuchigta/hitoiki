@@ -73,6 +73,7 @@ pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
         "UPDATE task SET key_result_id = NULL WHERE key_result_id = ?1",
         [kr_id],
     )?;
+    conn.execute("DELETE FROM kr_progress WHERE kr_id = ?1", [kr_id])?;
     conn.execute("DELETE FROM key_result WHERE id = ?1", [kr_id])?;
     Ok(())
 }
@@ -81,6 +82,10 @@ pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
 pub fn delete_objective(conn: &Connection, objective_id: &str) -> Result<()> {
     conn.execute(
         "UPDATE task SET key_result_id = NULL WHERE key_result_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
+        [objective_id],
+    )?;
+    conn.execute(
+        "DELETE FROM kr_progress WHERE kr_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
         [objective_id],
     )?;
     conn.execute("DELETE FROM key_result WHERE objective_id = ?1", [objective_id])?;

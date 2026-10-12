@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrSummary } from "./api";
 import { ErrorBox } from "./components";
+import { KrHistory } from "./kr-history";
 import {
   barHeights,
   linkCandidates,
@@ -23,6 +24,7 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
     <div class="kr-detail">
       <ErrorBox error={sum.error} />
       {s && <Summary s={s} />}
+      <KrHistory k={k} onChanged={onChanged} />
       <KrTasks
         k={k}
         summary={s ?? null}
