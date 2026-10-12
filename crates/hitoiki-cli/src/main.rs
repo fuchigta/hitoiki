@@ -308,9 +308,11 @@ fn run(cli: Cli) -> Result<()> {
                 stress,
                 hassle,
                 idle,
+                task,
                 dismiss,
             } => {
                 let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
+                let task = task.map(|s| s.parse::<pushlog::TaskAnswer>()).transpose()?;
                 let r = pushlog::answer(
                     &ctx,
                     &id,
@@ -320,6 +322,7 @@ fn run(cli: Cli) -> Result<()> {
                         stress,
                         hassle,
                         idle,
+                        task,
                         dismiss,
                     },
                 )?;
@@ -331,6 +334,9 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 if idle.is_some() {
                     ext::notify_data("segments");
+                }
+                if let Some(id) = r.started_task.as_deref() {
+                    ext::notify_task(Some(id));
                 }
                 emit(json, &r, || render::push_answered(&r))
             }

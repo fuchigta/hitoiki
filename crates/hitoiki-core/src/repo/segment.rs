@@ -132,6 +132,23 @@ pub fn kind_label(kind: SegmentKind) -> &'static str {
     }
 }
 
+/// 未完了（todo / doing）のタスクごとの、作業系の区間（work / agent_dialog / agent_watch）に帰属した
+/// 最後の終了時刻。一度も帰属していないタスクは含まない。プッシュ通知の「最後に手をつけた時刻」の材料。
+pub fn last_worked_by_open_task(
+    conn: &Connection,
+) -> Result<std::collections::HashMap<String, crate::Millis>> {
+    let mut stmt = conn.prepare(
+        "SELECT task_id, MAX(end_at) FROM activity_segment
+         WHERE kind IN ('work', 'agent_dialog', 'agent_watch')
+           AND task_id IN (SELECT id FROM task WHERE status IN ('todo', 'doing'))
+         GROUP BY task_id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, crate::Millis>(1)?))
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

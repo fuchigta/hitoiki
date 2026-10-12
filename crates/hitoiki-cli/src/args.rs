@@ -491,6 +491,9 @@ pub enum PushCmd {
         /// 無操作の分類: break / meeting / thinking / away（無操作からの復帰の通知のみ）
         #[arg(long)]
         idle: Option<String>,
+        /// タスク通知（緊急のタスク・重要なタスク）への答え: start（始める）/ later（あとで）/ skip_week（今週は見送る）
+        #[arg(long)]
+        task: Option<String>,
         /// 答えない（見送り）。一覧からは消えるが、応答率では無応答として数える
         #[arg(long)]
         dismiss: bool,

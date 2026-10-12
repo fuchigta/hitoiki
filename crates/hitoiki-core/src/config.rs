@@ -251,6 +251,12 @@ pub struct Push {
     /// idle_return: 予定外の無操作がこの分数以上続いたあとの復帰で「さっきの N 分は？」と尋ねる。
     /// 0 で無効（`disabled_triggers` に `idle_return` を入れても止められる）。
     pub idle_return_min: u64,
+    /// urgent_task: 緊急のしるしが付いた未完了のタスクがあるとき、前回の通知からこの分数以上空けて通知する。
+    /// 0 で無効。
+    pub urgent_task_interval_min: u64,
+    /// important_task: 重要（緊急でない）な未完了のタスクに、最後に手をつけてからこの日数以上経っているとき、
+    /// 1 日 1 回まで通知する。0 で無効。
+    pub important_stale_days: u64,
     /// 無効にするトリガー ID。
     pub disabled_triggers: Vec<String>,
     /// 回答を求めるトースト（ボタンや入力欄のあるもの）を、操作するまで画面に残す（Windows の
@@ -271,6 +277,8 @@ impl Default for Push {
             switch_spike: SwitchSpike::default(),
             late_work_after: "20:00".into(),
             idle_return_min: 15,
+            urgent_task_interval_min: 120,
+            important_stale_days: 3,
             disabled_triggers: vec![],
             toast_persistent: true,
         }
@@ -696,6 +704,8 @@ command = ["python", "x.py"]
             (3, 14)
         );
         assert_eq!(c.push.idle_return_min, 15);
+        assert_eq!(c.push.urgent_task_interval_min, 120);
+        assert_eq!(c.push.important_stale_days, 3);
         assert_eq!(c.review.snap_sec, 120);
         assert!(
             !c.review.correct_include_confirmed

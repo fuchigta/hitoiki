@@ -10,6 +10,7 @@ use crate::{events, tray, window};
 use hitoiki_agents::ImportStats;
 use hitoiki_core::config::Config;
 use hitoiki_core::push::{self, PushPayload, PushResponse};
+use hitoiki_core::service::pushlog;
 use hitoiki_core::service::record::{self, CheckInput};
 use hitoiki_core::timefmt::Range;
 use hitoiki_core::{Clock, SystemClock};
@@ -148,8 +149,27 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
             value: act.value,
             text: note.clone(),
         };
-        match state.with_ctx(|c| push::apply_response(c.conn, push_id, resp, c.now(), c.tz()?)) {
-            Ok(out) => {
+        let applied = state.with_ctx(|c| {
+            let out = push::apply_response(c.conn, push_id, resp, c.now(), c.tz()?)?;
+            // タスク通知の「始める」: 開始は Ctx を持つここで行う（core の応答処理はタスク ID を返すだけ）。
+            let started = out
+                .start_task
+                .as_deref()
+                .map(|id| pushlog::start_pushed_task(c, id).map(|_| id.to_string()));
+            Ok((out, started))
+        });
+        match applied {
+            Ok((out, started)) => {
+                match started {
+                    Some(Ok(task_id)) => {
+                        tracing::info!(task_id, "通知からタスクを始めました");
+                        events::emit_doing_changed(app);
+                        tray::refresh(app);
+                        state.request_rebuild();
+                    }
+                    Some(Err(e)) => tracing::warn!("通知のタスクを始められませんでした: {e}"),
+                    None => {}
+                }
                 changed = out.checkin_id.is_some() || out.hassle_id.is_some() || out.idle_labeled > 0;
                 if out.idle_labeled > 0 || action.as_deref().is_some_and(|a| a.starts_with("idle_")) {
                     // 無操作の分類は override で保存済み。区間への反映を早める。

@@ -1049,6 +1049,9 @@ pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String
             if r.idle_labeled > 0 {
                 parts.push(format!("無操作の分類（{} 区間）", r.idle_labeled));
             }
+            if r.started_task.is_some() {
+                parts.push("タスクを開始".to_string());
+            }
             format!("答えました: {} ({})", short(&r.id), parts.join("・"))
         }
     }

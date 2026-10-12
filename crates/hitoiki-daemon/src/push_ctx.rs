@@ -8,7 +8,7 @@ use hitoiki_core::config::Config;
 use hitoiki_core::model::{
     ActivitySegment, CalendarEvent, IdleSpan, PushLog, SegmentStatus, TimeBlock, WindowSpan,
 };
-use hitoiki_core::push::{evaluate, store, ClosedIdle, IdleState, PushContext, PushDecision};
+use hitoiki_core::push::{evaluate, store, ClosedIdle, IdleState, PushContext, PushDecision, TaskNudge};
 use hitoiki_core::repo::{calendar, raw, segment};
 use hitoiki_core::timefmt::{day_range, local_date_of, week_range, Range};
 use hitoiki_core::{Millis, Result};
@@ -29,6 +29,8 @@ pub struct PushSnapshot {
     pub calendar_events: Vec<CalendarEvent>,
     pub push_log: Vec<PushLog>,
     pub needs_review_count: u32,
+    /// 緊急・重要のしるしが付いた未完了のタスク。
+    pub tasks: Vec<TaskNudge>,
 }
 
 /// スナップショットから `PushContext` を作る（純粋関数）。
@@ -70,6 +72,7 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
     ctx.calendar_events = snap.calendar_events;
     ctx.push_log = snap.push_log;
     ctx.needs_review_count = snap.needs_review_count;
+    ctx.tasks = snap.tasks;
     ctx
 }
 
@@ -117,6 +120,7 @@ pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64
         calendar_events: calendar::list(conn, Range::new(today.start - HOUR_MS, today.end + HOUR_MS))?,
         push_log: store::load_recent(conn, week.start, 10)?,
         needs_review_count,
+        tasks: store::load_task_nudges(conn)?,
     })
 }
 
@@ -148,9 +152,10 @@ mod tests {
     use super::*;
     use crate::sink::LogSink;
     use hitoiki_core::db;
-    use hitoiki_core::model::IdleReason;
+    use hitoiki_core::model::{IdleReason, SegmentKind, Task, TaskKind, TaskStatus};
     use hitoiki_core::push::PushPayload;
     use hitoiki_core::repo::collect as rc;
+    use hitoiki_core::repo::segment;
     use std::sync::Mutex;
 
     const MIN: Millis = 60_000;
@@ -285,6 +290,122 @@ mod tests {
         let before = sink.0.lock().unwrap().len();
         push_tick(&conn, &cfg(), now + MIN, &sink).unwrap();
         assert_eq!(sink.0.lock().unwrap().len(), before);
+    }
+
+    fn task(id: &str, status: TaskStatus, urgent: Option<bool>, important: Option<bool>) -> Task {
+        Task {
+            id: id.into(),
+            title: format!("タスク{id}"),
+            body_md: String::new(),
+            status,
+            kind: TaskKind::Normal,
+            urgent,
+            important,
+            estimate_min: None,
+            planned_start_at: None,
+            planned_end_at: None,
+            key_result_id: None,
+            external_url: None,
+            created_at: DAY0 - 1000,
+            updated_at: DAY0 - 1000,
+            done_at: None,
+        }
+    }
+
+    fn work_seg(id: &str, task: &str, kind: SegmentKind, start: Millis, end: Millis) -> ActivitySegment {
+        ActivitySegment {
+            id: id.into(),
+            start_at: start,
+            end_at: end,
+            kind,
+            task_id: Some(task.into()),
+            activity_label: None,
+            confidence: None,
+            decided_by: None,
+            status: SegmentStatus::Auto,
+            window_span_ids: vec![],
+            agent_session_id: None,
+            exe_name: None,
+            title: None,
+            offline: false,
+        }
+    }
+
+    #[test]
+    fn snapshot_reads_flagged_open_tasks_with_last_worked() {
+        let conn = db::open_in_memory().unwrap();
+        for t in [
+            task("urgent", TaskStatus::Todo, Some(true), None),
+            task("imp", TaskStatus::Doing, Some(false), Some(true)),
+            task("plain", TaskStatus::Todo, None, Some(false)),
+            task("done", TaskStatus::Done, Some(true), Some(true)),
+            task("dropped", TaskStatus::Dropped, None, Some(true)),
+        ] {
+            hitoiki_core::repo::task::insert(&conn, &t).unwrap();
+        }
+        let now = DAY0 + 10 * 60 * MIN;
+        // imp に作業系 2 件（最後は 9:00）と休憩 1 件、done に作業。
+        segment::replace_range(
+            &conn,
+            Range::new(DAY0, now),
+            &[
+                work_seg("s1", "imp", SegmentKind::Work, DAY0 + 60 * MIN, DAY0 + 90 * MIN),
+                work_seg(
+                    "s2",
+                    "imp",
+                    SegmentKind::AgentWatch,
+                    DAY0 + 8 * 60 * MIN,
+                    DAY0 + 9 * 60 * MIN,
+                ),
+                work_seg(
+                    "s3",
+                    "imp",
+                    SegmentKind::Break,
+                    DAY0 + 9 * 60 * MIN,
+                    DAY0 + 9 * 60 * MIN + 30 * MIN,
+                ),
+                work_seg(
+                    "s4",
+                    "done",
+                    SegmentKind::Work,
+                    DAY0 + 2 * 60 * MIN,
+                    DAY0 + 3 * 60 * MIN,
+                ),
+            ],
+        )
+        .unwrap();
+        let snap = load_snapshot(&conn, now, chrono_tz::UTC, 0).unwrap();
+        let mut ids: Vec<_> = snap.tasks.iter().map(|t| t.id.as_str()).collect();
+        ids.sort_unstable();
+        assert_eq!(ids, vec!["imp", "urgent"]);
+        let imp = snap.tasks.iter().find(|t| t.id == "imp").unwrap();
+        assert_eq!(imp.last_worked_at, Some(DAY0 + 9 * 60 * MIN));
+        assert!(imp.doing && imp.important && !imp.urgent);
+        let urgent = snap.tasks.iter().find(|t| t.id == "urgent").unwrap();
+        assert_eq!(urgent.last_worked_at, None);
+        assert!(urgent.urgent && !urgent.doing);
+        assert_eq!(urgent.created_at, DAY0 - 1000);
+        // コンテキストに渡る。
+        let ctx = build_context(snap, &cfg(), now, chrono_tz::UTC);
+        assert_eq!(ctx.tasks.len(), 2);
+    }
+
+    #[test]
+    fn tick_delivers_urgent_task_with_task_id() {
+        let conn = db::open_in_memory().unwrap();
+        hitoiki_core::repo::task::insert(&conn, &task("u1", TaskStatus::Todo, Some(true), None)).unwrap();
+        let sink = Rec::default();
+        let now = DAY0 + 10 * 60 * MIN;
+        push_tick(&conn, &cfg(), now, &sink).unwrap();
+        let got = sink.0.lock().unwrap().clone();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].1, "urgent_task");
+        let log = store::get_log(&conn, &got[0].0).unwrap();
+        let p: PushPayload = serde_json::from_str(&log.payload_json).unwrap();
+        assert_eq!(p.task_id.as_deref(), Some("u1"));
+        // 間隔内の再評価では出ない。
+        push_tick(&conn, &cfg(), now + 5 * MIN, &sink).unwrap();
+        assert_eq!(sink.0.lock().unwrap().len(), 1);
     }
 
     #[test]
