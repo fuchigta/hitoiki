@@ -76,15 +76,18 @@ struct ReflectionOut<'a> {
     r: &'a hitoiki_core::model::Reflection,
     structured: Option<serde_json::Value>,
     answers: Option<serde_json::Value>,
+    /// 回答済みの問いと、保存した記録（チェックイン・ハッスル・ABC）の中身。
+    answer_details: &'a [reflect::AnswerDetail],
 }
 
 impl<'a> ReflectionOut<'a> {
-    fn new(r: &'a hitoiki_core::model::Reflection) -> Self {
+    fn new(r: &'a hitoiki_core::model::Reflection, details: &'a [reflect::AnswerDetail]) -> Self {
         let parse = |s: &Option<String>| s.as_deref().and_then(|j| serde_json::from_str(j).ok());
         Self {
             r,
             structured: parse(&r.structured_json),
             answers: parse(&r.answers_json),
+            answer_details: details,
         }
     }
 }
@@ -736,7 +739,9 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
     let tz = ctx.tz()?;
     let generate = |kind: ReflectionKind, date: Option<String>| -> Result<()> {
         let r = reflect::reflect(ctx, kind, date.as_deref())?;
-        emit(json, &ReflectionOut::new(&r), || render::reflection(tz, &r))
+        emit(json, &ReflectionOut::new(&r, &[]), || {
+            render::reflection(tz, &r, &[])
+        })
     };
     match cmd {
         ReflectCmd::DayStart { date } => generate(ReflectionKind::DayStart, date),
@@ -748,7 +753,8 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
                 Some(path) => std::fs::read_to_string(path)?,
             };
             let r = reflect::answer_text(ctx, &id, &text)?;
-            emit(json, &ReflectionOut::new(&r), || {
+            let details = reflect::answer_details(ctx, &r)?;
+            emit(json, &ReflectionOut::new(&r, &details), || {
                 format!("回答を保存しました: {}", render::short(&r.id))
             })
         }
@@ -761,7 +767,10 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
         }
         ReflectCmd::Show { id } => {
             let r = reflect::show(ctx, &id)?;
-            emit(json, &ReflectionOut::new(&r), || render::reflection(tz, &r))
+            let details = reflect::answer_details(ctx, &r)?;
+            emit(json, &ReflectionOut::new(&r, &details), || {
+                render::reflection(tz, &r, &details)
+            })
         }
     }
 }

@@ -759,6 +759,18 @@ export interface AnswersRecord {
   items: AnsweredItem[];
 }
 
+/** core の `reflect::AnswerDetail`。回答済みの問いと、保存した記録の中身。記録が削除されていれば無い。 */
+export interface AnswerDetail {
+  index: number;
+  kind: QuestionKind;
+  prompt: string;
+  record_id?: string;
+  text?: string;
+  checkin?: Checkin;
+  hassle?: Hassle;
+  abc?: AbcRecord;
+}
+
 /** core の `reflect::AnswerItem`（問いの種類で使う項目が決まる）。 */
 export interface AnswerItem {
   index: number;

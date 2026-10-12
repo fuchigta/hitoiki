@@ -507,6 +507,15 @@ pub fn reflect_answer_structured(
     state.with_ctx(|c| reflect::answer_structured(c, &id, &answers))
 }
 
+/// 回答済みの問いを、保存した記録（チェックイン・ハッスル・ABC）の中身つきで返す。
+#[tauri::command(rename_all = "snake_case")]
+pub fn reflect_answer_details(state: S, id: String) -> AppResult<Vec<reflect::AnswerDetail>> {
+    state.with_ctx(|c| {
+        let r = reflect::show(c, &id)?;
+        reflect::answer_details(c, &r)
+    })
+}
+
 /// 過去の振り返り（新しい順）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn reflect_list(state: S, kind: Option<String>, limit: Option<i64>) -> AppResult<Vec<Reflection>> {
