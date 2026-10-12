@@ -104,6 +104,7 @@ fn check(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment], t: PushTrigge
     match t {
         PushTrigger::DayStart => day_start(ctx, cfg),
         PushTrigger::IdleReturn => idle_return(ctx, cfg),
+        PushTrigger::BlockStart => block_start(ctx, segs),
         PushTrigger::DayEnd => day_end(ctx, cfg),
         PushTrigger::Weekly => weekly(ctx, cfg),
         PushTrigger::UrgentTask => urgent_task(ctx, cfg, segs),
@@ -159,15 +160,105 @@ fn idle_return(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
     {
         return None;
     }
+    let candidate = idle_candidate_task(ctx, idle.start_at, idle.end_at);
+    // ロックの自動休憩（decided_by `rule:locked` で未確定）は、候補のタスクがあるときだけ「分類済み」とみなさない。
+    let auto_locked = |s: &ActivitySegment| {
+        s.kind == SegmentKind::Break
+            && s.status != crate::model::SegmentStatus::Confirmed
+            && s.decided_by.as_deref() == Some("rule:locked")
+    };
     let classified = ctx.recent_segments.iter().any(|s| {
         overlaps(s.start_at, s.end_at)
             && (matches!(s.kind, SegmentKind::Break | SegmentKind::Meeting)
                 || s.status == crate::model::SegmentStatus::Confirmed)
+            && !(candidate.is_some() && auto_locked(s))
     });
     if classified || delivered_since(ctx, PushTrigger::IdleReturn, idle.start_at) {
         return None;
     }
-    Some(payload::idle_return(idle.start_at, idle.end_at))
+    Some(payload::idle_return(
+        idle.start_at,
+        idle.end_at,
+        candidate.map(|t| (t.id.as_str(), t.title.as_str())),
+    ))
+}
+
+/// 無操作の期間 [start, end) に「していた」候補のタスク。
+/// (1) doing ログが開いていたタスク、なければ (2) タスク付きの time_block が重なっていたタスクで、
+/// それぞれ重なりが最も長い 1 件（同じ長さなら先に始まったもの）。doing を優先する。
+fn idle_candidate_task(ctx: &PushContext, start: Millis, end: Millis) -> Option<&super::TaskRef> {
+    let overlap = |s: Millis, e: Millis| (e.min(end) - s.max(start)).max(0);
+    // 重なりが最長（同じなら開始が早い、さらに同じなら ID 順）の 1 件。
+    fn longest(items: Vec<(Millis, Millis, &str)>) -> Option<(Millis, Millis, &str)> {
+        items
+            .into_iter()
+            .filter(|&(len, _, _)| len > 0)
+            .min_by(|a, b| (std::cmp::Reverse(a.0), a.1, a.2).cmp(&(std::cmp::Reverse(b.0), b.1, b.2)))
+    }
+    let doing = longest(
+        ctx.doing_spans
+            .iter()
+            .map(|d| {
+                (
+                    overlap(d.start_at, d.end_at.unwrap_or(end)),
+                    d.start_at,
+                    d.task_id.as_str(),
+                )
+            })
+            .collect(),
+    );
+    let (_, _, id) = doing.or_else(|| {
+        longest(
+            ctx.time_blocks
+                .iter()
+                .filter_map(|b| Some((overlap(b.start_at, b.end_at), b.start_at, b.task_id.as_deref()?)))
+                .collect(),
+        )
+    })?;
+    ctx.task_refs.iter().find(|t| t.id == id)
+}
+
+/// block_start: 今日の time_block のうち、タスクがあり、開始を過ぎて `tuning.block_start_window_min` 分以内
+/// （かつ終了前）のもの。次の場合は出さない。
+/// - そのタスクがすでに doing、いまの作業区間がそのタスク、または完了・中止済み。
+/// - そのブロックについて配信済み（push_log のペイロードの `block_id`）。
+///
+/// 候補が複数なら、開始が最も新しいブロック。タスクの情報（`ctx.task_refs`）が無いブロックは対象外。
+/// 無操作中は共通ルールで出ない。抑制の例外は `gate.rs`。
+fn block_start(ctx: &PushContext, segs: &[&ActivitySegment]) -> Option<PushPayload> {
+    let window = ctx.tuning.block_start_window_min as Millis * MIN_MS;
+    let active = active_task_id(ctx, segs);
+    let sent: Vec<String> = ctx
+        .push_log
+        .iter()
+        .filter(|l| l.delivered && l.trigger == PushTrigger::BlockStart.as_str())
+        .filter_map(|l| {
+            serde_json::from_str::<PushPayload>(&l.payload_json)
+                .ok()?
+                .block_id
+        })
+        .collect();
+    let (block, task) = ctx
+        .time_blocks
+        .iter()
+        .filter(|b| b.start_at <= ctx.now && ctx.now - b.start_at <= window && ctx.now < b.end_at)
+        .filter(|b| !sent.contains(&b.id))
+        .filter_map(|b| {
+            let task = ctx
+                .task_refs
+                .iter()
+                .find(|t| Some(t.id.as_str()) == b.task_id.as_deref())?;
+            (task.status == crate::model::TaskStatus::Todo && active.as_deref() != Some(task.id.as_str()))
+                .then_some((b, task))
+        })
+        .max_by_key(|(b, _)| (b.start_at, b.id.clone()))?;
+    Some(payload::block_start(
+        &block.id,
+        &task.id,
+        &task.title,
+        &local_time(ctx, block.start_at).format("%H:%M").to_string(),
+        &local_time(ctx, block.end_at).format("%H:%M").to_string(),
+    ))
 }
 
 /// day_end: `day_end_at` 以降で `tuning.day_end_idle_min` 分以上無操作、

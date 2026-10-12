@@ -19,7 +19,7 @@
 |---|---|
 | `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ（時刻・種類・タイトル・ID）、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
 | `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
-| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away] [--task start\|later\|skip_week] [--dismiss]` | 通知に答える。チェックイン・ハッスルの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--task` は「緊急のタスク」「重要なタスク」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
+| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|skip] [--dismiss]` | 通知に答える。チェックイン・ハッスルの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `gaps`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `quadrant` / `okr` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 

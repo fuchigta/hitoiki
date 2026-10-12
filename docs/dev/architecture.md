@@ -316,7 +316,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 ### 8.1 トリガー
 
-同時に満たした場合の優先順は次のとおり（`PushTrigger::ALL` の順。表は条件の説明のため前後する）。`day_start` → `idle_return` → `day_end` → `weekly` → `urgent_task` → `after_interrupt` → `meeting_overrun` → `switch_spike` → `long_focus` → `important_task` → `late_work`。`urgent_task` は割り込み・会議・切り替えの通知より前に置く（急ぎのものを示す通知を後回しにしない）。`important_task` は 1 日 1 回の穏やかな提案なので、集中や切り替えへの声かけを優先して `long_focus` の後に置く。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
+同時に満たした場合の優先順は次のとおり（`PushTrigger::ALL` の順。表は条件の説明のため前後する）。`day_start` → `idle_return` → `block_start` → `day_end` → `weekly` → `urgent_task` → `after_interrupt` → `meeting_overrun` → `switch_spike` → `long_focus` → `important_task` → `late_work`。`urgent_task` は割り込み・会議・切り替えの通知より前に置く（急ぎのものを示す通知を後回しにしない）。`important_task` は 1 日 1 回の穏やかな提案なので、集中や切り替えへの声かけを優先して `long_focus` の後に置く。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
 
 | ID | 条件 |
 |---|---|
@@ -330,7 +330,8 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 | `urgent_task` | 勤務時間内（`push.day_start_after` ≤ 現在 < `push.day_end_at`）に、緊急のしるし（`task.urgent`）が付いた未完了（todo / doing）のタスクがあり、直近の `urgent_task` 配信から `push.urgent_task_interval_min`（既定 120 分、0 で無効）以上経っている。対象から外すもの: いま作業しているタスク（作業系の最終区間の `task_id`、または doing）、今日の `time_block` に割り当てられ終了がまだ先のもの。対象のどれかが doing か作業中なら、そもそも出さない。示すのは「最後に通知した時刻」が最も古いタスク（`push_log` のペイロードの `task_id` で判定。`push_log` は今週分＋直近 10 件なので、それより前の通知は「通知していない」扱い）で、同順なら作成が古いもの。ほかの対象の件数を「（ほかに N 件）」として添える。ボタンは「始める」（`task_start`）と「あとで」（`task_later`）。クリックでタスク画面（`tasks`）を開く |
 | `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに帰属した作業系の区間（work / agent_dialog / agent_watch）の最終 `end_at` と `created_at` の大きいほう）が `push.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `time_block` に割り当て済み、いま取り組み中（作業の帰属 / doing）、今週この通知に「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
 | `late_work` | `push.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
-| `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次 |
+| `block_start` | 今日の `time_block` でタスク（`task_id`）が付き、開始を過ぎて `tuning.block_start_window_min`（10 分）以内かつ終了前のもの（複数なら開始が最も新しいもの）。そのタスクが todo でない（doing・完了・中止）、いまの作業区間がそのタスク、そのブロックについて配信済み（push_log のペイロードの `block_id`）のいずれかなら出さない。無操作中は出さない。設定項目は持たず、`push.disabled_triggers` に `block_start` を入れて止める。優先順は `idle_return` の次（同時なら `idle_return` が先で、次の評価で出る）。例外の抑制ルールは 8.2 |
+| `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む。ただし下の候補タスクがあるときは、自動の休憩（`decided_by = rule:locked` で未確定）は分類済みとみなさず尋ねる）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次。**候補タスク**: 無操作の期間に (1) 開いていた doing ログのタスク、なければ (2) タスク付きの `time_block` が重なっていたタスクのうち、重なりが最も長い 1 件（`PushContext.doing_spans` / `time_blocks` / `task_refs`）。あれば先頭のボタンに「{タスク名}をしていた」（`idle_task`、ペイロードの `task_id`）を加える（ボタンは最大 5 個に収まる） |
 
 ### 8.2 抑制ルール
 
@@ -342,10 +343,13 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 4. 同一トリガーの最小間隔（`push.min_interval_min`、既定 60 分）。直近 5 件のうち配信から 30 分以上経ったものの応答率が低い（3 件以上で評価）と、間隔を最大 4 倍まで延長する（`min_interval` / `min_interval_backoff`）。
 5. 会議中、または `focus` の `time_block` 中は保留（`Defer`。ログは残さず、条件が残っていれば後の評価で出る）。`meeting_overrun` は会議の保留を受けない。
 
+例外: `block_start` は計画した時刻に意味があるので、3 と 4 を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。5 のフォーカスブロックの保留は、そのブロック自身の開始通知には適用しない（`gate::check` がペイロードの `block_id` を見る）。
+
 ### 8.3 応答と表示
 
 - **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（override 保存。UI へは `segments_updated` を送り、再計算を要求する）。
-- **タスク通知の応答**（`urgent_task` / `important_task`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::pushlog::start_pushed_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `push answer --task start|later|skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
+- **`idle_task`**（idle_return の「{タスク名}をしていた」）: ペイロードの `idle_range` を、`task_id` のタスクの PC 外の作業として `service::correction::assign_offline_range` で確定する。実績の補正で無操作・記録なしを選んだときと同じ形（種別 work・`offline` の override と `segment_correction`。補正の一覧から取り消せる）で、自動の休憩にも勝つ。自動では確定せず、ボタンを押したときだけ。`block_skip`（block_start の「今回はやめる」）は記録のみ。
+- **タスク通知の応答**（`urgent_task` / `important_task` / `block_start`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::pushlog::start_pushed_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `push answer --task start|later|skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
 - **後からの回答と見送り**（`service::pushlog`）: `list`（配信済みの通知を状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `PushTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `push answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/push-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `push_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
   - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく通知の時刻（`push_log.at`）。あとから答えても、通知時点の状態として時系列に載る。
   - **見送り**（`dismiss`）: `responded_at` を付けず `response_json` に `{"action":"dismiss"}` を残す（スキーマ変更なし）。未回答の一覧（`repo::push::list_unanswered`）から外れる。応答率（8.2 の 4）は `responded_at` の有無で数えるので、見送りは無応答のまま数える。つまり「答えない通知が続くと間隔を延ばす」ルールは、一覧から外しても効き続ける。見送ったあとでも答え直せる。

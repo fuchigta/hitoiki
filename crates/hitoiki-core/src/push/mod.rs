@@ -28,6 +28,7 @@ pub use store::{apply_response, PushResponse, ResponseOutcome};
 pub enum PushTrigger {
     DayStart,
     IdleReturn,
+    BlockStart,
     DayEnd,
     Weekly,
     UrgentTask,
@@ -43,6 +44,7 @@ impl PushTrigger {
     pub const ALL: &'static [PushTrigger] = &[
         PushTrigger::DayStart,
         PushTrigger::IdleReturn,
+        PushTrigger::BlockStart,
         PushTrigger::DayEnd,
         PushTrigger::Weekly,
         PushTrigger::UrgentTask,
@@ -59,6 +61,7 @@ impl PushTrigger {
         match self {
             PushTrigger::DayStart => "day_start",
             PushTrigger::IdleReturn => "idle_return",
+            PushTrigger::BlockStart => "block_start",
             PushTrigger::DayEnd => "day_end",
             PushTrigger::Weekly => "weekly",
             PushTrigger::UrgentTask => "urgent_task",
@@ -76,6 +79,7 @@ impl PushTrigger {
         match self {
             PushTrigger::DayStart => "始業",
             PushTrigger::IdleReturn => "無操作からの復帰",
+            PushTrigger::BlockStart => "計画ブロックの開始",
             PushTrigger::DayEnd => "終業",
             PushTrigger::Weekly => "週次の振り返り",
             PushTrigger::UrgentTask => "緊急のタスク",
@@ -134,6 +138,22 @@ pub struct TaskNudge {
     pub created_at: Millis,
 }
 
+/// 通知の文言と判定に使うタスクの参照（今日の time_block や doing ログが指すタスク。状態は問わない）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskRef {
+    pub id: String,
+    pub title: String,
+    pub status: crate::model::TaskStatus,
+}
+
+/// `task_doing_log` の期間（`end_at` が None なら進行中）。idle_return の候補タスクの材料。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DoingSpan {
+    pub task_id: String,
+    pub start_at: Millis,
+    pub end_at: Option<Millis>,
+}
+
 /// 設定に出していない内部しきい値。既定値で十分な想定。
 #[derive(Debug, Clone)]
 pub struct PushTuning {
@@ -153,6 +173,8 @@ pub struct PushTuning {
     pub active_slack_sec: u64,
     /// idle_return: 無操作の終了からこの分数以内なら発火する。
     pub idle_return_recent_min: u64,
+    /// block_start: ブロックの開始からこの分数以内なら発火する。
+    pub block_start_window_min: u64,
     /// 会議の終了時刻が不明なときの保留時間（分）。
     pub meeting_defer_min: u64,
     /// どのトリガーでも、直前の通知からこの分数は空ける。
@@ -176,6 +198,7 @@ impl Default for PushTuning {
             focus_gap_sec: 30,
             active_slack_sec: 60,
             idle_return_recent_min: 10,
+            block_start_window_min: 10,
             meeting_defer_min: 5,
             min_gap_any_min: 10,
             response_window: 5,
@@ -207,6 +230,10 @@ pub struct PushContext {
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク（urgent_task / important_task の材料）。
     pub tasks: Vec<TaskNudge>,
+    /// 今日の time_block と直近の doing ログが指すタスク（block_start の文言と idle_return の候補に使う）。
+    pub task_refs: Vec<TaskRef>,
+    /// 直近の doing ログ（進行中を含む）。
+    pub doing_spans: Vec<DoingSpan>,
     /// 前面ウインドウの exe 名。
     pub foreground_exe: Option<String>,
     /// 会議アプリの exe 名（`collect.meeting_exes`）。
@@ -231,6 +258,8 @@ impl PushContext {
             push_log: vec![],
             needs_review_count: 0,
             tasks: vec![],
+            task_refs: vec![],
+            doing_spans: vec![],
             foreground_exe: None,
             meeting_exes: vec![],
             recent_switches: None,
@@ -265,7 +294,7 @@ pub fn evaluate(ctx: &PushContext, cfg: &Push) -> Vec<PushDecision> {
     let mut out = Vec::new();
     let mut delivered = false;
     for (trigger, payload) in triggers::candidates(ctx, cfg) {
-        match gate::check(ctx, cfg, trigger) {
+        match gate::check(ctx, cfg, trigger, &payload) {
             gate::Gate::Pass => {
                 if !delivered {
                     delivered = true;

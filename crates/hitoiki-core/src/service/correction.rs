@@ -635,6 +635,61 @@ fn patch_derived(conn: &Connection, ov: &SegmentOverride, now: Millis) -> Result
     Ok(())
 }
 
+/// 無操作の期間 [start, end) を、タスクの PC 外の作業として確定する（通知「{タスク名}をしていた」用）。
+/// 範囲指定の補正（[`apply`]）で無操作・記録なしを選んだときと同じ形で保存する: 種別 work・`offline` の
+/// override を期間全体に作り、派生層にも即時に反映する（区間の無い部分には区間を作る）。
+/// 補正（`segment_correction`）としても残すので、補正の一覧から取り消せる。戻り値は期間に収まる確定済み区間の数。
+pub fn assign_offline_range(
+    conn: &Connection,
+    start: Millis,
+    end: Millis,
+    task_id: &str,
+    now: Millis,
+) -> Result<usize> {
+    if start >= end {
+        return Err(Error::InvalidArgument("期間が不正です".into()));
+    }
+    repo::task::get(conn, task_id)?;
+    let tx = conn.unchecked_transaction()?;
+    let correction = repo_corr::Correction {
+        id: new_id(),
+        start_at: start,
+        end_at: end,
+        task_id: Some(task_id.to_string()),
+        kind: None,
+        activity_label: None,
+        total_ms: end - start,
+        offline_ms: end - start,
+        segment_count: 1,
+        created_at: now,
+    };
+    repo_corr::insert(conn, &correction)?;
+    let ov = SegmentOverride {
+        id: new_id(),
+        start_at: start,
+        end_at: end,
+        kind: Some(SegmentKind::Work),
+        task_id: Some(task_id.to_string()),
+        activity_label: None,
+        created_at: now,
+        offline: true,
+        correction_id: Some(correction.id.clone()),
+    };
+    overrides::insert(conn, &ov)?;
+    patch_derived(conn, &ov, now)?;
+    let n: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM activity_segment WHERE start_at >= ?1 AND end_at <= ?2 AND status = 'confirmed'",
+        params![start, end],
+        |r| r.get(0),
+    )?;
+    conn.execute(
+        "UPDATE segment_correction SET segment_count = ?2 WHERE id = ?1",
+        params![correction.id, n.max(1)],
+    )?;
+    tx.commit()?;
+    Ok(n as usize)
+}
+
 /// 補正の一覧の絞り込み。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
