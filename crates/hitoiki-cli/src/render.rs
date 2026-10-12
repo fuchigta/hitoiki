@@ -604,7 +604,40 @@ pub fn preset_import(p: &PresetImport) -> String {
     )
 }
 
-pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
+/// 回答済みの問いに保存した記録の中身を「ラベル: 値」の行にする。
+fn detail_lines(d: &hitoiki_core::service::reflect::AnswerDetail) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut add = |label: &str, val: Option<String>| {
+        if let Some(x) = val.filter(|x| !x.trim().is_empty()) {
+            v.push(format!("{label}: {x}"));
+        }
+    };
+    if let Some(c) = &d.checkin {
+        add("元気", c.energy.map(|n| n.to_string()));
+        add("気分", c.mood.map(|n| n.to_string()));
+        add("ストレス", c.stress.map(|n| n.to_string()));
+        add("ERG タグ", c.erg_tag.map(|t| t.to_string()));
+        add("メモ", c.note.clone());
+    }
+    if let Some(h) = &d.hassle {
+        add("気になったこと", Some(h.text.clone()));
+        add("強さ", Some(h.intensity.to_string()));
+    }
+    if let Some(a) = &d.abc {
+        add("A（出来事）", Some(a.activating_event.clone()));
+        add("B（受け止め方）", a.belief.clone());
+        add("C（感情）", a.consequence_emotion.clone());
+        add("感情の強さ", a.consequence_intensity.map(|n| n.to_string()));
+        add("反論", a.dispute.clone());
+    }
+    v
+}
+
+pub fn reflection(
+    tz: Tz,
+    r: &hitoiki_core::model::Reflection,
+    details: &[hitoiki_core::service::reflect::AnswerDetail],
+) -> String {
     use hitoiki_core::service::reflect::{structured_of, AnswersRecord};
     use hitoiki_core::service::structured::{QuestionKind, Scale};
     let head = format!("# 振り返り {} ({}, {})\n\n", short(&r.id), r.kind, dt(tz, r.at));
@@ -667,7 +700,14 @@ pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
         for a in &answered.items {
             let label = out.questions[a.index.min(out.questions.len() - 1)].kind.label();
             match (&a.record_id, &a.text) {
-                (Some(id), _) => s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id)),
+                (Some(id), _) => {
+                    s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id));
+                    if let Some(d) = details.iter().find(|d| d.index == a.index) {
+                        for l in detail_lines(d) {
+                            s += &format!("\n    {l}");
+                        }
+                    }
+                }
                 (None, Some(t)) => s += &format!("\n[{}] {label}: {t}", a.index),
                 _ => {}
             }

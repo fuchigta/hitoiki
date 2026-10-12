@@ -3,6 +3,7 @@ import type { Question, StructuredOutput } from "./api/types";
 import {
   askedScales,
   buildAnswers,
+  detailLines,
   hasAnswers,
   initialForm,
   initialForms,
@@ -106,5 +107,52 @@ describe("askedScales", () => {
     const q: Question = { kind: "checkin", prompt: "x" };
     expect(askedScales(q)).toEqual(["energy", "mood", "stress"]);
     expect(askedScales({ ...q, scales: ["mood"] })).toEqual(["mood"]);
+  });
+});
+
+describe("detailLines", () => {
+  const base = { id: "x", at: 0, push_id: null };
+  it("保存したチェックイン・ハッスル・ABC の内容を行にする", () => {
+    expect(
+      detailLines({
+        index: 0,
+        kind: "checkin",
+        prompt: "p",
+        checkin: { ...base, energy: 3, mood: null, stress: 2, erg_tag: "growth", note: "普通" },
+      }),
+    ).toEqual(["元気: 3", "ストレス: 2", "ERG タグ: 成長", "メモ: 普通"]);
+    expect(
+      detailLines({
+        index: 1,
+        kind: "hassle",
+        prompt: "p",
+        hassle: { ...base, text: "会議が長い", intensity: 4, segment_id: null },
+      }),
+    ).toEqual(["気になったこと: 会議が長い", "強さ: 4"]);
+    expect(
+      detailLines({
+        index: 2,
+        kind: "abc",
+        prompt: "p",
+        abc: {
+          id: "x",
+          at: 0,
+          activating_event: "指摘された",
+          belief: "向いていない",
+          consequence_emotion: "落ち込み",
+          consequence_intensity: 4,
+          dispute: "一部だけ",
+          ai_dialog_md: null,
+          hassle_id: null,
+        },
+      }),
+    ).toEqual([
+      "A: 出来事: 指摘された",
+      "B: 受け止め方: 向いていない",
+      "C: 感情: 落ち込み",
+      "感情の強さ: 4",
+      "別の捉え方・反論: 一部だけ",
+    ]);
+    expect(detailLines({ index: 3, kind: "free", prompt: "p", text: "x" })).toEqual([]);
   });
 });

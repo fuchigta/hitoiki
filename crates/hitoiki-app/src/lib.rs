@@ -151,6 +151,7 @@ pub fn run() {
             commands::reflect_generate,
             commands::reflect_answer,
             commands::reflect_answer_structured,
+            commands::reflect_answer_details,
             commands::reflect_list,
             commands::reflect_show,
             commands::abc_dispute,

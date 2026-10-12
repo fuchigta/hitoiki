@@ -132,7 +132,7 @@
 | `hitoiki reflect day_start [--date D]` / `day_end` / `weekly` | AI で問いを生成して保存 |
 | `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力）。構造化された問いには JSON `{"answers":[{"index":0,"energy":3,"mood":4},{"index":1,"text":"…","intensity":3}]}` を渡す（下記）。Markdown の回答も受け付ける |
 | `hitoiki reflect list [--kind K] [--limit N]` | 保存済みの振り返り一覧（新しい順。`--kind` は `day_start` / `day_end` / `weekly`） |
-| `hitoiki reflect show <ID>` | 問いと回答の詳細 |
+| `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存したチェックイン・ハッスル・ABC の内容も出す） |
 | `hitoiki context --kind K [--date D]` | AI 用のコンテキストを JSON で出力 |
 
 構造化された振り返り（[設定](./configuration.md#ai-コマンド) の `ai.structured`）では、問いに `[0]`、`[1]` … の番号と種類（チェックイン・ハッスル・ABC・自由記述）が付いて表示されます。`--json` では `structured`（問い）と `answers`（回答済みの対応表）がそのまま入ります。回答 JSON の各要素は `index`（問いの番号）と、種類ごとの次の項目です。
