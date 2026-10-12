@@ -80,6 +80,22 @@ export function StructuredAnswer({
   const out = useMemo(() => parseStructured(reflection), [reflection.structured_json]);
   const answered = useMemo(() => parseAnswered(reflection), [reflection.answers_json]);
   const answeredIdx = useMemo(() => new Set(answered.items.map((i) => i.index)), [answered]);
+  // 回答が作った記録（チェックイン・ハッスル・ABC）がもう無い問いの番号。
+  const [missingIdx, setMissingIdx] = useState<Set<number>>(new Set());
+  useEffect(() => {
+    if (answered.items.length === 0) {
+      setMissingIdx(new Set());
+      return;
+    }
+    let live = true;
+    api
+      .reflectAnswerDetails(reflection.id)
+      .then((ds) => live && setMissingIdx(new Set(ds.filter((d) => d.missing).map((d) => d.index))))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [reflection.id, reflection.answers_json]);
   const [forms, setForms] = useState<QuestionForm[]>(() => (out ? initialForms(out) : []));
   const [saved, setSaved] = useState("");
   const save = useAction();
@@ -120,7 +136,11 @@ export function StructuredAnswer({
             {done ? (
               <>
                 {done.text && <Markdown text={done.text} />}
-                {q.kind === "abc" && done.record_id && <AbcFollowUp recordId={done.record_id} />}
+                {missingIdx.has(i) ? (
+                  <p class="muted">この回答の記録は削除されています。</p>
+                ) : (
+                  q.kind === "abc" && done.record_id && <AbcFollowUp recordId={done.record_id} />
+                )}
               </>
             ) : (
               f && (

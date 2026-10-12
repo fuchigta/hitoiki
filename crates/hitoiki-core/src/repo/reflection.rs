@@ -63,6 +63,30 @@ pub fn list(conn: &Connection, kind: Option<ReflectionKind>, limit: i64) -> Resu
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// 回答の対応表（`answers_json`）に `record_id` が出てくる振り返り。新しい順。
+/// LIKE で絞ったあと、JSON を読んで本当に参照しているものだけ返す。
+pub fn referencing_record(conn: &Connection, record_id: &str) -> Result<Vec<Reflection>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLS} FROM reflection WHERE answers_json LIKE '%' || ?1 || '%' ORDER BY at DESC, id DESC"
+    ))?;
+    let rows = stmt.query_map([record_id], from_row)?;
+    let all: Vec<Reflection> = rows.collect::<rusqlite::Result<_>>()?;
+    Ok(all
+        .into_iter()
+        .filter(|r| {
+            r.answers_json
+                .as_deref()
+                .and_then(|j| serde_json::from_str::<serde_json::Value>(j).ok())
+                .and_then(|v| v.get("items").and_then(|i| i.as_array()).cloned())
+                .is_some_and(|items| {
+                    items
+                        .iter()
+                        .any(|i| i.get("record_id").and_then(|x| x.as_str()) == Some(record_id))
+                })
+        })
+        .collect())
+}
+
 pub fn set_answers(conn: &Connection, id: &str, answers_md: &str) -> Result<()> {
     conn.execute(
         "UPDATE reflection SET answers_md = ?2 WHERE id = ?1",

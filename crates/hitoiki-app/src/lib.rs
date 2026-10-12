@@ -42,6 +42,7 @@ pub fn apply_autostart(app: &AppHandle) {
 }
 
 pub fn run() {
+    hitoiki_core::service::record::set_caller("app");
     // ヘッドレス daemon と同じログ（%LOCALAPPDATA%\hitoiki\logs の日次ファイル）。作れなければ stderr のみ。
     match hitoiki_daemon::init_logging() {
         Ok(g) => {
@@ -153,6 +154,7 @@ pub fn run() {
             commands::reflect_answer_structured,
             commands::reflect_list,
             commands::reflect_show,
+            commands::reflect_answer_details,
             commands::abc_dispute,
             commands::runtime_state,
             commands::okr_list,

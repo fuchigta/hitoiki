@@ -4,12 +4,12 @@ import { dateInput, toMillis } from "./lib";
 
 /** 確認ダイアログに出す影響の行（「紐付いたタスク 3 件」）。件数 0 の行は core が出さない。 */
 export function impactLines(impact: Impact): string[] {
-  return impact.lines.map((l) => `${l.label} ${l.count} 件`);
+  return [...impact.lines.map((l) => `${l.label} ${l.count} 件`), ...(impact.warnings ?? [])];
 }
 
 /** 影響がなく、確認の文言が「削除しますか？」だけで済むか。 */
 export function hasImpact(impact: Impact): boolean {
-  return impact.lines.some((l) => l.count > 0);
+  return impact.lines.some((l) => l.count > 0) || (impact.warnings ?? []).length > 0;
 }
 
 const DAY = 86_400_000;

@@ -519,6 +519,15 @@ pub fn reflect_show(state: S, id: String) -> AppResult<Reflection> {
     state.with_ctx(|c| reflect::show(c, &id))
 }
 
+/// 回答ごとの参照先の有無（`missing: true` は、その回答が作った記録が削除されている）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn reflect_answer_details(state: S, id: String) -> AppResult<Vec<reflect::AnswerDetail>> {
+    state.with_ctx(|c| {
+        let r = reflect::show(c, &id)?;
+        reflect::answer_details(c, &r)
+    })
+}
+
 /// ABC 記録の B を掘り下げる問いを AI で生成し、記録に追記する。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn abc_dispute(app: AppHandle, id: String) -> AppResult<AbcRecord> {

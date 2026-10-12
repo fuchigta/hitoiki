@@ -604,7 +604,11 @@ pub fn preset_import(p: &PresetImport) -> String {
     )
 }
 
-pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
+pub fn reflection(
+    tz: Tz,
+    r: &hitoiki_core::model::Reflection,
+    details: &[hitoiki_core::service::reflect::AnswerDetail],
+) -> String {
     use hitoiki_core::service::reflect::{structured_of, AnswersRecord};
     use hitoiki_core::service::structured::{QuestionKind, Scale};
     let head = format!("# 振り返り {} ({}, {})\n\n", short(&r.id), r.kind, dt(tz, r.at));
@@ -667,7 +671,12 @@ pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
         for a in &answered.items {
             let label = out.questions[a.index.min(out.questions.len() - 1)].kind.label();
             match (&a.record_id, &a.text) {
-                (Some(id), _) => s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id)),
+                (Some(id), _) => {
+                    s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id));
+                    if details.iter().any(|d| d.index == a.index && d.missing) {
+                        s += "（この回答の記録は削除されています）";
+                    }
+                }
                 (None, Some(t)) => s += &format!("\n[{}] {label}: {t}", a.index),
                 _ => {}
             }

@@ -94,10 +94,21 @@ pub struct PipeName {
 
 impl PipeName {
     /// 現在のユーザーの既定名（Windows: ユーザー SID、Unix: uid）。
+    ///
+    /// 環境変数 `HITOIKI_HOME` が設定されているときは、そのパス（正規化したもの）のハッシュを
+    /// 名前に含め、既定の実アプリのパイプとは別名にする（テストが実アプリへ通知を送らないように）。
+    /// CLI・デーモン・アプリは同じこの関数を使うので、同じ `HITOIKI_HOME` 同士では通信できる。
     pub fn for_current_user() -> Result<Self> {
-        Ok(PipeName {
-            suffix: os::current_user_id()?,
-        })
+        let home = std::env::var_os("HITOIKI_HOME").filter(|h| !h.is_empty());
+        Self::for_user_and_home(os::current_user_id()?, home.as_deref())
+    }
+
+    fn for_user_and_home(user: String, home: Option<&std::ffi::OsStr>) -> Result<Self> {
+        let suffix = match home {
+            Some(h) => format!("{user}-h{:016x}", fnv1a64(normalize_home(h).as_bytes())),
+            None => user,
+        };
+        Ok(PipeName { suffix })
     }
 
     /// テスト用などに任意のサフィックスを指定する。
@@ -115,6 +126,33 @@ impl PipeName {
     pub fn path(&self) -> String {
         os::full_path(&self.suffix)
     }
+}
+
+/// `HITOIKI_HOME` を比較用に正規化する（実在すれば canonicalize、Windows では大文字小文字と区切りを揃える）。
+fn normalize_home(h: &std::ffi::OsStr) -> String {
+    let path = std::path::Path::new(h);
+    let p = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut s = p.to_string_lossy().replace('\\', "/");
+    if let Some(rest) = s.strip_prefix("//?/") {
+        s = rest.to_string();
+    }
+    while s.len() > 1 && s.ends_with('/') {
+        s.pop();
+    }
+    if cfg!(windows) {
+        s = s.to_lowercase();
+    }
+    s
+}
+
+/// FNV-1a 64bit。プロセス間・バージョン間で値が変わらないよう自前で持つ。
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
 }
 
 /// メッセージを送り、応答を受け取る。サーバ不在なら `IpcError::NotRunning`。
@@ -321,6 +359,32 @@ mod tests {
             serde_json::from_str::<Message>(r#"{"type":"ping"}"#).unwrap(),
             Message::Ping
         );
+    }
+
+    #[test]
+    fn home_指定で別名になりパスは含まれない() {
+        let base = PipeName::for_user_and_home("U1".into(), None).unwrap();
+        assert_eq!(base.suffix(), "U1");
+        let dir = std::env::temp_dir().join("hitoiki-ipc-name-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = PipeName::for_user_and_home("U1".into(), Some(dir.as_os_str())).unwrap();
+        assert_ne!(a, base);
+        assert!(a.suffix().starts_with("U1-h"));
+        assert!(!a.suffix().to_lowercase().contains("hitoiki-ipc-name-test"));
+        // 同じ場所（末尾の区切り付き）は同じ名前。
+        let with_slash = format!("{}/", dir.display());
+        let b = PipeName::for_user_and_home("U1".into(), Some(std::ffi::OsStr::new(&with_slash))).unwrap();
+        assert_eq!(a, b);
+        // 別の場所は別名。
+        let other = std::env::temp_dir().join("hitoiki-ipc-name-test2");
+        let c = PipeName::for_user_and_home("U1".into(), Some(other.as_os_str())).unwrap();
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn fnv_は固定値() {
+        assert_eq!(fnv1a64(b""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(fnv1a64(b"a"), 0xaf63_dc4c_8601_ec8c);
     }
 
     #[test]

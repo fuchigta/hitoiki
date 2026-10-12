@@ -121,6 +121,7 @@ export const api = {
   reflectList: (kind?: T.ReflectionKind, limit = 30) =>
     call<T.Reflection[]>("reflect_list", { kind, limit }),
   reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
+  reflectAnswerDetails: (id: string) => call<T.AnswerDetail[]>("reflect_answer_details", { id }),
   abcDispute: (id: string) => call<T.AbcRecord>("abc_dispute", { id }),
 
   // OKR・スキル
@@ -152,12 +153,12 @@ export const api = {
 
   // 記録の編集と削除
   checkinEdit: (id: string, input: T.CheckInput) => call<T.Checkin>("checkin_edit", { id, input }),
-  checkinDelete: (id: string) => call<T.DeleteOutcome>("checkin_delete", { id }),
+  checkinDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("checkin_delete", { id, mode }),
   hassleEdit: (id: string, text: string, intensity?: number) =>
     call<T.Hassle>("hassle_edit", { id, input: { text, intensity } }),
   hassleDelete: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("hassle_delete", { id, mode }),
   abcEdit: (id: string, input: T.AbcEditInput) => call<T.AbcRecord>("abc_edit", { id, input }),
-  abcDelete: (id: string) => call<T.DeleteOutcome>("abc_delete", { id }),
+  abcDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("abc_delete", { id, mode }),
 
   // カレンダーソース・活動ラベル（設定）
   calendarSourceList: () => call<{ sources: T.CalendarSourceView[] }>("calendar_source_list"),

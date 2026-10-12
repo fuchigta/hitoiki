@@ -584,6 +584,8 @@ export interface Impact {
   name: string;
   lines: ImpactLine[];
   note: string | null;
+  /** 警告（振り返りの回答から参照されている、など）。あると CLI は `--force` が必要。 */
+  warnings?: string[];
 }
 
 export interface DeleteOutcome {
@@ -753,6 +755,15 @@ export interface AnsweredItem {
   kind: QuestionKind;
   record_id?: string;
   text?: string;
+}
+
+/** 回答ごとの参照先の有無（core の `reflect::AnswerDetail`）。`missing` は、その回答が作った記録が削除されている。 */
+export interface AnswerDetail {
+  index: number;
+  kind: QuestionKind;
+  record_id?: string;
+  text?: string;
+  missing: boolean;
 }
 
 export interface AnswersRecord {

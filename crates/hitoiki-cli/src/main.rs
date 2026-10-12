@@ -31,6 +31,7 @@ fn main() -> ExitCode {
             return ExitCode::from(code as u8);
         }
     };
+    record::set_caller("cli");
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
@@ -76,16 +77,19 @@ struct ReflectionOut<'a> {
     r: &'a hitoiki_core::model::Reflection,
     structured: Option<serde_json::Value>,
     answers: Option<serde_json::Value>,
+    /// 回答ごとの参照先の有無（`missing: true` は、その回答が作った記録が削除されている）。
+    answer_details: Vec<reflect::AnswerDetail>,
 }
 
 impl<'a> ReflectionOut<'a> {
-    fn new(r: &'a hitoiki_core::model::Reflection) -> Self {
+    fn new(ctx: &Ctx, r: &'a hitoiki_core::model::Reflection) -> Result<Self> {
         let parse = |s: &Option<String>| s.as_deref().and_then(|j| serde_json::from_str(j).ok());
-        Self {
+        Ok(Self {
             r,
             structured: parse(&r.structured_json),
             answers: parse(&r.answers_json),
-        }
+            answer_details: reflect::answer_details(ctx, r)?,
+        })
     }
 }
 
@@ -736,7 +740,8 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
     let tz = ctx.tz()?;
     let generate = |kind: ReflectionKind, date: Option<String>| -> Result<()> {
         let r = reflect::reflect(ctx, kind, date.as_deref())?;
-        emit(json, &ReflectionOut::new(&r), || render::reflection(tz, &r))
+        let o = ReflectionOut::new(ctx, &r)?;
+        emit(json, &o, || render::reflection(tz, &r, &o.answer_details))
     };
     match cmd {
         ReflectCmd::DayStart { date } => generate(ReflectionKind::DayStart, date),
@@ -748,7 +753,7 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
                 Some(path) => std::fs::read_to_string(path)?,
             };
             let r = reflect::answer_text(ctx, &id, &text)?;
-            emit(json, &ReflectionOut::new(&r), || {
+            emit(json, &ReflectionOut::new(ctx, &r)?, || {
                 format!("回答を保存しました: {}", render::short(&r.id))
             })
         }
@@ -761,7 +766,8 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
         }
         ReflectCmd::Show { id } => {
             let r = reflect::show(ctx, &id)?;
-            emit(json, &ReflectionOut::new(&r), || render::reflection(tz, &r))
+            let o = ReflectionOut::new(ctx, &r)?;
+            emit(json, &o, || render::reflection(tz, &r, &o.answer_details))
         }
     }
 }

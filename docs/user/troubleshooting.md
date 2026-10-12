@@ -72,6 +72,7 @@ OK    ai        claude が見つかりました
 
 ## それでも直らないとき
 
+- 記録（チェックイン・ハッスル・ABC）が消えたように見えるときは、ログの `記録を削除しました` の行（種類 `entity`・`id`・呼び出し元 `caller` が `cli` か `app`）で、削除の操作があったかを確認できます（本文・メモは出しません）。AI 振り返りの回答が作った記録を消すと、削除の確認に「振り返り（日付・種類）の回答から参照されています」と出て、振り返りの画面と `hitoiki reflect show` には「この回答の記録は削除されています」と表示されます。
 - ログは `%LOCALAPPDATA%\hitoiki\logs\hitoiki.log.<日付>` にあります（日次ローテーションで 14 日分。常駐アプリ `hitoiki-app.exe` も `hitoiki daemon` も同じ場所に書きます）。起動・終了・収集の開始と停止・収集スレッドの異常終了を記録します。ウインドウタイトルやプロンプトの内容は出力しない作りです。
 - `hitoiki config path` で設定ファイルの場所を確認できます。設定の書式が壊れている場合、`hitoiki doctor` の `config` に出ます。
 - 不具合は [Issues](https://github.com/fuchigta/hitoiki/issues) に報告してください。

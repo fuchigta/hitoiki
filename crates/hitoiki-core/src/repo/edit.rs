@@ -230,6 +230,17 @@ pub fn update_checkin(conn: &Connection, c: &Checkin) -> Result<()> {
     Ok(())
 }
 
+/// 記録（`checkin` / `hassle` / `abc_record`）が存在するか。
+pub fn record_exists(conn: &Connection, table: &str, id: &str) -> Result<bool> {
+    let sql = match table {
+        "checkin" => "SELECT COUNT(*) FROM checkin WHERE id = ?1",
+        "hassle" => "SELECT COUNT(*) FROM hassle WHERE id = ?1",
+        "abc_record" => "SELECT COUNT(*) FROM abc_record WHERE id = ?1",
+        _ => return Err(Error::InvalidArgument(format!("不明な記録の種類: {table}"))),
+    };
+    Ok(count(conn, sql, id)? > 0)
+}
+
 pub fn delete_checkin(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM checkin WHERE id = ?1", [id])?;
     Ok(())

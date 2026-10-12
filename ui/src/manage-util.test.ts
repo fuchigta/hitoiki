@@ -19,6 +19,11 @@ describe("impactLines / hasImpact", () => {
     expect(impactLines(i)).toEqual(["紐付いたタスク 3 件"]);
     expect(hasImpact(i)).toBe(true);
   });
+  it("警告も影響として出す（振り返りから参照されている記録）", () => {
+    const i: Impact = { ...impact([]), warnings: ["振り返り（2026-10-11・day_end）の回答から参照されています"] };
+    expect(impactLines(i)).toEqual(["振り返り（2026-10-11・day_end）の回答から参照されています"]);
+    expect(hasImpact(i)).toBe(true);
+  });
   it("影響がなければ空", () => {
     expect(impactLines(impact([]))).toEqual([]);
     expect(hasImpact(impact([]))).toBe(false);
