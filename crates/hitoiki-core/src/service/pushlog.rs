@@ -129,6 +129,8 @@ pub enum TaskAnswer {
     Later,
     /// 今週は見送る（`task_skip_week`。今週その通知の対象から外す）。
     SkipWeek,
+    /// 今週は見送る（`kr_skip_week`。kr_idle。記録だけ）。
+    KrSkipWeek,
     /// 無操作の期間を、通知が示したタスクの PC 外の作業として確定する（`idle_task`。idle_return）。
     IdleTask,
     /// 今回はやめる（`block_skip`。block_start。記録だけ）。
@@ -141,6 +143,7 @@ impl TaskAnswer {
             TaskAnswer::Start => payload::TASK_START,
             TaskAnswer::Later => payload::TASK_LATER,
             TaskAnswer::SkipWeek => payload::TASK_SKIP_WEEK,
+            TaskAnswer::KrSkipWeek => payload::KR_SKIP_WEEK,
             TaskAnswer::IdleTask => payload::IDLE_TASK_ACTION,
             TaskAnswer::BlockSkip => payload::BLOCK_SKIP,
         }
@@ -154,10 +157,11 @@ impl std::str::FromStr for TaskAnswer {
             "start" => Ok(TaskAnswer::Start),
             "later" => Ok(TaskAnswer::Later),
             "skip_week" | "skip-week" => Ok(TaskAnswer::SkipWeek),
+            "kr_skip_week" | "kr-skip-week" => Ok(TaskAnswer::KrSkipWeek),
             "idle_task" | "idle-task" => Ok(TaskAnswer::IdleTask),
             "block_skip" | "block-skip" | "skip" => Ok(TaskAnswer::BlockSkip),
             other => Err(Error::InvalidArgument(format!(
-                "不明なタスクの答え: {other}（start / later / skip_week / idle_task / block_skip）"
+                "不明なタスクの答え: {other}（start / later / skip_week / kr_skip_week / idle_task / block_skip）"
             ))),
         }
     }

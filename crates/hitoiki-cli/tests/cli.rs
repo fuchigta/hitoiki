@@ -1624,6 +1624,95 @@ fn push_list_and_answer() {
 }
 
 #[test]
+fn push_kr_idle_の見送りに答える() {
+    use hitoiki_core::push::{store, PushDecision, PushPayload};
+    let p: PushPayload = serde_json::from_value(serde_json::json!({
+        "trigger": "kr_idle", "title": "今週、時間が入っていない KR があります",
+        "body": "「成果」に、今週はまだ時間が入っていません。",
+        "actions": [{"id": "open", "label": "今日の予定に入れる", "value": null},
+                    {"id": "kr_skip_week", "label": "今週は見送る", "value": null}],
+        "input": null, "open_screen": "today/design"
+    }))
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    std::env::set_var("HITOIKI_HOME", h);
+    let conn = db::open(&paths::db_file()).unwrap();
+    let now = hitoiki_core::Clock::now_ms(&hitoiki_core::SystemClock);
+    let id = store::record_decision(&conn, &PushDecision::Deliver(p), now)
+        .unwrap()
+        .unwrap();
+    drop(conn);
+    let l = run(h, &["--json", "push", "list", "--unanswered"]);
+    assert_eq!(l.json()["pushes"][0]["trigger_label"], "時間が入っていない KR");
+    let a = run(h, &["--json", "push", "answer", &id, "--task", "kr_skip_week"]);
+    assert_eq!(a.code, 0, "{}", a.stderr);
+    assert_eq!(a.json()["state"], "answered");
+    assert_eq!(run(h, &["push", "answer", &id, "--task", "nope"]).code, 2);
+}
+
+#[test]
+fn okr_suggest_候補を出し_付ける_付けないを選ぶ() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
+    let o = id_of(&run(h, &["--json", "okr", "add-objective", "英語力を上げる"]));
+    let k = id_of(&run(h, &["--json", "okr", "add-kr", &o, "英語の勉強を続ける"]));
+    let t1 = id_of(&run(h, &["--json", "task", "add", "英語の教材を読む"]));
+    let t2 = id_of(&run(h, &["--json", "task", "add", "英語の教材を買う"]));
+    run(h, &["--json", "task", "add", "経費精算"]);
+    assert_eq!(run(h, &["skill", "add", "英語"]).code, 0);
+
+    let s = run(h, &["--json", "okr", "suggest", &k, "--no-ai"]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    let j = s.json();
+    assert_eq!(j["eligible"], true);
+    assert_eq!(j["ai"]["used"], false);
+    let cands = j["candidates"].as_array().unwrap();
+    assert_eq!(cands.len(), 3, "{j}");
+    assert!(cands.iter().all(|c| c["name"] != "経費精算"));
+    let human = run(h, &["okr", "suggest", &k, "--no-ai"]);
+    assert!(human.stdout.contains("英語の教材を読む"), "{}", human.stdout);
+    assert!(human.stdout.contains("自動では紐付けません"), "{}", human.stdout);
+
+    // 付けない: 以後は出ない。
+    let r = run(h, &["--json", "okr", "suggest-reject", &k, &format!("task:{t2}")]);
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    let j = run(h, &["--json", "okr", "suggest", &k, "--no-ai"]).json();
+    assert_eq!(j["candidates"].as_array().unwrap().len(), 2);
+    assert!(j["candidates"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|c| c["id"] != t2.as_str()));
+
+    // 付ける: タスクは紐付き、スキルは KR に加わる。以後は提案の対象外。
+    let a = run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "suggest-accept",
+            &k,
+            &format!("task:{t1}"),
+            "skill:英語",
+        ],
+    );
+    assert_eq!(a.code, 0, "{}", a.stderr);
+    assert_eq!(a.json()["items"].as_array().unwrap().len(), 2);
+    let j = run(h, &["--json", "okr", "suggest", &k, "--no-ai"]).json();
+    assert_eq!(j["eligible"], false);
+    let shown = run(h, &["--json", "okr", "show", &k]).json();
+    assert_eq!(shown["kr_skills"][0], "英語");
+    assert_eq!(shown["task_count"], 1);
+
+    // 終了コード: 候補の書式が不正 2、KR / 候補が見つからない 3。
+    assert_eq!(run(h, &["okr", "suggest-accept", &k, "foo"]).code, 2);
+    assert_eq!(run(h, &["okr", "suggest-accept", &k, "skill:存在しない"]).code, 3);
+    assert_eq!(run(h, &["okr", "suggest", "ZZZ", "--no-ai"]).code, 3);
+}
+
+#[test]
 fn heatmap_日別の濃淡と終了コード() {
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();

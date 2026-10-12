@@ -218,7 +218,7 @@ pub fn unlink_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<LinkedTask>> {
     Ok(out)
 }
 
-pub use super::okr_summary::{kr_summary, KrSummary};
+pub use super::okr_summary::{idle_krs_this_week, kr_summary, KrSummary};
 
 pub fn list(ctx: &Ctx) -> Result<OkrList> {
     let krs = okr::list_krs(ctx.conn)?;

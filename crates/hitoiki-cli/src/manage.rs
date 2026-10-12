@@ -6,6 +6,7 @@ use crate::table::table;
 use crate::{emit, ext, range_args, render};
 use hitoiki_core::config::Config;
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
+use hitoiki_core::service::okr_suggest::{self, CandidateRef};
 use hitoiki_core::service::{okr, okr_progress, parse_to, record, rule, settings, skill, Ctx};
 use hitoiki_core::timefmt::{self, to_local};
 use hitoiki_core::{paths, Error, Result};
@@ -222,6 +223,10 @@ pub fn abc_sub(ctx: &Ctx, json: bool, cmd: AbcCmd) -> Result<()> {
     }
 }
 
+fn parse_candidates(items: &[String]) -> Result<Vec<CandidateRef>> {
+    items.iter().map(|s| s.parse()).collect()
+}
+
 pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
     let tz = ctx.tz()?;
     let now = ctx.now();
@@ -303,6 +308,21 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             emit(json, &serde_json::json!({ "unlinked": r }), || {
                 render::kr_unlinked(&r)
             })
+        }
+        OkrCmd::Suggest { kr, no_ai } => {
+            let s = okr_suggest::suggest(ctx, &kr, !no_ai)?;
+            emit(json, &s, || render::kr_suggestions(&s))
+        }
+        OkrCmd::SuggestAccept { kr, candidates } => {
+            let refs = parse_candidates(&candidates)?;
+            let r = okr_suggest::accept(ctx, &kr, &refs)?;
+            ext::notify_task(None);
+            emit(json, &r, || render::kr_suggest_decided(&r, true))
+        }
+        OkrCmd::SuggestReject { kr, candidates } => {
+            let refs = parse_candidates(&candidates)?;
+            let r = okr_suggest::reject(ctx, &kr, &refs)?;
+            emit(json, &r, || render::kr_suggest_decided(&r, false))
         }
         OkrCmd::Progress { kr, value, note } => {
             let r = okr_progress::record(ctx, &kr, &value, note.as_deref())?;

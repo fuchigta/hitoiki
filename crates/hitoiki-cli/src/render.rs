@@ -13,6 +13,7 @@ use hitoiki_core::service::{
     log::Log,
     okr::{KrSummary, LinkResult, LinkedTask, OkrList},
     okr_progress::{KrHistory, ProgressRecorded},
+    okr_suggest::{DecisionResult, Suggestions},
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
     review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
@@ -632,6 +633,49 @@ pub fn objective_added(o: &Objective) -> String {
 
 pub fn kr_added(k: &KeyResult) -> String {
     format!("KR を追加しました: {} {}", short(&k.id), k.title)
+}
+
+pub fn kr_suggestions(s: &Suggestions) -> String {
+    let title = &s.key_result.title;
+    if !s.eligible {
+        return format!("KR「{title}」にはすでにスキルか紐付けたタスクがあるため、提案はありません。");
+    }
+    let mut out = String::new();
+    if s.candidates.is_empty() {
+        out += &format!("KR「{title}」に紐付ける候補は見つかりませんでした。");
+    } else {
+        out += &format!("KR「{title}」に紐付けるとよさそうな候補です（自動では紐付けません）。");
+        for c in &s.candidates {
+            let src = match c.source {
+                "both" => "手元+AI",
+                "ai" => "AI",
+                _ => "手元",
+            };
+            out += &format!("\n  {}:{}  {}  [{}]", c.kind.as_str(), short(&c.id), c.name, src);
+        }
+        out += &format!(
+            "\n付けるには `hitoiki okr suggest-accept \"{title}\" <候補>`、付けないなら `suggest-reject` を使います。"
+        );
+    }
+    if let Some(n) = &s.ai.note {
+        out += &format!("\n（{n}）");
+    }
+    out
+}
+
+pub fn kr_suggest_decided(r: &DecisionResult, accepted: bool) -> String {
+    let mut out = if accepted {
+        format!("KR「{}」に付けました。", r.key_result.title)
+    } else {
+        format!(
+            "KR「{}」には付けないことにしました（以後提案しません）。",
+            r.key_result.title
+        )
+    };
+    for i in &r.items {
+        out += &format!("\n  {} {} {}", i.kind.label(), short(&i.id), i.name);
+    }
+    out
 }
 
 fn measure_label(m: &str) -> &'static str {

@@ -677,6 +677,32 @@ export interface LinkResult {
   linked: LinkedTask[];
 }
 
+/** KR への紐づけの候補の種類。 */
+export type KrCandidateKind = "task" | "skill";
+
+/** 紐づけの候補 1 件。`source` は手元（local）/ AI（ai）/ 両方（both）。 */
+export interface KrCandidate {
+  kind: KrCandidateKind;
+  id: string;
+  name: string;
+  score: number;
+  source: "local" | "ai" | "both";
+}
+
+/** `okr_suggest` の結果。スキルか紐付けタスクが既にある KR は `eligible` が false。 */
+export interface KrSuggestions {
+  key_result: { id: string; title: string };
+  eligible: boolean;
+  candidates: KrCandidate[];
+  ai: { used: boolean; note: string | null };
+}
+
+/** `okr_suggest_accept` / `okr_suggest_reject` の結果。 */
+export interface KrSuggestDecision {
+  key_result: { id: string; title: string };
+  items: { kind: KrCandidateKind; id: string; name: string }[];
+}
+
 export interface ObjectiveView extends Objective {
   key_results: KeyResult[];
 }

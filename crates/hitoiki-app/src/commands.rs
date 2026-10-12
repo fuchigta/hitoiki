@@ -24,6 +24,7 @@ use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::okr::{self, OkrList};
+use hitoiki_core::service::okr_suggest;
 use hitoiki_core::service::onboarding::{self, OnboardingStatus};
 use hitoiki_core::service::plan::{self, BlockList};
 use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
@@ -563,6 +564,19 @@ pub async fn erg_classify(
     let args = range.unwrap_or_default();
     blocking(app, move |st| {
         st.with_own_ctx(|c| erg::classify(c, &args, dry_run.unwrap_or(false)))
+    })
+    .await
+}
+
+/// KR への紐づけの候補（手元の名前の近さ + AI が設定されていれば AI）。AI は時間がかかるので専用スレッドで実行する。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn okr_suggest(
+    app: AppHandle,
+    kr: String,
+    use_ai: Option<bool>,
+) -> AppResult<okr_suggest::Suggestions> {
+    blocking(app, move |st| {
+        st.with_own_ctx(|c| okr_suggest::suggest(c, &kr, use_ai.unwrap_or(true)))
     })
     .await
 }

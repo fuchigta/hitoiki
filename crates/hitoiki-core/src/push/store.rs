@@ -1,7 +1,7 @@
 //! push_log の読み書きと、通知への応答の反映（checkin / hassle / スヌーズ）。
 
 use super::payload::{
-    BLOCK_SKIP, IDLE_ACTION_PREFIX, IDLE_TASK_ACTION, TASK_LATER, TASK_SKIP_WEEK, TASK_START,
+    BLOCK_SKIP, IDLE_ACTION_PREFIX, IDLE_TASK_ACTION, KR_SKIP_WEEK, TASK_LATER, TASK_SKIP_WEEK, TASK_START,
 };
 use super::{PushDecision, PushPayload, PushTrigger};
 use crate::id::new_id;
@@ -115,6 +115,18 @@ pub fn load_task_nudges(conn: &Connection) -> Result<Vec<super::TaskNudge>> {
         .collect())
 }
 
+/// 今週まだ時間が入っていない KR を、通知の判定用に読む。`PushContext::kr_idle` の材料。
+/// 対象の選び方は [`crate::service::okr::idle_krs_this_week`]。
+pub fn load_kr_idle(conn: &Connection, tz: Tz, now: Millis) -> Result<Vec<super::KrIdleNudge>> {
+    Ok(crate::service::okr::idle_krs_this_week(conn, tz, now)?
+        .into_iter()
+        .map(|k| super::KrIdleNudge {
+            id: k.id,
+            title: k.title,
+        })
+        .collect())
+}
+
 /// 今日の time_block と doing ログが指すタスクを、状態を問わず読む（`PushContext::task_refs` の材料）。
 /// 存在しない ID は無視する。
 pub fn load_task_refs(
@@ -162,6 +174,7 @@ pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
 /// `block_skip`（block_start の「今回はやめる」。記録だけ）、
 /// `task_start`（urgent_task / important_task の対象タスクを始める。開始そのものは `ResponseOutcome::start_task`
 /// を受けた呼び出し側が行う）、`task_later` / `task_skip_week`（記録だけ。後者は今週その通知の対象から外す）、
+/// `kr_skip_week`（kr_idle の「今週は見送る」。記録だけ）、
 /// `open`（アプリを開いた）、`dismiss`（見送り。応答とは数えず `responded_at` を付けない。
 /// `response_json` には残るので未回答の一覧からは外れるが、応答率の算出では無応答のまま）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -252,7 +265,7 @@ pub fn apply_response_with(
                 .ok_or_else(|| Error::InvalidArgument("この通知には対象のタスクがありません".into()))?;
             out.start_task = Some(task_id);
         }
-        Some(TASK_LATER) | Some(TASK_SKIP_WEEK) | Some(BLOCK_SKIP) => {}
+        Some(TASK_LATER) | Some(TASK_SKIP_WEEK) | Some(BLOCK_SKIP) | Some(KR_SKIP_WEEK) => {}
         Some(IDLE_TASK_ACTION) => {
             let p = serde_json::from_str::<PushPayload>(&log.payload_json).ok();
             let range = p

@@ -15,6 +15,7 @@ pub mod ingest;
 pub mod log;
 pub mod okr;
 pub mod okr_progress;
+pub mod okr_suggest;
 mod okr_summary;
 pub mod onboarding;
 pub mod plan;

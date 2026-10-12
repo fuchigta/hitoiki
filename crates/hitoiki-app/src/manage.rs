@@ -12,6 +12,7 @@ use hitoiki_core::paths;
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
 use hitoiki_core::service::okr::{self, KrEdit, ObjectiveEdit};
 use hitoiki_core::service::okr_progress;
+use hitoiki_core::service::okr_suggest;
 use hitoiki_core::service::record::{self, AbcEditInput, CheckInput, HassleInput};
 use hitoiki_core::service::rule::{
     self, ActivityRuleEdit, ActivityRuleInput, ActivityRuleList, RuleDeleted, TaskRuleEdit,
@@ -52,6 +53,32 @@ pub fn okr_link(state: S, kr: String, tasks: Vec<String>) -> AppResult<okr::Link
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_unlink(state: S, tasks: Vec<String>) -> AppResult<Vec<okr::LinkedTask>> {
     state.with_ctx(|c| okr::unlink_tasks(c, &tasks))
+}
+
+/// 提案の候補を「付ける」（`candidates` は `task:<ID>` / `skill:<ID または名前>`）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_suggest_accept(
+    state: S,
+    kr: String,
+    candidates: Vec<String>,
+) -> AppResult<okr_suggest::DecisionResult> {
+    let refs = parse_candidates(&candidates)?;
+    state.with_ctx(|c| okr_suggest::accept(c, &kr, &refs))
+}
+
+/// 提案の候補を「付けない」（以後この KR には提案しない）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_suggest_reject(
+    state: S,
+    kr: String,
+    candidates: Vec<String>,
+) -> AppResult<okr_suggest::DecisionResult> {
+    let refs = parse_candidates(&candidates)?;
+    state.with_ctx(|c| okr_suggest::reject(c, &kr, &refs))
+}
+
+fn parse_candidates(items: &[String]) -> hitoiki_core::Result<Vec<okr_suggest::CandidateRef>> {
+    items.iter().map(|s| s.parse()).collect()
 }
 
 /// KR の集計（期間は Objective の期間、無ければ直近 8 週）。

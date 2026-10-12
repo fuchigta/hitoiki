@@ -277,6 +277,35 @@ fn task_button(id: &str, label: &str) -> PushAction {
     }
 }
 
+/// kr_idle の「今週は見送る」（記録だけ。kr_idle は週 1 回までなので、今週はもう出ない）。
+pub const KR_SKIP_WEEK: &str = "kr_skip_week";
+
+/// kr_idle: 今週まだ時間が入っていない KR を、事実だけ伝える（評価や促しはしない）。
+pub(crate) fn kr_idle(titles: &[&str]) -> PushPayload {
+    const SHOWN: usize = 3;
+    let names: String = titles.iter().take(SHOWN).map(|t| format!("「{t}」")).collect();
+    let more = if titles.len() > SHOWN {
+        format!("ほか {} 件", titles.len() - SHOWN)
+    } else {
+        String::new()
+    };
+    PushPayload {
+        trigger: PushTrigger::KrIdle,
+        title: "今週、時間が入っていない KR があります".into(),
+        body: format!("{names}{more}に、今週はまだ時間が入っていません。"),
+        actions: vec![
+            // 押すと今日のデザイン画面（open_screen）を開く。
+            open_action("今日の予定に入れる"),
+            task_button(KR_SKIP_WEEK, "今週は見送る"),
+        ],
+        input: None,
+        open_screen: Some("today/design".into()),
+        idle_range: None,
+        task_id: None,
+        block_id: None,
+    }
+}
+
 /// urgent_task: 緊急のしるしが付いたタスクを 1 件示す。`others` は同じしるしの付いたほかのタスクの数。
 pub(crate) fn urgent_task(task_id: &str, title: &str, others: usize) -> PushPayload {
     let more = if others > 0 {

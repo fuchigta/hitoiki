@@ -151,6 +151,12 @@ export const api = {
   okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
   okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
   okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
+  // KR への紐づけの提案。自動では紐付けない。AI は設定されているときだけ（use_ai=false なら手元の候補だけ）。
+  okrSuggest: (kr: string, useAi = false) => call<T.KrSuggestions>("okr_suggest", { kr, use_ai: useAi }),
+  okrSuggestAccept: (kr: string, candidates: string[]) =>
+    call<T.KrSuggestDecision>("okr_suggest_accept", { kr, candidates }),
+  okrSuggestReject: (kr: string, candidates: string[]) =>
+    call<T.KrSuggestDecision>("okr_suggest_reject", { kr, candidates }),
   // KR の現在値の記録と履歴（値の推移と週ごとの時間）。
   okrProgress: (kr: string, value: string, note?: string) =>
     call<T.ProgressRecorded>("okr_progress", { kr, value, note }),
