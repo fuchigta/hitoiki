@@ -21,6 +21,7 @@
 | `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
 | `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away] [--dismiss]` | 通知に答える。チェックイン・ハッスルの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss` と `--idle` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `gaps`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
+| `hitoiki heatmap [--by 指標] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `records`（チェックイン・ハッスル・ABC・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `quadrant` / `okr` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
 ### タスク

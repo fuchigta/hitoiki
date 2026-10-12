@@ -130,6 +130,18 @@ pub enum Cmd {
         #[arg(long)]
         include_idle: bool,
     },
+    /// 活動量ヒートマップ（日別の濃淡）
+    Heatmap {
+        /// time | kind:<種別> | task:<ID・タイトル> | skill:<名前> | records[:checkin|hassle|abc|reflection]
+        #[arg(long, default_value = "time")]
+        by: String,
+        /// 開始日（既定: 今日を含む週から数えて 53 週分）
+        #[arg(long)]
+        from: Option<String>,
+        /// 終了日（含む。既定: 今日）
+        #[arg(long)]
+        to: Option<String>,
+    },
     /// AI 用コンテキストを JSON で出力
     Context {
         #[arg(long)]
