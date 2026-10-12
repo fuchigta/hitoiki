@@ -1047,3 +1047,23 @@ button.primary.attn {
   margin: auto;
   font-size: 17px;
 }
+
+/* ERG（記録ごとのタグと、期間の分布） */
+.erg-line {
+  margin-top: 4px;
+  font-size: 13px;
+}
+.erg-line .chip {
+  padding: 1px 8px;
+  font-size: 12px;
+}
+.badge-ai {
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 11px;
+}
+.erg-dist li {
+  padding: 2px 0;
+}

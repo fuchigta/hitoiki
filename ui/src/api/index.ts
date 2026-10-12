@@ -123,6 +123,15 @@ export const api = {
   reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
   abcDispute: (id: string) => call<T.AbcRecord>("abc_dispute", { id }),
 
+  // ERG
+  ergOverview: (range?: T.RangeArgs) => call<T.ErgOverview>("erg_overview", { range }),
+  ergReview: () => call<T.ErgReview>("erg_review"),
+  ergClassify: (range?: T.RangeArgs) => call<T.ErgClassifyOutcome>("erg_classify", { range }),
+  ergSet: (record_kind: T.ErgRecordKind, record_id: string, tag: T.ErgChoice) =>
+    call<T.ErgLabel>("erg_set", { record_kind, record_id, tag }),
+  ergConfirm: (record_kind: T.ErgRecordKind, record_id: string) =>
+    call<T.ErgLabel>("erg_confirm", { record_kind, record_id }),
+
   // OKR・スキル
   okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
   okrAddObjective: (title: string) => call<T.Objective>("okr_add_objective", { input: { title } }),

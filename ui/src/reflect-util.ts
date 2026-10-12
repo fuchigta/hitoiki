@@ -4,7 +4,6 @@ import type {
   AnswerItem,
   AnswersInput,
   AnswersRecord,
-  ErgTag,
   Question,
   Reflection,
   Scale,
@@ -17,7 +16,6 @@ export interface QuestionForm {
   energy?: number;
   mood?: number;
   stress?: number;
-  erg?: ErgTag;
   note: string;
   // hassle / free
   text: string;
@@ -31,11 +29,6 @@ export interface QuestionForm {
 }
 
 export const SCALE_LABELS: Record<Scale, string> = { energy: "元気", mood: "気分", stress: "ストレス" };
-export const ERG_LABELS: Record<ErgTag, string> = {
-  existence: "存在",
-  relatedness: "関係",
-  growth: "成長",
-};
 
 /** 保存済みの構造化出力を読む。無い・壊れている場合は null（従来の Markdown 表示にする）。 */
 export function parseStructured(r: Pick<Reflection, "structured_json">): StructuredOutput | null {
@@ -82,7 +75,7 @@ const blank = (s: string) => s.trim() === "";
 export function isBlank(q: Question, f: QuestionForm): boolean {
   switch (q.kind) {
     case "checkin":
-      return f.energy == null && f.mood == null && f.stress == null && f.erg == null && blank(f.note);
+      return f.energy == null && f.mood == null && f.stress == null && blank(f.note);
     case "hassle":
       return blank(f.text);
     case "free":
@@ -106,7 +99,6 @@ export function toAnswerItem(index: number, q: Question, f: QuestionForm): Answe
         energy: asked.has("energy") ? f.energy : undefined,
         mood: asked.has("mood") ? f.mood : undefined,
         stress: asked.has("stress") ? f.stress : undefined,
-        erg: f.erg,
         note: opt(f.note),
       };
     }

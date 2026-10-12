@@ -145,7 +145,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `time_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
 | `objective` / `key_result` | OKR |
 | `skill` / `task_skill` / `activity_skill_rule` | スキル（階層あり、`preset` フラグ）とタスク・活動との紐づけ |
-| `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`、`note`） |
+| `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`（互換用の列。ERG は `erg_label` に持つ）、`note`） |
 | `hassle` | デイリーハッスル（`text`, `intensity`, `segment_id`） |
 | `abc_record` | ABC 理論の記録（`activating_event`, `belief`, `consequence_*`, `dispute`, `ai_dialog_md`） |
 | `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`, `structured_json`, `answers_json`） |
@@ -359,8 +359,15 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 - **コンテキスト**: `service/context.rs` の `ContextJson`（集計、計画、doing タスク、割り込み、ハッスル、ABC 記録、チェックイン、要確認件数、OKR、前週との差、ERG の分布など。種別ごとに含める項目が変わる）。`hitoiki context` で AI 用に JSON 出力もできる。
 - **テンプレート**: `crates/hitoiki-core/templates/{day_start,day_end,weekly,abc_dispute}.md` を組み込みで持つ。`{{context}}` や `{{date}}` などのプレースホルダを展開する。`ai.templates_dir`（未指定なら `%APPDATA%\hitoiki\templates`）に同名の `<name>.md` があればそちらを優先する。
 - **保存**: 生成した問いを `reflection.questions_md` に保存し、回答を `answers_md` に書く。
-- **構造化出力**（`service/structured.rs`、マイグレーション 0005）: `ai.structured`（`auto` は `ai.command` の先頭が claude のときだけ有効）が有効なら、`<kind>_structured` テンプレートで問いを JSON として受け取る。スキーマ（`schema_json()`）は `oneOf` を使わないフラットな形で、`summary` と `questions[]`（`kind` は `checkin` / `hassle` / `abc` / `free`、ほかに `prompt`、`scales`、`erg_candidates`、`examples`、`activating_event`、`belief_prompt`）。claude には `--output-format json --json-schema {schema}`（`ai.structured_args` で上書き。`{schema_file}` は一時ファイル）を付ける。出力は先頭から JSON 値を順に読み（連結・配列も可）、`structured_output` を持つオブジェクト（無ければ `questions` を持つもの）を採用する。種類ごとに使う kind と数の上限はテンプレート側で指示する（始業は free 中心と checkin、終業は checkin / hassle / free、週次は free / abc / hassle）。`abc_dispute` は従来の Markdown のまま。
+- **構造化出力**（`service/structured.rs`、マイグレーション 0005）: `ai.structured`（`auto` は `ai.command` の先頭が claude のときだけ有効）が有効なら、`<kind>_structured` テンプレートで問いを JSON として受け取る。スキーマ（`schema_json()`）は `oneOf` を使わないフラットな形で、`summary` と `questions[]`（`kind` は `checkin` / `hassle` / `abc` / `free`、ほかに `prompt`、`scales`、`examples`、`activating_event`、`belief_prompt`）。claude には `--output-format json --json-schema {schema}`（`ai.structured_args` で上書き。`{schema_file}` は一時ファイル）を付ける。出力は先頭から JSON 値を順に読み（連結・配列も可）、`structured_output` を持つオブジェクト（無ければ `questions` を持つもの）を採用する。種類ごとに使う kind と数の上限はテンプレート側で指示する（始業は free 中心と checkin、終業は checkin / hassle / free、週次は free / abc / hassle）。`abc_dispute` は従来の Markdown のまま。
 - **構造化の保存と回答**: 正規化した JSON を `structured_json`、表示互換の Markdown を `questions_md`、要約を `summary_md` に保存する。コマンド失敗・JSON 不正・`structured_output` 欠落・スキーマ違反のいずれでも、エラーをログに残して従来の Markdown の問いにフォールバックする（`structured_json` は NULL）。回答は `reflect::answer_structured`（Tauri の `reflect_answer_structured`、CLI の `reflect answer` に JSON を渡したとき）が、問いの種類で `checkin`（`record::check`）、`hassle`、`abc_record`（`abc_add` と反論）に保存し、自由記述は `answers_md` に集約する。reflection との紐付けは `answers_json`（問いの番号・種類・作成したレコードの ID）で持ち、回答済みの問いの二重保存を防ぐ。全体を 1 トランザクションで保存する。
+- **ERG の判定**（`service/erg.rs`、`repo/erg.rs`、マイグレーション 0007）: ERG（存在・関係・成長）はユーザーに選ばせず、記録の内容から AI が判定し、ユーザーが確認・修正する。問いのスキーマ・プロンプトから `erg_candidates` は外した（過去の `structured_json` に残っていても、未知の項目として読み飛ばすので読める）。
+  - **保存の形**: 別表 `erg_label(record_kind, record_id, tag, source, confidence, reason, at)`（主キーは `record_kind` + `record_id`）。記録のテーブルごとに列を足すより、対象を増やしやすく、出所・確信度・理由を同じ形で持てるため別表にした。`record_kind` は `checkin` / `hassle` / `abc` / `reflection`、`tag` は `existence` / `relatedness` / `growth` / `none`（どれにも関わらない）、`source` は `user`（ユーザーが付けた・確定した。AI は上書きしない）/ `ai`（確信度が閾値以上で採用）/ `suggested`（確認待ち。提案のタグと理由だけで未確定）。`checkin.erg_tag` は使わなくなり（0007 で既存値を `user` のラベルに移した）、`Checkin.erg_tag` は確定したラベル（`user` / `ai`、`none` を除く）から読み出す。記録を削除するとラベルも消え、本文を編集すると AI 由来（`ai` / `suggested`）のラベルだけ捨てて再判定できるようにする（`user` は残す）。
+  - **判定の対象**（`subjects`）: 文章を持つ記録。チェックインのメモ、ハッスルの本文、ABC（出来事・受け止め方・感情・反論）、振り返りの回答（`answers_md`）。メモの無いチェックインなど文章の無い記録は対象外（ユーザーが明示的にタグを付けたものは分布には数える）。ラベルがある記録（確認待ちを含む）は再判定しない。
+  - **判定**: 未判定の記録を 30 件ずつまとめ、`erg_classify` テンプレートで AI に渡す（記録の ID は `r1`, `r2` … に置き換え、1 件 600 文字で切る）。応答は `{"labels":[{"id","tag","confidence","reason"}]}`。構造化出力が使えるコマンドにはスキーマを付け、読めなければ付けずに再実行する。コードフェンスや前置きに包まれた JSON も読む。JSON として読めない・`labels` が無いときはエラー。`id` が不正・未知のタグの要素は読み捨て（その記録は未判定のまま）、`confidence` が 0〜1 の数値でなければ `None` として採用せず確認待ちにする。確信度が `ai.erg_auto_threshold`（既定 0.8）以上なら `ai`、未満または確信度なしなら `suggested`。保存は `user` のラベルを更新しない条件付きの UPSERT。AI が未設定（`ai.command` が空）のときは何もせず「AI が設定されていないため判定しません」を返す（エラーにしない）。
+  - **実行**: 終業・週次の振り返りの生成の直前に、その期間の未判定分を判定する（`ai.erg_classify = false` で止められる。失敗してもログに警告を残して振り返りは続ける）。CLI は `hitoiki erg classify|review|set|confirm|show`、GUI は Tauri の `erg_overview` / `erg_review` / `erg_classify` / `erg_set` / `erg_confirm`。
+  - **分布**: `erg::distribution` が期間内の記録を `existence` / `relatedness` / `growth` / `none` / `pending`（確認待ち）/ `unlabeled`（未判定）に数える（`ai_decided` は AI の判定を採用した件数）。週次のコンテキストの `erg_distribution` と記録画面・振り返り画面が使う。テンプレートは偏りを事実として述べるだけにし、良し悪しや「もっと〇〇すべき」は言わない。用語には短い説明（存在 = 体や生活の安心、関係 = 人とのつながり、成長 = 手応えや学び）を添える。
+  - **送信とログ**: 記録の文章が `ai.command` に送られる。文章・プロンプトはログに出さない。
 - **エージェントからの利用**: `hitoiki context`、`hitoiki reflect ...` を CLI から呼べる。なお Claude Code が `claude -p` を実行しても、その `entrypoint` が `sdk-` で始まるので作業時間には混ざらない（5 章）。
 
 ## 10. CLI
@@ -408,7 +415,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
-| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |
+| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources`（`name`, `type`, `url`） |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 

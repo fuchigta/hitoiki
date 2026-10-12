@@ -1,7 +1,7 @@
 //! コマンド体系の定義（docs/dev/architecture.md「CLI」）。
 
 use clap::{Args, Parser, Subcommand};
-use hitoiki_core::model::{ErgTag, MatchField, PatternType, SegmentKind, TaskKind};
+use hitoiki_core::model::{ErgChoice, ErgTag, MatchField, PatternType, SegmentKind, TaskKind};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -78,7 +78,7 @@ pub enum Cmd {
         /// ストレス 1-5
         #[arg(short = 's', long)]
         stress: Option<i64>,
-        /// ERG タグ
+        /// ERG タグ（ふつうは付けなくてよい。メモの内容から AI が判定する。付けるとユーザーの確定になる）
         #[arg(long)]
         erg: Option<ErgTag>,
         #[arg(long)]
@@ -140,6 +140,9 @@ pub enum Cmd {
     /// AI で問いを生成して保存
     #[command(subcommand)]
     Reflect(ReflectCmd),
+    /// ERG（存在・関係・成長）。記録の内容から AI が判定し、確認待ちをユーザーが確定する
+    #[command(subcommand)]
+    Erg(ErgCmd),
     /// エージェントセッション
     #[command(subcommand)]
     Agent(AgentCmd),
@@ -894,6 +897,37 @@ pub enum ReflectCmd {
     },
     /// 振り返りの詳細（問い・回答）
     Show { id: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ErgCmd {
+    /// 未判定の記録を AI で判定する。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は確認待ち。AI が未設定なら何もしない
+    Classify {
+        #[command(flatten)]
+        range: RangeOpts,
+        /// 保存せず、判定の結果だけ表示する
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// 確認待ち（AI の提案で未確定）の一覧
+    Review,
+    /// タグを付ける・直す（ユーザーの確定。AI は上書きしない）。`none` はどれにも関わらない
+    Set {
+        /// 記録の ID（前方一致。チェックイン・ハッスル・ABC・振り返り）
+        record: String,
+        /// existence | relatedness | growth | none
+        tag: ErgChoice,
+    },
+    /// 確認待ちの提案をそのまま確定する
+    Confirm {
+        /// 記録の ID（前方一致）
+        record: String,
+    },
+    /// 期間内の ERG の分布（件数）と、記録ごとのラベル
+    Show {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
 }
 
 #[derive(Debug, Subcommand)]

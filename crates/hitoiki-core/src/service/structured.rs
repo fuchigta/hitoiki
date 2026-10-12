@@ -6,7 +6,6 @@
 
 use crate::config::{Ai, AiStructured};
 use crate::id::new_id;
-use crate::model::ErgTag;
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -74,9 +73,6 @@ pub struct Question {
     /// checkin: 尋ねる尺度。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scales: Vec<Scale>,
-    /// checkin: ERG タグの候補。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub erg_candidates: Vec<ErgTag>,
     /// hassle / abc: 例示。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub examples: Vec<String>,
@@ -121,7 +117,6 @@ impl StructuredOutput {
                 q.scales = Scale::ALL.to_vec();
             }
             dedup(&mut q.scales);
-            dedup(&mut q.erg_candidates);
         }
         self.questions.retain(|q| !q.prompt.is_empty());
         self.questions.truncate(MAX_QUESTIONS);
@@ -195,10 +190,6 @@ pub fn schema_json() -> String {
                             "type": "array",
                             "items": { "type": "string", "enum": ["energy", "mood", "stress"] }
                         },
-                        "erg_candidates": {
-                            "type": "array",
-                            "items": { "type": "string", "enum": ["existence", "relatedness", "growth"] }
-                        },
                         "examples": { "type": "array", "items": { "type": "string" } },
                         "activating_event": { "type": "string" },
                         "belief_prompt": { "type": "string" }
@@ -219,6 +210,12 @@ pub fn schema_json() -> String {
 /// スキーマに従う JSON そのものが出ている場合に備えて、`questions` を持つオブジェクトを採用する。
 /// `type == "result"` で `is_error` が真のものはエラー。見つからない・スキーマに合わない場合もエラー。
 pub fn parse_output(stdout: &str) -> Result<StructuredOutput> {
+    from_value(&extract_value(stdout, "questions")?)
+}
+
+/// `parse_output` の前半。標準出力から `structured_output`（無ければ `bare_key` を持つオブジェクト）を取り出す。
+/// ERG の判定など、問い以外の構造化出力でも使う。
+pub fn extract_value(stdout: &str, bare_key: &str) -> Result<Value> {
     let mut values: Vec<Value> = Vec::new();
     for v in serde_json::Deserializer::from_str(stdout).into_iter::<Value>() {
         match v {
@@ -232,19 +229,19 @@ pub fn parse_output(stdout: &str) -> Result<StructuredOutput> {
     for v in &values {
         let Some(obj) = v.as_object() else { continue };
         if let Some(so) = obj.get("structured_output").filter(|x| !x.is_null()) {
-            return from_value(so);
+            return Ok(so.clone());
         }
         let is_result = obj.get("type").and_then(Value::as_str) == Some("result");
         if is_result && obj.get("is_error").and_then(Value::as_bool) == Some(true) {
             let sub = obj.get("subtype").and_then(Value::as_str).unwrap_or("error");
             error.get_or_insert_with(|| format!("AI コマンドがエラーを返しました ({sub})"));
         }
-        if bare.is_none() && obj.contains_key("questions") {
+        if bare.is_none() && obj.contains_key(bare_key) {
             bare = Some(v);
         }
     }
     if let Some(v) = bare {
-        return from_value(v);
+        return Ok(v.clone());
     }
     Err(Error::Other(anyhow::anyhow!(error.unwrap_or_else(|| {
         if values.is_empty() {
@@ -255,18 +252,17 @@ pub fn parse_output(stdout: &str) -> Result<StructuredOutput> {
     }))))
 }
 
+/// 文字列に包まれた JSON も受け付けて、JSON 値にする。
+pub fn unwrap_json_string(v: &Value) -> Result<Value> {
+    match v.as_str() {
+        Some(s) => serde_json::from_str::<Value>(s)
+            .map_err(|e| Error::Other(anyhow::anyhow!("structured_output を JSON として読めません: {e}"))),
+        None => Ok(v.clone()),
+    }
+}
+
 fn from_value(v: &Value) -> Result<StructuredOutput> {
-    // 文字列に包まれた JSON も受け付ける。
-    let owned;
-    let v = match v.as_str() {
-        Some(s) => {
-            owned = serde_json::from_str::<Value>(s).map_err(|e| {
-                Error::Other(anyhow::anyhow!("structured_output を JSON として読めません: {e}"))
-            })?;
-            &owned
-        }
-        None => v,
-    };
+    let v = &unwrap_json_string(v)?;
     let out: StructuredOutput = serde_json::from_value(v.clone())
         .map_err(|e| Error::Other(anyhow::anyhow!("構造化出力がスキーマに合いません: {e}")))?;
     out.normalize()
@@ -360,15 +356,11 @@ mod tests {
         let props = v["properties"]["questions"]["items"]["properties"]
             .as_object()
             .unwrap();
-        for k in [
-            "scales",
-            "erg_candidates",
-            "examples",
-            "activating_event",
-            "belief_prompt",
-        ] {
+        for k in ["scales", "examples", "activating_event", "belief_prompt"] {
             assert!(props.contains_key(k), "{k}");
         }
+        // ERG は問いに含めない（記録の内容から AI が判定する。service/erg.rs）。過去の JSON に残っていても読める（OUT）。
+        assert!(!props.contains_key("erg_candidates"));
     }
 
     #[test]
@@ -438,7 +430,6 @@ mod tests {
             kind: QuestionKind::Checkin,
             prompt: p.into(),
             scales: vec![],
-            erg_candidates: vec![ErgTag::Growth, ErgTag::Growth],
             examples: vec![],
             activating_event: None,
             belief_prompt: None,
@@ -452,7 +443,6 @@ mod tests {
         assert_eq!(o.summary, None);
         assert_eq!(o.questions.len(), MAX_QUESTIONS);
         assert_eq!(o.questions[0].scales, Scale::ALL.to_vec());
-        assert_eq!(o.questions[0].erg_candidates, vec![ErgTag::Growth]);
     }
 
     #[test]

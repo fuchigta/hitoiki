@@ -139,12 +139,24 @@
 
 | 種類 | 項目 | 保存先 |
 |---|---|---|
-| チェックイン | `energy` / `mood` / `stress`（1〜5）、`erg`（`existence` / `relatedness` / `growth`）、`note` | `checkin` |
+| チェックイン | `energy` / `mood` / `stress`（1〜5）、`note`（`erg` も受け付け、付けるとユーザーのタグとして保存する） | `checkin` |
 | ハッスル | `text`、`intensity`（1〜5、省略時 3） | `hassle` |
 | ABC | `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論） | `abc_record` |
 | 自由記述 | `text` | 振り返りの回答（`answers_md`） |
 
 空の項目は読み飛ばし、回答済みの問いには答え直せません（不正な値が 1 件でもあれば何も保存しません）。保存した記録の ID は `answers` に入ります。
+
+### ERG（存在・関係・成長）
+
+ERG は、記録の内容から AI が判定します（存在 = 体や生活の安心、関係 = 人とのつながり、成長 = 手応えや学び）。確信が持てないものは「確認待ち」になり、あなたが確定します。あなたが付けた・確定したタグは AI で上書きされません。AI が未設定（`ai.command` が空）のときは「AI が設定されていないため判定しません」と表示して何もしません。
+
+| コマンド | 内容 |
+|---|---|
+| `hitoiki erg classify [--date D] [--from F --to T] [--dry-run]` | 未判定の記録を AI で判定する（既定は今日）。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は確認待ち。`--dry-run` は保存せず結果だけ表示。終業・週次の振り返りの前にも自動で実行される（`ai.erg_classify`） |
+| `hitoiki erg review` | 確認待ち（AI の提案で未確定）の一覧。提案のタグ・確信度・理由を表示 |
+| `hitoiki erg confirm <ID>` | 確認待ちの提案をそのまま確定する |
+| `hitoiki erg set <ID> <existence\|relatedness\|growth\|none>` | タグを付ける・直す（`none` はどれにも関わらない）。ID は前方一致でチェックイン・ハッスル・ABC・振り返りのどれでもよい |
+| `hitoiki erg show [--date D] [--from F --to T]` | 期間内の分布（件数）と、記録ごとのラベル（`--json`） |
 
 ### エージェントのセッション
 

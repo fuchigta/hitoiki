@@ -591,6 +591,88 @@ fn config_doctor_and_reflect() {
 }
 
 #[test]
+fn erg_判定_確認待ち_確定() {
+    use hitoiki_core::model::{ErgChoice, ErgLabel, ErgRecordKind, ErgSource};
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    // AI が未設定なら、エラーにせず判定しない
+    std::fs::write(h.join("config.toml"), "[ai]\ncommand = []\n").unwrap();
+    let id = run(h, &["--json", "hassle", "新しいことを学んだ"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let c = run(h, &["--json", "erg", "classify"]);
+    assert_eq!(c.code, 0, "{}", c.stderr);
+    assert_eq!(c.json()["skipped"], "AI が設定されていないため判定しません");
+    let c = run(h, &["erg", "classify", "--dry-run"]);
+    assert_eq!(c.code, 0);
+    assert!(
+        c.stdout.contains("AI が設定されていないため判定しません"),
+        "{}",
+        c.stdout
+    );
+    assert_eq!(
+        run(h, &["--json", "erg", "review"]).json()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // 確認待ちの提案を直接用意する（AI は呼ばない）
+    let conn = db::open(&h.join("hitoiki.db")).unwrap();
+    hitoiki_core::repo::erg::set_auto(
+        &conn,
+        &ErgLabel {
+            record_kind: ErgRecordKind::Hassle,
+            record_id: id.clone(),
+            tag: ErgChoice::Growth,
+            source: ErgSource::Suggested,
+            confidence: Some(0.5),
+            reason: Some("学びに触れている".into()),
+            at: 1,
+        },
+    )
+    .unwrap();
+    drop(conn);
+    let r = run(h, &["--json", "erg", "review"]).json();
+    assert_eq!(r["items"][0]["tag"], "growth");
+    assert_eq!(r["items"][0]["source"], "suggested");
+    assert_eq!(r["items"][0]["reason"], "学びに触れている");
+    assert!(run(h, &["erg", "review"]).stdout.contains("成長"));
+    let s = run(h, &["--json", "erg", "show"]).json();
+    assert_eq!(s["distribution"]["pending"], 1);
+    assert_eq!(s["pending_total"], 1);
+
+    // そのまま確定 → user。確認待ちではなくなる
+    let c = run(h, &["--json", "erg", "confirm", &id[..14]]);
+    assert_eq!(c.code, 0, "{}", c.stderr);
+    assert_eq!(c.json()["source"], "user");
+    assert_eq!(
+        run(h, &["--json", "erg", "review"]).json()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        run(h, &["--json", "erg", "show"]).json()["distribution"]["growth"],
+        1
+    );
+    // 確認待ちでないものは confirm できない（2）。変えるのは set
+    assert_eq!(run(h, &["erg", "confirm", &id]).code, 2);
+    let s = run(h, &["--json", "erg", "set", &id, "none"]);
+    assert_eq!((s.code, s.json()["tag"].as_str()), (0, Some("none")));
+    assert_eq!(
+        run(h, &["--json", "erg", "show"]).json()["distribution"]["none"],
+        1
+    );
+    // 終了コード: 不正なタグ 2 / 対象なし 3
+    assert_eq!(run(h, &["erg", "set", &id, "power"]).code, 2);
+    assert_eq!(run(h, &["erg", "set", "ZZZZZZ", "growth"]).code, 3);
+}
+
+#[test]
 fn structured_reflection_show_and_answer() {
     use hitoiki_core::model::{Reflection, ReflectionKind};
     let dir = tempfile::tempdir().unwrap();

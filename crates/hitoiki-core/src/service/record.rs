@@ -3,8 +3,8 @@
 use super::impact::{DeleteMode, DeleteOutcome, Impact};
 use super::{check_1_5, Ctx, RangeArgs};
 use crate::id::new_id;
-use crate::model::{AbcRecord, Checkin, ErgTag, Hassle};
-use crate::repo::{edit, record};
+use crate::model::{AbcRecord, Checkin, ErgRecordKind, ErgTag, Hassle};
+use crate::repo::{edit, erg, record};
 use crate::{Error, Millis, Result};
 use serde::{Deserialize, Serialize};
 
@@ -42,7 +42,12 @@ pub fn check(ctx: &Ctx, input: &CheckInput) -> Result<Checkin> {
         note: input.note.clone(),
         push_id: None,
     };
+    // `answer_structured` などの外側のトランザクションの中でも呼ばれるので、ここでは張らない。
     record::insert_checkin(ctx.conn, &c)?;
+    if let Some(t) = input.erg {
+        // ユーザーが付けたタグ（出所 user）。AI は上書きしない。
+        erg::set_user(ctx.conn, ErgRecordKind::Checkin, &c.id, t.into(), c.at)?;
+    }
     Ok(c)
 }
 
@@ -169,12 +174,22 @@ pub fn check_edit(ctx: &Ctx, id: &str, input: &CheckInput) -> Result<Checkin> {
         ));
     }
     let mut c = edit::get_checkin(ctx.conn, &crate::repo::resolve_prefix(ctx.conn, "checkin", id)?)?;
+    let text_changed = c.note != note;
     c.energy = input.energy;
     c.mood = input.mood;
     c.stress = input.stress;
-    c.erg_tag = input.erg;
     c.note = note;
+    let tx = ctx.conn.unchecked_transaction()?;
     edit::update_checkin(ctx.conn, &c)?;
+    if text_changed {
+        // メモを直したので、AI 由来の ERG は捨てて判定をやり直せるようにする（ユーザーが付けたものは残す）。
+        erg::delete_auto(ctx.conn, ErgRecordKind::Checkin, &c.id)?;
+    }
+    if let Some(t) = input.erg {
+        erg::set_user(ctx.conn, ErgRecordKind::Checkin, &c.id, t.into(), ctx.now())?;
+    }
+    c.erg_tag = erg::get(ctx.conn, ErgRecordKind::Checkin, &c.id)?.and_then(|l| l.confirmed_tag());
+    tx.commit()?;
     Ok(c)
 }
 
@@ -203,11 +218,18 @@ pub fn hassle_edit(ctx: &Ctx, id: &str, input: &HassleInput) -> Result<Hassle> {
         return Err(Error::InvalidArgument("ハッスルの内容が空です".into()));
     }
     let mut h = hassle_get(ctx, id)?;
-    h.text = input.text.trim().to_string();
+    let text = input.text.trim().to_string();
+    let text_changed = h.text != text;
+    h.text = text;
     if let Some(i) = input.intensity {
         h.intensity = i;
     }
+    let tx = ctx.conn.unchecked_transaction()?;
     edit::update_hassle(ctx.conn, &h)?;
+    if text_changed {
+        erg::delete_auto(ctx.conn, ErgRecordKind::Hassle, &h.id)?;
+    }
+    tx.commit()?;
     Ok(h)
 }
 
@@ -255,12 +277,30 @@ pub fn abc_edit(ctx: &Ctx, id: &str, input: &AbcEditInput) -> Result<AbcRecord> 
     }
     let blank = |s: &Option<String>| s.as_ref().map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
     let mut a = abc_get(ctx, id)?;
+    let before = (
+        a.activating_event.clone(),
+        a.belief.clone(),
+        a.consequence_emotion.clone(),
+        a.dispute.clone(),
+    );
     a.activating_event = input.activating_event.trim().to_string();
     a.belief = blank(&input.belief);
     a.consequence_emotion = blank(&input.consequence_emotion);
     a.consequence_intensity = input.consequence_intensity;
     a.dispute = blank(&input.dispute);
+    let text_changed = before
+        != (
+            a.activating_event.clone(),
+            a.belief.clone(),
+            a.consequence_emotion.clone(),
+            a.dispute.clone(),
+        );
+    let tx = ctx.conn.unchecked_transaction()?;
     edit::update_abc(ctx.conn, &a)?;
+    if text_changed {
+        erg::delete_auto(ctx.conn, ErgRecordKind::Abc, &a.id)?;
+    }
+    tx.commit()?;
     Ok(a)
 }
 

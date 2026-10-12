@@ -14,7 +14,7 @@ import {
 const out: StructuredOutput = {
   summary: "要約",
   questions: [
-    { kind: "checkin", prompt: "調子は", scales: ["energy", "mood"], erg_candidates: ["growth"] },
+    { kind: "checkin", prompt: "調子は", scales: ["energy", "mood"] },
     { kind: "hassle", prompt: "引っかかったことは" },
     { kind: "abc", prompt: "場面を選んで", activating_event: "指摘された", belief_prompt: "何がよぎった" },
     { kind: "free", prompt: "ひとことで" },
@@ -54,7 +54,7 @@ describe("buildAnswers", () => {
 
   it("種類ごとに回答 JSON を作る", () => {
     const forms = initialForms(out);
-    forms[0] = { ...forms[0], energy: 3, mood: 4, erg: "growth", note: " 普通 " };
+    forms[0] = { ...forms[0], energy: 3, mood: 4, note: " 普通 " };
     forms[1] = { ...forms[1], text: " 会議が長い ", intensity: 4 };
     forms[2] = { ...forms[2], belief: "向いていない", emotion: "落ち込み", emotion_intensity: 4, dispute: "" };
     forms[3] = { ...forms[3], text: "まあまあ" };
@@ -62,7 +62,7 @@ describe("buildAnswers", () => {
     expect(a.answers).toHaveLength(4);
     expect(JSON.parse(JSON.stringify(a))).toEqual({
       answers: [
-        { index: 0, energy: 3, mood: 4, erg: "growth", note: "普通" },
+        { index: 0, energy: 3, mood: 4, note: "普通" },
         { index: 1, text: "会議が長い", intensity: 4 },
         {
           index: 2,

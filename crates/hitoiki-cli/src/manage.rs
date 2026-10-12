@@ -89,7 +89,8 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
                 energy: scale(energy, cur.energy),
                 mood: scale(mood, cur.mood),
                 stress: scale(stress, cur.stress),
-                erg: erg.or(cur.erg_tag),
+                // 指定したときだけユーザーの確定にする（AI の判定を勝手にユーザーのものにしない）。
+                erg,
                 note: note.or(cur.note),
             };
             let c = record::check_edit(ctx, &cur.id, &input)?;

@@ -12,6 +12,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (3, include_str!("../migrations/0003_block_template.sql")),
     (4, include_str!("../migrations/0004_correction.sql")),
     (5, include_str!("../migrations/0005_reflection_structured.sql")),
+    (7, include_str!("../migrations/0007_erg_label.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -107,6 +108,34 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM schema_migration", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n as usize, MIGRATIONS.len());
+    }
+
+    #[test]
+    fn 従来のチェックインのerg_tagはユーザーのラベルに引き継がれる() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        ensure_migration_table(&conn).unwrap();
+        for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v < 7) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO schema_migration(version) VALUES (?1)", [v])
+                .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO checkin (id, at, erg_tag) VALUES ('C1', 1000, 'growth'), ('C2', 2000, NULL)",
+            [],
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+        let rows: Vec<(String, String, String, i64)> = conn
+            .prepare("SELECT record_kind, record_id, tag || '/' || source, at FROM erg_label")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![("checkin".into(), "C1".into(), "growth/user".into(), 1000)]
+        );
     }
 
     #[test]

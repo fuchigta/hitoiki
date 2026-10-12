@@ -433,6 +433,10 @@ pub struct Ai {
     /// （`--output-format json --json-schema {schema}`）。`{schema}`（JSON Schema 文字列）と
     /// `{schema_file}`（一時ファイルのパス。実行後に削除）を置換する。
     pub structured_args: Vec<String>,
+    /// 振り返りを生成する前に、その期間の記録の ERG を AI で判定するか（手動の `hitoiki erg classify` は常に使える）。
+    pub erg_classify: bool,
+    /// ERG の AI 判定を採用する確信度の下限（0〜1）。未満は「確認待ち」として提案だけ保存する。
+    pub erg_auto_threshold: f64,
 }
 
 impl Default for Ai {
@@ -443,6 +447,8 @@ impl Default for Ai {
             templates_dir: None,
             structured: AiStructured::Auto,
             structured_args: Vec::new(),
+            erg_classify: true,
+            erg_auto_threshold: 0.8,
         }
     }
 }

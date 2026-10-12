@@ -217,21 +217,18 @@ pub fn get_checkin(conn: &Connection, id: &str) -> Result<Checkin> {
 
 pub fn update_checkin(conn: &Connection, c: &Checkin) -> Result<()> {
     conn.execute(
-        "UPDATE checkin SET energy = ?2, mood = ?3, stress = ?4, erg_tag = ?5, note = ?6 WHERE id = ?1",
-        params![
-            c.id,
-            c.energy,
-            c.mood,
-            c.stress,
-            c.erg_tag.map(|e| e.as_str()),
-            c.note
-        ],
+        "UPDATE checkin SET energy = ?2, mood = ?3, stress = ?4, note = ?5 WHERE id = ?1",
+        params![c.id, c.energy, c.mood, c.stress, c.note],
     )?;
     Ok(())
 }
 
 pub fn delete_checkin(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM checkin WHERE id = ?1", [id])?;
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'checkin' AND record_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 
@@ -259,6 +256,10 @@ pub fn delete_hassle(conn: &Connection, id: &str) -> Result<()> {
         [id],
     )?;
     conn.execute("DELETE FROM hassle WHERE id = ?1", [id])?;
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'hassle' AND record_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 
@@ -287,6 +288,10 @@ pub fn update_abc(conn: &Connection, a: &AbcRecord) -> Result<()> {
 
 pub fn delete_abc(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM abc_record WHERE id = ?1", [id])?;
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'abc' AND record_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 

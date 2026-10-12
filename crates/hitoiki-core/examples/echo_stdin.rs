@@ -27,6 +27,35 @@ fn main() {
             std::process::exit(3);
         }
         "sleep" => std::thread::sleep(std::time::Duration::from_secs(60)),
+        // ERG 判定のプロンプト（`"id": "r1"` などを含む）には、r1 は growth（確信度 0.9）、
+        // それ以外は relatedness（確信度 0.5）の JSON を返す。それ以外のプロンプトは空の判定を返す。
+        "erg" => {
+            let text = String::from_utf8_lossy(&buf);
+            let ids: Vec<String> = text
+                .lines()
+                .filter_map(|l| l.trim().strip_prefix("\"id\": \""))
+                .filter_map(|l| l.split('"').next())
+                .map(String::from)
+                .collect();
+            let labels: Vec<String> = ids
+                .iter()
+                .map(|id| {
+                    let (tag, conf) = if id == "r1" {
+                        ("growth", 0.9)
+                    } else {
+                        ("relatedness", 0.5)
+                    };
+                    format!(r#"{{"id":"{id}","tag":"{tag}","confidence":{conf},"reason":"テスト"}}"#)
+                })
+                .collect();
+            write!(out, r#"{{"labels":[{}]}}"#, labels.join(",")).unwrap();
+            return;
+        }
+        // ERG 判定のプロンプトのときだけ失敗する（振り返りの生成は成功する）。
+        "ergfail" if String::from_utf8_lossy(&buf).contains("\"id\": \"r1\"") => {
+            eprintln!("失敗しました");
+            std::process::exit(3);
+        }
         "structured" | "badjson" | "badschema" if structured_call => {
             let payload = match mode.as_str() {
                 "structured" => format!(
