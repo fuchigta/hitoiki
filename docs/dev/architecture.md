@@ -143,7 +143,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `time_block` | 計画（タイムブロッキング）。`focus` が 1 のものは集中ブロック |
 | `block_template` / `block_template_item` | ブロックのテンプレート（働き方のパターン）。`block_template` は名前（一意）・説明・割り当てた曜日（`weekdays`、JSON 配列、1=月 … 7=日）、`block_template_item` はローカル時刻の 0 時からの分（`start_min` 0〜1439、`end_min` 1〜1440）・`label`・`focus`・任意の `task_id` |
 | `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `time_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
-| `objective` / `key_result` | OKR |
+| `objective` / `key_result` | OKR。`key_result.measure`（`time` / `days` / `done`、既定 `time`）は何を軸に見るか、`day_min`（既定 15）は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（マイグレーション 0006）。タスクは `task.key_result_id` で KR を 1 つ持つ |
 | `skill` / `task_skill` / `activity_skill_rule` | スキル（階層あり、`preset` フラグ）とタスク・活動との紐づけ |
 | `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`、`note`） |
 | `hassle` | デイリーハッスル（`text`, `intensity`, `segment_id`） |
@@ -374,7 +374,9 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 共通仕様: 参照系は `--json` で機械可読な出力。対話的なプロンプトは出さず、不足引数はエラー。終了コードは 0 成功、1 一般、2 引数、3 対象なし、4 曖昧（`Error::exit_code()`）。`HITOIKI_HOME` で設定と DB の置き場所を差し替えられる。
 
-`heatmap`（`service::heatmap`）は日別の値と濃淡の段階を返す。時間の指標は派生層 `activity_segment`（`segment_override` 適用後）をローカル日付の 0 時で分割して合算し、記録の指標は `checkin` / `hassle` / `abc_record` / `reflection` の `at` を数える。段階は値のある日の分布で決め（値以下の日の割合を 4 等分、0 は値なし）、スキルは子孫のスキルを含める。
+`heatmap`（`service::heatmap`）は日別の値と濃淡の段階を返す。時間の指標は派生層 `activity_segment`（`segment_override` 適用後）をローカル日付の 0 時で分割して合算し、記録の指標は `checkin` / `hassle` / `abc_record` / `reflection` の `at` を数える。段階は値のある日の分布で決め（値以下の日の割合を 4 等分、0 は値なし）、スキルは子孫のスキルを含める。`kr:<KR>` は KR に紐付いたタスクの時間（日付分割は `heatmap::add_per_day` を KR の集計と共有）。
+
+KR の集計（`service::okr::kr_summary`、実装は `service/okr_summary.rs`）は、紐付いたタスク（`task.key_result_id`）に帰属した派生層の区間から算出する（実績の入力欄は無い）。期間は Objective の `period_start/end`（片方だけなら、開始のみは今日まで、終了のみは 8 週前から）、無ければ直近 8 週（今日を含む週の月曜の 7 週前〜今日の終わり）。時間は無操作・休憩・無視を除いて期間で切り、ローカル日付で日ごとに分けて合算する。回数はその日別の合計が `day_min` 分以上の日数、完了数は「期間内に `done_at` があるタスクの数 / やめたタスクを除く紐付き全体の数」を割り算せず別々の値で返す（`done_count` / `task_count`）。週ごとの時間は月曜始まりで日別の値を束ね、スキル別は report の skill 集計と同じく付いているスキルそれぞれに全時間を計上する（付いていなければ `(なし)`）。見積は `estimate_min` のあるタスク（やめたものを除く）の合計と、そのタスクの期間内の実績。選んだ軸（`measure`）は表示の主従を決めるだけで、`target` / `current` は自由記述のまま返し、達成率の計算や評価はしない。紐付けは `okr::link_tasks`（別の KR からの付け替えを含み、先に全タスクを解決して 1 件でも無ければ何も変えない）と `okr::unlink_tasks`、`task edit` の `clear_key_result`。UI は CLI と同じ関数を Tauri コマンド（`okr_link` / `okr_unlink` / `okr_show`）経由で呼ぶ。
 
 主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`okr`、`skill`、`report`、`heatmap`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
 

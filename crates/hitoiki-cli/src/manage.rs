@@ -246,6 +246,8 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             current,
             status,
             objective,
+            measure,
+            day_min,
         } => {
             let k = okr::edit_kr(
                 ctx,
@@ -256,6 +258,8 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                     current,
                     status,
                     objective,
+                    measure,
+                    day_min,
                 },
             )?;
             emit(json, &k, || {
@@ -265,6 +269,26 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
         OkrCmd::DeleteKr { id, opts } => {
             let o = okr::delete_kr(ctx, &id, mode(&opts))?;
             delete_report(json, "KR", &o)
+        }
+        OkrCmd::Link { kr, tasks } => {
+            let r = okr::link_tasks(ctx, &kr, &tasks)?;
+            ext::notify_task(None);
+            emit(json, &r, || render::kr_linked(&r))
+        }
+        OkrCmd::Unlink { tasks } => {
+            let r = okr::unlink_tasks(ctx, &tasks)?;
+            ext::notify_task(None);
+            emit(json, &serde_json::json!({ "unlinked": r }), || {
+                render::kr_unlinked(&r)
+            })
+        }
+        OkrCmd::Show { kr, range } => {
+            let args = range_args(&range);
+            let given = (args.date.is_some() || args.from.is_some() || args.to.is_some())
+                .then(|| ctx.range(&args))
+                .transpose()?;
+            let s = okr::kr_summary(ctx, &kr, given)?;
+            emit(json, &s, || render::kr_summary(&s))
         }
         _ => unreachable!("handled in main"),
     }

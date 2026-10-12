@@ -41,6 +41,24 @@ pub fn okr_edit_kr(state: S, id: String, input: KrEdit) -> AppResult<KeyResult> 
     state.with_ctx(|c| okr::edit_kr(c, &id, &input))
 }
 
+/// KR にタスクを紐付ける（別の KR に紐付いていたものは付け替える）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_link(state: S, kr: String, tasks: Vec<String>) -> AppResult<okr::LinkResult> {
+    state.with_ctx(|c| okr::link_tasks(c, &kr, &tasks))
+}
+
+/// タスクの KR との紐付けを外す。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_unlink(state: S, tasks: Vec<String>) -> AppResult<Vec<okr::LinkedTask>> {
+    state.with_ctx(|c| okr::unlink_tasks(c, &tasks))
+}
+
+/// KR の集計（期間は Objective の期間、無ければ直近 8 週）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_show(state: S, kr: String) -> AppResult<okr::KrSummary> {
+    state.with_ctx(|c| okr::kr_summary(c, &kr, None))
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_delete_kr(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
     let mode = mode.unwrap_or_default();

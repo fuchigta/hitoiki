@@ -13,6 +13,7 @@ pub mod impact;
 pub mod ingest;
 pub mod log;
 pub mod okr;
+mod okr_summary;
 pub mod onboarding;
 pub mod plan;
 pub mod pushlog;

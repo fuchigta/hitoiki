@@ -138,6 +138,10 @@ export const api = {
   okrDeleteObjective: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_objective", { id, mode }),
   okrEditKr: (id: string, input: T.KrEdit) => call<T.KeyResult>("okr_edit_kr", { id, input }),
   okrDeleteKr: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_kr", { id, mode }),
+  // KR とタスクのつながり。紐付けは別の KR に紐付いていたタスクを付け替える。
+  okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
+  okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
+  okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
   skillEdit: (key: string, input: T.SkillEdit) => call<T.Skill>("skill_edit", { key, input }),
   skillDelete: (key: string, children: T.ChildPolicy, mode: T.DeleteMode) =>
     call<T.DeleteOutcome>("skill_delete", { key, children, mode }),

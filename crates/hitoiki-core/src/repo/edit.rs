@@ -41,8 +41,8 @@ pub fn update_objective(conn: &Connection, o: &Objective) -> Result<()> {
 
 pub fn update_kr(conn: &Connection, k: &KeyResult) -> Result<()> {
     conn.execute(
-        "UPDATE key_result SET objective_id = ?2, title = ?3, target = ?4, current = ?5, status = ?6 WHERE id = ?1",
-        params![k.id, k.objective_id, k.title, k.target, k.current, k.status],
+        "UPDATE key_result SET objective_id = ?2, title = ?3, target = ?4, current = ?5, status = ?6, measure = ?7, day_min = ?8 WHERE id = ?1",
+        params![k.id, k.objective_id, k.title, k.target, k.current, k.status, k.measure, k.day_min],
     )?;
     Ok(())
 }

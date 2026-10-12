@@ -21,6 +21,8 @@ pub struct TaskInput {
     pub estimate_min: Option<i64>,
     /// KR の ID（前方一致）。
     pub key_result: Option<String>,
+    /// edit で KR との紐付けを外す（`key_result` と同時に指定したときは外す方が優先）。
+    pub clear_key_result: bool,
     /// スキル名。edit では 1 つ以上指定されたとき置き換える。
     pub skills: Vec<String>,
     /// edit でスキルを全て外す（`skills` が空でも置き換える）。
@@ -220,7 +222,9 @@ pub fn edit(ctx: &Ctx, id: &str, input: &TaskInput) -> Result<TaskView> {
     if input.estimate_min.is_some() {
         t.estimate_min = input.estimate_min;
     }
-    if let Some(p) = &input.key_result {
+    if input.clear_key_result {
+        t.key_result_id = None;
+    } else if let Some(p) = &input.key_result {
         t.key_result_id = Some(okr::resolve_kr(ctx.conn, p)?.id);
     }
     if input.external_url.is_some() {

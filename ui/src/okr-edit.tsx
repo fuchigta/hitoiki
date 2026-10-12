@@ -1,8 +1,10 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
-import { api, type KeyResult, type ObjectiveView, type SkillView } from "./api";
+import { api, type KeyResult, type KrMeasure, type ObjectiveView, type SkillView } from "./api";
 import { ErrorBox, Field } from "./components";
 import { ConfirmDelete } from "./confirm-delete";
+import { KrDetail } from "./kr-detail";
+import { MEASURE_OPTION, MEASURES, parseDayMin } from "./kr-util";
 import { useAction } from "./lib";
 import { periodEdit, periodInputs } from "./manage-util";
 
@@ -141,6 +143,8 @@ export function KrItem({
   const [current, setCurrent] = useState(k.current ?? "");
   const [status, setStatus] = useState(k.status);
   const [objective, setObjective] = useState(k.objective_id);
+  const [measure, setMeasure] = useState<KrMeasure>(k.measure);
+  const [dayMin, setDayMin] = useState(String(k.day_min));
   const act = useAction();
 
   if (!editing) {
@@ -168,6 +172,8 @@ export function KrItem({
               setCurrent(k.current ?? "");
               setStatus(k.status);
               setObjective(k.objective_id);
+              setMeasure(k.measure);
+              setDayMin(String(k.day_min));
               setEditing(true);
             }}
           >
@@ -180,6 +186,7 @@ export function KrItem({
             onDeleted={onChanged}
           />
         </span>
+        <KrDetail k={k} onChanged={() => {}} />
       </li>
     );
   }
@@ -196,6 +203,8 @@ export function KrItem({
               current: current.trim(),
               status,
               objective: objective !== k.objective_id ? objective : undefined,
+              measure,
+              day_min: measure === "days" ? parseDayMin(dayMin, k.day_min) : undefined,
             }),
           );
           if (r) {
@@ -226,6 +235,27 @@ export function KrItem({
               ))}
             </select>
           </Field>
+        </div>
+        <div class="row">
+          <Field label="何を軸に見るか">
+            <select value={measure} onChange={(e) => setMeasure(e.currentTarget.value as KrMeasure)}>
+              {MEASURES.map((m) => (
+                <option key={m} value={m}>
+                  {MEASURE_OPTION[m]}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {measure === "days" && (
+            <Field label="取り組んだ日とみなす 1 日の最小分数">
+              <input
+                class="narrow"
+                inputMode="numeric"
+                value={dayMin}
+                onInput={(e) => setDayMin(e.currentTarget.value)}
+              />
+            </Field>
+          )}
         </div>
         <div class="row">
           <span class="spacer" />
