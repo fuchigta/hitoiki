@@ -7,15 +7,8 @@ export interface TaskDraft {
   urgent: boolean;
   important: boolean;
   est: string;
-  skills: string;
-}
-
-/** スキル欄（カンマ区切り）を配列にする。 */
-export function parseSkills(s: string): string[] {
-  return s
-    .split(/[,、]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
+  /** 付いているスキル名（既知のスキルだけ。選択欄で編集する）。 */
+  skills: string[];
 }
 
 /** 見積欄を分に。数として読めなければ undefined。 */
@@ -31,11 +24,11 @@ function normalize(d: TaskDraft) {
     urgent: d.urgent,
     important: d.important,
     est: parseEstimate(d.est) ?? null,
-    skills: parseSkills(d.skills),
+    skills: d.skills.map((x) => x.trim()).sort(),
   };
 }
 
-/** 保存済みの値と異なれば true。スキルの区切りや見積の前後の空白だけの違いは同じ値として扱う。 */
+/** 保存済みの値と異なれば true。スキルの並び順や見積の前後の空白だけの違いは同じ値として扱う。 */
 export function isDirty(saved: TaskDraft, current: TaskDraft): boolean {
   return JSON.stringify(normalize(saved)) !== JSON.stringify(normalize(current));
 }

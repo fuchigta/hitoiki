@@ -617,6 +617,14 @@ button.link.on {
   gap: 10px;
   flex-wrap: wrap;
 }
+.save-bar.sticky {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  padding: 8px 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+}
 .save-bar .note {
   font-size: 13px;
 }
@@ -1024,6 +1032,41 @@ button.primary.attn {
 .picker-item.create,
 .picker-item.back {
   color: var(--accent);
+}
+
+/* スキル選択（チップ + 入力） */
+.skill-input {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: text;
+}
+.skill-input input {
+  flex: 1;
+  min-width: 120px;
+  border: none;
+  background: transparent;
+  outline: none;
+  box-shadow: none;
+}
+.skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 4px 1px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 13px;
+}
+.skill-chip button {
+  padding: 0 5px;
+  line-height: 1.2;
 }
 
 /* クイック入力ウインドウ */
