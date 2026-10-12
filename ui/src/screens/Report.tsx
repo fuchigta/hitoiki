@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type ReportBy } from "../api";
 import { Bars, Card, ErrorBox } from "../components";
+import { HeatmapCard } from "../heatmap";
 import { fmtDur, useAsync, useLiveTick } from "../lib";
 
 const BYS: { id: ReportBy; label: string }[] = [
@@ -50,6 +51,7 @@ export function Report() {
           無操作・休憩も含める
         </label>
       </div>
+      <HeatmapCard />
       <ErrorBox error={r.error} />
       {r.data && (
         <Card title={`合計 ${fmtDur(r.data.total_ms)}`}>

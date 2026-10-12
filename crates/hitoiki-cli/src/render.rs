@@ -9,8 +9,9 @@ use hitoiki_core::service::{
         ApplyResult as CorrApplied, Candidate, CorrectionList, CorrectionView, Preview as CorrPreview,
         UndoResult as CorrUndone,
     },
+    heatmap::Heatmap,
     log::Log,
-    okr::OkrList,
+    okr::{KrSummary, LinkResult, LinkedTask, OkrList},
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
     review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
@@ -412,6 +413,65 @@ pub fn report(tz: Tz, r: &Report) -> String {
     s
 }
 
+/// 活動量ヒートマップ。月曜始まり、7 行 × 週の列。濃淡は `·░▒▓█`（0〜4 段階）。
+pub fn heatmap(h: &Heatmap) -> String {
+    const SHADES: [char; 5] = ['·', '░', '▒', '▓', '█'];
+    let lead = h.from_weekday as usize;
+    let weeks = (lead + h.days.len()).div_ceil(7);
+    let cell = |week: usize, row: usize| -> char {
+        match (week * 7 + row).checked_sub(lead).and_then(|i| h.days.get(i)) {
+            Some(d) => SHADES[d.level.min(4) as usize],
+            None => ' ',
+        }
+    };
+    let mut s = format!("{}（{} - {}）\n\n", h.label, h.from, h.to);
+
+    // 月ラベル: 月が替わる週の列に出す。前のラベルと重なるときは出さない。
+    let mut months = vec![' '; weeks];
+    let mut next_free = 0usize;
+    let mut prev_month: Option<&str> = None;
+    for w in 0..weeks {
+        let i = (w * 7).saturating_sub(lead);
+        let Some(d) = h.days.get(i) else { continue };
+        let month = &d.date[5..7];
+        if prev_month != Some(month) {
+            prev_month = Some(month);
+            let label: Vec<char> = month.trim_start_matches('0').chars().collect();
+            if w >= next_free {
+                for (k, c) in label.iter().enumerate() {
+                    if w + k < weeks {
+                        months[w + k] = *c;
+                    }
+                }
+                next_free = w + label.len() + 1;
+            }
+        }
+    }
+    s += &format!("   {}\n", months.iter().collect::<String>());
+    for (row, name) in ["月", "", "水", "", "金", "", ""].iter().enumerate() {
+        let label = if name.is_empty() {
+            "  ".to_string()
+        } else {
+            name.to_string()
+        };
+        let line: String = (0..weeks).map(|w| cell(w, row)).collect();
+        s += &format!("{label} {line}\n");
+    }
+    s += "\n濃淡: · なし  ░ ▒ ▓ █（値のある日を四分位で 4 段階に分けた相対的な濃さ）\n";
+    let fmt = |v: i64| {
+        if h.unit == "ms" {
+            dur(v)
+        } else {
+            format!("{v} 件")
+        }
+    };
+    s += &format!("合計: {}\n値のあった日: {} 日", fmt(h.total), h.active_days);
+    if h.active_days > 0 {
+        s += &format!("\n1 日の最大: {}", fmt(h.max));
+    }
+    s
+}
+
 pub fn status(tz: Tz, st: &Status) -> String {
     let mut s = String::new();
     s += "実行中のタスク:\n";
@@ -551,13 +611,14 @@ pub fn okr_list(l: &OkrList) -> String {
         );
         for k in &o.key_results {
             s += &format!(
-                "  {} {}{}\n",
+                "  {} {}{} [軸: {}]\n",
                 short(&k.id),
                 k.title,
                 k.target
                     .as_ref()
                     .map(|t| format!(" (目標: {t})"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                measure_label(&k.measure)
             );
         }
     }
@@ -570,6 +631,125 @@ pub fn objective_added(o: &Objective) -> String {
 
 pub fn kr_added(k: &KeyResult) -> String {
     format!("KR を追加しました: {} {}", short(&k.id), k.title)
+}
+
+fn measure_label(m: &str) -> &'static str {
+    match m {
+        "days" => "回数",
+        "done" => "完了数",
+        _ => "時間",
+    }
+}
+
+pub fn kr_linked(r: &LinkResult) -> String {
+    let mut s = format!(
+        "{} 件のタスクを KR「{}」に紐付けました。",
+        r.linked.len(),
+        r.key_result.title
+    );
+    for t in &r.linked {
+        s += &format!("\n  {} {}", short(&t.id), t.title);
+        if let Some(p) = &t.previous_kr {
+            s += &format!("（KR「{}」から付け替え）", p.title);
+        }
+    }
+    s
+}
+
+pub fn kr_unlinked(l: &[LinkedTask]) -> String {
+    if l.is_empty() {
+        return "外したタスクはありません（KR に紐付いていませんでした）。".into();
+    }
+    let mut s = format!("{} 件のタスクの KR との紐付けを外しました。", l.len());
+    for t in l {
+        s += &format!("\n  {} {}", short(&t.id), t.title);
+        if let Some(p) = &t.previous_kr {
+            s += &format!("（KR「{}」）", p.title);
+        }
+    }
+    s
+}
+
+/// KR の集計。選んだ軸の値を先頭に、残りは補助として並べる。評価や達成率は出さない。
+pub fn kr_summary(s: &KrSummary) -> String {
+    let k = &s.key_result;
+    let mut out = format!(
+        "{} / {} ({})\n期間: {} 〜 {}（{}）\n",
+        s.objective.title,
+        k.title,
+        short(&k.id),
+        s.range.start,
+        s.range.end,
+        match s.range_source {
+            "objective" => "Objective の期間",
+            "given" => "指定",
+            _ => "直近 8 週",
+        }
+    );
+    if k.target.is_some() || k.current.is_some() {
+        out += &format!(
+            "目標: {}  現在値: {}\n",
+            k.target.as_deref().unwrap_or("-"),
+            k.current.as_deref().unwrap_or("-")
+        );
+    }
+    let time = format!("時間 {}", dur(s.time_ms));
+    let days = format!("取り組んだ日 {} 日（1 日 {} 分以上）", s.active_days, s.day_min);
+    let done = format!("完了 {} / {} 件", s.done_count, s.task_count);
+    let (main, others) = match s.measure.as_str() {
+        "days" => (days, [time, done]),
+        "done" => (done, [time, days]),
+        _ => (time, [days, done]),
+    };
+    out += &format!(
+        "\n軸（{}）: {}\n  補助: {} ・ {}\n",
+        measure_label(&s.measure),
+        main,
+        others[0],
+        others[1]
+    );
+    if s.estimate.estimated_tasks > 0 {
+        out += &format!(
+            "見積の合計 {}分（{} 件）・ そのタスクの期間内の実績 {}\n",
+            s.estimate.estimate_min_total,
+            s.estimate.estimated_tasks,
+            dur(s.estimate.actual_ms_of_estimated)
+        );
+    }
+    let max = s.weekly.iter().map(|w| w.duration_ms).max().unwrap_or(0);
+    if max > 0 {
+        out += "\n週ごとの時間（月曜始まり）\n";
+        for w in &s.weekly {
+            let n = (w.duration_ms * 20 / max) as usize;
+            out += &format!(
+                "  {} {:<20} {}\n",
+                w.week_start,
+                "█".repeat(n),
+                dur(w.duration_ms)
+            );
+        }
+    }
+    if !s.skills.is_empty() {
+        out += "\nスキル別（複数のスキルが付いたタスクは各スキルに全時間を計上）\n";
+        for k in &s.skills {
+            out += &format!("  {}  {}\n", dur(k.duration_ms), k.name);
+        }
+    }
+    if s.tasks.is_empty() {
+        out += "\n紐付いたタスクはありません。`hitoiki okr link` で紐付けられます。";
+    } else {
+        out += "\n紐付いたタスク\n";
+        for t in &s.tasks {
+            out += &format!(
+                "  {} [{}] {}  {}\n",
+                short(&t.id),
+                t.status,
+                t.title,
+                dur(t.tracked_ms)
+            );
+        }
+    }
+    out.trim_end().to_string()
 }
 
 pub fn skills(l: &SkillList) -> String {
@@ -604,7 +784,40 @@ pub fn preset_import(p: &PresetImport) -> String {
     )
 }
 
-pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
+/// 回答済みの問いに保存した記録の中身を「ラベル: 値」の行にする。
+fn detail_lines(d: &hitoiki_core::service::reflect::AnswerDetail) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut add = |label: &str, val: Option<String>| {
+        if let Some(x) = val.filter(|x| !x.trim().is_empty()) {
+            v.push(format!("{label}: {x}"));
+        }
+    };
+    if let Some(c) = &d.checkin {
+        add("元気", c.energy.map(|n| n.to_string()));
+        add("気分", c.mood.map(|n| n.to_string()));
+        add("ストレス", c.stress.map(|n| n.to_string()));
+        add("ERG タグ", c.erg_tag.map(|t| t.to_string()));
+        add("メモ", c.note.clone());
+    }
+    if let Some(h) = &d.hassle {
+        add("気になったこと", Some(h.text.clone()));
+        add("強さ", Some(h.intensity.to_string()));
+    }
+    if let Some(a) = &d.abc {
+        add("A（出来事）", Some(a.activating_event.clone()));
+        add("B（受け止め方）", a.belief.clone());
+        add("C（感情）", a.consequence_emotion.clone());
+        add("感情の強さ", a.consequence_intensity.map(|n| n.to_string()));
+        add("反論", a.dispute.clone());
+    }
+    v
+}
+
+pub fn reflection(
+    tz: Tz,
+    r: &hitoiki_core::model::Reflection,
+    details: &[hitoiki_core::service::reflect::AnswerDetail],
+) -> String {
     use hitoiki_core::service::reflect::{structured_of, AnswersRecord};
     use hitoiki_core::service::structured::{QuestionKind, Scale};
     let head = format!("# 振り返り {} ({}, {})\n\n", short(&r.id), r.kind, dt(tz, r.at));
@@ -663,7 +876,14 @@ pub fn reflection(tz: Tz, r: &hitoiki_core::model::Reflection) -> String {
         for a in &answered.items {
             let label = out.questions[a.index.min(out.questions.len() - 1)].kind.label();
             match (&a.record_id, &a.text) {
-                (Some(id), _) => s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id)),
+                (Some(id), _) => {
+                    s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id));
+                    if let Some(d) = details.iter().find(|d| d.index == a.index) {
+                        for l in detail_lines(d) {
+                            s += &format!("\n    {l}");
+                        }
+                    }
+                }
                 (None, Some(t)) => s += &format!("\n[{}] {label}: {t}", a.index),
                 _ => {}
             }
@@ -1044,6 +1264,9 @@ pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String
             }
             if r.idle_labeled > 0 {
                 parts.push(format!("無操作の分類（{} 区間）", r.idle_labeled));
+            }
+            if r.started_task.is_some() {
+                parts.push("タスクを開始".to_string());
             }
             format!("答えました: {} ({})", short(&r.id), parts.join("・"))
         }

@@ -4,8 +4,9 @@
 //! 記録（checkin / hassle）の `at` は通知の時刻になる。
 
 use super::{Ctx, RangeArgs};
+use crate::model::TaskStatus;
 use crate::push::store::{self, PushResponse, Scales};
-use crate::push::{PushPayload, PushTrigger};
+use crate::push::{payload, PushPayload, PushTrigger};
 use crate::repo;
 use crate::service::review::IdlePreset;
 use crate::timefmt::{self, Range};
@@ -114,7 +115,64 @@ pub struct AnswerInput {
     pub stress: Option<i64>,
     pub hassle: Option<String>,
     pub idle: Option<IdlePreset>,
+    /// タスク通知（urgent_task / important_task / block_start）と、idle_return の「{タスク名}をしていた」への答え。
+    pub task: Option<TaskAnswer>,
     pub dismiss: bool,
+}
+
+/// タスク通知のボタンに当たる答え。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskAnswer {
+    /// 対象のタスクを始める（`task_start`）。
+    Start,
+    /// あとで（`task_later`。記録だけ）。
+    Later,
+    /// 今週は見送る（`task_skip_week`。今週その通知の対象から外す）。
+    SkipWeek,
+    /// 無操作の期間を、通知が示したタスクの PC 外の作業として確定する（`idle_task`。idle_return）。
+    IdleTask,
+    /// 今回はやめる（`block_skip`。block_start。記録だけ）。
+    BlockSkip,
+}
+
+impl TaskAnswer {
+    pub fn action_id(&self) -> &'static str {
+        match self {
+            TaskAnswer::Start => payload::TASK_START,
+            TaskAnswer::Later => payload::TASK_LATER,
+            TaskAnswer::SkipWeek => payload::TASK_SKIP_WEEK,
+            TaskAnswer::IdleTask => payload::IDLE_TASK_ACTION,
+            TaskAnswer::BlockSkip => payload::BLOCK_SKIP,
+        }
+    }
+}
+
+impl std::str::FromStr for TaskAnswer {
+    type Err = Error;
+    fn from_str(s: &str) -> Result<Self> {
+        match s {
+            "start" => Ok(TaskAnswer::Start),
+            "later" => Ok(TaskAnswer::Later),
+            "skip_week" | "skip-week" => Ok(TaskAnswer::SkipWeek),
+            "idle_task" | "idle-task" => Ok(TaskAnswer::IdleTask),
+            "block_skip" | "block-skip" | "skip" => Ok(TaskAnswer::BlockSkip),
+            other => Err(Error::InvalidArgument(format!(
+                "不明なタスクの答え: {other}（start / later / skip_week / idle_task / block_skip）"
+            ))),
+        }
+    }
+}
+
+/// `task_start` の応答で始めるタスクを実際に始める（`service::task::start`）。
+/// 完了・中止済みのタスクは始めずにエラーにする（通知を出したあとで状態が変わっていた場合）。
+pub fn start_pushed_task(ctx: &Ctx, task_id: &str) -> Result<super::task::TaskChange> {
+    let t = repo::task::get(ctx.conn, task_id)?;
+    if !matches!(t.status, TaskStatus::Todo | TaskStatus::Doing) {
+        return Err(Error::InvalidArgument(
+            "このタスクはすでに完了または中止されています".into(),
+        ));
+    }
+    super::task::start(ctx, task_id)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -125,6 +183,8 @@ pub struct AnswerResult {
     pub hassle_id: Option<String>,
     /// 分類をつけた無操作区間の数。
     pub idle_labeled: usize,
+    /// 始めたタスクの ID（`task_start` の答え）。
+    pub started_task: Option<String>,
 }
 
 /// 通知に答える（または見送る）。回答済み・見送り済みの通知にも、あらためて答えられる。
@@ -136,6 +196,11 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
     }
     let has_text = input.hassle.as_deref().is_some_and(|t| !t.trim().is_empty());
     let has_scale = input.energy.is_some() || input.mood.is_some() || input.stress.is_some();
+    if input.task.is_some() && (input.dismiss || has_text || has_scale || input.idle.is_some()) {
+        return Err(Error::InvalidArgument(
+            "--task はほかの回答と同時に指定できません".into(),
+        ));
+    }
     if input.dismiss && (has_text || has_scale || input.idle.is_some()) {
         return Err(Error::InvalidArgument(
             "--dismiss はほかの回答と同時に指定できません".into(),
@@ -146,12 +211,17 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
             "--idle はほかの回答と同時に指定できません".into(),
         ));
     }
-    if !input.dismiss && input.idle.is_none() && !has_text && !has_scale {
+    if !input.dismiss && input.idle.is_none() && input.task.is_none() && !has_text && !has_scale {
         return Err(Error::InvalidArgument(
-            "回答（--energy / --mood / --stress / --hassle / --idle）か --dismiss を指定してください".into(),
+            "回答（--energy / --mood / --stress / --hassle / --idle / --task）か --dismiss を指定してください".into(),
         ));
     }
-    let response = if input.dismiss {
+    let response = if let Some(t) = input.task {
+        PushResponse {
+            action: Some(t.action_id().into()),
+            ..Default::default()
+        }
+    } else if input.dismiss {
         PushResponse {
             action: Some("dismiss".into()),
             ..Default::default()
@@ -177,6 +247,13 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
         stress: input.stress,
     };
     let out = store::apply_response_with(ctx.conn, &id, response, scales, ctx.now(), ctx.tz()?)?;
+    let started_task = match out.start_task {
+        Some(task_id) => {
+            start_pushed_task(ctx, &task_id)?;
+            Some(task_id)
+        }
+        None => None,
+    };
     let state = state_of(&store::get_log(ctx.conn, &id)?);
     Ok(AnswerResult {
         id,
@@ -184,6 +261,7 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
         checkin_id: out.checkin_id,
         hassle_id: out.hassle_id,
         idle_labeled: out.idle_labeled,
+        started_task,
     })
 }
 
@@ -207,7 +285,7 @@ mod tests {
         let a = deliver(&env, payload::day_start(), d + 3_600_000);
         let b = deliver(
             &env,
-            payload::idle_return(d + 1000, d + 20 * 60_000),
+            payload::idle_return(d + 1000, d + 20 * 60_000, None),
             d + 7_200_000,
         );
         let v = list(&ctx, &RangeArgs::default(), true).unwrap().pushes;
@@ -289,7 +367,7 @@ mod tests {
         let d = env.day_start();
         let id = deliver(
             &env,
-            payload::idle_return(d + 600_000, d + 1_800_000),
+            payload::idle_return(d + 600_000, d + 1_800_000, None),
             d + 1_900_000,
         );
         let r = answer(
@@ -361,6 +439,110 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r.state, PushState::Answered);
+    }
+
+    fn urgent_task_push(env: &Env, at: Millis) -> (String, String) {
+        let t = crate::service::task::add(
+            &env.ctx(),
+            &crate::service::task::TaskInput {
+                title: Some("請求書".into()),
+                urgent: Some(true),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let id = deliver(env, payload::urgent_task(&t.task.id, &t.task.title, 0), at);
+        (id, t.task.id)
+    }
+
+    #[test]
+    fn タスク通知の始めるは対象のタスクをdoingにする() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let (id, task_id) = urgent_task_push(&env, env.day_start() + 3_600_000);
+        let r = answer(
+            &ctx,
+            &id,
+            &AnswerInput {
+                task: Some(TaskAnswer::Start),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(r.state, PushState::Answered);
+        assert_eq!(r.started_task.as_deref(), Some(task_id.as_str()));
+        let t = repo::task::get(&env.conn, &task_id).unwrap();
+        assert_eq!(t.status, TaskStatus::Doing);
+        assert_eq!(repo::task::list_doing(&env.conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn タスク通知のあとでと今週は見送るは記録だけ() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        for (a, name) in [
+            (TaskAnswer::Later, "task_later"),
+            (TaskAnswer::SkipWeek, "task_skip_week"),
+        ] {
+            let (id, task_id) = urgent_task_push(&env, env.day_start() + 3_600_000);
+            let r = answer(
+                &ctx,
+                &id,
+                &AnswerInput {
+                    task: Some(a),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert!(r.started_task.is_none());
+            assert_eq!(r.state, PushState::Answered);
+            assert!(store::get_log(&env.conn, &id)
+                .unwrap()
+                .response_json
+                .unwrap()
+                .contains(name));
+            assert_eq!(
+                repo::task::get(&env.conn, &task_id).unwrap().status,
+                TaskStatus::Todo
+            );
+        }
+        // ほかの回答とは同時に指定できない。
+        let (id, _) = urgent_task_push(&env, env.day_start() + 3_700_000);
+        let e = answer(
+            &ctx,
+            &id,
+            &AnswerInput {
+                task: Some(TaskAnswer::Start),
+                dismiss: true,
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.exit_code(), 2);
+        assert_eq!("skip-week".parse::<TaskAnswer>().unwrap(), TaskAnswer::SkipWeek);
+        assert!("x".parse::<TaskAnswer>().is_err());
+    }
+
+    #[test]
+    fn 完了済みのタスクは通知から始められない() {
+        let env = Env::new();
+        let ctx = env.ctx();
+        let (id, task_id) = urgent_task_push(&env, env.day_start() + 3_600_000);
+        crate::service::task::done(&ctx, &task_id).unwrap();
+        let e = answer(
+            &ctx,
+            &id,
+            &AnswerInput {
+                task: Some(TaskAnswer::Start),
+                ..Default::default()
+            },
+        )
+        .unwrap_err();
+        assert_eq!(e.exit_code(), 2);
+        assert_eq!(
+            repo::task::get(&env.conn, &task_id).unwrap().status,
+            TaskStatus::Done
+        );
     }
 
     #[test]

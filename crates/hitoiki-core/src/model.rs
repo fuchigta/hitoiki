@@ -379,6 +379,10 @@ pub struct KeyResult {
     pub target: Option<String>,
     pub current: Option<String>,
     pub status: String,
+    /// 何を軸に見るか: `time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
+    pub measure: String,
+    /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数。
+    pub day_min: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

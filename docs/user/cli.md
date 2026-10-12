@@ -19,8 +19,9 @@
 |---|---|
 | `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ（時刻・種類・タイトル・ID）、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
 | `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
-| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away] [--dismiss]` | 通知に答える。チェックイン・ハッスルの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss` と `--idle` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
+| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|skip] [--dismiss]` | 通知に答える。チェックイン・ハッスルの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `gaps`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
+| `hitoiki heatmap [--by 指標] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `kr:<ID またはタイトル>`（KR に紐付いたタスクの時間）/ `records`（チェックイン・ハッスル・ABC・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `quadrant` / `okr` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
 ### タスク
@@ -30,7 +31,7 @@
 | `hitoiki task add <TITLE> [...]` | タスクを追加。`--body` / `--body-file`（本文。`--body -` で標準入力）、`--urgent` / `--not-urgent`、`--important` / `--not-important`、`--estimate`（`90m` / `1h30m` / 分）、`--kr`（KR の ID）、`--skill`、`--url`、`--plan-start` / `--plan-end`、`--interrupt`（割り込みタスク） |
 | `hitoiki task list [--status S] [--kind K]` | 一覧。`--status` はカンマ区切りの `todo,doing,done,dropped,all`（既定 `todo,doing`） |
 | `hitoiki task show <ID>` | 詳細 |
-| `hitoiki task edit <ID> [...]` | 編集。`add` と同じオプションと `--title` |
+| `hitoiki task edit <ID> [...]` | 編集。`add` と同じオプションと `--title`。`--no-kr` で KR との紐付けを外す（`--kr` とは同時に指定できない） |
 | `hitoiki task start <ID>` | doing にする（`task.single_doing` が true なら他の doing を todo に戻す） |
 | `hitoiki task done <ID>` / `hitoiki task drop <ID>` | 完了にする / やめる |
 | `hitoiki task delete <ID> [--force] [--dry-run]` | 誤入力のタスクを削除する（やめる=記録として残す、削除=無かったことにする）。計上済みの時間・確定した割り当て・補正があるときは `--force` が無いと終了コード 2 で影響を表示して止まる。`--dry-run` は影響（区間数と時間、確定・補正・ルール・ブロックなどの件数）の表示だけで何も変えない。削除すると帰属ルール・スキルの紐付け・進行中の履歴・確定した割り当てと補正を消し、ブロックとテンプレート項目はタスクの指定だけを外し、影響した期間を再計算して未割り当てに戻す。`--json` で件数を取れる |
@@ -107,7 +108,10 @@
 | `hitoiki okr add-kr <OBJECTIVE> <TITLE> [--target N]` | KR を追加 |
 | `hitoiki okr list` | 一覧 |
 | `hitoiki okr edit-objective <ID> [--title T] [--description D] [--from F] [--to T] [--clear-period] [--status active\|done\|dropped]` | Objective を編集（指定した項目だけ変える。`--description ""` で説明を消す） |
-| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N] [--status S] [--objective O]` | KR を編集（`--objective` で別の Objective へ付け替え） |
+| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N] [--status S] [--objective O] [--measure time\|days\|done] [--day-min N]` | KR を編集（`--objective` で別の Objective へ付け替え）。`--measure` は何を軸に見るか（時間 / 回数 / 完了数。既定 `time`）、`--day-min` は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15） |
+| `hitoiki okr link <KR> <TASK>...` | タスクを KR に紐付ける（KR は ID の前方一致かタイトル、タスクは ID の前方一致）。別の KR に紐付いていたタスクは付け替える（JSON の `linked[].previous_kr` に元の KR）。1 つでも見つからなければ何も変えず終了コード 3 |
+| `hitoiki okr unlink <TASK>...` | タスクの KR との紐付けを外す。KR に紐付いていないタスクは何もしない（JSON は `unlinked`） |
+| `hitoiki okr show <KR> [--date D] [--from F] [--to T] [--json]` | KR の集計。選んだ軸の値（時間 / 取り組んだ日 / 完了数）と補助の値、週ごとの時間、スキル別の時間（複数のスキルが付いたタスクは各スキルに全時間）、見積の合計と実績、紐付いたタスクを出す。期間の既定は Objective の期間、無ければ直近 8 週。時間は無操作・休憩・無視を除く。目標・現在値は並べるだけで、達成率や評価は出さない |
 | `hitoiki okr delete-objective <ID> [--force] [--dry-run]` | Objective を削除。配下の KR も消え、KR に紐付いたタスクは残って紐付けだけ外れる |
 | `hitoiki okr delete-kr <ID> [--force] [--dry-run]` | KR を削除。紐付いたタスクは残って紐付けだけ外れる |
 | `hitoiki skill add <NAME> [--parent P]` | スキルを追加（`--parent` は名前または ID） |
@@ -132,7 +136,7 @@
 | `hitoiki reflect day_start [--date D]` / `day_end` / `weekly` | AI で問いを生成して保存 |
 | `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力）。構造化された問いには JSON `{"answers":[{"index":0,"energy":3,"mood":4},{"index":1,"text":"…","intensity":3}]}` を渡す（下記）。Markdown の回答も受け付ける |
 | `hitoiki reflect list [--kind K] [--limit N]` | 保存済みの振り返り一覧（新しい順。`--kind` は `day_start` / `day_end` / `weekly`） |
-| `hitoiki reflect show <ID>` | 問いと回答の詳細 |
+| `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存したチェックイン・ハッスル・ABC の内容も出す） |
 | `hitoiki context --kind K [--date D]` | AI 用のコンテキストを JSON で出力 |
 
 構造化された振り返り（[設定](./configuration.md#ai-コマンド) の `ai.structured`）では、問いに `[0]`、`[1]` … の番号と種類（チェックイン・ハッスル・ABC・自由記述）が付いて表示されます。`--json` では `structured`（問い）と `answers`（回答済みの対応表）がそのまま入ります。回答 JSON の各要素は `index`（問いの番号）と、種類ごとの次の項目です。

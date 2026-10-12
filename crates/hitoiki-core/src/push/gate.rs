@@ -10,13 +10,16 @@
 //! 5. **会議中 / フォーカス time_block 中**は `Defer`（会議の予定終了、なければ now + `meeting_defer_min`、
 //!    フォーカスブロックの終了まで）。meeting_overrun は会議中に出すためのものなので会議の保留は受けない。
 //!
+//! 例外: `block_start`（計画ブロックの開始）は時刻に意味があるので、3・4（間隔）を受けない。また、
+//! 自分自身のフォーカスブロックでは 5 の保留を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。
+//!
 //! ## 応答率による間隔延長
 //! 配信済みの直近 `response_window`（5）件のうち、配信から `response_grace_min`（30）分以上経った
 //! ものを対象にし、`responded_at` があるものの割合を応答率とする。対象が `response_min_samples`（3）件
 //! 未満なら係数 1。応答率 ≥ 0.5 なら係数 1、それ未満は線形に伸ばし、応答率 0 で係数 4（上限）。
 //! `係数 = 1 + 3 × (0.5 − 応答率) / 0.5`。
 
-use super::{PushContext, PushTrigger};
+use super::{PushContext, PushPayload, PushTrigger};
 use crate::config::Push;
 use crate::timefmt::{day_range, local_date_of};
 use crate::Millis;
@@ -51,7 +54,7 @@ pub(crate) fn interval_factor(ctx: &PushContext) -> f64 {
     }
 }
 
-pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger) -> Gate {
+pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger, payload: &PushPayload) -> Gate {
     let sup = |r: &str| Gate::Suppress(r.to_string());
 
     if ctx
@@ -72,8 +75,11 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger) -> Gate
         return sup("daily_limit");
     }
 
+    // block_start は「計画した時刻」に意味がある通知なので、間隔のルール（3・4）は受けない。
+    // 配信済みのブロックには重ねて出さない（トリガー側が見る）。
+    let timed = trigger == PushTrigger::BlockStart;
     let last_any = ctx.push_log.iter().filter(|l| l.delivered).map(|l| l.at).max();
-    if last_any.is_some_and(|at| ctx.now - at < ctx.tuning.min_gap_any_min as Millis * MIN_MS) {
+    if !timed && last_any.is_some_and(|at| ctx.now - at < ctx.tuning.min_gap_any_min as Millis * MIN_MS) {
         return sup("recent_push");
     }
 
@@ -83,7 +89,7 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger) -> Gate
         .filter(|l| l.delivered && l.trigger == trigger.as_str())
         .map(|l| l.at)
         .max();
-    if let Some(at) = last_same {
+    if let Some(at) = last_same.filter(|_| !timed) {
         let base = cfg.min_interval_min as f64 * MIN_MS as f64;
         let elapsed = (ctx.now - at) as f64;
         let extended = base * interval_factor(ctx);
@@ -104,6 +110,8 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger) -> Gate
         .time_blocks
         .iter()
         .filter(|b| b.focus && b.start_at <= ctx.now && ctx.now < b.end_at)
+        // そのブロック自身の開始通知は、自分のフォーカスブロックでは保留しない。
+        .filter(|b| payload.block_id.as_deref() != Some(b.id.as_str()))
         .max_by_key(|b| b.end_at)
     {
         return Gate::Defer(b.end_at);

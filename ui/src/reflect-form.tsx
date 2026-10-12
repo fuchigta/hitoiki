@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { api, type Question, type Reflection } from "./api";
+import { api, type AnswerDetail, type Question, type Reflection } from "./api";
 import { ErrorBox, Field } from "./components";
 import { useAction } from "./lib";
 import { Markdown } from "./markdown";
 import {
   askedScales,
   buildAnswers,
+  detailLines,
   hasAnswers,
   initialForms,
   parseAnswered,
@@ -82,6 +83,22 @@ export function StructuredAnswer({
   const [forms, setForms] = useState<QuestionForm[]>(() => (out ? initialForms(out) : []));
   const [saved, setSaved] = useState("");
   const save = useAction();
+  // 回答済みの問いに、保存したチェックイン・ハッスル・ABC の中身を並べて見せる。
+  const [details, setDetails] = useState<AnswerDetail[] | null>(null);
+  const detailOf = (i: number) => details?.find((d) => d.index === i);
+  useEffect(() => {
+    let live = true;
+    setDetails(null);
+    if (answered.items.length > 0) {
+      api
+        .reflectAnswerDetails(reflection.id)
+        .then((d) => live && setDetails(d))
+        .catch(() => {});
+    }
+    return () => {
+      live = false;
+    };
+  }, [reflection.id, reflection.answers_json]);
 
   useEffect(() => {
     setForms(out ? initialForms(out) : []);
@@ -119,6 +136,16 @@ export function StructuredAnswer({
             {done ? (
               <>
                 {done.text && <Markdown text={done.text} />}
+                {detailOf(i) && (
+                  <ul class="plain" aria-label="保存した回答">
+                    {detailLines(detailOf(i)!).map((l) => (
+                      <li key={l}>{l}</li>
+                    ))}
+                  </ul>
+                )}
+                {done.record_id && !detailOf(i)?.checkin && !detailOf(i)?.hassle && !detailOf(i)?.abc && details && (
+                  <p class="muted">保存した記録は削除されています。</p>
+                )}
                 {q.kind === "abc" && done.record_id && <AbcFollowUp recordId={done.record_id} />}
               </>
             ) : (

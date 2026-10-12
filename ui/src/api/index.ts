@@ -118,6 +118,7 @@ export const api = {
     call<T.Reflection>("reflect_answer", { id, answers_md: answersMd }),
   reflectAnswerStructured: (id: string, answers: T.AnswersInput) =>
     call<T.Reflection>("reflect_answer_structured", { id, answers }),
+  reflectAnswerDetails: (id: string) => call<T.AnswerDetail[]>("reflect_answer_details", { id }),
   reflectList: (kind?: T.ReflectionKind, limit = 30) =>
     call<T.Reflection[]>("reflect_list", { kind, limit }),
   reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
@@ -146,6 +147,10 @@ export const api = {
   okrDeleteObjective: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_objective", { id, mode }),
   okrEditKr: (id: string, input: T.KrEdit) => call<T.KeyResult>("okr_edit_kr", { id, input }),
   okrDeleteKr: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_kr", { id, mode }),
+  // KR とタスクのつながり。紐付けは別の KR に紐付いていたタスクを付け替える。
+  okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
+  okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
+  okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
   skillEdit: (key: string, input: T.SkillEdit) => call<T.Skill>("skill_edit", { key, input }),
   skillDelete: (key: string, children: T.ChildPolicy, mode: T.DeleteMode) =>
     call<T.DeleteOutcome>("skill_delete", { key, children, mode }),
@@ -185,6 +190,8 @@ export const api = {
   // レポート
   report: (by: T.ReportBy, range?: T.RangeArgs, includeIdle = false) =>
     call<T.Report>("report", { range, by, include_idle: includeIdle }),
+
+  heatmap: (by?: string, from?: string, to?: string) => call<T.Heatmap>("heatmap", { by, from, to }),
 
   // 設定
   configAll: () => call<Record<string, unknown>>("config_all"),

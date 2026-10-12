@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type MatchField, type PatternType, type TaskDeletePreview, type TaskStatus, type TaskView } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
-import { defaultBodyMode, isDirty, isSaveShortcut, leaveGuard, parseEstimate, parseSkills, type TaskDraft } from "../edit-util";
+import { defaultBodyMode, isDirty, isSaveShortcut, krPatch, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
+import { KrPicker } from "../kr-picker";
+import { krOptions } from "../kr-util";
 import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
 import { Markdown } from "../markdown";
+import { SkillPicker } from "../skill-picker";
 import { TaskRuleRow } from "../rule-row";
 
 /** 「保存しました」を出しておく時間。 */
@@ -16,7 +19,8 @@ function draftOf(task: TaskView): TaskDraft {
     urgent: !!task.urgent,
     important: !!task.important,
     est: task.estimate_min != null ? String(task.estimate_min) : "",
-    skills: task.skills.join(", "),
+    skills: [...task.skills],
+    kr: task.key_result_id ?? "",
   };
 }
 
@@ -287,6 +291,10 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
   const [mode, setMode] = useState(() => defaultBodyMode(task.body_md));
   const [notice, setNotice] = useState(false);
   const act = useAction();
+  // 補完に使う既知のスキル。取得できなくても他の欄の編集・保存は続けられる。
+  const known = useAsync(() => api.skillList(), []);
+  const okr = useAsync(() => api.okrList(), []);
+  const krs = krOptions(okr.data?.objectives ?? [], draft.kr);
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const dirty = isDirty(saved, draft);
@@ -317,7 +325,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
   const save = async () => {
     if (!canSave) return;
     const sent = draft;
-    const list = parseSkills(sent.skills);
+    const list = sent.skills;
     setNotice(false);
     const r = await act.run(() =>
       api.taskEdit(task.id, {
@@ -329,6 +337,8 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         skills: list,
         // 空にして保存したら、付いていたスキルを全て外す。
         clear_skills: list.length === 0 && task.skills.length > 0,
+        // KR は選んでいれば紐付け、空にして保存したら外す。
+        ...krPatch(sent.kr, task.key_result_id),
       }),
     );
     if (r !== undefined) {
@@ -339,7 +349,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
   };
 
   const saveBar = (
-    <div class="save-bar">
+    <div class={dirty ? "save-bar sticky" : "save-bar"}>
       <button class={dirty ? "primary attn" : "primary"} disabled={!canSave}>
         保存
       </button>
@@ -394,10 +404,20 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
           <Empty>本文はありません。</Empty>
         )}
       </div>
-      {saveBar}
-      <Field label="スキル（カンマ区切り。空にすると全て外します）">
-        <input value={draft.skills} onInput={(e) => set("skills", e.currentTarget.value)} />
-      </Field>
+      <div class="field">
+        <span>スキル（既知のスキルから選びます）</span>
+        <SkillPicker
+          value={draft.skills}
+          skills={known.data?.skills ?? []}
+          onChange={(v) => set("skills", v)}
+          ariaLabel="スキルを追加"
+          disabled={busy}
+        />
+      </div>
+      <div class="field">
+        <span>KR（OKR のどの成果につながるか。外すこともできます）</span>
+        <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="KR を選ぶ" disabled={busy} />
+      </div>
       <div class="row">
         <label class="check">
           <input type="checkbox" checked={draft.urgent} onChange={(e) => set("urgent", e.currentTarget.checked)} />

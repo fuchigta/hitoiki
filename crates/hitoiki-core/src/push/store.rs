@@ -1,9 +1,12 @@
 //! push_log の読み書きと、通知への応答の反映（checkin / hassle / スヌーズ）。
 
-use super::payload::IDLE_ACTION_PREFIX;
+use super::payload::{
+    BLOCK_SKIP, IDLE_ACTION_PREFIX, IDLE_TASK_ACTION, TASK_LATER, TASK_SKIP_WEEK, TASK_START,
+};
 use super::{PushDecision, PushPayload, PushTrigger};
 use crate::id::new_id;
 use crate::model::PushLog;
+use crate::service::correction;
 use crate::service::review::{self, IdlePreset};
 use crate::timefmt::{day_range, local_date_of};
 use crate::{Error, Millis, Result};
@@ -94,6 +97,53 @@ pub fn load_recent(conn: &Connection, since: Millis, extra_delivered: usize) -> 
     Ok(rows)
 }
 
+/// 緊急・重要のしるしが付いた未完了のタスクを、通知の判定用に読む。`PushContext::tasks` の材料。
+pub fn load_task_nudges(conn: &Connection) -> Result<Vec<super::TaskNudge>> {
+    let last = crate::repo::segment::last_worked_by_open_task(conn)?;
+    Ok(crate::repo::raw::open_tasks(conn)?
+        .into_iter()
+        .filter(|t| t.urgent == Some(true) || t.important == Some(true))
+        .map(|t| super::TaskNudge {
+            last_worked_at: last.get(&t.id).copied(),
+            urgent: t.urgent == Some(true),
+            important: t.important == Some(true),
+            doing: t.status == crate::model::TaskStatus::Doing,
+            id: t.id,
+            title: t.title,
+            created_at: t.created_at,
+        })
+        .collect())
+}
+
+/// 今日の time_block と doing ログが指すタスクを、状態を問わず読む（`PushContext::task_refs` の材料）。
+/// 存在しない ID は無視する。
+pub fn load_task_refs(
+    conn: &Connection,
+    blocks: &[crate::model::TimeBlock],
+    doing: &[super::DoingSpan],
+) -> Result<Vec<super::TaskRef>> {
+    let mut ids: Vec<&str> = blocks
+        .iter()
+        .filter_map(|b| b.task_id.as_deref())
+        .chain(doing.iter().map(|d| d.task_id.as_str()))
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    let mut out = Vec::new();
+    for id in ids {
+        match crate::repo::task::get(conn, id) {
+            Ok(t) => out.push(super::TaskRef {
+                id: t.id,
+                title: t.title,
+                status: t.status,
+            }),
+            Err(Error::NotFound(_)) => {}
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(out)
+}
+
 pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
     conn.query_row(
         &format!("SELECT {COLS} FROM push_log WHERE id = ?1"),
@@ -108,6 +158,10 @@ pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
 ///
 /// `action` の値: `energy` / `stress`（value は 1〜5）、`snooze_15` / `snooze_60` / `snooze_today`、
 /// `idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`（idle_return の分類。value は無し）、
+/// `idle_task`（idle_return の「{タスク名}をしていた」。無操作の期間をそのタスクの PC 外の作業として確定する）、
+/// `block_skip`（block_start の「今回はやめる」。記録だけ）、
+/// `task_start`（urgent_task / important_task の対象タスクを始める。開始そのものは `ResponseOutcome::start_task`
+/// を受けた呼び出し側が行う）、`task_later` / `task_skip_week`（記録だけ。後者は今週その通知の対象から外す）、
 /// `open`（アプリを開いた）、`dismiss`（見送り。応答とは数えず `responded_at` を付けない。
 /// `response_json` には残るので未回答の一覧からは外れるが、応答率の算出では無応答のまま）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,6 +179,9 @@ pub struct ResponseOutcome {
     pub snoozed_until: Option<Millis>,
     /// idle_return への応答で分類をつけた無操作区間の数。
     pub idle_labeled: usize,
+    /// `task_start` の応答で始めるタスクの ID。実際の開始は `Ctx` を持つ呼び出し側が
+    /// `service::pushlog::start_pushed_task` で行う。
+    pub start_task: Option<String>,
 }
 
 fn check_scale(v: Option<i64>) -> Result<i64> {
@@ -187,6 +244,25 @@ pub fn apply_response_with(
         Some("snooze_60") => out.snoozed_until = Some(now + 60 * 60_000),
         Some("snooze_today") => {
             out.snoozed_until = Some(day_range(tz, local_date_of(tz, now)).end);
+        }
+        Some(TASK_START) => {
+            let task_id = serde_json::from_str::<PushPayload>(&log.payload_json)
+                .ok()
+                .and_then(|p| p.task_id)
+                .ok_or_else(|| Error::InvalidArgument("この通知には対象のタスクがありません".into()))?;
+            out.start_task = Some(task_id);
+        }
+        Some(TASK_LATER) | Some(TASK_SKIP_WEEK) | Some(BLOCK_SKIP) => {}
+        Some(IDLE_TASK_ACTION) => {
+            let p = serde_json::from_str::<PushPayload>(&log.payload_json).ok();
+            let range = p
+                .as_ref()
+                .and_then(|p| p.idle_range)
+                .ok_or_else(|| Error::InvalidArgument("この通知には無操作の期間がありません".into()))?;
+            let task_id = p
+                .and_then(|p| p.task_id)
+                .ok_or_else(|| Error::InvalidArgument("この通知には対象のタスクがありません".into()))?;
+            out.idle_labeled = correction::assign_offline_range(conn, range.0, range.1, &task_id, now)?;
         }
         Some("open") | Some("dismiss") | None => {}
         Some(other) if other.starts_with(IDLE_ACTION_PREFIX) => {

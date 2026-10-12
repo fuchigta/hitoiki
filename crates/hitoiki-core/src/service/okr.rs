@@ -70,10 +70,141 @@ pub fn add_kr(ctx: &Ctx, input: &KrInput) -> Result<KeyResult> {
         target: input.target.clone(),
         current: None,
         status: "active".into(),
+        measure: DEFAULT_MEASURE.into(),
+        day_min: DEFAULT_DAY_MIN,
     };
     okr::insert_kr(ctx.conn, &k)?;
     Ok(k)
 }
+
+/// KR の軸。`time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
+pub const MEASURES: [&str; 3] = ["time", "days", "done"];
+pub const DEFAULT_MEASURE: &str = "time";
+/// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数の既定。
+pub const DEFAULT_DAY_MIN: i64 = 15;
+
+fn check_measure(s: &str) -> Result<()> {
+    if MEASURES.contains(&s) {
+        Ok(())
+    } else {
+        Err(Error::InvalidArgument(format!(
+            "軸は {} のいずれかにしてください",
+            MEASURES.join(" / ")
+        )))
+    }
+}
+
+/// ID（前方一致）、なければタイトルの完全一致で KR を探す。
+pub fn find_kr(ctx: &Ctx, key: &str) -> Result<KeyResult> {
+    match okr::resolve_kr(ctx.conn, key) {
+        Err(Error::NotFound(_)) => {}
+        other => return other,
+    }
+    let hits: Vec<_> = okr::list_krs(ctx.conn)?
+        .into_iter()
+        .filter(|k| k.title == key)
+        .collect();
+    match hits.len() {
+        0 => Err(Error::NotFound(format!("KR {key}"))),
+        1 => Ok(hits.into_iter().next().expect("one")),
+        _ => Err(Error::Ambiguous(format!(
+            "{key}: {}",
+            hits.iter().map(|k| k.id.as_str()).collect::<Vec<_>>().join(", ")
+        ))),
+    }
+}
+
+/// 紐付けた（付け替えた）タスク 1 件。
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkedTask {
+    pub id: String,
+    pub title: String,
+    /// 付け替え前の KR（無かった・同じ KR のままなら null）。
+    pub previous_kr: Option<KrBrief>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KrBrief {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LinkResult {
+    pub key_result: KeyResult,
+    pub linked: Vec<LinkedTask>,
+}
+
+fn resolve_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<crate::model::Task>> {
+    if tasks.is_empty() {
+        return Err(Error::InvalidArgument("タスクを 1 つ以上指定してください".into()));
+    }
+    let mut out: Vec<crate::model::Task> = Vec::new();
+    for key in tasks {
+        let t = crate::repo::task::resolve(ctx.conn, key)?;
+        if !out.iter().any(|o| o.id == t.id) {
+            out.push(t);
+        }
+    }
+    Ok(out)
+}
+
+/// タスクを KR に紐付ける。別の KR に紐付いていたものは付け替える。
+/// 先にすべてのタスクを解決し、1 つでも見つからなければ何も変えない。
+pub fn link_tasks(ctx: &Ctx, kr: &str, tasks: &[String]) -> Result<LinkResult> {
+    let k = find_kr(ctx, kr)?;
+    let found = resolve_tasks(ctx, tasks)?;
+    let now = ctx.now();
+    let tx = ctx.conn.unchecked_transaction()?;
+    let mut linked = Vec::new();
+    for t in found {
+        let previous_kr = match t.key_result_id.as_deref() {
+            Some(prev) if prev != k.id => okr::get_kr(ctx.conn, prev).ok().map(|p| KrBrief {
+                id: p.id,
+                title: p.title,
+            }),
+            _ => None,
+        };
+        crate::repo::task::set_key_result(ctx.conn, &t.id, Some(&k.id), now)?;
+        linked.push(LinkedTask {
+            id: t.id,
+            title: t.title,
+            previous_kr,
+        });
+    }
+    tx.commit()?;
+    Ok(LinkResult {
+        key_result: k,
+        linked,
+    })
+}
+
+/// タスクの KR との紐付けを外す（KR に紐付いていないタスクは何もしない）。外したタスクを返す。
+pub fn unlink_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<LinkedTask>> {
+    let found = resolve_tasks(ctx, tasks)?;
+    let now = ctx.now();
+    let tx = ctx.conn.unchecked_transaction()?;
+    let mut out = Vec::new();
+    for t in found {
+        let Some(prev) = t.key_result_id.as_deref() else {
+            continue;
+        };
+        let previous_kr = okr::get_kr(ctx.conn, prev).ok().map(|p| KrBrief {
+            id: p.id,
+            title: p.title,
+        });
+        crate::repo::task::set_key_result(ctx.conn, &t.id, None, now)?;
+        out.push(LinkedTask {
+            id: t.id,
+            title: t.title,
+            previous_kr,
+        });
+    }
+    tx.commit()?;
+    Ok(out)
+}
+
+pub use super::okr_summary::{kr_summary, KrSummary};
 
 pub fn list(ctx: &Ctx) -> Result<OkrList> {
     let krs = okr::list_krs(ctx.conn)?;
@@ -130,6 +261,10 @@ pub struct KrEdit {
     pub status: Option<String>,
     /// 付け替え先の Objective（ID の前方一致）。
     pub objective: Option<String>,
+    /// 軸（`time` / `days` / `done`）。
+    pub measure: Option<String>,
+    /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（1 以上）。
+    pub day_min: Option<i64>,
 }
 
 fn blank_to_none(s: &str) -> Option<String> {
@@ -193,6 +328,18 @@ pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
     }
     if let Some(o) = &input.objective {
         k.objective_id = okr::resolve_objective(ctx.conn, o)?;
+    }
+    if let Some(m) = &input.measure {
+        check_measure(m)?;
+        k.measure = m.clone();
+    }
+    if let Some(d) = input.day_min {
+        if d < 1 {
+            return Err(Error::InvalidArgument(
+                "「取り組んだ日」の最小分数は 1 以上にしてください".into(),
+            ));
+        }
+        k.day_min = d;
     }
     crate::repo::edit::update_kr(ctx.conn, &k)?;
     Ok(k)
@@ -354,6 +501,7 @@ mod edit_tests {
                 current: Some("3".into()),
                 status: Some("dropped".into()),
                 objective: Some(o2.id.clone()),
+                ..Default::default()
             },
         )
         .unwrap();

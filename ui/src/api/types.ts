@@ -107,6 +107,8 @@ export interface TaskInput {
   important?: boolean;
   estimate_min?: number;
   key_result?: string;
+  /** 編集で KR との紐付けを外す。 */
+  clear_key_result?: boolean;
   skills?: string[];
   /** 編集でスキルを全て外す。 */
   clear_skills?: boolean;
@@ -193,6 +195,29 @@ export interface Report {
   include_idle: boolean;
   multi_attribution: boolean;
   note: string | null;
+}
+
+export interface HeatmapDay {
+  date: string;
+  value: number;
+  /** 濃淡の段階（0〜4）。 */
+  level: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface Heatmap {
+  from: string;
+  to: string;
+  /** `from` の曜日（月曜 = 0）。 */
+  from_weekday: number;
+  week_start: "monday";
+  by: string;
+  label: string;
+  unit: "ms" | "count";
+  days: HeatmapDay[];
+  total: number;
+  active_days: number;
+  max: number;
+  thresholds: number[];
 }
 
 export interface DoingView {
@@ -551,6 +576,63 @@ export interface KeyResult {
   target: string | null;
   current: string | null;
   status: string;
+  /** 何を軸に見るか。 */
+  measure: KrMeasure;
+  /** 回数の軸で「取り組んだ日」とみなす 1 日の最小分数。 */
+  day_min: number;
+}
+
+export type KrMeasure = "time" | "days" | "done";
+
+export interface KrWeekBar {
+  /** 週の月曜（YYYY-MM-DD）。 */
+  week_start: string;
+  duration_ms: number;
+}
+
+export interface KrSkillTime {
+  skill_id: string | null;
+  name: string;
+  duration_ms: number;
+}
+
+export interface KrTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  estimate_min: number | null;
+  tracked_ms: number;
+  done_at: Millis | null;
+}
+
+/** KR の集計（core の `kr_summary`）。 */
+export interface KrSummary {
+  key_result: KeyResult;
+  objective: { id: string; title: string };
+  range: RangeView;
+  range_source: "given" | "objective" | "recent_weeks";
+  measure: KrMeasure;
+  time_ms: number;
+  active_days: number;
+  day_min: number;
+  done_count: number;
+  task_count: number;
+  weekly: KrWeekBar[];
+  skills: KrSkillTime[];
+  estimate: { estimate_min_total: number; estimated_tasks: number; actual_ms_of_estimated: number };
+  tasks: KrTask[];
+}
+
+export interface LinkedTask {
+  id: string;
+  title: string;
+  /** 付け替え前の KR（無かったときは null）。 */
+  previous_kr: { id: string; title: string } | null;
+}
+
+export interface LinkResult {
+  key_result: KeyResult;
+  linked: LinkedTask[];
 }
 
 export interface ObjectiveView extends Objective {
@@ -615,6 +697,8 @@ export interface KrEdit {
   current?: string;
   status?: string;
   objective?: string;
+  measure?: KrMeasure;
+  day_min?: number;
 }
 
 export interface SkillEdit {
@@ -703,6 +787,10 @@ export interface PushPayload {
   open_screen: string | null;
   /** idle_return の対象期間 [開始, 終了]（無ければ省略）。 */
   idle_range?: [Millis, Millis];
+  /** urgent_task / important_task の対象タスク（無ければ省略）。「始める」でこのタスクを始める。 */
+  task_id?: string;
+  /** block_start の対象ブロック（無ければ省略）。 */
+  block_id?: string;
 }
 
 /** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */
@@ -755,6 +843,18 @@ export interface AnsweredItem {
 
 export interface AnswersRecord {
   items: AnsweredItem[];
+}
+
+/** core の `reflect::AnswerDetail`。回答済みの問いと、保存した記録の中身。記録が削除されていれば無い。 */
+export interface AnswerDetail {
+  index: number;
+  kind: QuestionKind;
+  prompt: string;
+  record_id?: string;
+  text?: string;
+  checkin?: Checkin;
+  hassle?: Hassle;
+  abc?: AbcRecord;
 }
 
 /** core の `reflect::AnswerItem`（問いの種類で使う項目が決まる）。 */

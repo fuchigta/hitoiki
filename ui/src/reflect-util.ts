@@ -1,6 +1,8 @@
 // 振り返りの構造化された問いに答えるフォームの、状態と回答 JSON の相互変換（純粋関数）。
 
+import { ERG_NAMES } from "./erg-util";
 import type {
+  AnswerDetail,
   AnswerItem,
   AnswersInput,
   AnswersRecord,
@@ -139,6 +141,35 @@ export function buildAnswers(
 /** 送れる回答が 1 件でもあるか。 */
 export function hasAnswers(questions: Question[], forms: QuestionForm[], answered: ReadonlySet<number>): boolean {
   return buildAnswers(questions, forms, answered).answers.length > 0;
+}
+
+/** 回答済みの問い 1 件の、保存した内容を「ラベル: 値」の行にする（記録が削除済みなら空）。 */
+export function detailLines(d: AnswerDetail): string[] {
+  const lines: string[] = [];
+  const add = (label: string, v: string | number | null | undefined) => {
+    if (v != null && String(v).trim() !== "") lines.push(`${label}: ${v}`);
+  };
+  if (d.checkin) {
+    const c = d.checkin;
+    add(SCALE_LABELS.energy, c.energy);
+    add(SCALE_LABELS.mood, c.mood);
+    add(SCALE_LABELS.stress, c.stress);
+    add("ERG タグ", c.erg_tag ? ERG_NAMES[c.erg_tag] : null);
+    add("メモ", c.note);
+  }
+  if (d.hassle) {
+    add("気になったこと", d.hassle.text);
+    add("強さ", d.hassle.intensity);
+  }
+  if (d.abc) {
+    const a = d.abc;
+    add("A: 出来事", a.activating_event);
+    add("B: 受け止め方", a.belief);
+    add("C: 感情", a.consequence_emotion);
+    add("感情の強さ", a.consequence_intensity);
+    add("別の捉え方・反論", a.dispute);
+  }
+  return lines;
 }
 
 /** 尋ねる尺度（空なら 3 つとも）。 */

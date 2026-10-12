@@ -8,8 +8,9 @@ use super::record::{self, AbcInput, CheckInput, HassleInput};
 use super::structured::{self, QuestionKind, StructuredOutput};
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{AbcRecord, ErgTag, Reflection, ReflectionKind};
+use crate::model::{AbcRecord, Checkin, ErgTag, Hassle, Reflection, ReflectionKind};
 use crate::repo::reflection as repo;
+use crate::repo::{edit as edit_repo, record as record_repo};
 use crate::{paths, timefmt, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -352,6 +353,64 @@ pub struct AnsweredItem {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct AnswersRecord {
     pub items: Vec<AnsweredItem>,
+}
+
+/// 回答済みの問い 1 件を、問いと保存した記録の中身と並べたもの（回答済みの表示用）。
+/// 記録が後から削除されていれば、`checkin` / `hassle` / `abc` は `None`。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AnswerDetail {
+    pub index: usize,
+    pub kind: QuestionKind,
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkin: Option<Checkin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hassle: Option<Hassle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abc: Option<AbcRecord>,
+}
+
+/// 振り返りの回答済みの問いを、保存先（`checkin` / `hassle` / `abc_record`）の中身つきで返す。
+/// 構造化されていない振り返り、または回答が無ければ空。
+pub fn answer_details(ctx: &Ctx, r: &Reflection) -> Result<Vec<AnswerDetail>> {
+    let Some(out) = structured_of(r)? else {
+        return Ok(Vec::new());
+    };
+    let record: AnswersRecord = match r.answers_json.as_deref() {
+        Some(j) => serde_json::from_str(j)
+            .map_err(|e| Error::Other(anyhow::anyhow!("answers_json を読めません: {e}")))?,
+        None => return Ok(Vec::new()),
+    };
+    let mut v = Vec::new();
+    for it in &record.items {
+        let Some(q) = out.questions.get(it.index) else {
+            continue;
+        };
+        let mut d = AnswerDetail {
+            index: it.index,
+            kind: it.kind,
+            prompt: q.prompt.clone(),
+            record_id: it.record_id.clone(),
+            text: it.text.clone(),
+            checkin: None,
+            hassle: None,
+            abc: None,
+        };
+        if let Some(id) = &it.record_id {
+            match it.kind {
+                QuestionKind::Checkin => d.checkin = edit_repo::get_checkin(ctx.conn, id).ok(),
+                QuestionKind::Hassle => d.hassle = record_repo::get_hassle(ctx.conn, id).ok(),
+                QuestionKind::Abc => d.abc = repo::get_abc(ctx.conn, id).ok(),
+                QuestionKind::Free => {}
+            }
+        }
+        v.push(d);
+    }
+    Ok(v)
 }
 
 fn nonblank(s: &Option<String>) -> Option<String> {
@@ -793,6 +852,18 @@ mod tests {
         assert_eq!(abcs[0].dispute.as_deref(), Some("一部の指摘だけ"));
         assert_eq!(rec.items[2].record_id.as_deref(), Some(abcs[0].id.as_str()));
         assert_eq!(rec.items[3].record_id, None);
+
+        // 回答済みの表示用に、問いと保存した記録の中身が並んで取れる
+        let ds = answer_details(&ctx, &a).unwrap();
+        assert_eq!(ds.len(), 4);
+        assert_eq!(ds[0].checkin.as_ref().unwrap().energy, Some(3));
+        assert_eq!(ds[1].hassle.as_ref().unwrap().text, "会議が長かった");
+        assert_eq!(
+            ds[2].abc.as_ref().unwrap().dispute.as_deref(),
+            Some("一部の指摘だけ")
+        );
+        assert_eq!(ds[3].text.as_deref(), Some("まあまあ"));
+        assert!(!ds[0].prompt.is_empty());
 
         // 回答済みの問いには答え直せない
         let again = AnswersInput {
