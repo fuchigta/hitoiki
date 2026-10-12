@@ -132,6 +132,96 @@ fn resolve_range(
     }
 }
 
+/// KR の集計に入る区間を選ぶ判定（`okr show` とヒートマップの `kr:` で共有する）。
+/// KR のスキル（子スキルを含む）が付いたタスク・活動ルールでそのスキルが付く活動・紐付けたタスクの和集合。
+pub(crate) struct KrSelector {
+    linked: HashSet<String>,
+    skill_set: HashSet<String>,
+    task_skills: HashMap<String, Vec<String>>,
+    rules: Vec<(Matcher, String)>,
+}
+
+/// 選ばれた区間の内訳。
+pub(crate) struct KrPick {
+    /// KR のスキル経由で入る（紐付けたタスクだけで入るときは false）。
+    pub via_skill: bool,
+    /// 紐付けたタスクの区間。
+    pub linked: bool,
+    /// この区間に付くスキル（タスクのスキルと活動ルールで付くスキル）。
+    pub skill_ids: Vec<String>,
+}
+
+impl KrSelector {
+    pub(crate) fn new(ctx: &Ctx, kr_id: &str) -> Result<Self> {
+        let linked = repo::task::list_of_kr(ctx.conn, kr_id)?
+            .into_iter()
+            .map(|t| t.id)
+            .collect();
+        let all_skills = repo::skill::list(ctx.conn)?;
+        let mut skill_set: HashSet<String> = HashSet::new();
+        for s in repo::skill::kr_skills(ctx.conn, kr_id)? {
+            skill_set.extend(descendants(&all_skills, &s.id));
+            skill_set.insert(s.id.clone());
+        }
+        // タスクごとのスキル（report の skill 集計と同じく、付いているスキルそれぞれに全時間を計上する）。
+        let mut task_skills: HashMap<String, Vec<String>> = HashMap::new();
+        {
+            let mut stmt = ctx.conn.prepare("SELECT task_id, skill_id FROM task_skill")?;
+            let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+            for row in rows {
+                let (tid, sid) = row?;
+                task_skills.entry(tid).or_default().push(sid);
+            }
+        }
+        // 活動からスキルを付けるルール（不正なパターンは無視する）。
+        let rules = repo::skill::list_activity_skill_rules(ctx.conn)?
+            .into_iter()
+            .filter_map(|r| {
+                Matcher::new(r.field, &r.pattern, r.pattern_type)
+                    .ok()
+                    .map(|m| (m, r.skill_id))
+            })
+            .collect();
+        Ok(Self {
+            linked,
+            skill_set,
+            task_skills,
+            rules,
+        })
+    }
+
+    /// 区間が KR の集計に入るなら内訳を返す（無操作・休憩・無視は入らない）。
+    pub(crate) fn pick(&self, s: &crate::model::ActivitySegment) -> Option<KrPick> {
+        if matches!(
+            s.kind,
+            SegmentKind::Idle | SegmentKind::Break | SegmentKind::Ignored
+        ) {
+            return None;
+        }
+        let linked = s.task_id.as_ref().is_some_and(|t| self.linked.contains(t));
+        let mut skill_ids: Vec<String> = s
+            .task_id
+            .as_ref()
+            .and_then(|t| self.task_skills.get(t))
+            .cloned()
+            .unwrap_or_default();
+        if !self.rules.is_empty() {
+            let target = MatchTarget::window(s.exe_name.as_deref(), s.title.as_deref());
+            for (m, sid) in &self.rules {
+                if m.is_match(&target) && !skill_ids.contains(sid) {
+                    skill_ids.push(sid.clone());
+                }
+            }
+        }
+        let via_skill = skill_ids.iter().any(|sid| self.skill_set.contains(sid));
+        (via_skill || linked).then_some(KrPick {
+            via_skill,
+            linked,
+            skill_ids,
+        })
+    }
+}
+
 /// KR（ID の前方一致またはタイトル）の集計。`range` が `None` なら Objective の期間（無ければ直近 8 週）。
 pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary> {
     let k = super::okr::find_kr(ctx, kr)?;
@@ -140,88 +230,44 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
     let (range, source) = resolve_range(ctx, tz, o.period_start, o.period_end, range);
 
     let linked = repo::task::list_of_kr(ctx.conn, &k.id)?;
-    let ids: HashSet<&str> = linked.iter().map(|t| t.id.as_str()).collect();
+    let selector = KrSelector::new(ctx, &k.id)?;
 
-    // KR のスキル（子スキルを含む）。
     let all_skills = repo::skill::list(ctx.conn)?;
     let skill_names: HashMap<&str, &str> = all_skills
         .iter()
         .map(|s| (s.id.as_str(), s.name.as_str()))
         .collect();
     let kr_skills = repo::skill::kr_skills(ctx.conn, &k.id)?;
-    let mut skill_set: HashSet<String> = HashSet::new();
-    for s in &kr_skills {
-        skill_set.extend(descendants(&all_skills, &s.id));
-        skill_set.insert(s.id.clone());
-    }
-
-    // タスクごとのスキル（report の skill 集計と同じく、付いているスキルそれぞれに全時間を計上する）。
-    let mut task_skills: HashMap<String, Vec<String>> = HashMap::new();
-    {
-        let mut stmt = ctx.conn.prepare("SELECT task_id, skill_id FROM task_skill")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
-        for row in rows {
-            let (tid, sid) = row?;
-            task_skills.entry(tid).or_default().push(sid);
-        }
-    }
-    // 活動からスキルを付けるルール（不正なパターンは無視する）。
-    let rules: Vec<(Matcher, String)> = repo::skill::list_activity_skill_rules(ctx.conn)?
-        .into_iter()
-        .filter_map(|r| {
-            Matcher::new(r.field, &r.pattern, r.pattern_type)
-                .ok()
-                .map(|m| (m, r.skill_id))
-        })
-        .collect();
 
     let mut per_day: BTreeMap<NaiveDate, i64> = BTreeMap::new();
     let mut per_task: HashMap<&str, i64> = HashMap::new();
     let mut per_skill: BTreeMap<(Option<String>, String), i64> = BTreeMap::new();
     let (mut from_skill_ms, mut from_task_ms) = (0i64, 0i64);
     for s in repo::segment::list(ctx.conn, range)? {
-        if matches!(
-            s.kind,
-            SegmentKind::Idle | SegmentKind::Break | SegmentKind::Ignored
-        ) {
+        let Some(pick) = selector.pick(&s) else {
             continue;
-        }
-        let linked_task = s.task_id.as_deref().and_then(|t| ids.get(t).copied());
-        // この区間に付くスキル: タスクのスキルと、活動ルールで付くスキル。
-        let mut sids: Vec<&str> = s
-            .task_id
-            .as_ref()
-            .and_then(|t| task_skills.get(t))
-            .map(|v| v.iter().map(String::as_str).collect())
-            .unwrap_or_default();
-        if !rules.is_empty() {
-            let target = MatchTarget::window(s.exe_name.as_deref(), s.title.as_deref());
-            for (m, sid) in &rules {
-                if m.is_match(&target) && !sids.contains(&sid.as_str()) {
-                    sids.push(sid);
-                }
-            }
-        }
-        let via_skill = sids.iter().any(|sid| skill_set.contains(*sid));
-        if !via_skill && linked_task.is_none() {
-            continue;
-        }
+        };
         let ms = repo::segment::clipped_len(&s, range);
         if ms == 0 {
             continue;
         }
         add_per_day(&mut per_day, tz, range, s.start_at, s.end_at);
-        if via_skill {
+        if pick.via_skill {
             from_skill_ms += ms;
         } else {
             from_task_ms += ms;
         }
-        if let Some(tid) = linked_task {
-            *per_task.entry(tid).or_default() += ms;
+        if pick.linked {
+            if let Some(tid) = s.task_id.as_deref() {
+                if let Some(t) = linked.iter().find(|t| t.id == tid) {
+                    *per_task.entry(t.id.as_str()).or_default() += ms;
+                }
+            }
         }
-        let mut named: Vec<(&str, &str)> = sids
+        let mut named: Vec<(&str, &str)> = pick
+            .skill_ids
             .iter()
-            .filter_map(|sid| skill_names.get(sid).map(|n| (*sid, *n)))
+            .filter_map(|sid| skill_names.get(sid.as_str()).map(|n| (sid.as_str(), *n)))
             .collect();
         named.sort_by(|a, b| a.1.cmp(b.1));
         if named.is_empty() {
@@ -995,6 +1041,71 @@ mod tests {
         let s = kr_summary(&c, &f.kr, None).unwrap();
         assert_eq!(s.active_days, 2);
         assert_eq!(s.time_ms, (15 + 14 + 20) * MIN);
+    }
+
+    #[test]
+    fn ヒートマップの_kr_指標は_okr_show_と同じ区間の和集合で日別に一致する() {
+        use crate::service::heatmap::{heatmap, HeatmapInput};
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let (o1, o2, o3) = setup_skill(&c, &f);
+        let d = env.day_start();
+        // 前日: 紐付き 10 + スキル 20、当日: 子スキル 30 + 別スキル（数えない）+ 紐付き 5。
+        seg(
+            &c,
+            "A",
+            d - DAY + 600 * MIN,
+            d - DAY + 610 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "B",
+            d - DAY + 620 * MIN,
+            d - DAY + 640 * MIN,
+            SegmentKind::Work,
+            Some(&o1),
+        );
+        seg(
+            &c,
+            "C",
+            d + 600 * MIN,
+            d + 630 * MIN,
+            SegmentKind::Work,
+            Some(&o2),
+        );
+        seg(
+            &c,
+            "D",
+            d + 640 * MIN,
+            d + 660 * MIN,
+            SegmentKind::Work,
+            Some(&o3),
+        );
+        seg(
+            &c,
+            "E",
+            d + 670 * MIN,
+            d + 675 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        let h = heatmap(
+            &c,
+            &HeatmapInput {
+                by: Some(format!("kr:{}", f.kr)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let v = |date: &str| h.days.iter().find(|x| x.date == date).unwrap().value;
+        assert_eq!(v("2026-10-09"), 30 * MIN);
+        assert_eq!(v("2026-10-10"), 35 * MIN);
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(h.total, s.time_ms);
+        assert_eq!(h.active_days, 2);
     }
 
     #[test]
