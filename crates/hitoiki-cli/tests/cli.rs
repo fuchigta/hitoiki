@@ -1580,3 +1580,163 @@ fn heatmap_日別の濃淡と終了コード() {
         2
     );
 }
+
+#[test]
+fn okr_link_unlink_show_と軸の編集() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
+    let o = id_of(&run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "add-objective",
+            "読書",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-01-31",
+        ],
+    ));
+    let k1 = id_of(&run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "add-kr",
+            &o,
+            "週 3 回読書",
+            "--target",
+            "週 3 回",
+        ],
+    ));
+    let k2 = id_of(&run(h, &["--json", "okr", "add-kr", &o, "別の成果"]));
+    let t1 = id_of(&run(h, &["--json", "task", "add", "本を読む"]));
+    let t2 = id_of(&run(h, &["--json", "task", "add", "記事を読む", "--kr", &k2]));
+
+    // 紐付け（付け替えは previous_kr に出る）
+    let l = run(h, &["--json", "okr", "link", &k1, &t1, &t2]);
+    assert_eq!(l.code, 0, "{}", l.stderr);
+    let v = l.json();
+    assert_eq!(v["linked"].as_array().unwrap().len(), 2);
+    assert!(v["linked"][0]["previous_kr"].is_null());
+    assert_eq!(v["linked"][1]["previous_kr"]["id"], k2.as_str());
+    let human = run(h, &["okr", "link", &k1, &t1]);
+    assert!(human.stdout.contains("紐付けました"), "{}", human.stdout);
+    assert_eq!(run(h, &["okr", "link", "ZZZZ", &t1]).code, 3);
+    assert_eq!(run(h, &["okr", "link", &k1, "ZZZZ"]).code, 3);
+    assert_eq!(run(h, &["okr", "link", &k1]).code, 2);
+
+    // 軸の編集
+    let e = run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "edit-kr",
+            &k1,
+            "--measure",
+            "days",
+            "--day-min",
+            "20",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(e.json()["measure"], "days");
+    assert_eq!(e.json()["day_min"], 20);
+    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--measure", "bad"]).code, 2);
+    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--day-min", "0"]).code, 2);
+
+    // 集計: 25 分の日と 15 分の日（day_min 20 なら 1 日だけ）
+    insert_segment(
+        h,
+        "K1",
+        "2026-01-05 10:00",
+        "2026-01-05 10:25",
+        "work",
+        Some(&t1),
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "K2",
+        "2026-01-06 10:00",
+        "2026-01-06 10:15",
+        "work",
+        Some(&t2),
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "K3",
+        "2026-01-06 11:00",
+        "2026-01-06 12:00",
+        "idle",
+        Some(&t2),
+        "auto",
+    );
+    let s = run(h, &["--json", "okr", "show", &k1]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    let v = s.json();
+    assert_eq!(v["measure"], "days");
+    assert_eq!(v["range_source"], "objective");
+    assert_eq!(v["time_ms"], 40 * 60_000);
+    assert_eq!(v["active_days"], 1);
+    assert_eq!(v["task_count"], 2);
+    assert_eq!(v["key_result"]["target"], "週 3 回");
+    let human = run(h, &["okr", "show", &k1]);
+    assert_eq!(human.code, 0, "{}", human.stderr);
+    assert!(human.stdout.contains("軸（回数）"), "{}", human.stdout);
+    // 期間の指定
+    let r = run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "show",
+            &k1,
+            "--from",
+            "2026-01-06",
+            "--to",
+            "2026-01-06",
+        ],
+    );
+    assert_eq!(r.json()["time_ms"], 15 * 60_000);
+    assert_eq!(r.json()["range_source"], "given");
+    assert_eq!(run(h, &["okr", "show", "ZZZZ"]).code, 3);
+
+    // heatmap の kr 指標
+    let hm = run(
+        h,
+        &[
+            "--json",
+            "heatmap",
+            "--by",
+            &format!("kr:{k1}"),
+            "--from",
+            "2026-01-05",
+            "--to",
+            "2026-01-11",
+        ],
+    );
+    assert_eq!(hm.code, 0, "{}", hm.stderr);
+    assert_eq!(hm.json()["total"], 40 * 60_000);
+
+    // 外す（KR に紐付いていないものは 0 件）
+    let u = run(h, &["--json", "okr", "unlink", &t1]);
+    assert_eq!(u.json()["unlinked"].as_array().unwrap().len(), 1);
+    let u = run(h, &["--json", "okr", "unlink", &t1]);
+    assert_eq!(u.code, 0);
+    assert_eq!(u.json()["unlinked"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        run(h, &["--json", "okr", "show", &k1]).json()["time_ms"],
+        15 * 60_000
+    );
+
+    // task edit --no-kr
+    let ne = run(h, &["--json", "task", "edit", &t2, "--no-kr"]);
+    assert_eq!(ne.code, 0, "{}", ne.stderr);
+    assert!(run(h, &["--json", "task", "show", &t2]).json()["task"]["key_result"].is_null());
+    assert_eq!(run(h, &["task", "edit", &t2, "--kr", &k1, "--no-kr"]).code, 2);
+}

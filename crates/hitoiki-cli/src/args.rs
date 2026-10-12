@@ -205,8 +205,11 @@ pub struct TaskOpts {
     #[arg(long)]
     pub estimate: Option<String>,
     /// KR の ID
-    #[arg(long)]
+    #[arg(long, conflicts_with = "no_kr")]
     pub kr: Option<String>,
+    /// KR との紐付けを外す（edit のみ）
+    #[arg(long)]
+    pub no_kr: bool,
     /// スキル名（複数指定可。`,` 区切りも可）
     #[arg(long, value_delimiter = ',')]
     pub skill: Vec<String>,
@@ -828,6 +831,34 @@ pub enum OkrCmd {
         /// 別の Objective へ付け替える
         #[arg(long)]
         objective: Option<String>,
+        /// 何を軸に見るか: time（時間）| days（取り組んだ日の回数）| done（完了数）
+        #[arg(long)]
+        measure: Option<String>,
+        /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15）
+        #[arg(long)]
+        day_min: Option<i64>,
+    },
+    /// KR にタスクを紐付ける（別の KR に紐付いていたものは付け替える）
+    Link {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// タスクの ID（前方一致。複数可）
+        #[arg(required = true)]
+        tasks: Vec<String>,
+    },
+    /// タスクの KR との紐付けを外す
+    Unlink {
+        /// タスクの ID（前方一致。複数可）
+        #[arg(required = true)]
+        tasks: Vec<String>,
+    },
+    /// KR の集計（軸の値、取り組んだ日、完了数、週ごとの時間、スキル別、見積と実績）
+    Show {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 集計の期間（省略時は Objective の期間、無ければ直近 8 週）
+        #[command(flatten)]
+        range: RangeOpts,
     },
     /// KR を削除する（紐付いたタスクは残って紐付けだけ外れる）
     DeleteKr {

@@ -1,0 +1,693 @@
+//! KR の集計（紐付いたタスクの時間・取り組んだ日・完了数）。
+//!
+//! 実績は常に `activity_segment`（`segment_override` 適用後の派生層）から算出する。
+//! 時間は「今日の合計」と同じ数え方で、無操作・休憩・無視は含めない。
+//! `target` / `current` は自由記述のままで、達成率の計算や評価はしない（選んだ軸の値を出すだけ）。
+//!
+//! 期間: Objective に `period_start` / `period_end` があればそれ。無ければ直近 8 週
+//! （今日を含む週の月曜から 7 週前の月曜〜今日の終わり）。片方だけのときは、開始のみなら今日まで、
+//! 終了のみなら 8 週前から。週は月曜始まり、日付はローカル日付。
+
+use super::heatmap::add_per_day;
+use super::{range_view, Ctx, RangeView};
+use crate::model::{KeyResult, SegmentKind, TaskStatus};
+use crate::repo::{self, edit};
+use crate::timefmt::{self, Range};
+use crate::Result;
+use chrono::{Datelike, Duration, NaiveDate};
+use serde::Serialize;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+/// 既定の集計期間（週）。
+pub const DEFAULT_WEEKS: i64 = 8;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ObjectiveBrief {
+    pub id: String,
+    pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct WeekBar {
+    /// 週の月曜（`YYYY-MM-DD`）。
+    pub week_start: String,
+    pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SkillTime {
+    /// スキルが付いていないタスクの時間は null。
+    pub skill_id: Option<String>,
+    pub name: String,
+    pub duration_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KrTask {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub estimate_min: Option<i64>,
+    /// 期間内にこのタスクへ帰属した時間（ミリ秒）。
+    pub tracked_ms: i64,
+    pub done_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EstimateSummary {
+    /// 見積のあるタスク（やめたものを除く）の見積の合計（分）。
+    pub estimate_min_total: i64,
+    pub estimated_tasks: i64,
+    /// 見積のあるタスクの、期間内の実績（ミリ秒）。
+    pub actual_ms_of_estimated: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct KrSummary {
+    pub key_result: KeyResult,
+    pub objective: ObjectiveBrief,
+    pub range: RangeView,
+    /// `given`（引数で指定）/ `objective`（Objective の期間）/ `recent_weeks`（直近 8 週）。
+    pub range_source: &'static str,
+    /// 選んだ軸（`time` / `days` / `done`）。
+    pub measure: String,
+    /// 時間: 紐付いたタスクの時間の合計（ミリ秒）。
+    pub time_ms: i64,
+    /// 回数: 紐付いたタスクの作業が合計 `day_min` 分以上あった日数。
+    pub active_days: i64,
+    pub day_min: i64,
+    /// 完了数: 期間内に完了したタスク。
+    pub done_count: i64,
+    /// 紐付いたタスクの数（やめたものを除く）。
+    pub task_count: i64,
+    pub weekly: Vec<WeekBar>,
+    /// report の skill 集計と同じ扱い（複数スキルのタスクは各スキルに全時間を計上するので、合計は `time_ms` を超えうる）。
+    pub skills: Vec<SkillTime>,
+    pub estimate: EstimateSummary,
+    pub tasks: Vec<KrTask>,
+}
+
+fn monday_of(d: NaiveDate) -> NaiveDate {
+    d - Duration::days(d.weekday().num_days_from_monday() as i64)
+}
+
+fn resolve_range(
+    ctx: &Ctx,
+    tz: chrono_tz::Tz,
+    start: Option<i64>,
+    end: Option<i64>,
+    given: Option<Range>,
+) -> (Range, &'static str) {
+    if let Some(r) = given {
+        return (r, "given");
+    }
+    let today = timefmt::local_date_of(tz, ctx.now());
+    let today_end = timefmt::day_range(tz, today).end;
+    let recent_start = timefmt::day_range(tz, monday_of(today) - Duration::weeks(DEFAULT_WEEKS - 1)).start;
+    match (start, end) {
+        (Some(s), Some(e)) => (Range::new(s, e), "objective"),
+        (Some(s), None) => (Range::new(s, today_end.max(s + 1)), "objective"),
+        (None, Some(e)) => (
+            Range::new((e - DEFAULT_WEEKS * 7 * 86_400_000).min(e - 1), e),
+            "objective",
+        ),
+        (None, None) => (Range::new(recent_start, today_end), "recent_weeks"),
+    }
+}
+
+/// KR（ID の前方一致またはタイトル）の集計。`range` が `None` なら Objective の期間（無ければ直近 8 週）。
+pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary> {
+    let k = super::okr::find_kr(ctx, kr)?;
+    let tz = ctx.tz()?;
+    let o = edit::get_objective(ctx.conn, &k.objective_id)?;
+    let (range, source) = resolve_range(ctx, tz, o.period_start, o.period_end, range);
+
+    let linked = repo::task::list_of_kr(ctx.conn, &k.id)?;
+    let ids: HashSet<&str> = linked.iter().map(|t| t.id.as_str()).collect();
+
+    // タスクごとのスキル（report の skill 集計と同じく、付いているスキルそれぞれに全時間を計上する）。
+    let mut task_skills: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    {
+        let mut stmt = ctx.conn.prepare(
+            "SELECT ts.task_id, s.id, s.name FROM task_skill ts JOIN skill s ON s.id = ts.skill_id ORDER BY s.name",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?)))?;
+        for row in rows {
+            let (tid, sid, name) = row?;
+            if ids.contains(tid.as_str()) {
+                task_skills.entry(tid).or_default().push((sid, name));
+            }
+        }
+    }
+
+    let mut per_day: BTreeMap<NaiveDate, i64> = BTreeMap::new();
+    let mut per_task: HashMap<&str, i64> = HashMap::new();
+    let mut per_skill: BTreeMap<(Option<String>, String), i64> = BTreeMap::new();
+    for s in repo::segment::list(ctx.conn, range)? {
+        if matches!(
+            s.kind,
+            SegmentKind::Idle | SegmentKind::Break | SegmentKind::Ignored
+        ) {
+            continue;
+        }
+        let Some(tid) = s.task_id.as_deref().and_then(|t| ids.get(t).copied()) else {
+            continue;
+        };
+        let ms = repo::segment::clipped_len(&s, range);
+        if ms == 0 {
+            continue;
+        }
+        add_per_day(&mut per_day, tz, range, s.start_at, s.end_at);
+        *per_task.entry(tid).or_default() += ms;
+        match task_skills.get(tid) {
+            Some(list) if !list.is_empty() => {
+                for (sid, name) in list {
+                    *per_skill.entry((Some(sid.clone()), name.clone())).or_default() += ms;
+                }
+            }
+            _ => *per_skill.entry((None, "(なし)".into())).or_default() += ms,
+        }
+    }
+
+    let time_ms: i64 = per_day.values().sum();
+    let day_ms = k.day_min.max(1) * 60_000;
+    let active_days = per_day.values().filter(|v| **v >= day_ms).count() as i64;
+
+    // 週ごと（月曜始まり）。範囲の最初の週から最後の週まで、値が 0 の週も並べる。
+    let first = monday_of(timefmt::local_date_of(tz, range.start));
+    let last = timefmt::local_date_of(tz, (range.end - 1).max(range.start));
+    let mut weekly = Vec::new();
+    let mut w = first;
+    while w <= last {
+        let ms: i64 = per_day.range(w..w + Duration::days(7)).map(|(_, v)| *v).sum();
+        weekly.push(WeekBar {
+            week_start: w.format("%Y-%m-%d").to_string(),
+            duration_ms: ms,
+        });
+        w += Duration::days(7);
+    }
+
+    let mut skills: Vec<SkillTime> = per_skill
+        .into_iter()
+        .map(|((skill_id, name), duration_ms)| SkillTime {
+            skill_id,
+            name,
+            duration_ms,
+        })
+        .collect();
+    skills.sort_by(|a, b| {
+        b.duration_ms
+            .cmp(&a.duration_ms)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let in_range = |t: i64| t >= range.start && t < range.end;
+    let counted: Vec<_> = linked
+        .iter()
+        .filter(|t| t.status != TaskStatus::Dropped)
+        .collect();
+    let done_count = counted
+        .iter()
+        .filter(|t| t.status == TaskStatus::Done && t.done_at.is_some_and(in_range))
+        .count() as i64;
+    let with_est: Vec<_> = counted.iter().filter(|t| t.estimate_min.is_some()).collect();
+    let estimate = EstimateSummary {
+        estimate_min_total: with_est.iter().filter_map(|t| t.estimate_min).sum(),
+        estimated_tasks: with_est.len() as i64,
+        actual_ms_of_estimated: with_est
+            .iter()
+            .map(|t| per_task.get(t.id.as_str()).copied().unwrap_or(0))
+            .sum(),
+    };
+    let tasks = linked
+        .iter()
+        .map(|t| KrTask {
+            id: t.id.clone(),
+            title: t.title.clone(),
+            status: t.status,
+            estimate_min: t.estimate_min,
+            tracked_ms: per_task.get(t.id.as_str()).copied().unwrap_or(0),
+            done_at: t.done_at,
+        })
+        .collect();
+
+    Ok(KrSummary {
+        objective: ObjectiveBrief {
+            id: o.id,
+            title: o.title,
+        },
+        range: range_view(tz, range),
+        range_source: source,
+        measure: k.measure.clone(),
+        time_ms,
+        active_days,
+        day_min: k.day_min,
+        done_count,
+        task_count: counted.len() as i64,
+        weekly,
+        skills,
+        estimate,
+        tasks,
+        key_result: k,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::SegmentStatus;
+    use crate::service::okr::{self as okr_svc, KrEdit, KrInput, ObjectiveInput};
+    use crate::service::skill::{self, SkillInput};
+    use crate::service::task::{self, TaskInput};
+    use crate::service::testutil::{insert_segment, Env};
+
+    const MIN: i64 = 60_000;
+    const DAY: i64 = 24 * 60 * MIN;
+    const ST: SegmentStatus = SegmentStatus::Auto;
+
+    struct Fx {
+        kr: String,
+        t1: String,
+        t2: String,
+    }
+
+    fn setup(ctx: &Ctx, from: Option<i64>, to: Option<i64>) -> Fx {
+        let o = okr_svc::add_objective(
+            ctx,
+            &ObjectiveInput {
+                title: "O".into(),
+                from,
+                to,
+            },
+        )
+        .unwrap();
+        let k = okr_svc::add_kr(
+            ctx,
+            &KrInput {
+                objective: o.id,
+                title: "K".into(),
+                target: Some("週 3 回".into()),
+            },
+        )
+        .unwrap();
+        let mk = |title: &str| {
+            task::add(
+                ctx,
+                &TaskInput {
+                    title: Some(title.into()),
+                    key_result: Some(k.id.clone()),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .task
+            .id
+        };
+        Fx {
+            t1: mk("T1"),
+            t2: mk("T2"),
+            kr: k.id,
+        }
+    }
+
+    fn seg(c: &Ctx, id: &str, start: i64, end: i64, kind: SegmentKind, task: Option<&str>) {
+        insert_segment(c.conn, id, start, end, kind, task, ST);
+    }
+
+    #[test]
+    fn 既定の期間は直近8週で時間は帰属した作業だけを数える() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let d = env.day_start(); // 2026-10-10（土）00:00 JST
+        seg(
+            &c,
+            "A",
+            d + 60 * MIN,
+            d + 120 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "B",
+            d + 120 * MIN,
+            d + 150 * MIN,
+            SegmentKind::Work,
+            Some(&f.t2),
+        );
+        // 無操作・休憩・無視・別タスク・未帰属は数えない。
+        seg(
+            &c,
+            "C",
+            d + 150 * MIN,
+            d + 180 * MIN,
+            SegmentKind::Idle,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "D",
+            d + 180 * MIN,
+            d + 190 * MIN,
+            SegmentKind::Break,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "E",
+            d + 190 * MIN,
+            d + 200 * MIN,
+            SegmentKind::Ignored,
+            Some(&f.t1),
+        );
+        seg(&c, "F", d + 200 * MIN, d + 210 * MIN, SegmentKind::Work, None);
+        let s = kr_summary(&c, &f.kr[..20], None).unwrap();
+        assert_eq!(s.range_source, "recent_weeks");
+        assert_eq!(s.time_ms, 90 * MIN);
+        assert_eq!(s.active_days, 1);
+        assert_eq!(s.weekly.len(), 8);
+        // 今日（土曜）を含む週が最後の棒で、全時間がそこに入る。開始は 7 週前の月曜。
+        assert_eq!(s.weekly[0].week_start, "2026-08-17");
+        assert_eq!(s.weekly[7].week_start, "2026-10-05");
+        assert_eq!(s.weekly[7].duration_ms, 90 * MIN);
+        assert_eq!(s.weekly.iter().map(|w| w.duration_ms).sum::<i64>(), s.time_ms);
+        let t1 = s.tasks.iter().find(|t| t.id == f.t1).unwrap();
+        assert_eq!(t1.tracked_ms, 60 * MIN);
+        // 期間外の作業は数えない。
+        seg(
+            &c,
+            "G",
+            d - 70 * DAY,
+            d - 70 * DAY + 30 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().time_ms, 90 * MIN);
+    }
+
+    #[test]
+    fn objective_の期間があればそれを使う() {
+        let env = Env::new();
+        let c = env.ctx();
+        let d = env.day_start();
+        let f = setup(&c, Some(d - 3 * DAY), Some(d - DAY)); // 10/7 0:00 〜 10/9 0:00
+        seg(
+            &c,
+            "A",
+            d - 4 * DAY,
+            d - 4 * DAY + 30 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        ); // 前
+        seg(
+            &c,
+            "B",
+            d - 3 * DAY,
+            d - 3 * DAY + 20 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        ); // 開始ちょうど
+        seg(
+            &c,
+            "C",
+            d - DAY - 10 * MIN,
+            d - DAY + 10 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        ); // 終了をまたぐ
+        seg(
+            &c,
+            "D",
+            d - DAY,
+            d - DAY + 30 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        ); // 終了ちょうど以降
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(s.range_source, "objective");
+        assert_eq!(s.time_ms, 30 * MIN);
+        // 範囲を引数で上書きできる。
+        let all = kr_summary(&c, &f.kr, Some(Range::new(d - 10 * DAY, d))).unwrap();
+        assert_eq!(all.range_source, "given");
+        assert_eq!(all.time_ms, 100 * MIN);
+    }
+
+    #[test]
+    fn 取り組んだ日は_day_min_以上の日だけで日付の境界で分かれる() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let d = env.day_start();
+        // 既定は 15 分: ちょうど 15 分は取り組んだ日、14 分は違う。
+        seg(
+            &c,
+            "A",
+            d - 2 * DAY + 600 * MIN,
+            d - 2 * DAY + 615 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "B",
+            d - DAY + 600 * MIN,
+            d - DAY + 614 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        // 同じ日の 2 つのタスクの合計で満たす。
+        seg(
+            &c,
+            "C",
+            d + 600 * MIN,
+            d + 608 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "D",
+            d + 610 * MIN,
+            d + 618 * MIN,
+            SegmentKind::Work,
+            Some(&f.t2),
+        );
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(s.active_days, 2);
+        // day_min を変えると数え方が変わる。
+        okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                day_min: Some(14),
+                measure: Some("days".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!((s.active_days, s.measure.as_str(), s.day_min), (3, "days", 14));
+        okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                day_min: Some(30),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().active_days, 0);
+        // 日付をまたぐ作業は、日ごとに分けて数える（前日 23:50 〜 当日 00:20）。
+        seg(
+            &c,
+            "E",
+            d - 10 * MIN,
+            d + 20 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                day_min: Some(25),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        // 当日は 8 + 8 + 20（00:00-00:20）= 36 分で足り、前日は 14 + 10 = 24 分で足りない。
+        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().active_days, 1);
+    }
+
+    #[test]
+    fn 完了数は期間内に完了したものと全体() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let t3 = task::add(
+            &c,
+            &TaskInput {
+                title: Some("T3".into()),
+                key_result: Some(f.kr.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .task
+        .id;
+        let t4 = task::add(
+            &c,
+            &TaskInput {
+                title: Some("T4".into()),
+                key_result: Some(f.kr.clone()),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .task
+        .id;
+        task::done(&c, &f.t1).unwrap();
+        task::drop_task(&c, &t3).unwrap();
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        // t1 が完了、t3 はやめた（全体に含めない）、t2・t4 は未完了。
+        assert_eq!((s.done_count, s.task_count), (1, 3));
+        assert_eq!(s.tasks.len(), 4);
+        // 完了が期間より前なら、完了数に入らず全体には残る。
+        let d = env.day_start();
+        let s = kr_summary(&c, &f.kr, Some(Range::new(d - 30 * DAY, d - 20 * DAY))).unwrap();
+        assert_eq!((s.done_count, s.task_count), (0, 3));
+        let _ = t4;
+    }
+
+    #[test]
+    fn スキル別は各スキルに全時間を計上し見積と実績を並べる() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        for n in ["Rust", "設計"] {
+            skill::add(
+                &c,
+                &SkillInput {
+                    name: n.into(),
+                    parent: None,
+                },
+            )
+            .unwrap();
+        }
+        task::edit(
+            &c,
+            &f.t1,
+            &TaskInput {
+                skills: vec!["Rust".into(), "設計".into()],
+                estimate_min: Some(90),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let d = env.day_start();
+        seg(
+            &c,
+            "A",
+            d + 60 * MIN,
+            d + 120 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "B",
+            d + 120 * MIN,
+            d + 150 * MIN,
+            SegmentKind::Work,
+            Some(&f.t2),
+        );
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let by = |n: &str| s.skills.iter().find(|x| x.name == n).map(|x| x.duration_ms);
+        assert_eq!(by("Rust"), Some(60 * MIN));
+        assert_eq!(by("設計"), Some(60 * MIN));
+        assert_eq!(by("(なし)"), Some(30 * MIN));
+        assert_eq!(s.time_ms, 90 * MIN);
+        assert_eq!(s.estimate.estimate_min_total, 90);
+        assert_eq!(s.estimate.estimated_tasks, 1);
+        assert_eq!(s.estimate.actual_ms_of_estimated, 60 * MIN);
+    }
+
+    #[test]
+    fn 付け替えると集計も移る() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let o2 = okr_svc::add_objective(
+            &c,
+            &ObjectiveInput {
+                title: "O2".into(),
+                from: None,
+                to: None,
+            },
+        )
+        .unwrap();
+        let k2 = okr_svc::add_kr(
+            &c,
+            &KrInput {
+                objective: o2.id,
+                title: "K2".into(),
+                target: None,
+            },
+        )
+        .unwrap();
+        let d = env.day_start();
+        seg(
+            &c,
+            "A",
+            d + 60 * MIN,
+            d + 120 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        let r = okr_svc::link_tasks(&c, &k2.id[..20], &[f.t1[..20].to_string()]).unwrap();
+        assert_eq!(
+            r.linked[0].previous_kr.as_ref().map(|p| p.title.as_str()),
+            Some("K")
+        );
+        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().time_ms, 0);
+        assert_eq!(kr_summary(&c, &k2.id, None).unwrap().time_ms, 60 * MIN);
+        // 外す。KR に紐付いていないものは何もしない。
+        let out = okr_svc::unlink_tasks(&c, &[f.t1.clone(), f.t1.clone()]).unwrap();
+        assert_eq!(out.len(), 1);
+        assert_eq!(kr_summary(&c, &k2.id, None).unwrap().time_ms, 0);
+        assert!(okr_svc::unlink_tasks(&c, std::slice::from_ref(&f.t1))
+            .unwrap()
+            .is_empty());
+        // 見つからないタスクがあれば何も変えない。
+        assert!(okr_svc::link_tasks(&c, &k2.id, &[f.t2.clone(), "ZZZZ".into()]).is_err());
+        assert_eq!(kr_summary(&c, &k2.id, None).unwrap().tasks.len(), 0);
+        assert!(okr_svc::link_tasks(&c, &k2.id, &[]).is_err());
+    }
+
+    #[test]
+    fn 軸と最小分数の検証() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let bad = |e: KrEdit| okr_svc::edit_kr(&c, &f.kr, &e).is_err();
+        assert!(bad(KrEdit {
+            measure: Some("x".into()),
+            ..Default::default()
+        }));
+        assert!(bad(KrEdit {
+            day_min: Some(0),
+            ..Default::default()
+        }));
+        let k = okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                measure: Some("done".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!((k.measure.as_str(), k.day_min), ("done", 15));
+    }
+}

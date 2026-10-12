@@ -25,7 +25,7 @@ pub const DEFAULT_WEEKS: i64 = 53;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct HeatmapInput {
-    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `records[:checkin|hassle|abc|reflection]`。
+    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `kr:<ID・タイトル>`（KR に紐付いたタスクの時間）/ `records[:checkin|hassle|abc|reflection]`。
     pub by: Option<String>,
     /// 開始日（`YYYY-MM-DD` / `today` / `yesterday`）。既定は 53 週前の週の月曜。
     pub from: Option<String>,
@@ -68,8 +68,16 @@ pub struct Heatmap {
 enum Metric {
     Time,
     Kind(SegmentKind),
-    Task { id: String },
-    Skill { ids: HashSet<String> },
+    Task {
+        id: String,
+    },
+    Skill {
+        ids: HashSet<String>,
+    },
+    /// KR に紐付いたタスクの時間。
+    Kr {
+        task_ids: HashSet<String>,
+    },
     Records(Option<&'static str>),
 }
 
@@ -108,7 +116,7 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
     };
     let bad = || {
         Error::InvalidArgument(format!(
-            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, records[:checkin|hassle|abc|reflection])"
+            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, kr:<KR>, records[:checkin|hassle|abc|reflection])"
         ))
     };
     Ok(match (head, arg) {
@@ -143,6 +151,19 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
                 Metric::Skill { ids },
                 format!("skill:{}", s.name),
                 format!("スキル: {}（子スキルを含む）", s.name),
+                "ms",
+            )
+        }
+        ("kr", Some(k)) if !k.is_empty() => {
+            let kr = super::okr::find_kr(ctx, k)?;
+            let task_ids = repo::task::list_of_kr(ctx.conn, &kr.id)?
+                .into_iter()
+                .map(|t| t.id)
+                .collect();
+            (
+                Metric::Kr { task_ids },
+                format!("kr:{}", kr.id),
+                format!("KR: {}", kr.title),
                 "ms",
             )
         }
@@ -214,6 +235,30 @@ fn resolve_dates(ctx: &Ctx, tz: Tz, input: &HeatmapInput) -> Result<(NaiveDate, 
     Ok((from, to))
 }
 
+/// 区間 `[start, end)` を `range` で切り、ローカル日付の境界で分割して日ごとに加算する。
+pub(super) fn add_per_day(
+    per_day: &mut BTreeMap<NaiveDate, i64>,
+    tz: Tz,
+    range: Range,
+    start: i64,
+    end: i64,
+) {
+    let Some(clipped) = Range::new(start, end).intersect(&range) else {
+        return;
+    };
+    let mut d = timefmt::local_date_of(tz, clipped.start);
+    loop {
+        let dr = timefmt::day_range(tz, d);
+        if dr.start >= clipped.end {
+            break;
+        }
+        if let Some(part) = dr.intersect(&clipped) {
+            *per_day.entry(d).or_default() += part.len();
+        }
+        d += Duration::days(1);
+    }
+}
+
 pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
     let tz = ctx.tz()?;
     let (from, to) = resolve_dates(ctx, tz, input)?;
@@ -273,26 +318,13 @@ pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
                         .as_ref()
                         .zip(task_ids.as_ref())
                         .is_some_and(|(t, set)| set.contains(t)),
+                    Metric::Kr { task_ids } => s.task_id.as_ref().is_some_and(|t| task_ids.contains(t)),
                     _ => true,
                 };
                 if !matches_target {
                     continue;
                 }
-                // 日付の境界で分割して加算する。
-                let Some(clipped) = Range::new(s.start_at, s.end_at).intersect(&range) else {
-                    continue;
-                };
-                let mut d = timefmt::local_date_of(tz, clipped.start);
-                loop {
-                    let dr = timefmt::day_range(tz, d);
-                    if dr.start >= clipped.end {
-                        break;
-                    }
-                    if let Some(part) = dr.intersect(&clipped) {
-                        *per_day.entry(d).or_default() += part.len();
-                    }
-                    d += Duration::days(1);
-                }
+                add_per_day(&mut per_day, tz, range, s.start_at, s.end_at);
             }
         }
     }
@@ -558,6 +590,81 @@ mod tests {
             heatmap(&c, &input("bogus")),
             Err(Error::InvalidArgument(_))
         ));
+    }
+
+    #[test]
+    fn kr_metric_counts_linked_tasks_only() {
+        use crate::service::okr::{self, KrInput, ObjectiveInput};
+        let env = Env::new();
+        let c = env.ctx();
+        let d = env.day_start();
+        let o = okr::add_objective(
+            &c,
+            &ObjectiveInput {
+                title: "O".into(),
+                from: None,
+                to: None,
+            },
+        )
+        .unwrap();
+        let k = okr::add_kr(
+            &c,
+            &KrInput {
+                objective: o.id,
+                title: "読書".into(),
+                target: None,
+            },
+        )
+        .unwrap();
+        let mk = |title: &str, kr: Option<&str>| {
+            task::add(
+                &c,
+                &TaskInput {
+                    title: Some(title.into()),
+                    key_result: kr.map(Into::into),
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .task
+            .id
+        };
+        let a = mk("本", Some(&k.id));
+        let b = mk("別", None);
+        let st = SegmentStatus::Auto;
+        insert_segment(
+            c.conn,
+            "A",
+            d + 60 * MIN,
+            d + 100 * MIN,
+            SegmentKind::Work,
+            Some(&a),
+            st,
+        );
+        insert_segment(
+            c.conn,
+            "B",
+            d + 100 * MIN,
+            d + 130 * MIN,
+            SegmentKind::Work,
+            Some(&b),
+            st,
+        );
+        insert_segment(
+            c.conn,
+            "C",
+            d + 130 * MIN,
+            d + 140 * MIN,
+            SegmentKind::Idle,
+            Some(&a),
+            st,
+        );
+        let h = heatmap(&c, &input(&format!("kr:{}", &k.id[..12]))).unwrap();
+        assert_eq!(h.total, 40 * MIN);
+        assert_eq!(h.by, format!("kr:{}", k.id));
+        // タイトルでも指定できる。
+        assert_eq!(heatmap(&c, &input("kr:読書")).unwrap().total, 40 * MIN);
+        assert!(matches!(heatmap(&c, &input("kr:無い")), Err(Error::NotFound(_))));
     }
 
     #[test]

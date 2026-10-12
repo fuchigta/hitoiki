@@ -12,6 +12,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (3, include_str!("../migrations/0003_block_template.sql")),
     (4, include_str!("../migrations/0004_correction.sql")),
     (5, include_str!("../migrations/0005_reflection_structured.sql")),
+    (6, include_str!("../migrations/0006_kr_measure.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -107,6 +108,38 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM schema_migration", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n as usize, MIGRATIONS.len());
+    }
+
+    /// 0005 までの DB にある KR は、0006 の適用後に既定の軸（time）と最小分数（15）になる。
+    #[test]
+    fn migration_0006_既存の_kr_に既定値が入る() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        ensure_migration_table(&conn).unwrap();
+        for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v <= 5) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO schema_migration(version) VALUES (?1)", [v])
+                .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO objective (id, title, status) VALUES ('O1', 'o', 'active')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO key_result (id, objective_id, title) VALUES ('K1', 'O1', 'k')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(pending_versions(&conn).unwrap(), vec![6]);
+        migrate(&mut conn).unwrap();
+        let (m, d): (String, i64) = conn
+            .query_row(
+                "SELECT measure, day_min FROM key_result WHERE id = 'K1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((m.as_str(), d), ("time", 15));
     }
 
     #[test]

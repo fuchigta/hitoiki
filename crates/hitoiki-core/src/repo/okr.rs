@@ -36,8 +36,18 @@ pub fn resolve_objective(conn: &Connection, prefix: &str) -> Result<String> {
 
 pub fn insert_kr(conn: &Connection, k: &KeyResult) -> Result<()> {
     conn.execute(
-        "INSERT INTO key_result (id, objective_id, title, target, current, status) VALUES (?1,?2,?3,?4,?5,?6)",
-        params![k.id, k.objective_id, k.title, k.target, k.current, k.status],
+        "INSERT INTO key_result (id, objective_id, title, target, current, status, measure, day_min) \
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        params![
+            k.id,
+            k.objective_id,
+            k.title,
+            k.target,
+            k.current,
+            k.status,
+            k.measure,
+            k.day_min
+        ],
     )?;
     Ok(())
 }
@@ -50,19 +60,22 @@ fn kr_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<KeyResult> {
         target: r.get(3)?,
         current: r.get(4)?,
         status: r.get(5)?,
+        measure: r.get(6)?,
+        day_min: r.get(7)?,
     })
 }
 
+const KR_COLS: &str = "id, objective_id, title, target, current, status, measure, day_min";
+
 pub fn list_krs(conn: &Connection) -> Result<Vec<KeyResult>> {
-    let mut stmt =
-        conn.prepare("SELECT id, objective_id, title, target, current, status FROM key_result ORDER BY id")?;
+    let mut stmt = conn.prepare(&format!("SELECT {KR_COLS} FROM key_result ORDER BY id"))?;
     let rows = stmt.query_map([], kr_from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 pub fn get_kr(conn: &Connection, id: &str) -> Result<KeyResult> {
     conn.query_row(
-        "SELECT id, objective_id, title, target, current, status FROM key_result WHERE id = ?1",
+        &format!("SELECT {KR_COLS} FROM key_result WHERE id = ?1"),
         [id],
         kr_from_row,
     )

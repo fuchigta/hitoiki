@@ -826,6 +826,7 @@ fn task_input(ctx: &Ctx, title: Option<String>, o: TaskOpts) -> Result<task::Tas
             .map(timefmt::parse_duration_min)
             .transpose()?,
         key_result: o.kr,
+        clear_key_result: o.no_kr,
         skills: o.skill,
         clear_skills: false,
         external_url: o.url,
