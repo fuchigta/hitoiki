@@ -62,7 +62,7 @@ export function cellTitle(d: HeatmapDay, unit: "ms" | "count"): string {
   return d.value > 0 ? `${head} ${fmtHeatValue(unit, d.value)}` : `${head} なし`;
 }
 
-export type HeatBy = "time" | "kind" | "task" | "skill" | "records";
+export type HeatBy = "time" | "kind" | "task" | "skill" | "kr" | "records";
 
 /** 画面の選択から core の `by` 文字列を組み立てる。引数が要る指標で未選択なら null。 */
 export function buildBy(by: HeatBy, arg: string): string | null {

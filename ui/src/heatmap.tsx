@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { api, type SegmentKind } from "./api";
 import { Card, ErrorBox } from "./components";
 import { buildBy, buildWeeks, cellTitle, fmtHeatValue, monthLabels, WEEKDAY_LABELS, type HeatBy } from "./heatmap-util";
+import { krLabel, krOptions } from "./kr-util";
 import { KIND_LABEL, KIND_ORDER, useAsync, useLiveTick } from "./lib";
 
 const BYS: { id: HeatBy; label: string }[] = [
@@ -9,6 +10,7 @@ const BYS: { id: HeatBy; label: string }[] = [
   { id: "kind", label: "種別" },
   { id: "task", label: "タスク" },
   { id: "skill", label: "スキル" },
+  { id: "kr", label: "KR" },
   { id: "records", label: "記録" },
 ];
 
@@ -28,6 +30,8 @@ export function HeatmapCard() {
   const tick = useLiveTick();
   const tasks = useAsync(() => api.taskList(), []);
   const skills = useAsync(() => api.skillList(), []);
+  const okr = useAsync(() => api.okrList(), []);
+  const krs = krOptions(okr.data?.objectives ?? []);
   const query = buildBy(by, arg);
   const hm = useAsync(
     () => (query ? api.heatmap(query) : Promise.resolve(null)),
@@ -84,6 +88,16 @@ export function HeatmapCard() {
             ))}
           </select>
         )}
+        {by === "kr" && (
+          <select value={arg} onChange={(e) => setArg(e.currentTarget.value)} aria-label="KR">
+            <option value="">KR を選ぶ</option>
+            {krs.map((k) => (
+              <option key={k.id} value={k.id}>
+                {krLabel(k)}
+              </option>
+            ))}
+          </select>
+        )}
         {by === "records" && (
           <select value={arg} onChange={(e) => setArg(e.currentTarget.value)} aria-label="記録の種類">
             {RECORD_KINDS.map((k) => (
@@ -95,7 +109,7 @@ export function HeatmapCard() {
         )}
       </div>
       <ErrorBox error={hm.error} />
-      {!query && <p class="muted">{by === "task" ? "タスク" : "スキル"}を選ぶと表示します。</p>}
+      {!query && <p class="muted">{by === "task" ? "タスク" : by === "kr" ? "KR" : "スキル"}を選ぶと表示します。</p>}
       {data && query && (
         <>
           <div class="heatmap-scroll">

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type MatchField, type PatternType, type TaskDeletePreview, type TaskStatus, type TaskView } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
-import { defaultBodyMode, isDirty, isSaveShortcut, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
+import { defaultBodyMode, isDirty, isSaveShortcut, krPatch, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
+import { KrPicker } from "../kr-picker";
+import { krOptions } from "../kr-util";
 import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
 import { Markdown } from "../markdown";
 import { SkillPicker } from "../skill-picker";
@@ -18,6 +20,7 @@ function draftOf(task: TaskView): TaskDraft {
     important: !!task.important,
     est: task.estimate_min != null ? String(task.estimate_min) : "",
     skills: [...task.skills],
+    kr: task.key_result_id ?? "",
   };
 }
 
@@ -290,6 +293,8 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
   const act = useAction();
   // 補完に使う既知のスキル。取得できなくても他の欄の編集・保存は続けられる。
   const known = useAsync(() => api.skillList(), []);
+  const okr = useAsync(() => api.okrList(), []);
+  const krs = krOptions(okr.data?.objectives ?? [], draft.kr);
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const dirty = isDirty(saved, draft);
@@ -332,6 +337,8 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         skills: list,
         // 空にして保存したら、付いていたスキルを全て外す。
         clear_skills: list.length === 0 && task.skills.length > 0,
+        // KR は選んでいれば紐付け、空にして保存したら外す。
+        ...krPatch(sent.kr, task.key_result_id),
       }),
     );
     if (r !== undefined) {
@@ -406,6 +413,10 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
           ariaLabel="スキルを追加"
           disabled={busy}
         />
+      </div>
+      <div class="field">
+        <span>KR（OKR のどの成果につながるか。外すこともできます）</span>
+        <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="KR を選ぶ" disabled={busy} />
       </div>
       <div class="row">
         <label class="check">

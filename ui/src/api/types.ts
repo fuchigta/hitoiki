@@ -107,6 +107,8 @@ export interface TaskInput {
   important?: boolean;
   estimate_min?: number;
   key_result?: string;
+  /** 編集で KR との紐付けを外す。 */
+  clear_key_result?: boolean;
   skills?: string[];
   /** 編集でスキルを全て外す。 */
   clear_skills?: boolean;
@@ -575,6 +577,63 @@ export interface KeyResult {
   target: string | null;
   current: string | null;
   status: string;
+  /** 何を軸に見るか。 */
+  measure: KrMeasure;
+  /** 回数の軸で「取り組んだ日」とみなす 1 日の最小分数。 */
+  day_min: number;
+}
+
+export type KrMeasure = "time" | "days" | "done";
+
+export interface KrWeekBar {
+  /** 週の月曜（YYYY-MM-DD）。 */
+  week_start: string;
+  duration_ms: number;
+}
+
+export interface KrSkillTime {
+  skill_id: string | null;
+  name: string;
+  duration_ms: number;
+}
+
+export interface KrTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  estimate_min: number | null;
+  tracked_ms: number;
+  done_at: Millis | null;
+}
+
+/** KR の集計（core の `kr_summary`）。 */
+export interface KrSummary {
+  key_result: KeyResult;
+  objective: { id: string; title: string };
+  range: RangeView;
+  range_source: "given" | "objective" | "recent_weeks";
+  measure: KrMeasure;
+  time_ms: number;
+  active_days: number;
+  day_min: number;
+  done_count: number;
+  task_count: number;
+  weekly: KrWeekBar[];
+  skills: KrSkillTime[];
+  estimate: { estimate_min_total: number; estimated_tasks: number; actual_ms_of_estimated: number };
+  tasks: KrTask[];
+}
+
+export interface LinkedTask {
+  id: string;
+  title: string;
+  /** 付け替え前の KR（無かったときは null）。 */
+  previous_kr: { id: string; title: string } | null;
+}
+
+export interface LinkResult {
+  key_result: KeyResult;
+  linked: LinkedTask[];
 }
 
 export interface ObjectiveView extends Objective {
@@ -639,6 +698,8 @@ export interface KrEdit {
   current?: string;
   status?: string;
   objective?: string;
+  measure?: KrMeasure;
+  day_min?: number;
 }
 
 export interface SkillEdit {

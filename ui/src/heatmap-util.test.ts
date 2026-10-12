@@ -64,6 +64,8 @@ describe("表示", () => {
     expect(buildBy("time", "")).toBe("time");
     expect(buildBy("kind", "work")).toBe("kind:work");
     expect(buildBy("task", "")).toBeNull();
+    expect(buildBy("kr", "")).toBeNull();
+    expect(buildBy("kr", "01ABC")).toBe("kr:01ABC");
     expect(buildBy("records", "")).toBe("records");
     expect(buildBy("records", "abc")).toBe("records:abc");
   });

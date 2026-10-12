@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLeaveGuard, defaultBodyMode, isDirty, isSaveShortcut, type TaskDraft } from "./edit-util";
+import { createLeaveGuard, defaultBodyMode, isDirty, isSaveShortcut, krPatch, type TaskDraft } from "./edit-util";
 
-const base: TaskDraft = { title: "t", body: "b", urgent: false, important: true, est: "30", skills: ["rust", "ui"] };
+const base: TaskDraft = { title: "t", body: "b", urgent: false, important: true, est: "30", skills: ["rust", "ui"], kr: "" };
 const key = (o: Partial<Parameters<typeof isSaveShortcut>[0]>) => ({
   key: "s",
   ctrlKey: false,
@@ -26,6 +26,17 @@ describe("isDirty", () => {
   it("スキルの並び順と見積の前後空白は変更としない", () => {
     expect(isDirty(base, { ...base, skills: ["ui", "rust"], est: " 30 " })).toBe(false);
     expect(isDirty(base, { ...base, skills: ["rust", "ui", "go"] })).toBe(true);
+  });
+  it("KR の選択・解除は変更", () => {
+    expect(isDirty(base, { ...base, kr: "K1" })).toBe(true);
+    expect(isDirty({ ...base, kr: "K1" }, base)).toBe(true);
+    expect(isDirty({ ...base, kr: "K1" }, { ...base, kr: "K1" })).toBe(false);
+  });
+  it("KR の保存時の指定: 選んでいれば紐付け、空にしたときだけ外す", () => {
+    expect(krPatch("K1", null)).toEqual({ key_result: "K1" });
+    expect(krPatch("K1", "K1")).toEqual({ key_result: "K1" });
+    expect(krPatch("", "K1")).toEqual({ clear_key_result: true });
+    expect(krPatch("", null)).toEqual({});
   });
   it("見積を空にしたら変更", () => {
     expect(isDirty(base, { ...base, est: "" })).toBe(true);
