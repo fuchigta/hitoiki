@@ -704,6 +704,8 @@ export interface PushPayload {
   open_screen: string | null;
   /** idle_return の対象期間 [開始, 終了]（無ければ省略）。 */
   idle_range?: [Millis, Millis];
+  /** urgent_task / important_task の対象タスク（無ければ省略）。「始める」でこのタスクを始める。 */
+  task_id?: string;
 }
 
 /** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */

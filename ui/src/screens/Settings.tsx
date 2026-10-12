@@ -7,7 +7,7 @@ import { DataSettings } from "../data-settings";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = {
-  general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number };
+  general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number; urgent_task_interval_min?: number; important_stale_days?: number };
   review?: { trust_doing?: boolean; auto_break_locked_min?: number };
 };
 
@@ -98,6 +98,24 @@ export function Settings() {
                 min="0"
                 value={c.push?.idle_return_min ?? 15}
                 onChange={(e) => set("push.idle_return_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
+              />
+            </Field>
+          </div>
+          <div class="form-row">
+            <Field label="緊急のしるしが付いたタスクを、この分数おきに知らせる（0 で無効）">
+              <input
+                type="number"
+                min="0"
+                value={c.push?.urgent_task_interval_min ?? 120}
+                onChange={(e) => set("push.urgent_task_interval_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
+              />
+            </Field>
+            <Field label="重要なタスクに、この日数以上時間が入っていなければ知らせる（0 で無効）">
+              <input
+                type="number"
+                min="0"
+                value={c.push?.important_stale_days ?? 3}
+                onChange={(e) => set("push.important_stale_days", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
               />
             </Field>
           </div>

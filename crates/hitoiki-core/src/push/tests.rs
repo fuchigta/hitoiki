@@ -1045,3 +1045,490 @@ fn ignored_segments_do_not_count_as_work_for_push() {
     c.switch_spike.count = 3;
     assert!(evaluate(&ctx, &c).is_empty());
 }
+
+// ===== urgent_task / important_task =====
+
+const DAY: Millis = 24 * 60 * MIN;
+
+fn nudge(id: &str, urgent: bool, important: bool, created_at: Millis) -> TaskNudge {
+    TaskNudge {
+        id: id.into(),
+        title: format!("タスク{id}"),
+        urgent,
+        important,
+        doing: false,
+        last_worked_at: None,
+        created_at,
+    }
+}
+
+fn block(task: Option<&str>, start: Millis, end: Millis) -> TimeBlock {
+    TimeBlock {
+        id: format!("b{start}"),
+        start_at: start,
+        end_at: end,
+        task_id: task.map(Into::into),
+        label: None,
+        focus: false,
+    }
+}
+
+/// 配信済みのタスク通知のログ。ペイロードに task_id を持つ。
+fn task_log(payload: PushPayload, at: Millis, response: Option<&str>) -> PushLog {
+    PushLog {
+        id: format!("tl{at}"),
+        at,
+        trigger: payload.trigger.as_str().into(),
+        payload_json: serde_json::to_string(&payload).unwrap(),
+        delivered: true,
+        responded_at: response.map(|_| at + MIN),
+        response_json: response.map(|a| format!(r#"{{"action":"{a}"}}"#)),
+        snoozed_until: None,
+        suppressed_reason: None,
+    }
+}
+
+fn urgent_ctx(now: Millis) -> PushContext {
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.tasks = vec![nudge("A", true, false, t(1, 9, 0))];
+    ctx
+}
+
+fn urgent_delivered(ctx: &PushContext, c: &Push) -> Vec<PushTrigger> {
+    delivered(&evaluate(ctx, c))
+}
+
+#[test]
+fn urgent_task_fires_with_payload() {
+    let ctx = urgent_ctx(t(12, 10, 0));
+    let ds = evaluate(&ctx, &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::UrgentTask]);
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    assert_eq!(p.title, "緊急のタスクがあります");
+    assert!(p.body.contains("「タスクA」") && !p.body.contains("ほかに"));
+    assert_eq!(p.task_id.as_deref(), Some("A"));
+    assert_eq!(
+        p.actions.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        vec!["task_start", "task_later"]
+    );
+    assert_eq!(p.open_screen.as_deref(), Some("tasks"));
+    // 複数なら「ほかに N 件」。
+    let mut ctx = urgent_ctx(t(12, 10, 0));
+    ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
+    ctx.tasks.push(nudge("C", true, true, t(3, 9, 0)));
+    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+        panic!()
+    };
+    assert!(p.body.contains("（ほかに 2 件）"));
+}
+
+#[test]
+fn urgent_task_not_without_target_or_outside_hours_or_idle() {
+    let mut ctx = PushContext::new(t(12, 10, 0), TZ);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 重要だけ・緊急でないものは対象外。
+    ctx.tasks = vec![nudge("A", false, true, t(11, 9, 0))];
+    assert!(urgent_delivered(&ctx, &cfg()).is_empty());
+    // 勤務時間外。
+    for (h, m) in [(7, 59), (18, 30), (21, 0)] {
+        let c = urgent_ctx(t(12, h, m));
+        assert!(
+            !urgent_delivered(&c, &cfg()).contains(&PushTrigger::UrgentTask),
+            "{h}:{m}"
+        );
+    }
+    // 無操作中。
+    let mut c = urgent_ctx(t(12, 10, 0));
+    c.idle = IdleState {
+        is_idle: true,
+        since_last_input_sec: 600,
+    };
+    assert!(evaluate(&c, &cfg()).is_empty());
+}
+
+#[test]
+fn urgent_task_skipped_while_working_on_a_target() {
+    let now = t(12, 10, 0);
+    // 作業系の最終区間がその緊急タスクに帰属している。
+    let mut ctx = urgent_ctx(now);
+    ctx.recent_segments = vec![work("A", t(12, 9, 30), now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // doing（着手を宣言している）。
+    let mut ctx = urgent_ctx(now);
+    ctx.tasks[0].doing = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 対象のどれかに取り組み中なら、ほかの緊急タスクについても出さない。
+    let mut ctx = urgent_ctx(now);
+    ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
+    ctx.tasks[1].doing = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 緊急でない別のタスクをしているだけなら出る。
+    let mut ctx = urgent_ctx(now);
+    ctx.recent_segments = vec![work("Z", t(12, 9, 30), now)];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+}
+
+#[test]
+fn urgent_task_skips_tasks_with_upcoming_block() {
+    let now = t(12, 10, 0);
+    let mut ctx = urgent_ctx(now);
+    ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
+    // A は午後に予定済み、B は未予定。
+    ctx.time_blocks = vec![block(Some("A"), t(12, 14, 0), t(12, 15, 0))];
+    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+        panic!()
+    };
+    assert_eq!(p.task_id.as_deref(), Some("B"));
+    assert!(!p.body.contains("ほかに"));
+    // 進行中のブロックも対象外。全部予定済みなら出ない。
+    ctx.time_blocks = vec![
+        block(Some("A"), t(12, 9, 30), t(12, 10, 30)),
+        block(Some("B"), t(12, 16, 0), t(12, 17, 0)),
+    ];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 終わったブロックは予定済みと数えない。
+    ctx.time_blocks = vec![block(Some("A"), t(12, 8, 30), t(12, 9, 30))];
+    ctx.tasks.truncate(1);
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    // タスクのないブロックは無関係。
+    ctx.time_blocks = vec![block(None, t(12, 11, 0), t(12, 12, 0))];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+}
+
+#[test]
+fn urgent_task_interval_and_disable() {
+    let now = t(12, 14, 0);
+    let mut ctx = urgent_ctx(now);
+    // 100 分前に配信 → 既定 120 分未満なので出ない。
+    ctx.push_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 100 * MIN, None)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 125 分前 → 出る。
+    ctx.push_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 125 * MIN, None)];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    // 間隔の設定を伸ばせば出ない。
+    let mut c = cfg();
+    c.urgent_task_interval_min = 180;
+    assert!(evaluate(&ctx, &c).is_empty());
+    // 0 で無効。
+    let mut c = cfg();
+    c.urgent_task_interval_min = 0;
+    assert!(evaluate(&urgent_ctx(now), &c).is_empty());
+    // disabled_triggers。
+    let mut c = cfg();
+    c.disabled_triggers = vec!["urgent_task".into()];
+    assert!(evaluate(&urgent_ctx(now), &c).is_empty());
+}
+
+#[test]
+fn urgent_task_is_also_gated_by_common_rules() {
+    let now = t(12, 14, 0);
+    // 直前（5 分前）に別トリガーを配信している。
+    let mut ctx = urgent_ctx(now);
+    ctx.push_log = vec![log("weekly", now - 5 * MIN, true)];
+    let ds = evaluate(&ctx, &cfg());
+    assert!(delivered(&ds).is_empty());
+    assert!(ds.iter().any(|d| matches!(
+        d,
+        PushDecision::Suppress { trigger: PushTrigger::UrgentTask, reason } if reason == "recent_push"
+    )));
+    // 会議中は保留。
+    let mut ctx = urgent_ctx(now);
+    ctx.calendar_events = vec![event(t(12, 13, 30), t(12, 14, 30))];
+    assert!(matches!(
+        evaluate(&ctx, &cfg())[0],
+        PushDecision::Defer {
+            trigger: PushTrigger::UrgentTask,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn urgent_task_picks_longest_unnotified_then_oldest() {
+    let now = t(12, 14, 0);
+    let pick = |ctx: &PushContext| {
+        let ds = evaluate(ctx, &cfg());
+        let PushDecision::Deliver(p) = ds.into_iter().next().unwrap() else {
+            panic!()
+        };
+        p.task_id.unwrap()
+    };
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.tasks = vec![
+        nudge("A", true, false, t(5, 9, 0)),
+        nudge("B", true, false, t(3, 9, 0)),
+        nudge("C", true, false, t(4, 9, 0)),
+    ];
+    // 同順（まだ誰にも通知していない）なら作成が古い B。
+    assert_eq!(pick(&ctx), "B");
+    // B に通知済み → 次に作成が古い C。
+    ctx.push_log = vec![task_log(
+        payload::urgent_task("B", "x", 2),
+        now - 5 * 60 * MIN,
+        Some("task_later"),
+    )];
+    assert_eq!(pick(&ctx), "C");
+    // B, C に通知済み → A。
+    ctx.push_log.push(task_log(
+        payload::urgent_task("C", "x", 2),
+        now - 4 * 60 * MIN - 10,
+        Some("task_later"),
+    ));
+    assert_eq!(pick(&ctx), "A");
+    // 全員に通知済みなら、通知が最も古い B。
+    ctx.push_log.push(task_log(
+        payload::urgent_task("A", "x", 2),
+        now - 3 * 60 * MIN,
+        Some("task_later"),
+    ));
+    assert_eq!(pick(&ctx), "B");
+}
+
+fn important_ctx(now: Millis) -> PushContext {
+    let mut ctx = PushContext::new(now, TZ);
+    // 5 日前に作られ、一度も時間が入っていない。
+    ctx.tasks = vec![nudge("I1", false, true, now - 5 * DAY)];
+    ctx
+}
+
+#[test]
+fn important_task_fires_when_stale() {
+    let now = t(12, 10, 0);
+    let ctx = important_ctx(now);
+    let ds = evaluate(&ctx, &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::ImportantTask]);
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    assert_eq!(p.title, "重要なタスクに少し時間を取りませんか");
+    assert!(p.body.contains("「タスクI1」") && p.body.contains("まだ時間が入っていません"));
+    assert_eq!(p.task_id.as_deref(), Some("I1"));
+    assert_eq!(
+        p.actions.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        vec!["task_start", "open", "task_skip_week"]
+    );
+    assert_eq!(p.open_screen.as_deref(), Some("today/design"));
+
+    // 時間が入っていれば、最後に手をつけてからの日数を本文に出す。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].last_worked_at = Some(now - 4 * DAY - 3 * 60 * MIN);
+    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+        panic!()
+    };
+    assert!(p.body.contains("ここ 4 日ほど時間が入っていません"));
+}
+
+#[test]
+fn important_task_threshold_uses_latest_of_work_and_creation() {
+    let now = t(12, 10, 0);
+    // 作業が最近ある（2 日前）→ 3 日未満なので出ない。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].last_worked_at = Some(now - 2 * DAY);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 作業は古いが作成が新しい → 作成からの経過で判定。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].created_at = now - 2 * DAY;
+    ctx.tasks[0].last_worked_at = Some(now - 10 * DAY);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // ちょうど 3 日で対象。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].created_at = now - 3 * DAY;
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![PushTrigger::ImportantTask]
+    );
+    // 日数の設定を変える・0 で無効。
+    let mut c = cfg();
+    c.important_stale_days = 7;
+    assert!(evaluate(&important_ctx(now), &c).is_empty());
+    c.important_stale_days = 0;
+    assert!(evaluate(&important_ctx(now), &c).is_empty());
+    // disabled_triggers。
+    let mut c = cfg();
+    c.disabled_triggers = vec!["important_task".into()];
+    assert!(evaluate(&important_ctx(now), &c).is_empty());
+}
+
+#[test]
+fn important_task_excludes_urgent_blocked_and_active() {
+    let now = t(12, 10, 0);
+    // 緊急でもあるものは urgent_task の担当で、important_task の対象外。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].urgent = true;
+    ctx.tasks[0].doing = true; // urgent_task も出さない
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 今日の time_block に割り当て済み（終わったブロックでも）。
+    let mut ctx = important_ctx(now);
+    ctx.time_blocks = vec![block(Some("I1"), t(12, 8, 30), t(12, 9, 0))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    ctx.time_blocks = vec![block(Some("I1"), t(12, 15, 0), t(12, 16, 0))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // いま取り組み中（作業の帰属 / doing）。
+    let mut ctx = important_ctx(now);
+    ctx.recent_segments = vec![work("I1", t(12, 9, 30), now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].doing = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+}
+
+#[test]
+fn important_task_work_hours_idle_and_once_a_day() {
+    for (h, m) in [(7, 0), (18, 30), (22, 0)] {
+        let ctx = important_ctx(t(12, h, m));
+        assert!(
+            !delivered(&evaluate(&ctx, &cfg())).contains(&PushTrigger::ImportantTask),
+            "{h}:{m}"
+        );
+    }
+    let mut ctx = important_ctx(t(12, 10, 0));
+    ctx.idle = IdleState {
+        is_idle: true,
+        since_last_input_sec: 900,
+    };
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+
+    // 今日すでに配信済みなら出ない（別タスクでも）。
+    let now = t(12, 15, 0);
+    let mut ctx = important_ctx(now);
+    ctx.tasks.push(nudge("I2", false, true, now - 9 * DAY));
+    ctx.push_log = vec![task_log(
+        payload::important_task("I2", "x", None),
+        t(12, 9, 0),
+        None,
+    )];
+    assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
+    // 昨日の配信なら、1 日 1 回の制限にはかからない。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I2", "x", None),
+        t(11, 9, 0),
+        None,
+    )];
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![PushTrigger::ImportantTask]
+    );
+}
+
+#[test]
+fn important_task_skip_week_and_selection_order() {
+    let now = t(14, 10, 0); // 水曜
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.tasks = vec![
+        nudge("I1", false, true, now - 6 * DAY),
+        nudge("I2", false, true, now - 9 * DAY),
+        nudge("I3", false, true, now - 20 * DAY),
+    ];
+    ctx.tasks[0].last_worked_at = Some(now - 4 * DAY);
+    let pick = |ctx: &PushContext| {
+        let ds = evaluate(ctx, &cfg());
+        let Some(PushDecision::Deliver(p)) = ds.into_iter().find(|d| matches!(d, PushDecision::Deliver(_)))
+        else {
+            return None;
+        };
+        p.task_id
+    };
+    // 最後に手をつけた時刻が最も古いもの（I3）。
+    assert_eq!(pick(&ctx).as_deref(), Some("I3"));
+    // 今週（月曜 = 12 日以降）に I3 を「今週は見送る」→ 次は I2。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I3", "x", None),
+        t(12, 10, 0),
+        Some("task_skip_week"),
+    )];
+    assert_eq!(pick(&ctx).as_deref(), Some("I2"));
+    // 見送り以外の応答は除外しない。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I3", "x", None),
+        t(12, 10, 0),
+        Some("open"),
+    )];
+    assert_eq!(pick(&ctx).as_deref(), Some("I3"));
+    // 先週の見送りは今週に持ち越さない。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I3", "x", None),
+        t(9, 10, 0),
+        Some("task_skip_week"),
+    )];
+    assert_eq!(pick(&ctx).as_deref(), Some("I3"));
+    // 全部見送り済みなら出ない。
+    ctx.push_log = ["I1", "I2", "I3"]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            task_log(
+                payload::important_task(id, "x", None),
+                t(12, 10, i as u32),
+                Some("task_skip_week"),
+            )
+        })
+        .collect();
+    assert_eq!(pick(&ctx), None);
+}
+
+#[test]
+fn task_triggers_priority_order() {
+    let ids: Vec<&str> = PushTrigger::ALL.iter().map(|t| t.as_str()).collect();
+    let pos = |s: &str| ids.iter().position(|x| *x == s).unwrap();
+    assert!(pos("urgent_task") < pos("after_interrupt"));
+    assert!(pos("long_focus") < pos("important_task"));
+    assert_eq!(PushTrigger::label_of("urgent_task"), "緊急のタスク");
+    assert_eq!(PushTrigger::label_of("important_task"), "重要なタスク");
+    assert_eq!(
+        PushTrigger::parse("important_task"),
+        Some(PushTrigger::ImportantTask)
+    );
+}
+
+// ----- 応答 -----
+
+fn deliver_payload(conn: &rusqlite::Connection, p: PushPayload, at: Millis) -> String {
+    store::record_decision(conn, &PushDecision::Deliver(p), at)
+        .unwrap()
+        .unwrap()
+}
+
+fn act(action: &str) -> PushResponse {
+    PushResponse {
+        action: Some(action.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn task_start_returns_task_id_and_others_only_record() {
+    let conn = db::open_in_memory().unwrap();
+    let id = deliver_payload(&conn, payload::urgent_task("TASK1", "x", 0), 1000);
+    let out = store::apply_response(&conn, &id, act("task_start"), 5000, TZ).unwrap();
+    assert_eq!(out.start_task.as_deref(), Some("TASK1"));
+    assert_eq!(out.snoozed_until, None);
+    let l = store::get_log(&conn, &id).unwrap();
+    assert_eq!(l.responded_at, Some(5000));
+
+    for a in ["task_later", "task_skip_week"] {
+        let id = deliver_payload(&conn, payload::important_task("TASK2", "x", Some(4)), 2000);
+        let out = store::apply_response(&conn, &id, act(a), 6000, TZ).unwrap();
+        assert_eq!(out, store::ResponseOutcome::default(), "{a}");
+        let l = store::get_log(&conn, &id).unwrap();
+        assert_eq!(l.responded_at, Some(6000));
+        assert!(l.response_json.unwrap().contains(a));
+    }
+
+    // 対象のタスクを持たない通知への task_start はエラー。
+    let id = deliver_payload(&conn, payload::day_start(), 3000);
+    let e = store::apply_response(&conn, &id, act("task_start"), 7000, TZ).unwrap_err();
+    assert_eq!(e.exit_code(), 2);
+}
+
+#[test]
+fn payload_task_id_serde_is_optional() {
+    // task_id の無い従来のペイロードも読める。出さないときは JSON にも出ない。
+    let s = serde_json::to_string(&payload::day_start()).unwrap();
+    assert!(!s.contains("task_id"));
+    let p: PushPayload = serde_json::from_str(&s).unwrap();
+    assert_eq!(p.task_id, None);
+    let s = serde_json::to_string(&payload::urgent_task("T", "x", 0)).unwrap();
+    assert!(s.contains(r#""task_id":"T""#));
+}

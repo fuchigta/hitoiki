@@ -316,7 +316,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 ### 8.1 トリガー
 
-同時に満たした場合の優先順は次のとおり。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
+同時に満たした場合の優先順は次のとおり（`PushTrigger::ALL` の順。表は条件の説明のため前後する）。`day_start` → `idle_return` → `day_end` → `weekly` → `urgent_task` → `after_interrupt` → `meeting_overrun` → `switch_spike` → `long_focus` → `important_task` → `late_work`。`urgent_task` は割り込み・会議・切り替えの通知より前に置く（急ぎのものを示す通知を後回しにしない）。`important_task` は 1 日 1 回の穏やかな提案なので、集中や切り替えへの声かけを優先して `long_focus` の後に置く。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
 
 | ID | 条件 |
 |---|---|
@@ -327,6 +327,8 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 | `meeting_overrun` | 会議アプリが前面で、予定の終了から 5〜180 分経過（ほかの予定が進行中なら対象外） |
 | `switch_spike` | 直近 `push.switch_spike.window_min`（15）分の切替回数が `count`（20）を超える |
 | `long_focus` | 同一キー（task、エージェントセッション、活動ラベルの順）の作業が `push.long_focus_min`（90）分以上連続 |
+| `urgent_task` | 勤務時間内（`push.day_start_after` ≤ 現在 < `push.day_end_at`）に、緊急のしるし（`task.urgent`）が付いた未完了（todo / doing）のタスクがあり、直近の `urgent_task` 配信から `push.urgent_task_interval_min`（既定 120 分、0 で無効）以上経っている。対象から外すもの: いま作業しているタスク（作業系の最終区間の `task_id`、または doing）、今日の `time_block` に割り当てられ終了がまだ先のもの。対象のどれかが doing か作業中なら、そもそも出さない。示すのは「最後に通知した時刻」が最も古いタスク（`push_log` のペイロードの `task_id` で判定。`push_log` は今週分＋直近 10 件なので、それより前の通知は「通知していない」扱い）で、同順なら作成が古いもの。ほかの対象の件数を「（ほかに N 件）」として添える。ボタンは「始める」（`task_start`）と「あとで」（`task_later`）。クリックでタスク画面（`tasks`）を開く |
+| `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに帰属した作業系の区間（work / agent_dialog / agent_watch）の最終 `end_at` と `created_at` の大きいほう）が `push.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `time_block` に割り当て済み、いま取り組み中（作業の帰属 / doing）、今週この通知に「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
 | `late_work` | `push.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
 | `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次 |
 
@@ -343,6 +345,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 ### 8.3 応答と表示
 
 - **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（override 保存。UI へは `segments_updated` を送り、再計算を要求する）。
+- **タスク通知の応答**（`urgent_task` / `important_task`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::pushlog::start_pushed_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `push answer --task start|later|skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
 - **後からの回答と見送り**（`service::pushlog`）: `list`（配信済みの通知を状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `PushTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `push answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/push-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `push_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
   - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく通知の時刻（`push_log.at`）。あとから答えても、通知時点の状態として時系列に載る。
   - **見送り**（`dismiss`）: `responded_at` を付けず `response_json` に `{"action":"dismiss"}` を残す（スキーマ変更なし）。未回答の一覧（`repo::push::list_unanswered`）から外れる。応答率（8.2 の 4）は `responded_at` の有無で数えるので、見送りは無応答のまま数える。つまり「答えない通知が続くと間隔を延ばす」ルールは、一覧から外しても効き続ける。見送ったあとでも答え直せる。
@@ -405,7 +408,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120: 補正の範囲選択の吸着幅）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（false: 補正の初期チェック） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
 | `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |

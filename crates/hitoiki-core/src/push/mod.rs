@@ -30,10 +30,12 @@ pub enum PushTrigger {
     IdleReturn,
     DayEnd,
     Weekly,
+    UrgentTask,
     AfterInterrupt,
     MeetingOverrun,
     SwitchSpike,
     LongFocus,
+    ImportantTask,
     LateWork,
 }
 
@@ -43,10 +45,12 @@ impl PushTrigger {
         PushTrigger::IdleReturn,
         PushTrigger::DayEnd,
         PushTrigger::Weekly,
+        PushTrigger::UrgentTask,
         PushTrigger::AfterInterrupt,
         PushTrigger::MeetingOverrun,
         PushTrigger::SwitchSpike,
         PushTrigger::LongFocus,
+        PushTrigger::ImportantTask,
         PushTrigger::LateWork,
     ];
 
@@ -57,10 +61,12 @@ impl PushTrigger {
             PushTrigger::IdleReturn => "idle_return",
             PushTrigger::DayEnd => "day_end",
             PushTrigger::Weekly => "weekly",
+            PushTrigger::UrgentTask => "urgent_task",
             PushTrigger::AfterInterrupt => "after_interrupt",
             PushTrigger::MeetingOverrun => "meeting_overrun",
             PushTrigger::SwitchSpike => "switch_spike",
             PushTrigger::LongFocus => "long_focus",
+            PushTrigger::ImportantTask => "important_task",
             PushTrigger::LateWork => "late_work",
         }
     }
@@ -72,10 +78,12 @@ impl PushTrigger {
             PushTrigger::IdleReturn => "無操作からの復帰",
             PushTrigger::DayEnd => "終業",
             PushTrigger::Weekly => "週次の振り返り",
+            PushTrigger::UrgentTask => "緊急のタスク",
             PushTrigger::AfterInterrupt => "割り込みのあと",
             PushTrigger::MeetingOverrun => "会議の延長",
             PushTrigger::SwitchSpike => "切り替えの増加",
             PushTrigger::LongFocus => "長めの作業",
+            PushTrigger::ImportantTask => "重要なタスク",
             PushTrigger::LateWork => "遅い時間の作業",
         }
     }
@@ -110,6 +118,20 @@ pub struct IdleState {
 pub struct ClosedIdle {
     pub start_at: Millis,
     pub end_at: Millis,
+}
+
+/// 通知の判定に使うタスクの最小限の情報（未完了で、緊急か重要のしるしが付いたものだけ）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskNudge {
+    pub id: String,
+    pub title: String,
+    pub urgent: bool,
+    pub important: bool,
+    /// doing（着手を宣言している。doing ログが開いている）。
+    pub doing: bool,
+    /// 作業系の区間（時間が入った区間）に帰属した最後の終了時刻。一度も無ければ None。
+    pub last_worked_at: Option<Millis>,
+    pub created_at: Millis,
 }
 
 /// 設定に出していない内部しきい値。既定値で十分な想定。
@@ -183,6 +205,8 @@ pub struct PushContext {
     /// （`store::load_recent` が返す内容で足りる）。
     pub push_log: Vec<PushLog>,
     pub needs_review_count: u32,
+    /// 緊急・重要のしるしが付いた未完了のタスク（urgent_task / important_task の材料）。
+    pub tasks: Vec<TaskNudge>,
     /// 前面ウインドウの exe 名。
     pub foreground_exe: Option<String>,
     /// 会議アプリの exe 名（`collect.meeting_exes`）。
@@ -206,6 +230,7 @@ impl PushContext {
             calendar_events: vec![],
             push_log: vec![],
             needs_review_count: 0,
+            tasks: vec![],
             foreground_exe: None,
             meeting_exes: vec![],
             recent_switches: None,
