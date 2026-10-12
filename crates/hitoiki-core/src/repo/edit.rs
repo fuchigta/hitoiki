@@ -73,6 +73,7 @@ pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
         "UPDATE task SET key_result_id = NULL WHERE key_result_id = ?1",
         [kr_id],
     )?;
+    conn.execute("DELETE FROM kr_skill WHERE kr_id = ?1", [kr_id])?;
     conn.execute("DELETE FROM kr_progress WHERE kr_id = ?1", [kr_id])?;
     conn.execute("DELETE FROM key_result WHERE id = ?1", [kr_id])?;
     Ok(())
@@ -84,10 +85,14 @@ pub fn delete_objective(conn: &Connection, objective_id: &str) -> Result<()> {
         "UPDATE task SET key_result_id = NULL WHERE key_result_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
         [objective_id],
     )?;
-    conn.execute(
-        "DELETE FROM kr_progress WHERE kr_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
-        [objective_id],
-    )?;
+    for table in ["kr_skill", "kr_progress"] {
+        conn.execute(
+            &format!(
+                "DELETE FROM {table} WHERE kr_id IN (SELECT id FROM key_result WHERE objective_id = ?1)"
+            ),
+            [objective_id],
+        )?;
+    }
     conn.execute("DELETE FROM key_result WHERE objective_id = ?1", [objective_id])?;
     conn.execute("DELETE FROM objective WHERE id = ?1", [objective_id])?;
     Ok(())
@@ -126,9 +131,19 @@ pub fn count_activity_skill_rules(conn: &Connection, skill_id: &str) -> Result<i
     )
 }
 
-/// スキル 1 件を消す（`task_skill` と `activity_skill_rule` の参照も消す）。子の付け替えは呼び出し側で先に行う。
+/// 指定スキルが付いた KR の数（`kr_skill` の行数）。
+pub fn count_kr_skill(conn: &Connection, skill_id: &str) -> Result<i64> {
+    count(
+        conn,
+        "SELECT COUNT(*) FROM kr_skill WHERE skill_id = ?1",
+        skill_id,
+    )
+}
+
+/// スキル 1 件を消す（`task_skill`・`kr_skill`・`activity_skill_rule` の参照も消す）。子の付け替えは呼び出し側で先に行う。
 pub fn delete_skill_row(conn: &Connection, skill_id: &str) -> Result<()> {
     conn.execute("DELETE FROM task_skill WHERE skill_id = ?1", [skill_id])?;
+    conn.execute("DELETE FROM kr_skill WHERE skill_id = ?1", [skill_id])?;
     conn.execute("DELETE FROM activity_skill_rule WHERE skill_id = ?1", [skill_id])?;
     conn.execute("DELETE FROM skill WHERE id = ?1", [skill_id])?;
     Ok(())

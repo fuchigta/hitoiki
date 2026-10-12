@@ -265,6 +265,8 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             objective,
             measure,
             day_min,
+            skill,
+            no_skill,
         } => {
             let k = okr::edit_kr(
                 ctx,
@@ -278,6 +280,8 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                     objective,
                     measure,
                     day_min,
+                    skills: skill,
+                    clear_skills: no_skill,
                 },
             )?;
             emit(json, &k, || {

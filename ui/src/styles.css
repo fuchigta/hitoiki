@@ -1220,6 +1220,7 @@ button.hm-cell {
   line-height: 1.2;
 }
 .kr-main-label,
+.kr-indirect,
 .kr-aux {
   font-size: 12px;
 }

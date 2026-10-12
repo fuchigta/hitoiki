@@ -2,6 +2,15 @@
 //!
 //! 実績は常に `activity_segment`（`segment_override` 適用後の派生層）から算出する。
 //! 時間は「今日の合計」と同じ数え方で、無操作・休憩・無視は含めない。
+//!
+//! KR の時間はスキルが主: KR に付けたスキル（`kr_skill`。子スキルを含む）が付いたタスクの区間、または
+//! `activity_skill_rule` でそのスキルが付く活動（区間の exe・タイトルに一致）の区間を数える。
+//! タスクとの紐付け（`task.key_result_id`）は「このタスクも含める」補助で、紐付いたタスクの区間も数える。
+//! 時間と日数は両方を区間単位の和集合で 1 つの数字にする（同じ区間を二重に数えない）。
+//! 内訳（`from_skill_ms` / `from_task_ms`）は、スキルの条件に合う区間をスキルから、それ以外の紐付いたタスクの区間を
+//! タスクから、と数える（両方に当てはまる区間はスキルから）。合計は `time_ms` と一致する。
+//! 完了数の軸だけは、対象を紐付けたタスクに限る。いずれも事実の数値で、目標との比較はしない。
+//!
 //! `target` / `current` は自由記述のままで、達成率の計算や評価はしない（選んだ軸の値を出すだけ）。
 //!
 //! 期間: Objective に `period_start` / `period_end` があればそれ。無ければ直近 8 週
@@ -9,9 +18,11 @@
 //! 終了のみなら 8 週前から。週は月曜始まり、日付はローカル日付。
 
 use super::heatmap::add_per_day;
+use super::skill::descendants;
 use super::{range_view, Ctx, RangeView};
 use crate::model::{KeyResult, SegmentKind, TaskStatus};
 use crate::repo::{self, edit};
+use crate::rules::{MatchTarget, Matcher};
 use crate::timefmt::{self, Range};
 use crate::Result;
 use chrono::{Datelike, Duration, NaiveDate};
@@ -71,17 +82,23 @@ pub struct KrSummary {
     pub range_source: &'static str,
     /// 選んだ軸（`time` / `days` / `done`）。
     pub measure: String,
-    /// 時間: 紐付いたタスクの時間の合計（ミリ秒）。
+    /// 時間: KR のスキルが付いた区間と、紐付いたタスクの区間の和集合（ミリ秒）。
     pub time_ms: i64,
-    /// 回数: 紐付いたタスクの作業が合計 `day_min` 分以上あった日数。
+    /// 回数: 上の時間の合計が `day_min` 分以上あった日数。
     pub active_days: i64,
     pub day_min: i64,
+    /// KR に付けたスキルの名前（名前順）。
+    pub kr_skills: Vec<String>,
+    /// 内訳: KR のスキルの条件に合う区間の時間（ミリ秒。タスクにスキルが付いている区間と、活動ルールで付く区間）。
+    pub from_skill_ms: i64,
+    /// 内訳: 上に当てはまらない、紐付いたタスクの区間の時間（ミリ秒）。`from_skill_ms` との合計が `time_ms`。
+    pub from_task_ms: i64,
     /// 完了数: 期間内に完了したタスク。
     pub done_count: i64,
-    /// 紐付いたタスクの数（やめたものを除く）。
+    /// 紐付いたタスクの数（やめたものを除く）。完了数の軸の対象。
     pub task_count: i64,
     pub weekly: Vec<WeekBar>,
-    /// report の skill 集計と同じ扱い（複数スキルのタスクは各スキルに全時間を計上するので、合計は `time_ms` を超えうる）。
+    /// report の skill 集計と同じ扱い（複数スキルが付いた区間は各スキルに全時間を計上するので、合計は `time_ms` を超えうる）。
     pub skills: Vec<SkillTime>,
     pub estimate: EstimateSummary,
     pub tasks: Vec<KrTask>,
@@ -125,24 +142,43 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
     let linked = repo::task::list_of_kr(ctx.conn, &k.id)?;
     let ids: HashSet<&str> = linked.iter().map(|t| t.id.as_str()).collect();
 
+    // KR のスキル（子スキルを含む）。
+    let all_skills = repo::skill::list(ctx.conn)?;
+    let skill_names: HashMap<&str, &str> = all_skills
+        .iter()
+        .map(|s| (s.id.as_str(), s.name.as_str()))
+        .collect();
+    let kr_skills = repo::skill::kr_skills(ctx.conn, &k.id)?;
+    let mut skill_set: HashSet<String> = HashSet::new();
+    for s in &kr_skills {
+        skill_set.extend(descendants(&all_skills, &s.id));
+        skill_set.insert(s.id.clone());
+    }
+
     // タスクごとのスキル（report の skill 集計と同じく、付いているスキルそれぞれに全時間を計上する）。
-    let mut task_skills: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut task_skills: HashMap<String, Vec<String>> = HashMap::new();
     {
-        let mut stmt = ctx.conn.prepare(
-            "SELECT ts.task_id, s.id, s.name FROM task_skill ts JOIN skill s ON s.id = ts.skill_id ORDER BY s.name",
-        )?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?)))?;
+        let mut stmt = ctx.conn.prepare("SELECT task_id, skill_id FROM task_skill")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         for row in rows {
-            let (tid, sid, name) = row?;
-            if ids.contains(tid.as_str()) {
-                task_skills.entry(tid).or_default().push((sid, name));
-            }
+            let (tid, sid) = row?;
+            task_skills.entry(tid).or_default().push(sid);
         }
     }
+    // 活動からスキルを付けるルール（不正なパターンは無視する）。
+    let rules: Vec<(Matcher, String)> = repo::skill::list_activity_skill_rules(ctx.conn)?
+        .into_iter()
+        .filter_map(|r| {
+            Matcher::new(r.field, &r.pattern, r.pattern_type)
+                .ok()
+                .map(|m| (m, r.skill_id))
+        })
+        .collect();
 
     let mut per_day: BTreeMap<NaiveDate, i64> = BTreeMap::new();
     let mut per_task: HashMap<&str, i64> = HashMap::new();
     let mut per_skill: BTreeMap<(Option<String>, String), i64> = BTreeMap::new();
+    let (mut from_skill_ms, mut from_task_ms) = (0i64, 0i64);
     for s in repo::segment::list(ctx.conn, range)? {
         if matches!(
             s.kind,
@@ -150,22 +186,51 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
         ) {
             continue;
         }
-        let Some(tid) = s.task_id.as_deref().and_then(|t| ids.get(t).copied()) else {
+        let linked_task = s.task_id.as_deref().and_then(|t| ids.get(t).copied());
+        // この区間に付くスキル: タスクのスキルと、活動ルールで付くスキル。
+        let mut sids: Vec<&str> = s
+            .task_id
+            .as_ref()
+            .and_then(|t| task_skills.get(t))
+            .map(|v| v.iter().map(String::as_str).collect())
+            .unwrap_or_default();
+        if !rules.is_empty() {
+            let target = MatchTarget::window(s.exe_name.as_deref(), s.title.as_deref());
+            for (m, sid) in &rules {
+                if m.is_match(&target) && !sids.contains(&sid.as_str()) {
+                    sids.push(sid);
+                }
+            }
+        }
+        let via_skill = sids.iter().any(|sid| skill_set.contains(*sid));
+        if !via_skill && linked_task.is_none() {
             continue;
-        };
+        }
         let ms = repo::segment::clipped_len(&s, range);
         if ms == 0 {
             continue;
         }
         add_per_day(&mut per_day, tz, range, s.start_at, s.end_at);
-        *per_task.entry(tid).or_default() += ms;
-        match task_skills.get(tid) {
-            Some(list) if !list.is_empty() => {
-                for (sid, name) in list {
-                    *per_skill.entry((Some(sid.clone()), name.clone())).or_default() += ms;
-                }
-            }
-            _ => *per_skill.entry((None, "(なし)".into())).or_default() += ms,
+        if via_skill {
+            from_skill_ms += ms;
+        } else {
+            from_task_ms += ms;
+        }
+        if let Some(tid) = linked_task {
+            *per_task.entry(tid).or_default() += ms;
+        }
+        let mut named: Vec<(&str, &str)> = sids
+            .iter()
+            .filter_map(|sid| skill_names.get(sid).map(|n| (*sid, *n)))
+            .collect();
+        named.sort_by(|a, b| a.1.cmp(b.1));
+        if named.is_empty() {
+            *per_skill.entry((None, "(なし)".into())).or_default() += ms;
+        }
+        for (sid, name) in named {
+            *per_skill
+                .entry((Some(sid.to_string()), name.to_string()))
+                .or_default() += ms;
         }
     }
 
@@ -242,6 +307,9 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
         time_ms,
         active_days,
         day_min: k.day_min,
+        kr_skills: kr_skills.into_iter().map(|s| s.name).collect(),
+        from_skill_ms,
+        from_task_ms,
         done_count,
         task_count: counted.len() as i64,
         weekly,
@@ -256,6 +324,7 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
 mod tests {
     use super::*;
     use crate::model::SegmentStatus;
+    use crate::service::impact::DeleteMode;
     use crate::service::okr::{self as okr_svc, KrEdit, KrInput, ObjectiveInput};
     use crate::service::skill::{self, SkillInput};
     use crate::service::task::{self, TaskInput};
@@ -287,6 +356,7 @@ mod tests {
                 objective: o.id,
                 title: "K".into(),
                 target: Some("週 3 回".into()),
+                skills: vec![],
             },
         )
         .unwrap();
@@ -633,6 +703,7 @@ mod tests {
                 objective: o2.id,
                 title: "K2".into(),
                 target: None,
+                skills: vec![],
             },
         )
         .unwrap();
@@ -689,5 +760,325 @@ mod tests {
         )
         .unwrap();
         assert_eq!((k.measure.as_str(), k.day_min), ("done", 15));
+    }
+
+    /// 「Rust」（子: 「Rust 非同期」）を KR に付け、紐付けていないタスク `o1`（Rust）・`o2`（子）・`o3`（別スキル）を作る。
+    fn setup_skill(c: &Ctx, f: &Fx) -> (String, String, String) {
+        for (n, parent) in [("Rust", None), ("Rust 非同期", Some("Rust")), ("設計", None)] {
+            skill::add(
+                c,
+                &SkillInput {
+                    name: n.into(),
+                    parent: parent.map(String::from),
+                },
+            )
+            .unwrap();
+        }
+        okr_svc::edit_kr(
+            c,
+            &f.kr,
+            &KrEdit {
+                skills: vec!["Rust".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mk = |title: &str, sk: &str| {
+            task::add(
+                c,
+                &TaskInput {
+                    title: Some(title.into()),
+                    skills: vec![sk.into()],
+                    ..Default::default()
+                },
+            )
+            .unwrap()
+            .task
+            .id
+        };
+        (mk("O1", "Rust"), mk("O2", "Rust 非同期"), mk("O3", "設計"))
+    }
+
+    #[test]
+    fn 時間はスキル_子スキル含む_と紐付けたタスクの和集合で内訳が付く() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let (o1, o2, o3) = setup_skill(&c, &f);
+        let d = env.day_start();
+        seg(
+            &c,
+            "A",
+            d + 60 * MIN,
+            d + 120 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        ); // 紐付き 60
+        seg(
+            &c,
+            "B",
+            d + 120 * MIN,
+            d + 150 * MIN,
+            SegmentKind::Work,
+            Some(&o1),
+        ); // スキル 30
+        seg(
+            &c,
+            "C",
+            d + 150 * MIN,
+            d + 160 * MIN,
+            SegmentKind::Work,
+            Some(&o2),
+        ); // 子スキル 10
+        seg(
+            &c,
+            "D",
+            d + 160 * MIN,
+            d + 190 * MIN,
+            SegmentKind::Work,
+            Some(&o3),
+        ); // 別スキル: 数えない
+        seg(&c, "E", d + 190 * MIN, d + 200 * MIN, SegmentKind::Work, None); // タスクなし: 数えない
+        seg(
+            &c,
+            "F",
+            d + 200 * MIN,
+            d + 210 * MIN,
+            SegmentKind::Idle,
+            Some(&o1),
+        ); // 無操作: 数えない
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(s.kr_skills, vec!["Rust".to_string()]);
+        assert_eq!(s.time_ms, 100 * MIN);
+        assert_eq!((s.from_skill_ms, s.from_task_ms), (40 * MIN, 60 * MIN));
+        assert_eq!(s.weekly.iter().map(|w| w.duration_ms).sum::<i64>(), s.time_ms);
+        // 紐付けたタスクの時間はタスクごとに残る（スキル経由のタスクは紐付けていないので出ない）。
+        assert_eq!(
+            s.tasks.iter().find(|t| t.id == f.t1).unwrap().tracked_ms,
+            60 * MIN
+        );
+        // スキルを外せば、紐付けたタスクだけになる。
+        okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                clear_skills: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!((s.time_ms, s.from_skill_ms, s.kr_skills.len()), (60 * MIN, 0, 0));
+    }
+
+    #[test]
+    fn 両方に当てはまる区間は一度だけ数えスキルの内訳に入る() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        setup_skill(&c, &f);
+        task::edit(
+            &c,
+            &f.t1,
+            &TaskInput {
+                skills: vec!["Rust".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let d = env.day_start();
+        seg(
+            &c,
+            "A",
+            d + 60 * MIN,
+            d + 120 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        ); // 紐付き かつ スキル 60
+        seg(
+            &c,
+            "B",
+            d + 120 * MIN,
+            d + 150 * MIN,
+            SegmentKind::Work,
+            Some(&f.t2),
+        ); // 紐付きのみ 30
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(s.time_ms, 90 * MIN);
+        assert_eq!((s.from_skill_ms, s.from_task_ms), (60 * MIN, 30 * MIN));
+    }
+
+    #[test]
+    fn 活動ルールで付くスキルの区間も数える() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        setup_skill(&c, &f);
+        c.conn
+            .execute(
+                "INSERT INTO activity_skill_rule (id, field, pattern, pattern_type, skill_id)                  SELECT 'R1', 'title', 'cargo', 'contains', id FROM skill WHERE name = 'Rust 非同期'",
+                [],
+            )
+            .unwrap();
+        let d = env.day_start();
+        seg(&c, "A", d + 60 * MIN, d + 90 * MIN, SegmentKind::Work, None); // タイトル main.rs: 一致しない
+        seg(&c, "B", d + 90 * MIN, d + 110 * MIN, SegmentKind::Work, None);
+        c.conn
+            .execute(
+                "UPDATE activity_segment SET title = 'Cargo.toml' WHERE id = 'B'",
+                [],
+            )
+            .unwrap();
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(
+            (s.time_ms, s.from_skill_ms, s.from_task_ms),
+            (20 * MIN, 20 * MIN, 0)
+        );
+        assert_eq!(
+            s.skills
+                .iter()
+                .find(|x| x.name == "Rust 非同期")
+                .unwrap()
+                .duration_ms,
+            20 * MIN
+        );
+    }
+
+    #[test]
+    fn 取り組んだ日はスキルとタスクを合算した時間で数える() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let (o1, _, _) = setup_skill(&c, &f);
+        let d = env.day_start();
+        // day_min 15: 2 日前 = タスク 5 + スキル 10 で届く、1 日前 = 5 + 9 で届かない、当日 = スキルのみ 20 で届く。
+        seg(
+            &c,
+            "A",
+            d - 2 * DAY + 600 * MIN,
+            d - 2 * DAY + 605 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "B",
+            d - 2 * DAY + 640 * MIN,
+            d - 2 * DAY + 650 * MIN,
+            SegmentKind::Work,
+            Some(&o1),
+        );
+        seg(
+            &c,
+            "C",
+            d - DAY + 600 * MIN,
+            d - DAY + 605 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        seg(
+            &c,
+            "D",
+            d - DAY + 640 * MIN,
+            d - DAY + 649 * MIN,
+            SegmentKind::Work,
+            Some(&o1),
+        );
+        seg(
+            &c,
+            "E",
+            d + 600 * MIN,
+            d + 620 * MIN,
+            SegmentKind::Work,
+            Some(&o1),
+        );
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(s.active_days, 2);
+        assert_eq!(s.time_ms, (15 + 14 + 20) * MIN);
+    }
+
+    #[test]
+    fn 完了数の対象は紐付けたタスクのまま() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let (o1, _, _) = setup_skill(&c, &f);
+        task::done(&c, &o1).unwrap(); // スキルは付いているが紐付けていない
+        task::done(&c, &f.t1).unwrap();
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!((s.done_count, s.task_count), (1, 2));
+    }
+
+    #[test]
+    fn 存在しないスキル名は何も変えずに失敗し_削除でも付与が消える() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        setup_skill(&c, &f);
+        let bad = okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                title: Some("変えない".into()),
+                skills: vec!["設計".into(), "存在しない".into()],
+                ..Default::default()
+            },
+        );
+        assert!(bad.is_err());
+        let s = kr_summary(&c, &f.kr, None).unwrap();
+        assert_eq!(s.kr_skills, vec!["Rust".to_string()]);
+        assert_eq!(s.key_result.title, "K");
+        // スキルを削除すると kr_skill も消える。
+        skill::delete(&c, "Rust", skill::ChildPolicy::Reparent, DeleteMode::FORCE).unwrap();
+        assert!(kr_summary(&c, &f.kr, None).unwrap().kr_skills.is_empty());
+        let count = |c: &Ctx| -> i64 {
+            c.conn
+                .query_row("SELECT COUNT(*) FROM kr_skill", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(count(&c), 0);
+        // KR を消しても kr_skill が残らない。
+        okr_svc::edit_kr(
+            &c,
+            &f.kr,
+            &KrEdit {
+                skills: vec!["Rust 非同期".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(count(&c), 1);
+        okr_svc::delete_kr(&c, &f.kr, DeleteMode::FORCE).unwrap();
+        assert_eq!(count(&c), 0);
+    }
+
+    #[test]
+    fn kr_の作成時にスキルを付けられ_不明なスキルなら作らない() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        skill::add(
+            &c,
+            &SkillInput {
+                name: "Rust".into(),
+                parent: None,
+            },
+        )
+        .unwrap();
+        let o = okr_svc::list(&c).unwrap().objectives[0].objective.id.clone();
+        let input = |skills: Vec<String>| KrInput {
+            objective: o.clone(),
+            title: "K2".into(),
+            target: None,
+            skills,
+        };
+        assert!(okr_svc::add_kr(&c, &input(vec!["存在しない".into()])).is_err());
+        assert_eq!(okr_svc::list(&c).unwrap().objectives[0].key_results.len(), 1);
+        let k = okr_svc::add_kr(&c, &input(vec!["Rust".into()])).unwrap();
+        assert_eq!(
+            kr_summary(&c, &k.id, None).unwrap().kr_skills,
+            vec!["Rust".to_string()]
+        );
+        let _ = f;
     }
 }

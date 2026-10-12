@@ -339,6 +339,7 @@ mod tests {
                 objective: o.id,
                 title: "KR1".into(),
                 target: None,
+                skills: vec![],
             },
         )
         .unwrap();

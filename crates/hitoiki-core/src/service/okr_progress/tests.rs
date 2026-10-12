@@ -26,6 +26,7 @@ fn setup(ctx: &Ctx) -> (String, String) {
             objective: o.id,
             title: "K".into(),
             target: Some("10".into()),
+            skills: vec![],
         },
     )
     .unwrap();
