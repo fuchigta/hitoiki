@@ -17,6 +17,15 @@ fn mode(o: &DeleteOpts) -> DeleteMode {
     }
 }
 
+/// 記録（チェックイン・ハッスル・ABC）を実際に削除するとき、削除の記録をログファイルに残す準備をする。
+/// 戻り値は削除が終わるまで保持する（Drop でフラッシュ）。ログを開けなくても削除自体は続ける。
+fn delete_log(o: &DeleteOpts) -> Option<hitoiki_daemon::LogGuard> {
+    if o.dry_run {
+        return None;
+    }
+    hitoiki_daemon::init_file_logging().ok()
+}
+
 /// 削除結果の表示。dry_run なら影響だけ見せる。
 fn delete_report(json: bool, what: &str, o: &DeleteOutcome) -> Result<()> {
     emit(json, o, || {
@@ -35,6 +44,9 @@ fn delete_report(json: bool, what: &str, o: &DeleteOutcome) -> Result<()> {
             for l in &o.impact.lines {
                 s += &format!("\n  - {} {} 件", l.label, l.count);
             }
+        }
+        for w in &o.impact.warnings {
+            s += &format!("\n  ! {w}");
         }
         if let Some(n) = &o.impact.note {
             s += &format!("\n  ※ {n}");
@@ -100,6 +112,7 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
             })
         }
         CheckCmd::Delete { id, opts } => {
+            let _log = delete_log(&opts);
             let o = record::check_delete(ctx, &id, mode(&opts))?;
             ext::notify_data("checkin");
             delete_report(json, "チェックイン", &o)
@@ -144,6 +157,7 @@ pub fn hassle_sub(ctx: &Ctx, json: bool, cmd: HassleCmd) -> Result<()> {
             })
         }
         HassleCmd::Delete { id, opts } => {
+            let _log = delete_log(&opts);
             let o = record::hassle_delete(ctx, &id, mode(&opts))?;
             ext::notify_data("hassle");
             delete_report(json, "ハッスル", &o)
@@ -199,6 +213,7 @@ pub fn abc_sub(ctx: &Ctx, json: bool, cmd: AbcCmd) -> Result<()> {
             })
         }
         AbcCmd::Delete { id, opts } => {
+            let _log = delete_log(&opts);
             let o = record::abc_delete(ctx, &id, mode(&opts))?;
             ext::notify_data("abc");
             delete_report(json, "ABC 記録", &o)

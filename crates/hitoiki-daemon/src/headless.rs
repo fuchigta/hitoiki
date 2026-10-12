@@ -25,6 +25,15 @@ pub const LOG_KEEP_DAYS: usize = 14;
 /// ログに出さない（呼び出し側の規約）。panic も場所だけをログに残す（メッセージは出さない）。
 /// 既に初期化済み（テストなど）なら何もしない。
 pub fn init_logging() -> anyhow::Result<LogGuard> {
+    init_logging_with(true)
+}
+
+/// ログファイルにだけ出す（stderr には出さない）。CLI が記録の削除などをログに残すときに使う。
+pub fn init_file_logging() -> anyhow::Result<LogGuard> {
+    init_logging_with(false)
+}
+
+fn init_logging_with(stderr: bool) -> anyhow::Result<LogGuard> {
     let dir = paths::log_dir();
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("ログ用ディレクトリを作れません: {}", dir.display()))?;
@@ -38,7 +47,7 @@ pub fn init_logging() -> anyhow::Result<LogGuard> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let _ = tracing_subscriber::registry()
         .with(filter)
-        .with(tracing_subscriber::fmt::layer().with_writer(std::io::stderr))
+        .with(stderr.then(|| tracing_subscriber::fmt::layer().with_writer(std::io::stderr)))
         .with(
             tracing_subscriber::fmt::layer()
                 .with_ansi(false)

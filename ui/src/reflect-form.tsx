@@ -143,10 +143,8 @@ export function StructuredAnswer({
                     ))}
                   </ul>
                 )}
-                {done.record_id && !detailOf(i)?.checkin && !detailOf(i)?.hassle && !detailOf(i)?.abc && details && (
-                  <p class="muted">保存した記録は削除されています。</p>
-                )}
-                {q.kind === "abc" && done.record_id && <AbcFollowUp recordId={done.record_id} />}
+                {detailOf(i)?.missing && <p class="muted">この回答の記録は削除されています。</p>}
+                {q.kind === "abc" && done.record_id && !detailOf(i)?.missing && <AbcFollowUp recordId={done.record_id} />}
               </>
             ) : (
               f && (

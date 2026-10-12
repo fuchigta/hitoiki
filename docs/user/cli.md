@@ -9,7 +9,7 @@
 - **終了コード**: 0 成功、1 一般エラー、2 引数エラー、3 対象なし、4 曖昧（ID の前方一致が複数あるなど）。
 - **常駐していなくても動く**: CLI は DB を直接読み書きします。変更したときは、常駐処理が動いていれば名前付きパイプで通知します（失敗しても無視します）。
 - **日付・期間の指定**: `--date` / `--period` は `today` / `yesterday` / `this-week` / `last-week` / `YYYY-MM-DD`。`--from` / `--to` は ISO 8601・ローカル日時・日付（`--to` が日付のみのときはその日の終わりまで）。
-- **`HITOIKI_HOME`**: 設定と DB の置き場所を一括で差し替える環境変数です（テスト用）。
+- **`HITOIKI_HOME`**: 設定と DB の置き場所を一括で差し替える環境変数です（テスト用）。常駐アプリへの通知用パイプも別名になるので、テスト用の CLI が実際に起動中のアプリへ通知を送ることはありません。
 
 ## コマンド一覧
 
@@ -82,7 +82,7 @@
 | `hitoiki check edit <ID> [-e N] [-m N] [-s N] [--erg TAG] [--note TEXT]` | チェックインを編集（指定した項目だけ変える。`-e` `-m` `-s` に 0 でその項目を消す、`--note ""` でメモを消す） |
 | `hitoiki hassle edit <ID> [--text T] [-i 1-5]` | ハッスルを編集 |
 | `hitoiki abc edit <ID> [--a A] [--b B] [--c-emotion E] [--c-intensity N] [--dispute D]` | ABC の記録を編集（文字列は `""` で消す、`--c-intensity 0` で強度を消す） |
-| `hitoiki check delete <ID>` / `hassle delete <ID>` / `abc delete <ID>` `[--force] [--dry-run]` | 記録を削除。ハッスルを元にした ABC 記録があると `--force` が必要（ABC は残り、ハッスルとの紐付けだけ外れる） |
+| `hitoiki check delete <ID>` / `hassle delete <ID>` / `abc delete <ID>` `[--force] [--dry-run]` | 記録を削除。ハッスルを元にした ABC 記録があるか、振り返りの回答から参照されていると `--force` が必要（ABC は残り、ハッスルとの紐付けだけ外れる。参照されているときは「振り返り（日付・種類）の回答から参照されています」と表示）。削除したことは、記録の種類と ID だけをログに残す |
 
 `check` / `hassle` の本文が `list` `edit` `delete` と同じ語のときは、サブコマンドとして解釈されます。
 
@@ -138,7 +138,7 @@
 | `hitoiki reflect day_start [--date D]` / `day_end` / `weekly` | AI で問いを生成して保存 |
 | `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力）。構造化された問いには JSON `{"answers":[{"index":0,"energy":3,"mood":4},{"index":1,"text":"…","intensity":3}]}` を渡す（下記）。Markdown の回答も受け付ける |
 | `hitoiki reflect list [--kind K] [--limit N]` | 保存済みの振り返り一覧（新しい順。`--kind` は `day_start` / `day_end` / `weekly`） |
-| `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存したチェックイン・ハッスル・ABC の内容も出す） |
+| `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存したチェックイン・ハッスル・ABC の内容も出す。回答が作った記録が削除されているときは「この回答の記録は削除されています」と表示。`--json` の `answer_details` に `missing`） |
 | `hitoiki context --kind K [--date D]` | AI 用のコンテキストを JSON で出力 |
 
 構造化された振り返り（[設定](./configuration.md#ai-コマンド) の `ai.structured`）では、問いに `[0]`、`[1]` … の番号と種類（チェックイン・ハッスル・ABC・自由記述）が付いて表示されます。`--json` では `structured`（問い）と `answers`（回答済みの対応表）がそのまま入ります。回答 JSON の各要素は `index`（問いの番号）と、種類ごとの次の項目です。

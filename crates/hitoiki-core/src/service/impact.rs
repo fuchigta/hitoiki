@@ -24,6 +24,8 @@ pub struct Impact {
     pub lines: Vec<ImpactLine>,
     /// 補足（取り込み済みプリセットの扱いなど）。
     pub note: Option<String>,
+    /// 警告（振り返りの回答から参照されている、など）。1 件以上あると `--force` が必要になる。
+    pub warnings: Vec<String>,
 }
 
 impl Impact {
@@ -34,6 +36,7 @@ impl Impact {
             name: name.into(),
             lines: vec![],
             note: None,
+            warnings: vec![],
         }
     }
 
@@ -48,6 +51,11 @@ impl Impact {
         self
     }
 
+    pub fn warning(mut self, text: String) -> Self {
+        self.warnings.push(text);
+        self
+    }
+
     pub fn note(mut self, note: &str) -> Self {
         self.note = Some(note.into());
         self
@@ -55,7 +63,7 @@ impl Impact {
 
     /// 影響の合計件数。0 なら確認なしで消してよい。
     pub fn total(&self) -> i64 {
-        self.lines.iter().map(|l| l.count).sum()
+        self.lines.iter().map(|l| l.count).sum::<i64>() + self.warnings.len() as i64
     }
 
     /// 「紐付いたタスク 3 件、配下の KR 2 件」のような 1 行の説明。
@@ -63,6 +71,7 @@ impl Impact {
         self.lines
             .iter()
             .map(|l| format!("{} {} 件", l.label, l.count))
+            .chain(self.warnings.iter().cloned())
             .collect::<Vec<_>>()
             .join("、")
     }

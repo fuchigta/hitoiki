@@ -52,7 +52,7 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 - **`hitoiki-app.exe`（常駐アプリ）**: 起動するとトレイに常駐し、`hitoiki-daemon` の `Runtime` をプロセス内で動かす。ウインドウを閉じても常駐し、トレイの「終了」で止まる（進行中の区間は閉じて保存される）。`tauri-plugin-single-instance` で二重起動を防ぎ、`general.autostart` でログオン時に自動起動する。
 - **`hitoiki daemon`（ヘッドレス）**: 同じ `Runtime` を UI なしで動かす。トーストは出さず、通知はログのみ。
 - **CLI（`hitoiki ...`）**: DB を直接読み書きする。常駐プロセスが動いていなくても動作する。DB を変更したら名前付きパイプで常駐側に通知する（失敗しても無視する）。
-- **IPC**: 名前は `\\.\pipe\hitoiki-<ユーザー SID>`。作成者ユーザーのみアクセス可能な DACL（`D:P(A;;GA;;;<SID>)`）で作る。メッセージは改行区切り JSON で 1 リクエスト 1 応答。種類は `task_changed` / `data_changed` / `open_ui` / `ping` / `shutdown`。
+- **IPC**: 名前は `\\.\pipe\hitoiki-<ユーザー SID>`。`HITOIKI_HOME` が設定されているときは `hitoiki-<ユーザー SID>-h<そのパス（正規化）の FNV-1a 64bit ハッシュ>` とし、実アプリのパイプと別名にする（統合テストが起動中の実アプリへ通知を送らないため。パス自体は名前に入れない）。CLI・daemon・アプリは `PipeName::for_current_user()` を共通で使うので、同じ `HITOIKI_HOME` 同士では通信できる。作成者ユーザーのみアクセス可能な DACL（`D:P(A;;GA;;;<SID>)`）で作る。メッセージは改行区切り JSON で 1 リクエスト 1 応答。種類は `task_changed` / `data_changed` / `open_ui` / `ping` / `shutdown`。
 - **重複起動の検出**: `Runtime::start` は最初に IPC サーバを立て、パイプ名が使用中なら `AlreadyRunning` で失敗する。したがって常駐処理は同時に 1 つだけ。`hitoiki daemon` が動いている間に `hitoiki-app.exe` を起動すると、アプリは UI だけ（`RuntimeMode::External`）で動き、収集は daemon 側が行う。
 
 ### 2.3 Runtime のスレッド

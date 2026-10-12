@@ -372,6 +372,9 @@ pub struct AnswerDetail {
     pub hassle: Option<Hassle>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub abc: Option<AbcRecord>,
+    /// 回答が作った記録（checkin / hassle / abc）が削除されていて、もう無い。
+    #[serde(default)]
+    pub missing: bool,
 }
 
 /// 振り返りの回答済みの問いを、保存先（`checkin` / `hassle` / `abc_record`）の中身つきで返す。
@@ -399,6 +402,7 @@ pub fn answer_details(ctx: &Ctx, r: &Reflection) -> Result<Vec<AnswerDetail>> {
             checkin: None,
             hassle: None,
             abc: None,
+            missing: false,
         };
         if let Some(id) = &it.record_id {
             match it.kind {
@@ -407,10 +411,21 @@ pub fn answer_details(ctx: &Ctx, r: &Reflection) -> Result<Vec<AnswerDetail>> {
                 QuestionKind::Abc => d.abc = repo::get_abc(ctx.conn, id).ok(),
                 QuestionKind::Free => {}
             }
+            d.missing =
+                d.checkin.is_none() && d.hassle.is_none() && d.abc.is_none() && it.kind != QuestionKind::Free;
         }
         v.push(d);
     }
     Ok(v)
+}
+
+/// この記録を回答として参照している振り返りの「日付・種類」（例: `2026-10-11・day_end`）。新しい順。
+pub fn referencing_reflections(ctx: &Ctx, record_id: &str) -> Result<Vec<String>> {
+    let tz = ctx.tz()?;
+    Ok(repo::referencing_record(ctx.conn, record_id)?
+        .iter()
+        .map(|r| format!("{}・{}", timefmt::local_date_of(tz, r.at), r.kind))
+        .collect())
 }
 
 fn nonblank(s: &Option<String>) -> Option<String> {
@@ -874,6 +889,49 @@ mod tests {
             }],
         };
         assert!(answer_structured(&ctx, &r.id, &again).is_err());
+    }
+
+    #[test]
+    fn 参照されている記録の削除は警告し_消えた参照先はmissingになる() {
+        use crate::service::impact::DeleteMode;
+        let env = structured_env("structured");
+        let ctx = env.ctx();
+        let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        let input: AnswersInput = serde_json::from_str(
+            r#"{"answers":[{"index":0,"energy":3},{"index":1,"text":"会議","intensity":4},{"index":3,"text":"x"}]}"#,
+        )
+        .unwrap();
+        let a = answer_structured(&ctx, &r.id, &input).unwrap();
+        let before = answer_details(&ctx, &a).unwrap();
+        assert_eq!(before.len(), 3);
+        assert!(before.iter().all(|d| !d.missing));
+
+        let cid = before[0].record_id.clone().unwrap();
+        let hid = before[1].record_id.clone().unwrap();
+        // 影響のプレビューに警告が出る。--force なしの削除は失敗する。
+        let dry = record::check_delete(&ctx, &cid, DeleteMode::DRY_RUN).unwrap();
+        assert_eq!(dry.impact.warnings.len(), 1);
+        assert!(dry.impact.warnings[0].contains("day_end"));
+        assert!(dry.impact.warnings[0].contains("の回答から参照されています"));
+        assert!(record::check_delete(&ctx, &cid, DeleteMode::default()).is_err());
+        assert!(record::hassle_delete(&ctx, &hid, DeleteMode::default()).is_err());
+        // 参照されていない記録には警告が付かない。
+        let other = record::check(
+            &ctx,
+            &CheckInput {
+                energy: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let d = record::check_delete(&ctx, &other.id, DeleteMode::DRY_RUN).unwrap();
+        assert!(d.impact.warnings.is_empty());
+
+        record::check_delete(&ctx, &cid, DeleteMode::FORCE).unwrap();
+        let after = answer_details(&ctx, &show(&ctx, &r.id).unwrap()).unwrap();
+        assert!(after[0].missing);
+        assert!(!after[1].missing);
+        assert!(!after[2].missing, "自由記述は参照先を持たない");
     }
 
     #[test]

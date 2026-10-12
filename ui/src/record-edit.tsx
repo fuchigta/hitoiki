@@ -5,9 +5,10 @@ import { ErrorBox, Field } from "./components";
 import { ConfirmDelete } from "./confirm-delete";
 import { fmtDateTime, useAction } from "./lib";
 
-/** 依存先のない記録の削除確認。 */
-function plain(id: string, name: string): DeleteOutcome {
-  return { dry_run: true, deleted: false, impact: { entity: "record", id, name, lines: [], note: null } };
+/** 削除の影響のプレビュー。確認ダイアログに出す名前だけ、記録の日時などに差し替える。 */
+async function named(p: Promise<DeleteOutcome>, name: string): Promise<DeleteOutcome> {
+  const o = await p;
+  return { ...o, impact: { ...o.impact, name } };
 }
 
 function ScaleSelect({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
@@ -115,8 +116,8 @@ export function CheckinItem({ c, onChanged, erg }: { c: Checkin; onChanged: () =
       >
         <ConfirmDelete
           what="チェックイン"
-          preview={async () => plain(c.id, fmtDateTime(c.at))}
-          commit={() => api.checkinDelete(c.id)}
+          preview={() => named(api.checkinDelete(c.id, { dry_run: true }), fmtDateTime(c.at))}
+          commit={() => api.checkinDelete(c.id, { force: true })}
           onDeleted={onChanged}
         />
       </Actions>
@@ -264,8 +265,8 @@ export function AbcItem({
       >
         <ConfirmDelete
           what="ABC の記録"
-          preview={async () => plain(a.id, a.activating_event)}
-          commit={() => api.abcDelete(a.id)}
+          preview={() => named(api.abcDelete(a.id, { dry_run: true }), a.activating_event)}
+          commit={() => api.abcDelete(a.id, { force: true })}
           onDeleted={onChanged}
         />
       </Actions>

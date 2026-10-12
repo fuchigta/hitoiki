@@ -156,8 +156,9 @@ pub fn checkin_edit(state: S, id: String, input: CheckInput) -> AppResult<Checki
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_delete(state: S, id: String) -> AppResult<DeleteOutcome> {
-    state.with_ctx(|c| record::check_delete(c, &id, DeleteMode::FORCE))
+pub fn checkin_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+    let mode = mode.unwrap_or(DeleteMode::FORCE);
+    state.with_ctx(|c| record::check_delete(c, &id, mode))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -177,8 +178,9 @@ pub fn abc_edit(state: S, id: String, input: AbcEditInput) -> AppResult<AbcRecor
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn abc_delete(state: S, id: String) -> AppResult<DeleteOutcome> {
-    state.with_ctx(|c| record::abc_delete(c, &id, DeleteMode::FORCE))
+pub fn abc_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+    let mode = mode.unwrap_or(DeleteMode::FORCE);
+    state.with_ctx(|c| record::abc_delete(c, &id, mode))
 }
 
 // ===== カレンダーソース・活動ラベル =====

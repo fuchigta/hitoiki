@@ -701,6 +701,8 @@ export interface Impact {
   name: string;
   lines: ImpactLine[];
   note: string | null;
+  /** 警告（振り返りの回答から参照されている、など）。あると CLI は `--force` が必要。 */
+  warnings?: string[];
 }
 
 export interface DeleteOutcome {
@@ -893,6 +895,8 @@ export interface AnswerDetail {
   checkin?: Checkin;
   hassle?: Hassle;
   abc?: AbcRecord;
+  /** 回答が作った記録が削除されていて、もう無い。 */
+  missing?: boolean;
 }
 
 /** core の `reflect::AnswerItem`（問いの種類で使う項目が決まる）。 */

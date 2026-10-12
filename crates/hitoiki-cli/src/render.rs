@@ -937,6 +937,9 @@ pub fn reflection(
                 (Some(id), _) => {
                     s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id));
                     if let Some(d) = details.iter().find(|d| d.index == a.index) {
+                        if d.missing {
+                            s += "（この回答の記録は削除されています）";
+                        }
                         for l in detail_lines(d) {
                             s += &format!("\n    {l}");
                         }

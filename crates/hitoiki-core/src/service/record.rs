@@ -7,6 +7,33 @@ use crate::model::{AbcRecord, Checkin, ErgRecordKind, ErgTag, Hassle};
 use crate::repo::{edit, erg, record};
 use crate::{Error, Millis, Result};
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
+
+/// 削除の呼び出し元（ログ用）。プロセスの起動時に `set_caller("cli")` / `set_caller("app")` で一度だけ設定する。
+static CALLER: OnceLock<&'static str> = OnceLock::new();
+
+pub fn set_caller(caller: &'static str) {
+    let _ = CALLER.set(caller);
+}
+
+/// 記録の削除をログに残す。種類・ID・呼び出し元だけで、本文・メモは出さない
+/// （記録が消えた原因を後から調べられるようにするため）。
+fn log_deleted(entity: &str, id: &str) {
+    tracing::info!(
+        entity,
+        id,
+        caller = CALLER.get().copied().unwrap_or("unknown"),
+        "記録を削除しました"
+    );
+}
+
+/// 振り返りの回答から参照されているときの警告を足す。
+fn with_reflection_refs(ctx: &Ctx, mut im: Impact) -> Result<Impact> {
+    for label in super::reflect::referencing_reflections(ctx, &im.id)? {
+        im = im.warning(format!("振り返り（{label}）の回答から参照されています"));
+    }
+    Ok(im)
+}
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
@@ -199,10 +226,11 @@ pub fn check_get(ctx: &Ctx, id: &str) -> Result<Checkin> {
 
 pub fn check_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
     let c = check_get(ctx, id)?;
-    let im = Impact::new("checkin", &c.id, "チェックイン");
+    let im = with_reflection_refs(ctx, Impact::new("checkin", &c.id, "チェックイン"))?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
         edit::delete_checkin(ctx.conn, &c.id)?;
+        log_deleted("checkin", &c.id);
     }
     Ok(DeleteOutcome::new(mode, im, go))
 }
@@ -240,11 +268,13 @@ pub fn hassle_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutc
         "このハッスルから作った ABC 記録（記録は残り、ハッスルとの紐付けだけ外れる）",
         edit::count_abc_of_hassle(ctx.conn, &h.id)?,
     );
+    let im = with_reflection_refs(ctx, im)?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
         let tx = ctx.conn.unchecked_transaction()?;
         edit::delete_hassle(ctx.conn, &h.id)?;
         tx.commit()?;
+        log_deleted("hassle", &h.id);
     }
     Ok(DeleteOutcome::new(mode, im, go))
 }
@@ -306,10 +336,11 @@ pub fn abc_edit(ctx: &Ctx, id: &str, input: &AbcEditInput) -> Result<AbcRecord> 
 
 pub fn abc_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
     let a = abc_get(ctx, id)?;
-    let im = Impact::new("abc_record", &a.id, &a.activating_event);
+    let im = with_reflection_refs(ctx, Impact::new("abc_record", &a.id, &a.activating_event))?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
         edit::delete_abc(ctx.conn, &a.id)?;
+        log_deleted("abc_record", &a.id);
     }
     Ok(DeleteOutcome::new(mode, im, go))
 }

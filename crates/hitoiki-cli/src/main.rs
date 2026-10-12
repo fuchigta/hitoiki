@@ -31,6 +31,7 @@ fn main() -> ExitCode {
             return ExitCode::from(code as u8);
         }
     };
+    record::set_caller("cli");
     match run(cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
