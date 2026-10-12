@@ -9,6 +9,7 @@ use hitoiki_core::service::{
         ApplyResult as CorrApplied, Candidate, CorrectionList, CorrectionView, Preview as CorrPreview,
         UndoResult as CorrUndone,
     },
+    heatmap::Heatmap,
     log::Log,
     okr::OkrList,
     plan::BlockList,
@@ -408,6 +409,65 @@ pub fn report(tz: Tz, r: &Report) -> String {
     }
     if let Some(n) = &r.note {
         s += &format!("\n注: {n}");
+    }
+    s
+}
+
+/// 活動量ヒートマップ。月曜始まり、7 行 × 週の列。濃淡は `·░▒▓█`（0〜4 段階）。
+pub fn heatmap(h: &Heatmap) -> String {
+    const SHADES: [char; 5] = ['·', '░', '▒', '▓', '█'];
+    let lead = h.from_weekday as usize;
+    let weeks = (lead + h.days.len()).div_ceil(7);
+    let cell = |week: usize, row: usize| -> char {
+        match (week * 7 + row).checked_sub(lead).and_then(|i| h.days.get(i)) {
+            Some(d) => SHADES[d.level.min(4) as usize],
+            None => ' ',
+        }
+    };
+    let mut s = format!("{}（{} - {}）\n\n", h.label, h.from, h.to);
+
+    // 月ラベル: 月が替わる週の列に出す。前のラベルと重なるときは出さない。
+    let mut months = vec![' '; weeks];
+    let mut next_free = 0usize;
+    let mut prev_month: Option<&str> = None;
+    for w in 0..weeks {
+        let i = (w * 7).saturating_sub(lead);
+        let Some(d) = h.days.get(i) else { continue };
+        let month = &d.date[5..7];
+        if prev_month != Some(month) {
+            prev_month = Some(month);
+            let label: Vec<char> = month.trim_start_matches('0').chars().collect();
+            if w >= next_free {
+                for (k, c) in label.iter().enumerate() {
+                    if w + k < weeks {
+                        months[w + k] = *c;
+                    }
+                }
+                next_free = w + label.len() + 1;
+            }
+        }
+    }
+    s += &format!("   {}\n", months.iter().collect::<String>());
+    for (row, name) in ["月", "", "水", "", "金", "", ""].iter().enumerate() {
+        let label = if name.is_empty() {
+            "  ".to_string()
+        } else {
+            name.to_string()
+        };
+        let line: String = (0..weeks).map(|w| cell(w, row)).collect();
+        s += &format!("{label} {line}\n");
+    }
+    s += "\n濃淡: · なし  ░ ▒ ▓ █（値のある日を四分位で 4 段階に分けた相対的な濃さ）\n";
+    let fmt = |v: i64| {
+        if h.unit == "ms" {
+            dur(v)
+        } else {
+            format!("{v} 件")
+        }
+    };
+    s += &format!("合計: {}\n値のあった日: {} 日", fmt(h.total), h.active_days);
+    if h.active_days > 0 {
+        s += &format!("\n1 日の最大: {}", fmt(h.max));
     }
     s
 }

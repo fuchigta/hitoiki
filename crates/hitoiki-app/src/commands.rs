@@ -16,6 +16,7 @@ use hitoiki_core::service::correction::{
     self, ApplyResult as CorrectionApplied, CandidateList, CorrectionFilter, CorrectionInput, CorrectionList,
     Include, Preview as CorrectionPreview, UndoResult as CorrectionUndone,
 };
+use hitoiki_core::service::heatmap::{self, Heatmap, HeatmapInput};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
@@ -584,6 +585,13 @@ pub fn report(
         include_idle: include_idle.unwrap_or(false),
     };
     state.with_ctx(|c| report::report(c, &input))
+}
+
+/// 活動量ヒートマップ（日別の濃淡）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn heatmap(state: S, by: Option<String>, from: Option<String>, to: Option<String>) -> AppResult<Heatmap> {
+    let input = HeatmapInput { by, from, to };
+    state.with_ctx(|c| heatmap::heatmap(c, &input))
 }
 
 // ===== 設定 =====

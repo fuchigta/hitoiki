@@ -370,7 +370,9 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 共通仕様: 参照系は `--json` で機械可読な出力。対話的なプロンプトは出さず、不足引数はエラー。終了コードは 0 成功、1 一般、2 引数、3 対象なし、4 曖昧（`Error::exit_code()`）。`HITOIKI_HOME` で設定と DB の置き場所を差し替えられる。
 
-主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`okr`、`skill`、`report`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
+`heatmap`（`service::heatmap`）は日別の値と濃淡の段階を返す。時間の指標は派生層 `activity_segment`（`segment_override` 適用後）をローカル日付の 0 時で分割して合算し、記録の指標は `checkin` / `hassle` / `abc_record` / `reflection` の `at` を数える。段階は値のある日の分布で決め（値以下の日の割合を 4 等分、0 は値なし）、スキルは子孫のスキルを含める。
+
+主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`okr`、`skill`、`report`、`heatmap`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
 
 `doctor` は config / db / collect / agent / calendar / notify / judge / ai を ok・warn・error で診断する。`collect` は直近 24 時間の記録停止（2.4）、`agent` は直近 24 時間のプロンプトのうちウインドウに対応付けできなかった件数（4.2）も見る。ネットワークへの実アクセス（カレンダー取得・判定器への疎通）は `--network` 指定時だけ。
 

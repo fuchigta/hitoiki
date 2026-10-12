@@ -189,6 +189,7 @@ pub fn run() {
             manage::activity_label_rename,
             manage::activity_label_remove,
             commands::report,
+            commands::heatmap,
             commands::config_all,
             commands::config_get,
             commands::config_set,

@@ -178,6 +178,8 @@ export const api = {
   report: (by: T.ReportBy, range?: T.RangeArgs, includeIdle = false) =>
     call<T.Report>("report", { range, by, include_idle: includeIdle }),
 
+  heatmap: (by?: string, from?: string, to?: string) => call<T.Heatmap>("heatmap", { by, from, to }),
+
   // 設定
   configAll: () => call<Record<string, unknown>>("config_all"),
   configGet: (key: string) => call<{ key: string; value: unknown }>("config_get", { key }),

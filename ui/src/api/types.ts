@@ -195,6 +195,29 @@ export interface Report {
   note: string | null;
 }
 
+export interface HeatmapDay {
+  date: string;
+  value: number;
+  /** 濃淡の段階（0〜4）。 */
+  level: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface Heatmap {
+  from: string;
+  to: string;
+  /** `from` の曜日（月曜 = 0）。 */
+  from_weekday: number;
+  week_start: "monday";
+  by: string;
+  label: string;
+  unit: "ms" | "count";
+  days: HeatmapDay[];
+  total: number;
+  active_days: number;
+  max: number;
+  thresholds: number[];
+}
+
 export interface DoingView {
   task: TaskView;
   since: Millis | null;

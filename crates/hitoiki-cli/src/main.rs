@@ -13,8 +13,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, log as log_svc, okr, plan, pushlog, quick, record, reflect, report, review,
-    skill, status, task, Ctx, RangeArgs,
+    self, context, correction, heatmap, log as log_svc, okr, plan, pushlog, quick, record, reflect, report,
+    review, skill, status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -735,6 +735,17 @@ fn run(cli: Cli) -> Result<()> {
                 },
             )?;
             emit(json, &r, || render::report(tz, &r))
+        }
+        Cmd::Heatmap { by, from, to } => {
+            let h = heatmap::heatmap(
+                &ctx,
+                &heatmap::HeatmapInput {
+                    by: Some(by),
+                    from,
+                    to,
+                },
+            )?;
+            emit(json, &h, || render::heatmap(&h))
         }
         // DB を開く前に処理済み
         _ => unreachable!("handled before opening the database"),

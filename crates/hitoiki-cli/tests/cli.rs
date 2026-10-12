@@ -1503,3 +1503,80 @@ fn push_list_and_answer() {
     assert_eq!(run(h, &["push", "answer", &a, "--idle", "x"]).code, 2);
     assert_eq!(run(h, &["push", "answer", "ZZZZ", "--dismiss"]).code, 3);
 }
+
+#[test]
+fn heatmap_日別の濃淡と終了コード() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let t = run(h, &["--json", "task", "add", "実装"]);
+    let tid = t.json()["id"].as_str().unwrap().to_string();
+    insert_segment(
+        h,
+        "H1",
+        "2026-01-05 10:00",
+        "2026-01-05 11:00",
+        "work",
+        Some(&tid),
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "H2",
+        "2026-01-06 10:00",
+        "2026-01-06 12:00",
+        "work",
+        None,
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "H3",
+        "2026-01-06 12:00",
+        "2026-01-06 13:00",
+        "idle",
+        None,
+        "auto",
+    );
+
+    let r = run(
+        h,
+        &["--json", "heatmap", "--from", "2026-01-05", "--to", "2026-01-11"],
+    );
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    let v = r.json();
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["by"], "time");
+    assert_eq!(v["days"].as_array().unwrap().len(), 7);
+    assert_eq!(v["days"][0]["value"], 60 * 60_000);
+    assert_eq!(v["days"][1]["value"], 120 * 60_000);
+    assert_eq!(v["days"][1]["level"], 4);
+    assert_eq!(v["total"], 180 * 60_000);
+    assert_eq!(v["active_days"], 2);
+
+    let tk = run(
+        h,
+        &[
+            "--json",
+            "heatmap",
+            "--by",
+            "task:実装",
+            "--from",
+            "2026-01-05",
+            "--to",
+            "2026-01-11",
+        ],
+    );
+    assert_eq!(tk.json()["total"], 60 * 60_000);
+
+    let human = run(h, &["heatmap", "--from", "2026-01-05", "--to", "2026-01-11"]);
+    assert_eq!(human.code, 0, "{}", human.stderr);
+    assert!(human.stdout.contains('█'), "{}", human.stdout);
+    assert!(human.stdout.contains("値のあった日: 2 日"), "{}", human.stdout);
+
+    assert_eq!(run(h, &["heatmap", "--by", "nope"]).code, 2);
+    assert_eq!(run(h, &["heatmap", "--by", "task:存在しないタスク"]).code, 3);
+    assert_eq!(
+        run(h, &["heatmap", "--from", "2026-02-01", "--to", "2026-01-01"]).code,
+        2
+    );
+}
