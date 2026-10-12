@@ -84,6 +84,17 @@ export function measureValues(
   };
 }
 
+/**
+ * 時間・日数の内訳（小さく添える）。KR にスキルが付いていない（かつスキルから数えた時間も無い）ときは null。
+ * 合算した値は主表示で、内訳は「スキルから」「紐付けたタスクから」の 2 つ（両方に当てはまる区間はスキルから）。
+ */
+export function breakdownText(
+  s: Pick<KrSummary, "kr_skills" | "from_skill_ms" | "from_task_ms">,
+): string | null {
+  if (s.kr_skills.length === 0 && s.from_skill_ms === 0) return null;
+  return `内訳: スキルから ${fmtDur(s.from_skill_ms)} ・ 紐付けたタスクから ${fmtDur(s.from_task_ms)}`;
+}
+
 /** 選んだ軸の値（大きく出す）と、残り 2 つ（補助として小さく出す）。 */
 export function splitMeasures(s: KrSummary): { main: MeasureValue; aux: MeasureValue[] } {
   const all = measureValues(s);

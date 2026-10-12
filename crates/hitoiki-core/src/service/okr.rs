@@ -21,6 +21,8 @@ pub struct KrInput {
     pub objective: String,
     pub title: String,
     pub target: Option<String>,
+    /// KR のスキル（既存のスキル名）。KR の時間はこのスキルが付いたタスク・活動の時間が主になる。
+    pub skills: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -63,6 +65,7 @@ pub fn add_kr(ctx: &Ctx, input: &KrInput) -> Result<KeyResult> {
         return Err(Error::InvalidArgument("タイトルが空です".into()));
     }
     let objective_id = okr::resolve_objective(ctx.conn, &input.objective)?;
+    let sids = skill_ids(ctx, &input.skills)?;
     let k = KeyResult {
         id: new_id(),
         objective_id,
@@ -73,8 +76,19 @@ pub fn add_kr(ctx: &Ctx, input: &KrInput) -> Result<KeyResult> {
         measure: DEFAULT_MEASURE.into(),
         day_min: DEFAULT_DAY_MIN,
     };
+    let tx = ctx.conn.unchecked_transaction()?;
     okr::insert_kr(ctx.conn, &k)?;
+    crate::repo::skill::set_kr_skills(ctx.conn, &k.id, &sids)?;
+    tx.commit()?;
     Ok(k)
+}
+
+/// スキル名を ID にする。存在しない名前があれば何も変えずに失敗する。
+fn skill_ids(ctx: &Ctx, names: &[String]) -> Result<Vec<String>> {
+    names
+        .iter()
+        .map(|n| crate::repo::skill::get_by_name(ctx.conn, n).map(|s| s.id))
+        .collect()
 }
 
 /// KR の軸。`time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
@@ -265,6 +279,10 @@ pub struct KrEdit {
     pub measure: Option<String>,
     /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（1 以上）。
     pub day_min: Option<i64>,
+    /// KR のスキル（名前）。空でなければ今のスキルをこれで置き換える。
+    pub skills: Vec<String>,
+    /// KR のスキルを全て外す（`skills` が空でも置き換える）。
+    pub clear_skills: bool,
 }
 
 fn blank_to_none(s: &str) -> Option<String> {
@@ -341,7 +359,14 @@ pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
         }
         k.day_min = d;
     }
+    // 存在しないスキル名は何も変えずに失敗させる。
+    let sids = skill_ids(ctx, &input.skills)?;
+    let tx = ctx.conn.unchecked_transaction()?;
     crate::repo::edit::update_kr(ctx.conn, &k)?;
+    if !sids.is_empty() || input.clear_skills {
+        crate::repo::skill::set_kr_skills(ctx.conn, &k.id, &sids)?;
+    }
+    tx.commit()?;
     Ok(k)
 }
 
@@ -410,6 +435,7 @@ mod edit_tests {
                 objective: o.id.clone(),
                 title: "K".into(),
                 target: Some("10".into()),
+                skills: vec![],
             },
         )
         .unwrap();
@@ -602,6 +628,7 @@ mod tests {
                 objective: o.id[..12].to_string(),
                 title: "K".into(),
                 target: Some("80%".into()),
+                skills: vec![],
             },
         )
         .unwrap();
@@ -613,7 +640,8 @@ mod tests {
             &KrInput {
                 objective: "ZZZ".into(),
                 title: "K".into(),
-                target: None
+                target: None,
+                skills: vec![],
             }
         )
         .is_err());

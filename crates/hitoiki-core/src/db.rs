@@ -14,6 +14,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (5, include_str!("../migrations/0005_reflection_structured.sql")),
     (6, include_str!("../migrations/0006_kr_measure.sql")),
     (7, include_str!("../migrations/0007_erg_label.sql")),
+    (8, include_str!("../migrations/0008_kr_skill.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -131,7 +132,7 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(pending_versions(&conn).unwrap(), vec![6, 7]);
+        assert_eq!(pending_versions(&conn).unwrap(), vec![6, 7, 8]);
         migrate(&mut conn).unwrap();
         let (m, d): (String, i64) = conn
             .query_row(

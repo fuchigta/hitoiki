@@ -1,8 +1,10 @@
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrSummary } from "./api";
 import { ErrorBox } from "./components";
+import { SkillPicker } from "./skill-picker";
 import {
   barHeights,
+  breakdownText,
   linkCandidates,
   rangeSourceLabel,
   relinkCount,
@@ -19,18 +21,28 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
   const tick = useLiveTick(["segments-updated"]);
   const sum = useAsync(() => api.okrShow(k.id), [k.id, k.measure, k.day_min, tick]);
   const s = sum.data;
+  const reload = () => {
+    sum.reload();
+    onChanged();
+  };
+  const skills = <KrSkills k={k} names={s?.kr_skills ?? []} onChanged={reload} />;
+  const tasks = <KrTasks k={k} summary={s ?? null} onChanged={reload} />;
   return (
     <div class="kr-detail">
       <ErrorBox error={sum.error} />
       {s && <Summary s={s} />}
-      <KrTasks
-        k={k}
-        summary={s ?? null}
-        onChanged={() => {
-          sum.reload();
-          onChanged();
-        }}
-      />
+      {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
+      {k.measure === "done" ? (
+        <>
+          {tasks}
+          {skills}
+        </>
+      ) : (
+        <>
+          {skills}
+          {tasks}
+        </>
+      )}
     </div>
   );
 }
@@ -39,6 +51,7 @@ function Summary({ s }: { s: KrSummary }) {
   const { main, aux } = splitMeasures(s);
   const heights = barHeights(s.weekly);
   const hasTime = s.time_ms > 0;
+  const breakdown = breakdownText(s);
   return (
     <div class="stack">
       <div class="kr-main-row">
@@ -47,6 +60,7 @@ function Summary({ s }: { s: KrSummary }) {
             {main.text}
           </div>
           <div class="muted kr-main-label">{main.label}</div>
+          {breakdown && main.measure !== "done" && <div class="muted kr-indirect">{breakdown}</div>}
         </div>
         <div class="kr-aux muted">
           {aux.map((a) => (
@@ -95,6 +109,36 @@ function Summary({ s }: { s: KrSummary }) {
   );
 }
 
+/**
+ * KR に付けるスキル（主）。このスキル（子スキルを含む）が付いたタスク・活動の時間が、この KR の時間になる。
+ * 変更はその場で保存する。
+ */
+function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onChanged: () => void }) {
+  const known = useAsync(() => api.skillList(), []);
+  const act = useAction();
+  const change = async (next: string[]) => {
+    const r = await act.run(() => api.okrEditKr(k.id, { skills: next, clear_skills: next.length === 0 }));
+    if (r) onChanged();
+  };
+  return (
+    <div class="field kr-skill-field">
+      <span class="muted">
+        {k.measure === "done"
+          ? "KR のスキル（完了数の対象は紐付けたタスクです。スキルは時間・日数に使います）"
+          : "KR のスキル（このスキルが付いたタスク・活動の時間をこの KR の時間として数えます）"}
+      </span>
+      <SkillPicker
+        value={names}
+        skills={known.data?.skills ?? []}
+        onChange={change}
+        ariaLabel={`KR「${k.title}」のスキルを追加`}
+        disabled={act.busy}
+      />
+      <ErrorBox error={act.error ?? known.error} />
+    </div>
+  );
+}
+
 /** 紐付いたタスクの一覧（個別に外せる）と、タスクの追加・既存タスクの紐付け。 */
 function KrTasks({
   k,
@@ -127,6 +171,11 @@ function KrTasks({
 
   return (
     <div class="stack kr-tasks">
+      <span class="muted">
+        {k.measure === "done"
+          ? "紐付けたタスク（完了数の対象です）"
+          : "紐付けたタスク（補助: スキルが付いていなくても、この KR の時間に含めます）"}
+      </span>
       {tasks.length > 0 && (
         <ul class="plain">
           {tasks.map((t) => (

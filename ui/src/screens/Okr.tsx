@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, Empty, ErrorBox } from "../components";
 import { useAction, useAsync } from "../lib";
+import { SkillPicker } from "../skill-picker";
 import { KrItem, ObjectiveItem, SkillItem } from "../okr-edit";
 
 export function Okr() {
@@ -88,24 +89,39 @@ export function Okr() {
 function KrForm({ objective, onAdded }: { objective: string; onAdded: () => void }) {
   const [title, setTitle] = useState("");
   const [target, setTarget] = useState("");
+  const [skillNames, setSkillNames] = useState<string[]>([]);
+  const known = useAsync(() => api.skillList(), []);
   const act = useAction();
   return (
     <form
-      class="row"
+      class="stack"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act.run(() => api.okrAddKr(objective, title.trim(), target.trim() || undefined));
+        const r = await act.run(() => api.okrAddKr(objective, title.trim(), target.trim() || undefined, skillNames));
         if (r) {
           setTitle("");
           setTarget("");
+          setSkillNames([]);
           onAdded();
         }
       }}
     >
-      <input class="grow" value={title} onInput={(e) => setTitle(e.currentTarget.value)} placeholder="Key Result" />
-      <input class="narrow" value={target} onInput={(e) => setTarget(e.currentTarget.value)} placeholder="目標" />
-      <button disabled={act.busy || !title.trim()}>追加</button>
-      <ErrorBox error={act.error} />
+      <div class="row">
+        <input class="grow" value={title} onInput={(e) => setTitle(e.currentTarget.value)} placeholder="Key Result" />
+        <input class="narrow" value={target} onInput={(e) => setTarget(e.currentTarget.value)} placeholder="目標" />
+        <button disabled={act.busy || !title.trim()}>追加</button>
+      </div>
+      <div class="field">
+        <span class="muted">スキル（このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。タスクの紐付けは作成後に補助として足せます）</span>
+        <SkillPicker
+          value={skillNames}
+          skills={known.data?.skills ?? []}
+          onChange={setSkillNames}
+          ariaLabel="KR のスキルを追加"
+          disabled={act.busy}
+        />
+      </div>
+      <ErrorBox error={act.error ?? known.error} />
     </form>
   );
 }

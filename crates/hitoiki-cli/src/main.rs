@@ -688,6 +688,7 @@ fn run(cli: Cli) -> Result<()> {
                 objective,
                 title,
                 target,
+                skill,
             } => {
                 let k = okr::add_kr(
                     &ctx,
@@ -695,6 +696,7 @@ fn run(cli: Cli) -> Result<()> {
                         objective,
                         title,
                         target,
+                        skills: skill,
                     },
                 )?;
                 emit(json, &k, || render::kr_added(&k))

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { KrSummary, ObjectiveView, TaskView } from "./api";
 import {
   barHeights,
+  breakdownText,
   filterKrs,
   krLabel,
   krOptions,
@@ -65,6 +66,17 @@ describe("measureValues / splitMeasures", () => {
     expect([d.main.measure, ...d.aux.map((a) => a.measure)]).toEqual(["days", "time", "done"]);
     const n = splitMeasures(summary({ measure: "done" }));
     expect([n.main.measure, ...n.aux.map((a) => a.measure)]).toEqual(["done", "time", "days"]);
+  });
+});
+
+describe("breakdownText", () => {
+  it("スキルが無く、スキルからの時間も無ければ出さない", () => {
+    expect(breakdownText({ kr_skills: [], from_skill_ms: 0, from_task_ms: 30 * 60_000 })).toBeNull();
+  });
+  it("スキルがあれば、スキルから・タスクからの内訳を出す", () => {
+    expect(breakdownText({ kr_skills: ["Rust"], from_skill_ms: 40 * 60_000, from_task_ms: 60 * 60_000 })).toBe(
+      "内訳: スキルから 40分 ・ 紐付けたタスクから 1時間",
+    );
   });
 });
 

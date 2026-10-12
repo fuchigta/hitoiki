@@ -613,6 +613,7 @@ mod tests {
                 objective: o.id,
                 title: "読書".into(),
                 target: None,
+                skills: vec![],
             },
         )
         .unwrap();

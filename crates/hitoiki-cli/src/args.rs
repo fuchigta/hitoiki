@@ -792,6 +792,9 @@ pub enum OkrCmd {
         title: String,
         #[arg(long)]
         target: Option<String>,
+        /// KR のスキル（スキル名。複数指定可、`,` 区切りも可）。KR の時間はこのスキルが付いたタスク・活動の時間が主になる
+        #[arg(long, value_delimiter = ',')]
+        skill: Vec<String>,
     },
     List,
     /// Objective を編集する（指定した項目だけ変える。--description "" で説明を消す）
@@ -840,6 +843,12 @@ pub enum OkrCmd {
         /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15）
         #[arg(long)]
         day_min: Option<i64>,
+        /// KR のスキル（スキル名。複数指定可、`,` 区切りも可。指定すると今のスキルを置き換える）。KR の時間はスキルが主で、このスキル（子スキルを含む）が付いたタスク・活動の時間を数える。紐付けたタスクの時間も重ならないように合算する
+        #[arg(long, value_delimiter = ',')]
+        skill: Vec<String>,
+        /// KR のスキルを全て外す
+        #[arg(long)]
+        no_skill: bool,
     },
     /// KR にタスクを紐付ける（別の KR に紐付いていたものは付け替える）
     Link {

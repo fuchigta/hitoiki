@@ -122,6 +122,8 @@ pub struct KrInputDto {
     pub title: String,
     #[serde(default)]
     pub target: Option<String>,
+    #[serde(default)]
+    pub skills: Vec<String>,
 }
 
 impl From<KrInputDto> for KrInput {
@@ -130,6 +132,7 @@ impl From<KrInputDto> for KrInput {
             objective: k.objective,
             title: k.title,
             target: k.target,
+            skills: k.skills,
         }
     }
 }

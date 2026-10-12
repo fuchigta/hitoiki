@@ -708,6 +708,20 @@ pub fn kr_summary(s: &KrSummary) -> String {
         others[0],
         others[1]
     );
+    // 内訳は小さく添えるだけ。時間・日数は両方を重ならないように合算した値。
+    if !s.kr_skills.is_empty() || s.from_skill_ms > 0 {
+        let names = if s.kr_skills.is_empty() {
+            "(なし)".to_string()
+        } else {
+            s.kr_skills.join("、")
+        };
+        out += &format!(
+            "KR のスキル: {}（子スキルを含む）\n内訳: スキルから {} ・ 紐付いたタスクから {}（両方に当てはまる区間はスキルから）\n",
+            names,
+            dur(s.from_skill_ms),
+            dur(s.from_task_ms)
+        );
+    }
     if s.estimate.estimated_tasks > 0 {
         out += &format!(
             "見積の合計 {}分（{} 件）・ そのタスクの期間内の実績 {}\n",
@@ -736,7 +750,7 @@ pub fn kr_summary(s: &KrSummary) -> String {
         }
     }
     if s.tasks.is_empty() {
-        out += "\n紐付いたタスクはありません。`hitoiki okr link` で紐付けられます。";
+        out += "\n紐付いたタスクはありません。スキルは `hitoiki okr edit-kr --skill`、タスクは `hitoiki okr link` で追加できます。";
     } else {
         out += "\n紐付いたタスク\n";
         for t in &s.tasks {

@@ -1821,4 +1821,23 @@ fn okr_link_unlink_show_と軸の編集() {
     assert_eq!(ne.code, 0, "{}", ne.stderr);
     assert!(run(h, &["--json", "task", "show", &t2]).json()["task"]["key_result"].is_null());
     assert_eq!(run(h, &["task", "edit", &t2, "--kr", &k1, "--no-kr"]).code, 2);
+
+    // KR のスキル: 紐付いていないタスク（t2、15 分）でも、スキルが付いていればKR の時間に入る
+    assert_eq!(run(h, &["skill", "add", "Rust"]).code, 0);
+    assert_eq!(run(h, &["task", "edit", &t2, "--skill", "Rust"]).code, 0);
+    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--skill", "ZZZ"]).code, 3);
+    let e = run(h, &["--json", "okr", "edit-kr", &k1, "--skill", "Rust"]);
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    let v = run(h, &["--json", "okr", "show", &k1]).json();
+    assert_eq!(v["kr_skills"][0], "Rust");
+    assert_eq!(v["time_ms"], 15 * 60_000);
+    assert_eq!(v["from_skill_ms"], 15 * 60_000);
+    assert_eq!(v["from_task_ms"], 0);
+    let human = run(h, &["okr", "show", &k1]);
+    assert!(human.stdout.contains("内訳"), "{}", human.stdout);
+    let e = run(h, &["--json", "okr", "edit-kr", &k1, "--no-skill"]);
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    let v = run(h, &["--json", "okr", "show", &k1]).json();
+    assert_eq!(v["time_ms"], 0);
+    assert!(v["kr_skills"].as_array().unwrap().is_empty());
 }

@@ -136,8 +136,8 @@ export const api = {
   // OKR・スキル
   okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
   okrAddObjective: (title: string) => call<T.Objective>("okr_add_objective", { input: { title } }),
-  okrAddKr: (objective: string, title: string, target?: string) =>
-    call<T.KeyResult>("okr_add_kr", { input: { objective, title, target } }),
+  okrAddKr: (objective: string, title: string, target?: string, skills?: string[]) =>
+    call<T.KeyResult>("okr_add_kr", { input: { objective, title, target, skills } }),
   skillList: () => call<{ skills: T.SkillView[] }>("skill_list"),
   skillAdd: (name: string, parent?: string) => call<T.Skill>("skill_add", { input: { name, parent } }),
   skillImportPreset: (name?: string) => call<T.PresetImport>("skill_import_preset", { name }),

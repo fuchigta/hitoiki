@@ -615,6 +615,12 @@ export interface KrSummary {
   time_ms: number;
   active_days: number;
   day_min: number;
+  /** KR に付けたスキルの名前。時間・日数はこのスキルが主で、紐付けたタスクも重ならないように合算する。 */
+  kr_skills: string[];
+  /** 内訳: KR のスキル（子スキルを含む）が付いたタスク・活動の区間の時間。`time_ms` の一部。 */
+  from_skill_ms: number;
+  /** 内訳: 上に当てはまらない、紐付けたタスクの区間の時間（両方に当てはまる区間は上に入る）。 */
+  from_task_ms: number;
   done_count: number;
   task_count: number;
   weekly: KrWeekBar[];
@@ -699,6 +705,10 @@ export interface KrEdit {
   objective?: string;
   measure?: KrMeasure;
   day_min?: number;
+  /** KR のスキル（名前）。空でなければ今のスキルを置き換える。 */
+  skills?: string[];
+  /** KR のスキルを全て外す。 */
+  clear_skills?: boolean;
 }
 
 export interface SkillEdit {

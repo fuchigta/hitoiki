@@ -86,6 +86,43 @@ pub fn set_task_skills(conn: &Connection, task_id: &str, skill_ids: &[String]) -
     Ok(())
 }
 
+/// KR のスキルを置き換える。
+pub fn set_kr_skills(conn: &Connection, kr_id: &str, skill_ids: &[String]) -> Result<()> {
+    conn.execute("DELETE FROM kr_skill WHERE kr_id = ?1", [kr_id])?;
+    for s in skill_ids {
+        conn.execute(
+            "INSERT OR IGNORE INTO kr_skill (kr_id, skill_id) VALUES (?1, ?2)",
+            params![kr_id, s],
+        )?;
+    }
+    Ok(())
+}
+
+/// 活動（ウインドウの exe・タイトルなど）からスキルを付けるルール。
+pub fn list_activity_skill_rules(conn: &Connection) -> Result<Vec<crate::model::ActivitySkillRule>> {
+    let mut stmt = conn
+        .prepare("SELECT id, field, pattern, pattern_type, skill_id FROM activity_skill_rule ORDER BY id")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(crate::model::ActivitySkillRule {
+            id: r.get(0)?,
+            field: r.get(1)?,
+            pattern: r.get(2)?,
+            pattern_type: r.get(3)?,
+            skill_id: r.get(4)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// KR のスキル（名前順）。
+pub fn kr_skills(conn: &Connection, kr_id: &str) -> Result<Vec<Skill>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.name, s.parent_id, s.description, s.preset FROM kr_skill ks          JOIN skill s ON s.id = ks.skill_id WHERE ks.kr_id = ?1 ORDER BY s.name",
+    )?;
+    let rows = stmt.query_map([kr_id], from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
 /// タスクのスキル名（名前順）。
 pub fn task_skill_names(conn: &Connection, task_id: &str) -> Result<Vec<String>> {
     let mut stmt = conn.prepare(
