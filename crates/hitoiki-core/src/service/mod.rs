@@ -6,6 +6,7 @@
 pub mod block_template;
 pub mod context;
 pub mod correction;
+pub mod erg;
 pub mod heatmap;
 pub mod hint;
 pub mod ignore;

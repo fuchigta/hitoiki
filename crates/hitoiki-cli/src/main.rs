@@ -13,8 +13,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, heatmap, log as log_svc, okr, plan, pushlog, quick, record, reflect, report,
-    review, skill, status, task, Ctx, RangeArgs,
+    self, context, correction, erg, heatmap, log as log_svc, okr, plan, pushlog, quick, record, reflect,
+    report, review, skill, status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -675,6 +675,7 @@ fn run(cli: Cli) -> Result<()> {
             print_json(&c)
         }
         Cmd::Reflect(r) => reflect_cmd(&ctx, r, json),
+        Cmd::Erg(e) => erg_cmd(&ctx, e, json),
         Cmd::Okr(o) => match o {
             OkrCmd::AddObjective { title, from, to } => {
                 let now = ctx.now();
@@ -794,6 +795,32 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
             emit(json, &ReflectionOut::new(&r, &details), || {
                 render::reflection(tz, &r, &details)
             })
+        }
+    }
+}
+
+fn erg_cmd(ctx: &Ctx, cmd: ErgCmd, json: bool) -> Result<()> {
+    let tz = ctx.tz()?;
+    match cmd {
+        ErgCmd::Classify { range, dry_run } => {
+            let o = erg::classify(ctx, &range_args(&range), dry_run)?;
+            emit(json, &o, || render::erg_classify(tz, &o))
+        }
+        ErgCmd::Review => {
+            let r = erg::review(ctx)?;
+            emit(json, &r, || render::erg_review(tz, &r))
+        }
+        ErgCmd::Set { record, tag } => {
+            let l = erg::set(ctx, &record, tag)?;
+            emit(json, &l, || render::erg_label(&l))
+        }
+        ErgCmd::Confirm { record } => {
+            let l = erg::confirm(ctx, &record)?;
+            emit(json, &l, || render::erg_label(&l))
+        }
+        ErgCmd::Show { range } => {
+            let o = erg::overview(ctx, &range_args(&range))?;
+            emit(json, &o, || render::erg_overview(tz, &o))
         }
     }
 }

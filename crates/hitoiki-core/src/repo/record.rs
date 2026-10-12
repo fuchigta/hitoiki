@@ -6,25 +6,19 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 pub fn insert_checkin(conn: &Connection, c: &Checkin) -> Result<()> {
     conn.execute(
-        "INSERT INTO checkin (id, at, energy, mood, stress, erg_tag, note, push_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-        params![
-            c.id,
-            c.at,
-            c.energy,
-            c.mood,
-            c.stress,
-            c.erg_tag.map(|e| e.as_str()),
-            c.note,
-            c.push_id
-        ],
+        "INSERT INTO checkin (id, at, energy, mood, stress, note, push_id) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+        params![c.id, c.at, c.energy, c.mood, c.stress, c.note, c.push_id],
     )?;
     Ok(())
 }
 
 pub fn list_checkins(conn: &Connection, start: i64, end: i64) -> Result<Vec<Checkin>> {
     let mut stmt = conn.prepare(
-        "SELECT id, at, energy, mood, stress, erg_tag, note, push_id FROM checkin \
-         WHERE at >= ?1 AND at < ?2 ORDER BY at, id",
+        "SELECT c.id, c.at, c.energy, c.mood, c.stress, \
+                (SELECT l.tag FROM erg_label l WHERE l.record_kind = 'checkin' AND l.record_id = c.id \
+                   AND l.source IN ('user', 'ai') AND l.tag <> 'none'), \
+                c.note, c.push_id FROM checkin c \
+         WHERE c.at >= ?1 AND c.at < ?2 ORDER BY c.at, c.id",
     )?;
     let rows = stmt.query_map(params![start, end], |r| {
         let erg: Option<String> = r.get(5)?;

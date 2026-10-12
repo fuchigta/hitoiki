@@ -34,7 +34,7 @@ hitoiki config get push.daily_limit
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`toast_persistent`（true）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
-| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |
+| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources` |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 
@@ -113,6 +113,8 @@ command = ["claude", "-p"]
 timeout_sec = 180
 ```
 
+- `erg_classify`（既定 true）は、終業・週次の振り返りを作る前に、その期間の記録の ERG（存在・関係・成長）を AI で判定するかの設定です。**true のとき、ERG が未判定の記録の文章（チェックインのメモ、ハッスル、ABC、振り返りの回答）が `command` に送られます**（`hitoiki erg classify` を実行したときは設定にかかわらず送られます）。`command` が空なら送らず、判定もしません。
+- `erg_auto_threshold`（既定 0.8）は、AI の判定を採用する確信度の下限です（0〜1）。未満のものは「確認待ち」になり、あなたが確定するまで集計に入りません。
 - 既定は `claude -p` です。他のコマンドに替えるときは、プロンプトを標準入力から読み、回答を標準出力に書くものを指定します。
 - `timeout_sec` を超えると強制終了してエラーにします。終了コードが 0 以外、または出力が空の場合もエラーです。
 - `structured` は、問いを JSON（種類つき）で受け取って画面で答えられるようにするかの設定です。`auto`（既定）は `command` の先頭が `claude`（パスの末尾のファイル名で判定）のときだけ構造化し、それ以外は従来の Markdown です。`on` は常に試み、`off` は使いません。構造化に失敗した場合（コマンドが対応していない、JSON が読めない、形式が合わない）は、従来の Markdown の問いに自動で切り替え、エラーはログに残します。

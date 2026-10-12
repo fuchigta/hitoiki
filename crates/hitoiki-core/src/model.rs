@@ -116,6 +116,78 @@ str_enum!(
     ErgTag { Existence => "existence", Relatedness => "relatedness", Growth => "growth" }
 );
 
+str_enum!(
+    /// ERG 判定の結果。3 つのタグか、どれにも関わらない（`none`）。
+    ErgChoice {
+        Existence => "existence",
+        Relatedness => "relatedness",
+        Growth => "growth",
+        None => "none",
+    }
+);
+
+impl ErgChoice {
+    /// 3 つのタグのどれかなら `Some`、`none` なら `None`。
+    pub fn tag(self) -> Option<ErgTag> {
+        match self {
+            ErgChoice::Existence => Some(ErgTag::Existence),
+            ErgChoice::Relatedness => Some(ErgTag::Relatedness),
+            ErgChoice::Growth => Some(ErgTag::Growth),
+            ErgChoice::None => None,
+        }
+    }
+}
+
+impl From<ErgTag> for ErgChoice {
+    fn from(t: ErgTag) -> Self {
+        match t {
+            ErgTag::Existence => ErgChoice::Existence,
+            ErgTag::Relatedness => ErgChoice::Relatedness,
+            ErgTag::Growth => ErgChoice::Growth,
+        }
+    }
+}
+
+str_enum!(
+    /// ERG のタグを付ける対象の記録の種類。
+    ErgRecordKind {
+        Checkin => "checkin",
+        Hassle => "hassle",
+        Abc => "abc",
+        Reflection => "reflection",
+    }
+);
+
+str_enum!(
+    /// ERG ラベルの出所。`user` が最優先で、AI は上書きしない。
+    ErgSource { User => "user", Ai => "ai", Suggested => "suggested" }
+);
+
+/// 記録 1 件の ERG ラベル（`erg_label` の行）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ErgLabel {
+    pub record_kind: ErgRecordKind,
+    pub record_id: String,
+    /// `source` が `suggested` のときは提案のタグ（確定していない）。
+    pub tag: ErgChoice,
+    pub source: ErgSource,
+    /// AI の確信度（0〜1）。ユーザーが付けたものは `None`。
+    pub confidence: Option<f64>,
+    /// AI が挙げた理由（短い日本語）。
+    pub reason: Option<String>,
+    pub at: Millis,
+}
+
+impl ErgLabel {
+    /// 確定している（`user` か `ai`）ときのタグ。`none` と確認待ちは `None`。
+    pub fn confirmed_tag(&self) -> Option<ErgTag> {
+        match self.source {
+            ErgSource::Suggested => None,
+            _ => self.tag.tag(),
+        }
+    }
+}
+
 // ===== 生データ層 =====
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

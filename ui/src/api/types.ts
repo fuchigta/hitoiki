@@ -549,7 +549,6 @@ export interface CheckInput {
   energy?: number;
   mood?: number;
   stress?: number;
-  erg?: ErgTag;
   note?: string;
 }
 
@@ -824,7 +823,6 @@ export interface Question {
   kind: QuestionKind;
   prompt: string;
   scales?: Scale[];
-  erg_candidates?: ErgTag[];
   examples?: string[];
   activating_event?: string;
   belief_prompt?: string;
@@ -865,7 +863,6 @@ export interface AnswerItem {
   energy?: number;
   mood?: number;
   stress?: number;
-  erg?: ErgTag;
   note?: string;
   text?: string;
   intensity?: number;
@@ -989,4 +986,75 @@ export interface CorrectionUndone {
   correction: CorrectionView;
   overrides_removed: number;
   range: RangeView;
+}
+
+// ===== ERG（記録の内容から AI が判定し、ユーザーが確認・修正する） =====
+
+/** 3 つの観点か、どれにも関わらない（none）。 */
+export type ErgChoice = ErgTag | "none";
+export type ErgRecordKind = "checkin" | "hassle" | "abc" | "reflection";
+/** user = ユーザーが付けた・確定した / ai = 確信度が閾値以上で AI が採用 / suggested = 確認待ち（AI の提案で未確定） */
+export type ErgSource = "user" | "ai" | "suggested";
+
+/** core の `model::ErgLabel`。 */
+export interface ErgLabel {
+  record_kind: ErgRecordKind;
+  record_id: string;
+  tag: ErgChoice;
+  source: ErgSource;
+  confidence: number | null;
+  reason: string | null;
+  at: Millis;
+}
+
+/** 期間内の記録の分布（件数。事実の集計で、評価は含まない）。 */
+export interface ErgDistribution {
+  existence: number;
+  relatedness: number;
+  growth: number;
+  none: number;
+  pending: number;
+  unlabeled: number;
+  ai_decided: number;
+  total: number;
+  legend: string;
+}
+
+export interface ErgOverview {
+  range: RangeView;
+  distribution: ErgDistribution;
+  labels: ErgLabel[];
+  pending_total: number;
+}
+
+export interface ErgItem extends ErgLabel {
+  record_at: Millis;
+  excerpt: string;
+}
+
+export interface ErgReview {
+  items: ErgItem[];
+}
+
+export interface ErgClassifiedItem {
+  record_kind: ErgRecordKind;
+  record_id: string;
+  at: Millis;
+  excerpt: string;
+  tag: ErgChoice;
+  confidence: number | null;
+  reason: string;
+  source: ErgSource;
+}
+
+export interface ErgClassifyOutcome {
+  range: RangeView;
+  dry_run: boolean;
+  /** 判定しなかった理由（AI が未設定など）。 */
+  skipped: string | null;
+  targets: number;
+  adopted: number;
+  pending: number;
+  unread: number;
+  items: ErgClassifiedItem[];
 }

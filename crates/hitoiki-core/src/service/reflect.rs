@@ -28,6 +28,7 @@ pub fn builtin_template(name: &str) -> Option<&'static str> {
         "day_start_structured" => Some(include_str!("../../templates/day_start_structured.md")),
         "day_end_structured" => Some(include_str!("../../templates/day_end_structured.md")),
         "weekly_structured" => Some(include_str!("../../templates/weekly_structured.md")),
+        "erg_classify" => Some(include_str!("../../templates/erg_classify.md")),
         _ => None,
     }
 }
@@ -253,6 +254,8 @@ fn generate_structured(ctx: &Ctx, c: &ContextJson) -> Result<StructuredOutput> {
 /// `ai.structured` が有効なら構造化出力を試み、失敗したら（エラーはログに残して）従来の Markdown の問いに
 /// フォールバックする。
 pub fn reflect(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Reflection> {
+    // 終業・週次は、その期間の未判定の記録の ERG を先に判定する（失敗しても振り返りは続ける）。
+    super::erg::classify_before_reflection(ctx, kind, date);
     let c = context::context(ctx, kind, date)?;
     let mut structured_out = None;
     if structured::enabled(&ctx.cfg.ai) {
@@ -302,7 +305,8 @@ pub fn structured_of(r: &Reflection) -> Result<Option<StructuredOutput>> {
 }
 
 /// 構造化された問い 1 件への回答。使うフィールドは問いの種類で決まる。
-/// - checkin: `energy` / `mood` / `stress`（1〜5）、`erg`、`note`
+/// - checkin: `energy` / `mood` / `stress`（1〜5）、`note`（`erg` は互換のため受け付け、付けたらユーザーのタグとして保存する。
+///   画面は尋ねない。ERG は記録の内容から AI が判定する）
 /// - hassle: `text`、`intensity`（1〜5、省略時 3）
 /// - abc: `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論）
 /// - free: `text`
@@ -919,6 +923,77 @@ mod tests {
             answers: vec![item(0, &|a| a.text = Some("x".into()))],
         };
         assert!(answer_structured(&env2.ctx(), &md.id, &ok).is_err());
+    }
+
+    fn hassle_labels(ctx: &Ctx) -> Vec<crate::model::ErgLabel> {
+        crate::repo::erg::list_range(ctx.conn, 0, i64::MAX).unwrap()
+    }
+
+    fn add_hassle(ctx: &Ctx, text: &str) {
+        record::hassle(
+            ctx,
+            &record::HassleInput {
+                text: text.into(),
+                intensity: None,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn reflect_classifies_erg_before_day_end_and_weekly() {
+        use crate::model::ErgSource;
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("erg"));
+        let ctx = env.ctx();
+        add_hassle(&ctx, "新しいことを試した");
+        add_hassle(&ctx, "同僚と話した");
+        reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        let labels = hassle_labels(&ctx);
+        assert_eq!(labels.len(), 2);
+        // r1 は確信度 0.9 で採用、もう一方は 0.5 で確認待ち
+        assert_eq!(labels.iter().filter(|l| l.source == ErgSource::Ai).count(), 1);
+        assert_eq!(
+            labels.iter().filter(|l| l.source == ErgSource::Suggested).count(),
+            1
+        );
+
+        // 週次の文脈には分布が入る
+        let r = reflect(&ctx, ReflectionKind::Weekly, None).unwrap();
+        let c: serde_json::Value = serde_json::from_str(&r.context_json).unwrap();
+        assert_eq!(c["erg_distribution"]["growth"], 1);
+        assert_eq!(c["erg_distribution"]["pending"], 1);
+        assert!(c["erg_distribution"]["legend"]
+            .as_str()
+            .unwrap()
+            .contains("手応え"));
+    }
+
+    #[test]
+    fn reflect_skips_erg_when_disabled_or_day_start_and_survives_failure() {
+        // ai.erg_classify = false なら判定しない
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("erg"));
+        env.cfg.ai.erg_classify = false;
+        let ctx = env.ctx();
+        add_hassle(&ctx, "何か");
+        reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        assert!(hassle_labels(&ctx).is_empty());
+        // 始業は対象外
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("erg"));
+        let ctx = env.ctx();
+        add_hassle(&ctx, "何か");
+        reflect(&ctx, ReflectionKind::DayStart, None).unwrap();
+        assert!(hassle_labels(&ctx).is_empty());
+        // 判定が失敗しても振り返り自体は保存される
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("ergfail"));
+        let ctx = env.ctx();
+        add_hassle(&ctx, "何か");
+        let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        assert!(r.questions_md.contains("2026-10-10"));
+        assert!(hassle_labels(&ctx).is_empty());
     }
 
     #[test]

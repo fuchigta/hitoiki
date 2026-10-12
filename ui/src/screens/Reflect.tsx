@@ -2,6 +2,8 @@ import { useEffect, useState } from "preact/hooks";
 import { api, type Reflection, type ReflectionKind } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
 import { dateInput, fmtFull, useAction, useAsync } from "../lib";
+import { ErgSummary } from "../erg-label";
+import { weekOf } from "../erg-util";
 import { Markdown } from "../markdown";
 import { StructuredAnswer } from "../reflect-form";
 import { parseStructured } from "../reflect-util";
@@ -27,6 +29,11 @@ export function Reflect() {
   const gen = useAction();
   const save = useAction();
   const past = useAsync(() => api.reflectList(kind, 30), [kind]);
+  const week = weekOf(date);
+  const erg = useAsync(
+    () => (kind === "weekly" && week ? api.ergOverview(week) : Promise.resolve(null as never)),
+    [kind, week?.from],
+  );
 
   // 通知やトレイから別の種別が指定されたとき（`#/reflect/day_end`）に追従する。
   useEffect(() => {
@@ -117,6 +124,20 @@ export function Reflect() {
         )}
         <ErrorBox error={gen.error} />
       </Card>
+
+      {kind === "weekly" && week && (
+        <Card title="この週の記録の ERG（件数）">
+          <ErrorBox error={erg.error} />
+          {erg.data && (
+            <ErgSummary
+              distribution={erg.data.distribution}
+              range={week}
+              pendingTotal={erg.data.pending_total}
+              onChanged={erg.reload}
+            />
+          )}
+        </Card>
+      )}
 
       {current && structured && (
         <Card title={`${info.label}の振り返り（${fmtFull(current.at)}）`}>

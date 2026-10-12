@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { api, type AnswerDetail, type ErgTag, type Question, type Reflection } from "./api";
+import { api, type AnswerDetail, type Question, type Reflection } from "./api";
 import { ErrorBox, Field } from "./components";
 import { useAction } from "./lib";
 import { Markdown } from "./markdown";
@@ -7,7 +7,6 @@ import {
   askedScales,
   buildAnswers,
   detailLines,
-  ERG_LABELS,
   hasAnswers,
   initialForms,
   parseAnswered,
@@ -157,24 +156,6 @@ export function StructuredAnswer({
                       {askedScales(q).map((s) => (
                         <Scale key={s} label={SCALE_LABELS[s]} value={f[s]} onChange={(n) => patch(i, { [s]: n })} />
                       ))}
-                      {(q.erg_candidates?.length ?? 0) > 0 && (
-                        <div class="field">
-                          <span>ERG タグ（任意）</span>
-                          <div class="row" role="group" aria-label="ERG タグ">
-                            {q.erg_candidates!.map((t: ErgTag) => (
-                              <button
-                                type="button"
-                                key={t}
-                                class={f.erg === t ? "chip on" : "chip"}
-                                aria-pressed={f.erg === t}
-                                onClick={() => patch(i, { erg: f.erg === t ? undefined : t })}
-                              >
-                                {ERG_LABELS[t]}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                       <Field label="メモ（任意）">
                         <input value={f.note} onInput={(e) => patch(i, { note: e.currentTarget.value })} />
                       </Field>

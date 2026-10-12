@@ -6,7 +6,9 @@ use crate::error::{AppError, AppResult};
 use crate::state::{AppState, PushEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
-use hitoiki_core::model::{AbcRecord, CalendarEvent, Checkin, Hassle, Reflection, TimeBlock};
+use hitoiki_core::model::{
+    AbcRecord, CalendarEvent, Checkin, ErgChoice, ErgLabel, ErgRecordKind, Hassle, Reflection, TimeBlock,
+};
 use hitoiki_core::service::block_template::{
     self as btpl, ApplyInput, ApplyResult, Preview, SaveFromInput, Suggestion, TemplateInput, TemplateList,
     TemplateView, UndoResult,
@@ -16,6 +18,7 @@ use hitoiki_core::service::correction::{
     self, ApplyResult as CorrectionApplied, CandidateList, CorrectionFilter, CorrectionInput, CorrectionList,
     Include, Preview as CorrectionPreview, UndoResult as CorrectionUndone,
 };
+use hitoiki_core::service::erg;
 use hitoiki_core::service::heatmap::{self, Heatmap, HeatmapInput};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
@@ -533,6 +536,50 @@ pub fn reflect_show(state: S, id: String) -> AppResult<Reflection> {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn abc_dispute(app: AppHandle, id: String) -> AppResult<AbcRecord> {
     blocking(app, move |st| st.with_own_ctx(|c| reflect::abc_dispute(c, &id))).await
+}
+
+// ===== ERG（記録の内容から AI が判定し、ユーザーが確認・修正する） =====
+
+/// 期間内の記録の ERG ラベルと分布、確認待ちの数。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_overview(state: S, range: Option<RangeArgs>) -> AppResult<erg::ErgOverview> {
+    let args = range.unwrap_or_default();
+    state.with_ctx(|c| erg::overview(c, &args))
+}
+
+/// 確認待ち（AI の提案で未確定）の一覧。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_review(state: S) -> AppResult<erg::ErgReview> {
+    state.with_ctx(erg::review)
+}
+
+/// 未判定の記録を AI で判定する。時間がかかるので専用スレッドで実行する。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn erg_classify(
+    app: AppHandle,
+    range: Option<RangeArgs>,
+    dry_run: Option<bool>,
+) -> AppResult<erg::ClassifyOutcome> {
+    let args = range.unwrap_or_default();
+    blocking(app, move |st| {
+        st.with_own_ctx(|c| erg::classify(c, &args, dry_run.unwrap_or(false)))
+    })
+    .await
+}
+
+/// ユーザーがタグを付ける・直す（`tag` は existence / relatedness / growth / none）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_set(state: S, record_kind: String, record_id: String, tag: String) -> AppResult<ErgLabel> {
+    let kind = ErgRecordKind::from_str(&record_kind)?;
+    let tag = ErgChoice::from_str(&tag)?;
+    state.with_ctx(|c| erg::set_for(c, kind, &record_id, tag))
+}
+
+/// 確認待ちの提案をそのまま確定する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_confirm(state: S, record_kind: String, record_id: String) -> AppResult<ErgLabel> {
+    let kind = ErgRecordKind::from_str(&record_kind)?;
+    state.with_ctx(|c| erg::confirm_for(c, kind, &record_id))
 }
 
 // ===== OKR・スキル =====

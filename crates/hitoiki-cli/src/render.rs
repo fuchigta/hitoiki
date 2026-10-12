@@ -850,10 +850,6 @@ pub fn reflection(
             QuestionKind::Checkin => {
                 let names: Vec<&str> = q.scales.iter().map(Scale::label).collect();
                 s += &format!("    尺度: {}（1〜5）\n", names.join("・"));
-                if !q.erg_candidates.is_empty() {
-                    let tags: Vec<String> = q.erg_candidates.iter().map(|t| t.to_string()).collect();
-                    s += &format!("    ERG タグの候補: {}\n", tags.join(", "));
-                }
             }
             QuestionKind::Abc => {
                 if let Some(a) = &q.activating_event {
@@ -1275,4 +1271,133 @@ pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String
             format!("答えました: {} ({})", short(&r.id), parts.join("・"))
         }
     }
+}
+
+fn erg_name(t: hitoiki_core::model::ErgChoice) -> &'static str {
+    use hitoiki_core::model::ErgChoice::*;
+    match t {
+        Existence => "存在",
+        Relatedness => "関係",
+        Growth => "成長",
+        None => "なし",
+    }
+}
+
+fn erg_source(s: hitoiki_core::model::ErgSource) -> &'static str {
+    use hitoiki_core::model::ErgSource::*;
+    match s {
+        User => "ユーザー",
+        Ai => "AI",
+        Suggested => "確認待ち",
+    }
+}
+
+fn erg_conf(c: Option<f64>) -> String {
+    c.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into())
+}
+
+/// `hitoiki erg classify` の人間向け表示。
+pub fn erg_classify(tz: Tz, o: &hitoiki_core::service::erg::ClassifyOutcome) -> String {
+    if let Some(why) = &o.skipped {
+        return why.clone();
+    }
+    if o.targets == 0 {
+        return "判定する記録はありません（未判定のものがありません）。".into();
+    }
+    let mut s = format!(
+        "{}対象 {} 件: AI の判定を採用 {} 件 / 確認待ち {} 件{}\n",
+        if o.dry_run {
+            "（dry-run・保存していません）"
+        } else {
+            ""
+        },
+        o.targets,
+        o.adopted,
+        o.pending,
+        if o.unread > 0 {
+            format!(" / 判定が得られず未判定のまま {} 件", o.unread)
+        } else {
+            String::new()
+        }
+    );
+    if !o.items.is_empty() {
+        let rows: Vec<Vec<String>> = o
+            .items
+            .iter()
+            .map(|i| {
+                vec![
+                    short(&i.record_id),
+                    dt(tz, i.at),
+                    erg_name(i.tag).to_string(),
+                    erg_source(i.source).to_string(),
+                    erg_conf(i.confidence),
+                    truncate(&i.excerpt, 30),
+                    truncate(&i.reason, 30),
+                ]
+            })
+            .collect();
+        s += &table(&["ID", "時刻", "ERG", "出所", "確信度", "記録", "理由"], &rows);
+    }
+    s
+}
+
+/// `hitoiki erg review` の人間向け表示。
+pub fn erg_review(tz: Tz, r: &hitoiki_core::service::erg::ErgReview) -> String {
+    if r.items.is_empty() {
+        return "確認待ちはありません。".into();
+    }
+    let rows: Vec<Vec<String>> = r
+        .items
+        .iter()
+        .map(|i| {
+            vec![
+                short(&i.label.record_id),
+                i.label.record_kind.to_string(),
+                dt(tz, i.record_at),
+                erg_name(i.label.tag).to_string(),
+                erg_conf(i.label.confidence),
+                truncate(&i.excerpt, 30),
+                truncate(&opt(&i.label.reason), 30),
+            ]
+        })
+        .collect();
+    let mut s = table(&["ID", "種類", "時刻", "提案", "確信度", "記録", "理由"], &rows);
+    s += "\n\n`hitoiki erg confirm <ID>` で提案のまま確定、`hitoiki erg set <ID> <existence|relatedness|growth|none>` で変えられます。";
+    s
+}
+
+/// `hitoiki erg set` / `confirm` の人間向け表示。
+pub fn erg_label(l: &hitoiki_core::model::ErgLabel) -> String {
+    format!(
+        "ERG を確定しました: {} {} → {}",
+        l.record_kind,
+        short(&l.record_id),
+        erg_name(l.tag)
+    )
+}
+
+/// `hitoiki erg show` の人間向け表示。
+pub fn erg_overview(tz: Tz, o: &hitoiki_core::service::erg::ErgOverview) -> String {
+    let d = &o.distribution;
+    let mut s = format!(
+        "{} 〜 {} の記録 {} 件\n  存在 {} / 関係 {} / 成長 {} / どれにも関わらない {}\n  確認待ち {} / 未判定 {}（うち AI の判定を採用 {}）\n  （{}）",
+        dt(tz, o.range.start_at),
+        dt(tz, o.range.end_at),
+        d.total,
+        d.existence,
+        d.relatedness,
+        d.growth,
+        d.none,
+        d.pending,
+        d.unlabeled,
+        d.ai_decided,
+        d.legend
+    );
+    if o.pending_total > 0 {
+        s += &format!(
+            "\n確認待ちは全期間で {} 件あります（`hitoiki erg review`）。",
+            o.pending_total
+        );
+    }
+    s
 }
