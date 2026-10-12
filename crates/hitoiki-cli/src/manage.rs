@@ -6,7 +6,7 @@ use crate::table::table;
 use crate::{emit, ext, range_args, render};
 use hitoiki_core::config::Config;
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
-use hitoiki_core::service::{okr, parse_to, record, rule, settings, skill, Ctx};
+use hitoiki_core::service::{okr, okr_progress, parse_to, record, rule, settings, skill, Ctx};
 use hitoiki_core::timefmt::{self, to_local};
 use hitoiki_core::{paths, Error, Result};
 
@@ -245,6 +245,7 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             title,
             target,
             current,
+            note,
             status,
             objective,
             measure,
@@ -257,6 +258,7 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                     title,
                     target,
                     current,
+                    current_note: note,
                     status,
                     objective,
                     measure,
@@ -282,6 +284,18 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             emit(json, &serde_json::json!({ "unlinked": r }), || {
                 render::kr_unlinked(&r)
             })
+        }
+        OkrCmd::Progress { kr, value, note } => {
+            let r = okr_progress::record(ctx, &kr, &value, note.as_deref())?;
+            emit(json, &r, || render::kr_progress_recorded(tz, &r))
+        }
+        OkrCmd::History { kr, range } => {
+            let args = range_args(&range);
+            let given = (args.date.is_some() || args.from.is_some() || args.to.is_some())
+                .then(|| ctx.range(&args))
+                .transpose()?;
+            let h = okr_progress::kr_history(ctx, &kr, given)?;
+            emit(json, &h, || render::kr_history(tz, &h))
         }
         OkrCmd::Show { kr, range } => {
             let args = range_args(&range);

@@ -623,6 +623,42 @@ export interface KrSummary {
   tasks: KrTask[];
 }
 
+/** KR の現在値の履歴 1 件（core の `KrProgress`）。 */
+export interface KrProgressEntry {
+  id: string;
+  kr_id: string;
+  /** `text` の先頭の数値。数として読めなければ null。 */
+  value: number | null;
+  /** 入力された現在値。消したときは null。 */
+  text: string | null;
+  note: string | null;
+  at: Millis;
+}
+
+export interface KrHistoryWeek {
+  week_start: string;
+  duration_ms: number;
+  /** その週の終わり時点の現在値の数値。 */
+  value: number | null;
+  text: string | null;
+  /** その週に残した履歴の数。 */
+  changes: number;
+}
+
+/** KR の時系列（core の `kr_history`）。 */
+export interface KrHistory {
+  key_result: KeyResult;
+  range: RangeView;
+  range_source: "given" | "objective" | "recent_weeks";
+  weeks: KrHistoryWeek[];
+  entries: KrProgressEntry[];
+}
+
+export interface ProgressRecorded {
+  key_result: KeyResult;
+  entry: KrProgressEntry;
+}
+
 export interface LinkedTask {
   id: string;
   title: string;
@@ -695,6 +731,8 @@ export interface KrEdit {
   /** 空文字で消す。 */
   target?: string;
   current?: string;
+  /** 現在値を変えたときに履歴へ残すメモ。 */
+  current_note?: string;
   status?: string;
   objective?: string;
   measure?: KrMeasure;

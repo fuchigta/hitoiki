@@ -173,6 +173,8 @@ pub fn run() {
             manage::okr_link,
             manage::okr_unlink,
             manage::okr_show,
+            manage::okr_progress,
+            manage::okr_history,
             manage::okr_delete_kr,
             manage::skill_edit,
             manage::skill_delete,

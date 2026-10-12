@@ -11,6 +11,7 @@ use hitoiki_core::model::{
 use hitoiki_core::paths;
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
 use hitoiki_core::service::okr::{self, KrEdit, ObjectiveEdit};
+use hitoiki_core::service::okr_progress;
 use hitoiki_core::service::record::{self, AbcEditInput, CheckInput, HassleInput};
 use hitoiki_core::service::rule::{
     self, ActivityRuleEdit, ActivityRuleInput, ActivityRuleList, RuleDeleted, TaskRuleEdit,
@@ -57,6 +58,23 @@ pub fn okr_unlink(state: S, tasks: Vec<String>) -> AppResult<Vec<okr::LinkedTask
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_show(state: S, kr: String) -> AppResult<okr::KrSummary> {
     state.with_ctx(|c| okr::kr_summary(c, &kr, None))
+}
+
+/// KR の現在値を記録する（現在値を更新し、履歴に 1 行残す）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_progress(
+    state: S,
+    kr: String,
+    value: String,
+    note: Option<String>,
+) -> AppResult<okr_progress::ProgressRecorded> {
+    state.with_ctx(|c| okr_progress::record(c, &kr, &value, note.as_deref()))
+}
+
+/// KR の現在値の履歴と、週ごとの時間（期間は Objective の期間、無ければ直近 8 週）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn okr_history(state: S, kr: String) -> AppResult<okr_progress::KrHistory> {
+    state.with_ctx(|c| okr_progress::kr_history(c, &kr, None))
 }
 
 #[tauri::command(rename_all = "snake_case")]

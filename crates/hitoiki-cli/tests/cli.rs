@@ -87,6 +87,43 @@ fn insert_segment(
 }
 
 #[test]
+fn kr_の現在値の記録と履歴() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let o = run(h, &["--json", "okr", "add-objective", "目標"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let k = run(h, &["--json", "okr", "add-kr", &o, "成果", "--target", "10"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let p = run(h, &["--json", "okr", "progress", &k, "3", "--note", "初回"]);
+    assert_eq!(p.code, 0, "{}", p.stderr);
+    assert_eq!(p.json()["entry"]["value"], 3.0);
+    assert_eq!(p.json()["key_result"]["current"], "3");
+    // edit-kr --current でも履歴が残る（同じ値は残さない）
+    run(h, &["okr", "edit-kr", &k, "--current", "5", "--note", "追加"]);
+    run(h, &["okr", "edit-kr", &k, "--current", "5"]);
+    assert_eq!(run(h, &["okr", "progress", &k, " "]).code, 2);
+    assert_eq!(run(h, &["okr", "progress", "ZZZ", "1"]).code, 3);
+    assert_eq!(run(h, &["okr", "edit-kr", &k, "--note", "x"]).code, 2);
+
+    let j = run(h, &["--json", "okr", "history", &k]).json();
+    let entries = j["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[1]["note"], "追加");
+    assert_eq!(j["weeks"].as_array().unwrap().len(), 8);
+    let text = run(h, &["okr", "history", &k]);
+    assert_eq!(text.code, 0, "{}", text.stderr);
+    assert!(text.stdout.contains("初回"), "{}", text.stdout);
+
+    // KR を消すと履歴も消える
+    assert_eq!(run(h, &["okr", "delete-kr", &k]).code, 0);
+    assert_eq!(run(h, &["okr", "history", &k]).code, 3);
+}
+
+#[test]
 fn 編集と削除_force_dry_run_終了コード() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
