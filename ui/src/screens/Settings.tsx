@@ -7,7 +7,7 @@ import { DataSettings } from "../data-settings";
 import { loadTimeZone, useAction, useAsync } from "../lib";
 
 type Cfg = {
-  general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number; urgent_task_interval_min?: number; important_stale_days?: number };
+  general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number; urgent_task_interval_min?: number; important_stale_days?: number; kr_idle_weekday?: number };
   review?: { trust_doing?: boolean; auto_break_locked_min?: number };
 };
 
@@ -116,6 +116,19 @@ export function Settings() {
                 min="0"
                 value={c.push?.important_stale_days ?? 3}
                 onChange={(e) => set("push.important_stale_days", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
+              />
+            </Field>
+          </div>
+          <div class="form-row">
+            <Field label="今週まだ時間が入っていない KR を知らせる曜日（1=月 2=火 3=水 4=木 5=金 6=土 7=日、0 で無効）">
+              <input
+                type="number"
+                min="0"
+                max="7"
+                value={c.push?.kr_idle_weekday ?? 3}
+                onChange={(e) =>
+                  set("push.kr_idle_weekday", String(Math.min(7, Math.max(0, Number(e.currentTarget.value) || 0))))
+                }
               />
             </Field>
           </div>

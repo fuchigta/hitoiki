@@ -153,20 +153,25 @@ pub(crate) struct KrPick {
 
 impl KrSelector {
     pub(crate) fn new(ctx: &Ctx, kr_id: &str) -> Result<Self> {
-        let linked = repo::task::list_of_kr(ctx.conn, kr_id)?
+        Self::with_conn(ctx.conn, kr_id)
+    }
+
+    /// DB 接続だけで作る（常駐プロセスの通知の判定用。`Ctx` を持たない呼び出し側向け）。
+    pub(crate) fn with_conn(conn: &rusqlite::Connection, kr_id: &str) -> Result<Self> {
+        let linked = repo::task::list_of_kr(conn, kr_id)?
             .into_iter()
             .map(|t| t.id)
             .collect();
-        let all_skills = repo::skill::list(ctx.conn)?;
+        let all_skills = repo::skill::list(conn)?;
         let mut skill_set: HashSet<String> = HashSet::new();
-        for s in repo::skill::kr_skills(ctx.conn, kr_id)? {
+        for s in repo::skill::kr_skills(conn, kr_id)? {
             skill_set.extend(descendants(&all_skills, &s.id));
             skill_set.insert(s.id.clone());
         }
         // タスクごとのスキル（report の skill 集計と同じく、付いているスキルそれぞれに全時間を計上する）。
         let mut task_skills: HashMap<String, Vec<String>> = HashMap::new();
         {
-            let mut stmt = ctx.conn.prepare("SELECT task_id, skill_id FROM task_skill")?;
+            let mut stmt = conn.prepare("SELECT task_id, skill_id FROM task_skill")?;
             let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
             for row in rows {
                 let (tid, sid) = row?;
@@ -174,7 +179,7 @@ impl KrSelector {
             }
         }
         // 活動からスキルを付けるルール（不正なパターンは無視する）。
-        let rules = repo::skill::list_activity_skill_rules(ctx.conn)?
+        let rules = repo::skill::list_activity_skill_rules(conn)?
             .into_iter()
             .filter_map(|r| {
                 Matcher::new(r.field, &r.pattern, r.pattern_type)
@@ -220,6 +225,56 @@ impl KrSelector {
             skill_ids,
         })
     }
+}
+
+/// 今週（月曜始まり、今日まで）まだ時間が入っていない KR（kr_idle 通知の対象）。
+///
+/// 対象は、KR が active で軸が time / days、Objective が active で今が期間内（期間が無ければ対象。
+/// 終わった・まだ始まっていない期間は対象外）、スキルか紐付けたタスク（やめたものを除く）のどちらかがある KR。
+/// 「時間が入っている」は、`okr show` と同じ選び方（スキル経由と紐付けタスクの和集合）の区間が今週 1 つでもあること。
+pub fn idle_krs_this_week(
+    conn: &rusqlite::Connection,
+    tz: chrono_tz::Tz,
+    now: i64,
+) -> Result<Vec<KeyResult>> {
+    let week = timefmt::week_range(tz, timefmt::local_date_of(tz, now));
+    let range = Range::new(week.start, now.max(week.start + 1));
+    let objectives = repo::okr::list_objectives(conn)?;
+    let mut segs: Option<Vec<crate::model::ActivitySegment>> = None;
+    let mut out = Vec::new();
+    for k in repo::okr::list_krs(conn)? {
+        if k.status != "active" || !matches!(k.measure.as_str(), "time" | "days") {
+            continue;
+        }
+        let Some(o) = objectives.iter().find(|o| o.id == k.objective_id) else {
+            continue;
+        };
+        if o.status != "active"
+            || o.period_start.is_some_and(|s| now < s)
+            || o.period_end.is_some_and(|e| now >= e)
+        {
+            continue;
+        }
+        let has_skill = !repo::skill::kr_skills(conn, &k.id)?.is_empty();
+        let has_task = repo::task::list_of_kr(conn, &k.id)?
+            .iter()
+            .any(|t| t.status != TaskStatus::Dropped);
+        if !has_skill && !has_task {
+            continue;
+        }
+        if segs.is_none() {
+            segs = Some(repo::segment::list(conn, range)?);
+        }
+        let selector = KrSelector::with_conn(conn, &k.id)?;
+        let worked = segs
+            .iter()
+            .flatten()
+            .any(|s| selector.pick(s).is_some() && repo::segment::clipped_len(s, range) > 0);
+        if !worked {
+            out.push(k);
+        }
+    }
+    Ok(out)
 }
 
 /// KR（ID の前方一致またはタイトル）の集計。`range` が `None` なら Objective の期間（無ければ直近 8 週）。
@@ -1191,5 +1246,121 @@ mod tests {
             vec!["Rust".to_string()]
         );
         let _ = f;
+    }
+
+    fn idle_ids(env: &Env) -> Vec<String> {
+        let tz = env.cfg.tz().unwrap();
+        idle_krs_this_week(&env.conn, tz, env.ctx().now())
+            .unwrap()
+            .into_iter()
+            .map(|k| k.id)
+            .collect()
+    }
+
+    #[test]
+    fn 今週時間が入っていない_kr_だけを拾う() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let d = env.day_start(); // 2026-10-10（土）00:00 JST。今週は 10/5（月）から
+        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        // 先週の作業は今週に数えない。
+        seg(
+            &c,
+            "OLD",
+            d - 6 * DAY,
+            d - 6 * DAY + 30 * MIN,
+            SegmentKind::Work,
+            Some(&f.t1),
+        );
+        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        // 休憩は時間に数えない。
+        seg(
+            &c,
+            "BRK",
+            d + 60 * MIN,
+            d + 90 * MIN,
+            SegmentKind::Break,
+            Some(&f.t1),
+        );
+        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        // 今週の作業があれば対象外。
+        seg(
+            &c,
+            "NEW",
+            d - 2 * DAY,
+            d - 2 * DAY + 10 * MIN,
+            SegmentKind::Work,
+            Some(&f.t2),
+        );
+        assert!(idle_ids(&env).is_empty());
+    }
+
+    #[test]
+    fn スキル経由の時間も今週の時間に数える() {
+        let env = Env::new();
+        let c = env.ctx();
+        let f = setup(&c, None, None);
+        let (skilled, _, _) = setup_skill(&c, &f);
+        let d = env.day_start();
+        // スキル付きのタスクも紐付けタスクもある KR は対象。時間が無い間は拾う。
+        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        seg(
+            &c,
+            "S",
+            d + 60 * MIN,
+            d + 90 * MIN,
+            SegmentKind::Work,
+            Some(&skilled),
+        );
+        assert!(idle_ids(&env).is_empty());
+    }
+
+    #[test]
+    fn 対象外の_kr_は拾わない() {
+        let env = Env::new();
+        let c = env.ctx();
+        let now = c.now();
+        // 期間が終わった Objective。
+        let past = setup(&c, Some(now - 60 * DAY), Some(now - DAY));
+        // まだ始まっていない Objective。
+        let future = setup(&c, Some(now + DAY), Some(now + 30 * DAY));
+        assert!(idle_ids(&env).is_empty());
+        // 期間内なら拾う（期間が無い Objective も同様）。
+        let current = setup(&c, Some(now - DAY), Some(now + 30 * DAY));
+        assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
+        // done の軸・完了した KR・やめた KR は対象外。
+        for (measure, status) in [
+            (Some("done"), None),
+            (None, Some("done")),
+            (None, Some("dropped")),
+        ] {
+            let f = setup(&c, None, None);
+            okr_svc::edit_kr(
+                &c,
+                &f.kr,
+                &KrEdit {
+                    measure: measure.map(String::from),
+                    status: status.map(String::from),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        }
+        assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
+        // スキルも紐付けタスクも無い KR は対象外。
+        let o = okr_svc::list(&c).unwrap().objectives[0].objective.id.clone();
+        okr_svc::add_kr(
+            &c,
+            &KrInput {
+                objective: o,
+                title: "空".into(),
+                target: None,
+                skills: vec![],
+            },
+        )
+        .unwrap();
+        assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
+        let _ = (past, future);
     }
 }

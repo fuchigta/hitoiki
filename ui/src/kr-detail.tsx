@@ -12,6 +12,7 @@ import {
   splitMeasures,
   weekLabel,
 } from "./kr-util";
+import { aiNote, candidateRef, kindLabel, sourceLabel, wantsSuggestion } from "./kr-suggest-util";
 import { STATUS_LABEL, fmtDur, useAction, useAsync, useLiveTick } from "./lib";
 
 /**
@@ -33,6 +34,7 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
       <ErrorBox error={sum.error} />
       {s && <Summary s={s} />}
       <KrHistory k={k} onChanged={onChanged} />
+      {wantsSuggestion(s) && <KrSuggest k={k} onChanged={reload} />}
       {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
       {k.measure === "done" ? (
         <>
@@ -107,6 +109,87 @@ function Summary({ s }: { s: KrSummary }) {
           そのタスクの期間内の実績 {fmtDur(s.estimate.actual_ms_of_estimated)}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * 紐づけの提案: スキルも紐付けたタスクも無い KR に、名前の近いタスク・スキルを候補として出す。
+ * 自動では紐付けない。「付ける」を選んだものだけ紐付け、「付けない」を選んだものは以後出さない。
+ * 最初は手元の候補だけを出し、「AI にも聞く」を押したときだけ AI に問い合わせる
+ * （送るのは KR・Objective の名前とタスク・スキルの名前だけ。AI が設定されているときのみ）。
+ */
+function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
+  const [askAi, setAskAi] = useState(false);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const sug = useAsync(() => api.okrSuggest(k.id, askAi), [k.id, askAi]);
+  const act = useAction();
+  const r = sug.data;
+  const shown = (r?.candidates ?? []).filter((c) => !hidden.has(candidateRef(c)));
+
+  const accept = async (ref: string) => {
+    const d = await act.run(() => api.okrSuggestAccept(k.id, [ref]));
+    if (d) onChanged();
+  };
+  const reject = async (ref: string) => {
+    const d = await act.run(() => api.okrSuggestReject(k.id, [ref]));
+    if (d) setHidden((h) => new Set(h).add(ref));
+  };
+
+  // 対象外（すでにスキルか紐付けたタスクがある）や、まだ読み込み中で何も無いときは何も出さない。
+  if (r && !r.eligible) return null;
+  return (
+    <div class="stack kr-suggest">
+      <span class="muted">
+        紐づけの候補（名前の近いタスク・スキルです。自動では紐付けません。「付けない」を選ぶと、以後この候補は出しません）
+      </span>
+      {r && shown.length === 0 && <p class="muted">候補は見つかりませんでした。</p>}
+      <ul class="plain">
+        {shown.map((c) => {
+          const ref = candidateRef(c);
+          return (
+            <li key={ref}>
+              <span class="row">
+                <span class="grow">
+                  {c.name}
+                  <span class="muted">
+                    {" "}
+                    （{kindLabel(c.kind)}・{sourceLabel(c.source)}）
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  class="primary"
+                  disabled={act.busy}
+                  aria-label={`${kindLabel(c.kind)}「${c.name}」を KR に付ける`}
+                  onClick={() => accept(ref)}
+                >
+                  付ける
+                </button>
+                <button
+                  type="button"
+                  class="ghost"
+                  disabled={act.busy}
+                  aria-label={`${kindLabel(c.kind)}「${c.name}」は KR に付けない`}
+                  onClick={() => reject(ref)}
+                >
+                  付けない
+                </button>
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      <div class="row">
+        {r && aiNote(r, askAi) && <span class="muted note">{aiNote(r, askAi)}</span>}
+        <span class="spacer" />
+        {!askAi && (
+          <button type="button" class="ghost" onClick={() => setAskAi(true)}>
+            AI にも聞く
+          </button>
+        )}
+      </div>
+      <ErrorBox error={act.error ?? sug.error} />
     </div>
   );
 }

@@ -109,6 +109,7 @@ fn check(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment], t: PushTrigge
         PushTrigger::Weekly => weekly(ctx, cfg),
         PushTrigger::UrgentTask => urgent_task(ctx, cfg, segs),
         PushTrigger::ImportantTask => important_task(ctx, cfg, segs),
+        PushTrigger::KrIdle => kr_idle(ctx, cfg),
         PushTrigger::LongFocus => long_focus(ctx, cfg, segs),
         PushTrigger::SwitchSpike => switch_spike(ctx, cfg, segs),
         PushTrigger::AfterInterrupt => after_interrupt(ctx, segs),
@@ -478,6 +479,34 @@ fn urgent_task(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Opti
     });
     let first = cands.first()?;
     Some(payload::urgent_task(&first.id, &first.title, cands.len() - 1))
+}
+
+/// kr_idle の材料（今週まだ時間が入っていない KR）を読む必要があるか。無効でなく、設定の曜日に達していて、
+/// 今週（月曜始まり）まだ配信していないとき true。毎回の評価で集計し直さないための絞り込みにも使う。
+pub fn kr_idle_due(cfg: &Push, tz: chrono_tz::Tz, now: Millis, push_log: &[crate::model::PushLog]) -> bool {
+    if !(1..=7).contains(&cfg.kr_idle_weekday) || cfg.disabled_triggers.iter().any(|d| d == "kr_idle") {
+        return false;
+    }
+    let local = to_local(tz, now);
+    if local.weekday().num_days_from_monday() + 1 < cfg.kr_idle_weekday {
+        return false;
+    }
+    let week = week_range(tz, local_date_of(tz, now));
+    !push_log
+        .iter()
+        .any(|l| l.delivered && l.trigger == PushTrigger::KrIdle.as_str() && l.at >= week.start)
+}
+
+/// kr_idle: 設定の曜日（`push.kr_idle_weekday`。1=月〜7=日、0 で無効）以降の勤務時間内に、今週まだ時間が入っていない
+/// KR（`ctx.kr_idle`）があれば 1 回だけ事実を伝える。週は月曜始まりで、今週すでに配信していれば出さない。
+/// 対象の KR の選び方（軸・Objective の期間・スキルまたは紐付けタスクの有無）は `store::load_kr_idle`。
+fn kr_idle(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
+    if ctx.kr_idle.is_empty() || !in_work_hours(ctx, cfg) || !kr_idle_due(cfg, ctx.tz, ctx.now, &ctx.push_log)
+    {
+        return None;
+    }
+    let titles: Vec<&str> = ctx.kr_idle.iter().map(|k| k.title.as_str()).collect();
+    Some(payload::kr_idle(&titles))
 }
 
 /// important_task: 重要（緊急でない）な未完了のタスクのうち、最後に手をつけた時刻（作業系の区間の最終終了と

@@ -9,7 +9,8 @@ use hitoiki_core::model::{
     ActivitySegment, CalendarEvent, IdleSpan, PushLog, SegmentStatus, TimeBlock, WindowSpan,
 };
 use hitoiki_core::push::{
-    evaluate, store, ClosedIdle, DoingSpan, IdleState, PushContext, PushDecision, TaskNudge, TaskRef,
+    evaluate, store, ClosedIdle, DoingSpan, IdleState, KrIdleNudge, PushContext, PushDecision, TaskNudge,
+    TaskRef,
 };
 use hitoiki_core::repo::{calendar, raw, segment};
 use hitoiki_core::timefmt::{day_range, local_date_of, week_range, Range};
@@ -33,6 +34,8 @@ pub struct PushSnapshot {
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク。
     pub tasks: Vec<TaskNudge>,
+    /// 今週まだ時間が入っていない KR（kr_idle の材料。`push_tick` が曜日に達したときだけ読む）。
+    pub kr_idle: Vec<KrIdleNudge>,
     /// 今日の time_block と直近の doing ログが指すタスク。
     pub task_refs: Vec<TaskRef>,
     /// 直近の doing ログ（進行中を含む）。
@@ -79,6 +82,7 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
     ctx.push_log = snap.push_log;
     ctx.needs_review_count = snap.needs_review_count;
     ctx.tasks = snap.tasks;
+    ctx.kr_idle = snap.kr_idle;
     ctx.task_refs = snap.task_refs;
     ctx.doing_spans = snap.doing_spans;
     ctx
@@ -139,9 +143,16 @@ pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64
         push_log: store::load_recent(conn, week.start, 10)?,
         needs_review_count,
         tasks: store::load_task_nudges(conn)?,
+        kr_idle: vec![],
         task_refs,
         doing_spans,
     })
+}
+
+/// kr_idle の材料を読む必要があるか（無効でなく、設定の曜日に達していて、今週まだ配信していない）。
+/// 毎回の評価で集計し直さないための絞り込みで、最終的な判定は `evaluate`（トリガー側）が行う。
+fn kr_idle_due(cfg: &Config, now: Millis, tz: Tz, push_log: &[PushLog]) -> bool {
+    hitoiki_core::push::kr_idle_due(&cfg.push, tz, now, push_log)
 }
 
 /// 評価を 1 回行い、結果を push_log に残し、Deliver を sink に渡す。
@@ -156,7 +167,11 @@ pub fn push_tick(
         return Ok(vec![]);
     }
     let tz = cfg.tz()?;
-    let ctx = build_context(load_snapshot(conn, now, tz, cfg.review.min_sec)?, cfg, now, tz);
+    let mut snap = load_snapshot(conn, now, tz, cfg.review.min_sec)?;
+    if kr_idle_due(cfg, now, tz, &snap.push_log) {
+        snap.kr_idle = store::load_kr_idle(conn, tz, now)?;
+    }
+    let ctx = build_context(snap, cfg, now, tz);
     let decisions = evaluate(&ctx, &cfg.push);
     for d in &decisions {
         let id = store::record_decision(conn, d, now)?;
@@ -426,6 +441,77 @@ mod tests {
         // 間隔内の再評価では出ない。
         push_tick(&conn, &cfg(), now + 5 * MIN, &sink).unwrap();
         assert_eq!(sink.0.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn tick_delivers_kr_idle_once_a_week_from_the_weekday() {
+        use hitoiki_core::model::{KeyResult, Objective};
+        use hitoiki_core::repo::okr;
+        let conn = db::open_in_memory().unwrap();
+        okr::insert_objective(
+            &conn,
+            &Objective {
+                id: "O1".into(),
+                title: "目標".into(),
+                description_md: None,
+                period_start: None,
+                period_end: None,
+                status: "active".into(),
+            },
+        )
+        .unwrap();
+        okr::insert_kr(
+            &conn,
+            &KeyResult {
+                id: "K1".into(),
+                objective_id: "O1".into(),
+                title: "英語".into(),
+                target: None,
+                current: None,
+                status: "active".into(),
+                measure: "time".into(),
+                day_min: 15,
+            },
+        )
+        .unwrap();
+        let mut t = task("T1", TaskStatus::Todo, None, None);
+        t.key_result_id = Some("K1".into());
+        hitoiki_core::repo::task::insert(&conn, &t).unwrap();
+        let sink = Rec::default();
+        let delivered = |sink: &Rec| {
+            sink.0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(_, t)| t == "kr_idle")
+                .count()
+        };
+        // 月曜（DAY0）・火曜はまだ出ない。
+        push_tick(&conn, &cfg(), DAY0 + 10 * 60 * MIN, &sink).unwrap();
+        push_tick(&conn, &cfg(), DAY0 + 24 * 60 * MIN + 10 * 60 * MIN, &sink).unwrap();
+        assert_eq!(delivered(&sink), 0);
+        // 水曜に 1 回。
+        let wed = DAY0 + 2 * 24 * 60 * MIN + 10 * 60 * MIN;
+        push_tick(&conn, &cfg(), wed, &sink).unwrap();
+        assert_eq!(delivered(&sink), 1);
+        // 木曜以降も、今週はもう出ない。
+        push_tick(&conn, &cfg(), wed + 24 * 60 * MIN, &sink).unwrap();
+        assert_eq!(delivered(&sink), 1);
+        // 今週時間が入っていれば（来週の水曜でも）出ない。
+        segment::replace_range(
+            &conn,
+            Range::new(DAY0 + 7 * 24 * 60 * MIN, DAY0 + 9 * 24 * 60 * MIN),
+            &[work_seg(
+                "s1",
+                "T1",
+                SegmentKind::Work,
+                DAY0 + 7 * 24 * 60 * MIN + 60 * MIN,
+                DAY0 + 7 * 24 * 60 * MIN + 90 * MIN,
+            )],
+        )
+        .unwrap();
+        push_tick(&conn, &cfg(), wed + 7 * 24 * 60 * MIN, &sink).unwrap();
+        assert_eq!(delivered(&sink), 1);
     }
 
     #[test]

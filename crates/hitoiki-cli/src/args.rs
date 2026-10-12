@@ -875,6 +875,31 @@ pub enum OkrCmd {
         #[command(flatten)]
         range: RangeOpts,
     },
+    /// スキルも紐付けタスクも無い KR に、紐付けるとよさそうなタスク・スキルの候補を出す（自動では紐付けない）。
+    /// 手元の名前の近さで探し、AI が設定されていれば AI にも聞いて合わせる（送るのは KR・Objective の名前とタスク・スキルの名前だけ）
+    Suggest {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// AI に聞かず、手元の候補だけにする
+        #[arg(long)]
+        no_ai: bool,
+    },
+    /// 提案の候補を「付ける」（task:<ID> は KR に紐付け、skill:<ID または名前> は KR のスキルに加える。今のスキルは残る）
+    SuggestAccept {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 候補（`okr suggest` が出した task:<ID> / skill:<ID>。複数可）
+        #[arg(required = true)]
+        candidates: Vec<String>,
+    },
+    /// 提案の候補を「付けない」（以後この KR には提案しない）
+    SuggestReject {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 候補（`okr suggest` が出した task:<ID> / skill:<ID>。複数可）
+        #[arg(required = true)]
+        candidates: Vec<String>,
+    },
     /// KR の現在値を記録する（現在値を更新し、履歴に 1 行残す。同じ値でも残る）
     Progress {
         /// KR の ID（前方一致）またはタイトル

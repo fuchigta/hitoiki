@@ -31,7 +31,7 @@ hitoiki config get push.daily_limit
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`toast_persistent`（true）、`disabled_triggers` |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`kr_idle_weekday`（3）、`toast_persistent`（true）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
 | `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
@@ -176,7 +176,8 @@ timeout_sec = 10
 - `push.urgent_task_interval_min`: 緊急のしるしが付いた未完了のタスクがあるとき、勤務時間内（`push.day_start_after`〜`push.day_end_at`）に、この分数以上の間隔で「いま取りかかりますか？」と知らせます（トリガー `urgent_task`、既定 120 分）。`0` で無効。そのタスクに取り組み中のとき、今日の計画でそのタスクの枠がこれから先にあるときは知らせません。
 - `push.important_stale_days`: 重要（緊急ではない）な未完了のタスクに、この日数以上時間が入っていないとき、勤務時間内に 1 日 1 回まで「少し時間を取りませんか」と知らせます（トリガー `important_task`、既定 3 日）。`0` で無効。今日の計画に入っているタスク、取り組み中のタスク、今週「今週は見送る」を押したタスクは対象外です。
 - `push.toast_persistent`: 回答を求める通知（ボタンや入力欄のあるトースト）を、操作するまで画面に残します（Windows のトーストの `scenario="reminder"`）。`false` にすると一定時間で自動的に消えます。更新のお知らせやテスト通知は常に自動で消えます。見逃した通知は今日画面の「未回答の問いかけ」から答えられます。
-- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`idle_return`、`block_start`（計画ブロックの開始。これ専用の設定項目はなく、止めるにはここに入れる）、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`important_task`、`late_work` のいずれか。
+- `push.kr_idle_weekday`: 今週まだ時間が入っていない KR を知らせる曜日（トリガー `kr_idle`）。`1` = 月、`2` = 火、`3` = 水（既定）、`4` = 木、`5` = 金、`6` = 土、`7` = 日、`0`（または 8 以上）で無効。その曜日以降の勤務時間内に、**週に 1 回まで**「今週、時間が入っていない KR があります」と事実だけを知らせます（週は月曜始まり）。対象は、軸が時間または回数で、Objective が有効かつ期間内（期間が無ければ対象）の KR のうち、スキルか紐付けたタスクがあって今週（月曜から今まで）その時間が 1 分も入っていないものです。期間が終わった・まだ始まっていない Objective の KR、完了数の軸の KR、スキルも紐付けたタスクも無い KR、完了・やめた KR は対象外です。複数あるときは 1 回の通知にまとめます（3 件まで名前を出し、残りは件数）。ボタンは「今日の予定に入れる」（今日のデザインを開きます）と「今週は見送る」（記録だけ）。スヌーズ・1 日の上限・会議中の保留は他の通知と同じです。
+- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`idle_return`、`block_start`（計画ブロックの開始。これ専用の設定項目はなく、止めるにはここに入れる）、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`important_task`、`kr_idle`、`late_work` のいずれか。
 
 通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。
 

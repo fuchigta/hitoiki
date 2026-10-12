@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 
 pub use payload::{PushAction, PushInput, PushPayload};
 pub use store::{apply_response, PushResponse, ResponseOutcome};
+pub use triggers::kr_idle_due;
 
 /// 通知トリガー（docs/dev/architecture.md「プッシュ通知」）。`ALL` は同時に条件を満たした場合の優先順。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -37,6 +38,7 @@ pub enum PushTrigger {
     SwitchSpike,
     LongFocus,
     ImportantTask,
+    KrIdle,
     LateWork,
 }
 
@@ -53,6 +55,7 @@ impl PushTrigger {
         PushTrigger::SwitchSpike,
         PushTrigger::LongFocus,
         PushTrigger::ImportantTask,
+        PushTrigger::KrIdle,
         PushTrigger::LateWork,
     ];
 
@@ -70,6 +73,7 @@ impl PushTrigger {
             PushTrigger::SwitchSpike => "switch_spike",
             PushTrigger::LongFocus => "long_focus",
             PushTrigger::ImportantTask => "important_task",
+            PushTrigger::KrIdle => "kr_idle",
             PushTrigger::LateWork => "late_work",
         }
     }
@@ -88,6 +92,7 @@ impl PushTrigger {
             PushTrigger::SwitchSpike => "切り替えの増加",
             PushTrigger::LongFocus => "長めの作業",
             PushTrigger::ImportantTask => "重要なタスク",
+            PushTrigger::KrIdle => "時間が入っていない KR",
             PushTrigger::LateWork => "遅い時間の作業",
         }
     }
@@ -136,6 +141,13 @@ pub struct TaskNudge {
     /// 作業系の区間（時間が入った区間）に帰属した最後の終了時刻。一度も無ければ None。
     pub last_worked_at: Option<Millis>,
     pub created_at: Millis,
+}
+
+/// kr_idle の判定に使う KR の最小限の情報（今週まだ時間が入っていない KR だけ）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KrIdleNudge {
+    pub id: String,
+    pub title: String,
 }
 
 /// 通知の文言と判定に使うタスクの参照（今日の time_block や doing ログが指すタスク。状態は問わない）。
@@ -230,6 +242,8 @@ pub struct PushContext {
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク（urgent_task / important_task の材料）。
     pub tasks: Vec<TaskNudge>,
+    /// 今週まだ時間が入っていない KR（kr_idle の材料。`store::load_kr_idle` が返す内容。曜日に達する前は空でよい）。
+    pub kr_idle: Vec<KrIdleNudge>,
     /// 今日の time_block と直近の doing ログが指すタスク（block_start の文言と idle_return の候補に使う）。
     pub task_refs: Vec<TaskRef>,
     /// 直近の doing ログ（進行中を含む）。
@@ -258,6 +272,7 @@ impl PushContext {
             push_log: vec![],
             needs_review_count: 0,
             tasks: vec![],
+            kr_idle: vec![],
             task_refs: vec![],
             doing_spans: vec![],
             foreground_exe: None,

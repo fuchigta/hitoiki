@@ -257,6 +257,9 @@ pub struct Push {
     /// important_task: 重要（緊急でない）な未完了のタスクに、最後に手をつけてからこの日数以上経っているとき、
     /// 1 日 1 回まで通知する。0 で無効。
     pub important_stale_days: u64,
+    /// kr_idle: 今週まだ時間が入っていない KR を知らせる曜日（1=月 2=火 3=水 4=木 5=金 6=土 7=日）。
+    /// その曜日以降、週に 1 回まで通知する。0（または 8 以上）で無効。
+    pub kr_idle_weekday: u32,
     /// 無効にするトリガー ID。
     pub disabled_triggers: Vec<String>,
     /// 回答を求めるトースト（ボタンや入力欄のあるもの）を、操作するまで画面に残す（Windows の
@@ -279,6 +282,7 @@ impl Default for Push {
             idle_return_min: 15,
             urgent_task_interval_min: 120,
             important_stale_days: 3,
+            kr_idle_weekday: 3,
             disabled_triggers: vec![],
             toast_persistent: true,
         }
@@ -712,6 +716,7 @@ command = ["python", "x.py"]
         assert_eq!(c.push.idle_return_min, 15);
         assert_eq!(c.push.urgent_task_interval_min, 120);
         assert_eq!(c.push.important_stale_days, 3);
+        assert_eq!(c.push.kr_idle_weekday, 3);
         assert_eq!(c.review.snap_sec, 120);
         assert!(
             !c.review.correct_include_confirmed
