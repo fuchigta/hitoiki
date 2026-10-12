@@ -7,6 +7,7 @@ pub mod collect;
 pub mod correction;
 pub mod edit;
 pub mod erg;
+pub mod kr_progress;
 pub mod okr;
 pub mod overrides;
 pub mod plan;

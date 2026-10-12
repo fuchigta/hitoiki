@@ -831,6 +831,9 @@ pub enum OkrCmd {
         /// 現在値
         #[arg(long)]
         current: Option<String>,
+        /// --current で値を変えるときに履歴へ残すメモ
+        #[arg(long, requires = "current")]
+        note: Option<String>,
         /// active | done | dropped
         #[arg(long)]
         status: Option<String>,
@@ -869,6 +872,24 @@ pub enum OkrCmd {
         /// KR の ID（前方一致）またはタイトル
         kr: String,
         /// 集計の期間（省略時は Objective の期間、無ければ直近 8 週）
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+    /// KR の現在値を記録する（現在値を更新し、履歴に 1 行残す。同じ値でも残る）
+    Progress {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 現在値（例: 12、3 回）
+        value: String,
+        /// 履歴に添えるメモ
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// KR の現在値の履歴を、週ごとの時間と並べて表示する
+    History {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 期間（省略時は Objective の期間、無ければ直近 8 週）
         #[command(flatten)]
         range: RangeOpts,
     },

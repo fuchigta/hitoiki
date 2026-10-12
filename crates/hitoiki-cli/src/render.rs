@@ -12,6 +12,7 @@ use hitoiki_core::service::{
     heatmap::Heatmap,
     log::Log,
     okr::{KrSummary, LinkResult, LinkedTask, OkrList},
+    okr_progress::{KrHistory, ProgressRecorded},
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
     review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
@@ -761,6 +762,63 @@ pub fn kr_summary(s: &KrSummary) -> String {
                 t.title,
                 dur(t.tracked_ms)
             );
+        }
+    }
+    out.trim_end().to_string()
+}
+
+fn progress_value(text: Option<&str>) -> &str {
+    text.unwrap_or("（消した）")
+}
+
+pub fn kr_progress_recorded(tz: Tz, r: &ProgressRecorded) -> String {
+    let e = &r.entry;
+    let mut s = format!(
+        "現在値を記録しました: {} {}  {} ({})",
+        short(&r.key_result.id),
+        r.key_result.title,
+        progress_value(e.text.as_deref()),
+        dt(tz, e.at)
+    );
+    if let Some(n) = &e.note {
+        s += &format!("\n  メモ: {n}");
+    }
+    s
+}
+
+/// KR の現在値の履歴。週ごとに「その週の終わり時点の現在値」と時間を並べるだけで、評価は付けない。
+pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
+    let k = &h.key_result;
+    let mut out = format!(
+        "{} ({})\n期間: {} 〜 {}（{}）\n",
+        k.title,
+        short(&k.id),
+        h.range.start,
+        h.range.end,
+        match h.range_source {
+            "objective" => "Objective の期間",
+            "given" => "指定",
+            _ => "直近 8 週",
+        }
+    );
+    if let Some(t) = &k.target {
+        out += &format!("目標: {t}\n");
+    }
+    out += "\n週（月曜始まり）  現在値        時間\n";
+    for w in &h.weeks {
+        let v = truncate(w.text.as_deref().unwrap_or("-"), 12);
+        out += &format!("  {}  {}  {}\n", w.week_start, pad(&v, 12), dur(w.duration_ms));
+    }
+    if h.entries.is_empty() {
+        out += "\n値の履歴はまだありません。`hitoiki okr progress` で記録できます。";
+    } else {
+        out += "\n値の履歴\n";
+        for e in &h.entries {
+            out += &format!("  {}  {}", dt(tz, e.at), progress_value(e.text.as_deref()));
+            if let Some(n) = &e.note {
+                out += &format!("  {n}");
+            }
+            out += "\n";
         }
     }
     out.trim_end().to_string()

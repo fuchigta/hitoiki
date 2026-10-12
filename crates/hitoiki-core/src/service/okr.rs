@@ -272,6 +272,8 @@ pub struct KrEdit {
     pub title: Option<String>,
     pub target: Option<String>,
     pub current: Option<String>,
+    /// 現在値を変えたときに履歴（`kr_progress`）へ残すメモ。
+    pub current_note: Option<String>,
     pub status: Option<String>,
     /// 付け替え先の Objective（ID の前方一致）。
     pub objective: Option<String>,
@@ -328,6 +330,7 @@ pub fn edit_objective(ctx: &Ctx, id: &str, input: &ObjectiveEdit) -> Result<Obje
 
 pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
     let mut k = okr::resolve_kr(ctx.conn, id)?;
+    let old_current = k.current.clone();
     if let Some(t) = &input.title {
         if t.trim().is_empty() {
             return Err(Error::InvalidArgument("タイトルが空です".into()));
@@ -365,6 +368,10 @@ pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
     crate::repo::edit::update_kr(ctx.conn, &k)?;
     if !sids.is_empty() || input.clear_skills {
         crate::repo::skill::set_kr_skills(ctx.conn, &k.id, &sids)?;
+    }
+    // 現在値が変わったときは履歴を 1 行残す。
+    if k.current != old_current {
+        super::okr_progress::insert_entry(ctx, &k.id, k.current.as_deref(), input.current_note.as_deref())?;
     }
     tx.commit()?;
     Ok(k)

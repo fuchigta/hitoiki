@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrSummary } from "./api";
 import { ErrorBox } from "./components";
+import { KrHistory } from "./kr-history";
 import { SkillPicker } from "./skill-picker";
 import {
   barHeights,
@@ -31,6 +32,7 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
     <div class="kr-detail">
       <ErrorBox error={sum.error} />
       {s && <Summary s={s} />}
+      <KrHistory k={k} onChanged={onChanged} />
       {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
       {k.measure === "done" ? (
         <>

@@ -151,6 +151,10 @@ export const api = {
   okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
   okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
   okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
+  // KR の現在値の記録と履歴（値の推移と週ごとの時間）。
+  okrProgress: (kr: string, value: string, note?: string) =>
+    call<T.ProgressRecorded>("okr_progress", { kr, value, note }),
+  okrHistory: (kr: string) => call<T.KrHistory>("okr_history", { kr }),
   skillEdit: (key: string, input: T.SkillEdit) => call<T.Skill>("skill_edit", { key, input }),
   skillDelete: (key: string, children: T.ChildPolicy, mode: T.DeleteMode) =>
     call<T.DeleteOutcome>("skill_delete", { key, children, mode }),

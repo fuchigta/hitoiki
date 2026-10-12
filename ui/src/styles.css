@@ -1274,3 +1274,42 @@ button.hm-cell {
   max-height: 220px;
   overflow-y: auto;
 }
+.kr-history > summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--muted);
+}
+.kr-history > .stack {
+  margin-top: 8px;
+}
+.kr-history-chart {
+  width: 100%;
+  max-width: 480px;
+  height: 80px;
+}
+.kr-history-bar {
+  fill: var(--accent-soft);
+}
+.kr-history-line {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+.kr-history-dot {
+  fill: var(--accent);
+}
+.kr-history-table {
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.kr-history-table th,
+.kr-history-table td {
+  text-align: left;
+  padding: 2px 14px 2px 0;
+}
+.kr-history-table th {
+  color: var(--muted);
+  font-weight: normal;
+}
+.kr-history-entries {
+  font-size: 12px;
+}
