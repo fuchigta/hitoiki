@@ -6,7 +6,7 @@ use crate::table::table;
 use crate::{emit, ext, range_args, render};
 use hitoiki_core::config::Config;
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
-use hitoiki_core::service::{okr, parse_to, record, rule, settings, skill, Ctx};
+use hitoiki_core::service::{okr, okr_progress, parse_to, record, rule, settings, skill, Ctx};
 use hitoiki_core::timefmt::{self, to_local};
 use hitoiki_core::{paths, Error, Result};
 
@@ -101,7 +101,8 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
                 energy: scale(energy, cur.energy),
                 mood: scale(mood, cur.mood),
                 stress: scale(stress, cur.stress),
-                erg: erg.or(cur.erg_tag),
+                // 指定したときだけユーザーの確定にする（AI の判定を勝手にユーザーのものにしない）。
+                erg,
                 note: note.or(cur.note),
             };
             let c = record::check_edit(ctx, &cur.id, &input)?;
@@ -259,8 +260,11 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             title,
             target,
             current,
+            note,
             status,
             objective,
+            measure,
+            day_min,
         } => {
             let k = okr::edit_kr(
                 ctx,
@@ -269,8 +273,11 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                     title,
                     target,
                     current,
+                    current_note: note,
                     status,
                     objective,
+                    measure,
+                    day_min,
                 },
             )?;
             emit(json, &k, || {
@@ -280,6 +287,38 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
         OkrCmd::DeleteKr { id, opts } => {
             let o = okr::delete_kr(ctx, &id, mode(&opts))?;
             delete_report(json, "KR", &o)
+        }
+        OkrCmd::Link { kr, tasks } => {
+            let r = okr::link_tasks(ctx, &kr, &tasks)?;
+            ext::notify_task(None);
+            emit(json, &r, || render::kr_linked(&r))
+        }
+        OkrCmd::Unlink { tasks } => {
+            let r = okr::unlink_tasks(ctx, &tasks)?;
+            ext::notify_task(None);
+            emit(json, &serde_json::json!({ "unlinked": r }), || {
+                render::kr_unlinked(&r)
+            })
+        }
+        OkrCmd::Progress { kr, value, note } => {
+            let r = okr_progress::record(ctx, &kr, &value, note.as_deref())?;
+            emit(json, &r, || render::kr_progress_recorded(tz, &r))
+        }
+        OkrCmd::History { kr, range } => {
+            let args = range_args(&range);
+            let given = (args.date.is_some() || args.from.is_some() || args.to.is_some())
+                .then(|| ctx.range(&args))
+                .transpose()?;
+            let h = okr_progress::kr_history(ctx, &kr, given)?;
+            emit(json, &h, || render::kr_history(tz, &h))
+        }
+        OkrCmd::Show { kr, range } => {
+            let args = range_args(&range);
+            let given = (args.date.is_some() || args.from.is_some() || args.to.is_some())
+                .then(|| ctx.range(&args))
+                .transpose()?;
+            let s = okr::kr_summary(ctx, &kr, given)?;
+            emit(json, &s, || render::kr_summary(&s))
         }
         _ => unreachable!("handled in main"),
     }

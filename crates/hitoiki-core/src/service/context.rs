@@ -155,14 +155,6 @@ pub struct OkrProgress {
     pub unlinked_ratio: f64,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct ErgDistribution {
-    pub existence: usize,
-    pub relatedness: usize,
-    pub growth: usize,
-    pub untagged: usize,
-}
-
 /// `hitoiki context` の出力。種別に応じて該当しない節は省かれる。
 #[derive(Debug, Clone, Serialize)]
 pub struct ContextJson {
@@ -193,7 +185,8 @@ pub struct ContextJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_week_diff: Option<WeekDiff>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub erg_distribution: Option<ErgDistribution>,
+    /// 期間内の記録の ERG の分布（件数。事実の集計で、評価は含まない）。
+    pub erg_distribution: Option<super::erg::ErgDistribution>,
 }
 
 fn rows(rows: &[ReportRow]) -> Vec<RowView> {
@@ -529,21 +522,7 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                     .collect(),
             );
             let checkins = record::list_checkins(ctx.conn, week.start, week.end)?;
-            let mut erg = ErgDistribution {
-                existence: 0,
-                relatedness: 0,
-                growth: 0,
-                untagged: 0,
-            };
-            for c in &checkins {
-                match c.erg_tag {
-                    Some(ErgTag::Existence) => erg.existence += 1,
-                    Some(ErgTag::Relatedness) => erg.relatedness += 1,
-                    Some(ErgTag::Growth) => erg.growth += 1,
-                    None => erg.untagged += 1,
-                }
-            }
-            out.erg_distribution = Some(erg);
+            out.erg_distribution = Some(super::erg::distribution(ctx, week)?);
             out.checkins = checkin_views(tz, &checkins);
             out.needs_review_count = Some(needs_review_count(ctx)?);
         }

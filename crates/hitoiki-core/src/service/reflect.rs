@@ -8,8 +8,9 @@ use super::record::{self, AbcInput, CheckInput, HassleInput};
 use super::structured::{self, QuestionKind, StructuredOutput};
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{AbcRecord, ErgTag, Reflection, ReflectionKind};
+use crate::model::{AbcRecord, Checkin, ErgTag, Hassle, Reflection, ReflectionKind};
 use crate::repo::reflection as repo;
+use crate::repo::{edit as edit_repo, record as record_repo};
 use crate::{paths, timefmt, Error, Result};
 use serde::{Deserialize, Serialize};
 use std::io::{Read, Write};
@@ -27,6 +28,7 @@ pub fn builtin_template(name: &str) -> Option<&'static str> {
         "day_start_structured" => Some(include_str!("../../templates/day_start_structured.md")),
         "day_end_structured" => Some(include_str!("../../templates/day_end_structured.md")),
         "weekly_structured" => Some(include_str!("../../templates/weekly_structured.md")),
+        "erg_classify" => Some(include_str!("../../templates/erg_classify.md")),
         _ => None,
     }
 }
@@ -252,6 +254,8 @@ fn generate_structured(ctx: &Ctx, c: &ContextJson) -> Result<StructuredOutput> {
 /// `ai.structured` が有効なら構造化出力を試み、失敗したら（エラーはログに残して）従来の Markdown の問いに
 /// フォールバックする。
 pub fn reflect(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Reflection> {
+    // 終業・週次は、その期間の未判定の記録の ERG を先に判定する（失敗しても振り返りは続ける）。
+    super::erg::classify_before_reflection(ctx, kind, date);
     let c = context::context(ctx, kind, date)?;
     let mut structured_out = None;
     if structured::enabled(&ctx.cfg.ai) {
@@ -301,7 +305,8 @@ pub fn structured_of(r: &Reflection) -> Result<Option<StructuredOutput>> {
 }
 
 /// 構造化された問い 1 件への回答。使うフィールドは問いの種類で決まる。
-/// - checkin: `energy` / `mood` / `stress`（1〜5）、`erg`、`note`
+/// - checkin: `energy` / `mood` / `stress`（1〜5）、`note`（`erg` は互換のため受け付け、付けたらユーザーのタグとして保存する。
+///   画面は尋ねない。ERG は記録の内容から AI が判定する）
 /// - hassle: `text`、`intensity`（1〜5、省略時 3）
 /// - abc: `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論）
 /// - free: `text`
@@ -350,50 +355,68 @@ pub struct AnswersRecord {
     pub items: Vec<AnsweredItem>,
 }
 
-/// 保存済みの回答 1 件と、その記録がまだあるか。
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// 回答済みの問い 1 件を、問いと保存した記録の中身と並べたもの（回答済みの表示用）。
+/// 記録が後から削除されていれば、`checkin` / `hassle` / `abc` は `None`。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnswerDetail {
     pub index: usize,
     pub kind: QuestionKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkin: Option<Checkin>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hassle: Option<Hassle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abc: Option<AbcRecord>,
     /// 回答が作った記録（checkin / hassle / abc）が削除されていて、もう無い。
+    #[serde(default)]
     pub missing: bool,
 }
 
-/// 回答済みの各問いについて、参照先の記録が残っているかを調べる。
+/// 振り返りの回答済みの問いを、保存先（`checkin` / `hassle` / `abc_record`）の中身つきで返す。
+/// 構造化されていない振り返り、または回答が無ければ空。
 pub fn answer_details(ctx: &Ctx, r: &Reflection) -> Result<Vec<AnswerDetail>> {
-    let rec: AnswersRecord = match r.answers_json.as_deref() {
+    let Some(out) = structured_of(r)? else {
+        return Ok(Vec::new());
+    };
+    let record: AnswersRecord = match r.answers_json.as_deref() {
         Some(j) => serde_json::from_str(j)
             .map_err(|e| Error::Other(anyhow::anyhow!("answers_json を読めません: {e}")))?,
-        None => return Ok(vec![]),
+        None => return Ok(Vec::new()),
     };
-    rec.items
-        .into_iter()
-        .map(|i| {
-            let missing = match (&i.record_id, i.kind) {
-                (Some(id), QuestionKind::Checkin) => {
-                    !crate::repo::edit::record_exists(ctx.conn, "checkin", id)?
-                }
-                (Some(id), QuestionKind::Hassle) => {
-                    !crate::repo::edit::record_exists(ctx.conn, "hassle", id)?
-                }
-                (Some(id), QuestionKind::Abc) => {
-                    !crate::repo::edit::record_exists(ctx.conn, "abc_record", id)?
-                }
-                _ => false,
-            };
-            Ok(AnswerDetail {
-                index: i.index,
-                kind: i.kind,
-                record_id: i.record_id,
-                text: i.text,
-                missing,
-            })
-        })
-        .collect()
+    let mut v = Vec::new();
+    for it in &record.items {
+        let Some(q) = out.questions.get(it.index) else {
+            continue;
+        };
+        let mut d = AnswerDetail {
+            index: it.index,
+            kind: it.kind,
+            prompt: q.prompt.clone(),
+            record_id: it.record_id.clone(),
+            text: it.text.clone(),
+            checkin: None,
+            hassle: None,
+            abc: None,
+            missing: false,
+        };
+        if let Some(id) = &it.record_id {
+            match it.kind {
+                QuestionKind::Checkin => d.checkin = edit_repo::get_checkin(ctx.conn, id).ok(),
+                QuestionKind::Hassle => d.hassle = record_repo::get_hassle(ctx.conn, id).ok(),
+                QuestionKind::Abc => d.abc = repo::get_abc(ctx.conn, id).ok(),
+                QuestionKind::Free => {}
+            }
+            d.missing =
+                d.checkin.is_none() && d.hassle.is_none() && d.abc.is_none() && it.kind != QuestionKind::Free;
+        }
+        v.push(d);
+    }
+    Ok(v)
 }
 
 /// この記録を回答として参照している振り返りの「日付・種類」（例: `2026-10-11・day_end`）。新しい順。
@@ -845,6 +868,18 @@ mod tests {
         assert_eq!(rec.items[2].record_id.as_deref(), Some(abcs[0].id.as_str()));
         assert_eq!(rec.items[3].record_id, None);
 
+        // 回答済みの表示用に、問いと保存した記録の中身が並んで取れる
+        let ds = answer_details(&ctx, &a).unwrap();
+        assert_eq!(ds.len(), 4);
+        assert_eq!(ds[0].checkin.as_ref().unwrap().energy, Some(3));
+        assert_eq!(ds[1].hassle.as_ref().unwrap().text, "会議が長かった");
+        assert_eq!(
+            ds[2].abc.as_ref().unwrap().dispute.as_deref(),
+            Some("一部の指摘だけ")
+        );
+        assert_eq!(ds[3].text.as_deref(), Some("まあまあ"));
+        assert!(!ds[0].prompt.is_empty());
+
         // 回答済みの問いには答え直せない
         let again = AnswersInput {
             answers: vec![AnswerItem {
@@ -946,6 +981,77 @@ mod tests {
             answers: vec![item(0, &|a| a.text = Some("x".into()))],
         };
         assert!(answer_structured(&env2.ctx(), &md.id, &ok).is_err());
+    }
+
+    fn hassle_labels(ctx: &Ctx) -> Vec<crate::model::ErgLabel> {
+        crate::repo::erg::list_range(ctx.conn, 0, i64::MAX).unwrap()
+    }
+
+    fn add_hassle(ctx: &Ctx, text: &str) {
+        record::hassle(
+            ctx,
+            &record::HassleInput {
+                text: text.into(),
+                intensity: None,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn reflect_classifies_erg_before_day_end_and_weekly() {
+        use crate::model::ErgSource;
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("erg"));
+        let ctx = env.ctx();
+        add_hassle(&ctx, "新しいことを試した");
+        add_hassle(&ctx, "同僚と話した");
+        reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        let labels = hassle_labels(&ctx);
+        assert_eq!(labels.len(), 2);
+        // r1 は確信度 0.9 で採用、もう一方は 0.5 で確認待ち
+        assert_eq!(labels.iter().filter(|l| l.source == ErgSource::Ai).count(), 1);
+        assert_eq!(
+            labels.iter().filter(|l| l.source == ErgSource::Suggested).count(),
+            1
+        );
+
+        // 週次の文脈には分布が入る
+        let r = reflect(&ctx, ReflectionKind::Weekly, None).unwrap();
+        let c: serde_json::Value = serde_json::from_str(&r.context_json).unwrap();
+        assert_eq!(c["erg_distribution"]["growth"], 1);
+        assert_eq!(c["erg_distribution"]["pending"], 1);
+        assert!(c["erg_distribution"]["legend"]
+            .as_str()
+            .unwrap()
+            .contains("手応え"));
+    }
+
+    #[test]
+    fn reflect_skips_erg_when_disabled_or_day_start_and_survives_failure() {
+        // ai.erg_classify = false なら判定しない
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("erg"));
+        env.cfg.ai.erg_classify = false;
+        let ctx = env.ctx();
+        add_hassle(&ctx, "何か");
+        reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        assert!(hassle_labels(&ctx).is_empty());
+        // 始業は対象外
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("erg"));
+        let ctx = env.ctx();
+        add_hassle(&ctx, "何か");
+        reflect(&ctx, ReflectionKind::DayStart, None).unwrap();
+        assert!(hassle_labels(&ctx).is_empty());
+        // 判定が失敗しても振り返り自体は保存される
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("ergfail"));
+        let ctx = env.ctx();
+        add_hassle(&ctx, "何か");
+        let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
+        assert!(r.questions_md.contains("2026-10-10"));
+        assert!(hassle_labels(&ctx).is_empty());
     }
 
     #[test]

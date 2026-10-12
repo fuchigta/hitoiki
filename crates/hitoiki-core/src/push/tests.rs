@@ -971,7 +971,7 @@ fn idle_return_button_saves_override_and_labels_segment() {
     .unwrap();
     let id = store::record_decision(
         &conn,
-        &PushDecision::Deliver(payload::idle_return(s, e)),
+        &PushDecision::Deliver(payload::idle_return(s, e, None)),
         t(12, 10, 31),
     )
     .unwrap()
@@ -1044,4 +1044,931 @@ fn ignored_segments_do_not_count_as_work_for_push() {
     let mut c = cfg();
     c.switch_spike.count = 3;
     assert!(evaluate(&ctx, &c).is_empty());
+}
+
+// ===== urgent_task / important_task =====
+
+const DAY: Millis = 24 * 60 * MIN;
+
+fn nudge(id: &str, urgent: bool, important: bool, created_at: Millis) -> TaskNudge {
+    TaskNudge {
+        id: id.into(),
+        title: format!("タスク{id}"),
+        urgent,
+        important,
+        doing: false,
+        last_worked_at: None,
+        created_at,
+    }
+}
+
+fn block(task: Option<&str>, start: Millis, end: Millis) -> TimeBlock {
+    TimeBlock {
+        id: format!("b{start}"),
+        start_at: start,
+        end_at: end,
+        task_id: task.map(Into::into),
+        label: None,
+        focus: false,
+    }
+}
+
+/// 配信済みのタスク通知のログ。ペイロードに task_id を持つ。
+fn task_log(payload: PushPayload, at: Millis, response: Option<&str>) -> PushLog {
+    PushLog {
+        id: format!("tl{at}"),
+        at,
+        trigger: payload.trigger.as_str().into(),
+        payload_json: serde_json::to_string(&payload).unwrap(),
+        delivered: true,
+        responded_at: response.map(|_| at + MIN),
+        response_json: response.map(|a| format!(r#"{{"action":"{a}"}}"#)),
+        snoozed_until: None,
+        suppressed_reason: None,
+    }
+}
+
+fn urgent_ctx(now: Millis) -> PushContext {
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.tasks = vec![nudge("A", true, false, t(1, 9, 0))];
+    ctx
+}
+
+fn urgent_delivered(ctx: &PushContext, c: &Push) -> Vec<PushTrigger> {
+    delivered(&evaluate(ctx, c))
+}
+
+#[test]
+fn urgent_task_fires_with_payload() {
+    let ctx = urgent_ctx(t(12, 10, 0));
+    let ds = evaluate(&ctx, &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::UrgentTask]);
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    assert_eq!(p.title, "緊急のタスクがあります");
+    assert!(p.body.contains("「タスクA」") && !p.body.contains("ほかに"));
+    assert_eq!(p.task_id.as_deref(), Some("A"));
+    assert_eq!(
+        p.actions.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        vec!["task_start", "task_later"]
+    );
+    assert_eq!(p.open_screen.as_deref(), Some("tasks"));
+    // 複数なら「ほかに N 件」。
+    let mut ctx = urgent_ctx(t(12, 10, 0));
+    ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
+    ctx.tasks.push(nudge("C", true, true, t(3, 9, 0)));
+    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+        panic!()
+    };
+    assert!(p.body.contains("（ほかに 2 件）"));
+}
+
+#[test]
+fn urgent_task_not_without_target_or_outside_hours_or_idle() {
+    let mut ctx = PushContext::new(t(12, 10, 0), TZ);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 重要だけ・緊急でないものは対象外。
+    ctx.tasks = vec![nudge("A", false, true, t(11, 9, 0))];
+    assert!(urgent_delivered(&ctx, &cfg()).is_empty());
+    // 勤務時間外。
+    for (h, m) in [(7, 59), (18, 30), (21, 0)] {
+        let c = urgent_ctx(t(12, h, m));
+        assert!(
+            !urgent_delivered(&c, &cfg()).contains(&PushTrigger::UrgentTask),
+            "{h}:{m}"
+        );
+    }
+    // 無操作中。
+    let mut c = urgent_ctx(t(12, 10, 0));
+    c.idle = IdleState {
+        is_idle: true,
+        since_last_input_sec: 600,
+    };
+    assert!(evaluate(&c, &cfg()).is_empty());
+}
+
+#[test]
+fn urgent_task_skipped_while_working_on_a_target() {
+    let now = t(12, 10, 0);
+    // 作業系の最終区間がその緊急タスクに帰属している。
+    let mut ctx = urgent_ctx(now);
+    ctx.recent_segments = vec![work("A", t(12, 9, 30), now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // doing（着手を宣言している）。
+    let mut ctx = urgent_ctx(now);
+    ctx.tasks[0].doing = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 対象のどれかに取り組み中なら、ほかの緊急タスクについても出さない。
+    let mut ctx = urgent_ctx(now);
+    ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
+    ctx.tasks[1].doing = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 緊急でない別のタスクをしているだけなら出る。
+    let mut ctx = urgent_ctx(now);
+    ctx.recent_segments = vec![work("Z", t(12, 9, 30), now)];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+}
+
+#[test]
+fn urgent_task_skips_tasks_with_upcoming_block() {
+    let now = t(12, 10, 0);
+    let mut ctx = urgent_ctx(now);
+    ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
+    // A は午後に予定済み、B は未予定。
+    ctx.time_blocks = vec![block(Some("A"), t(12, 14, 0), t(12, 15, 0))];
+    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+        panic!()
+    };
+    assert_eq!(p.task_id.as_deref(), Some("B"));
+    assert!(!p.body.contains("ほかに"));
+    // 進行中のブロックも対象外。全部予定済みなら出ない。
+    ctx.time_blocks = vec![
+        block(Some("A"), t(12, 9, 30), t(12, 10, 30)),
+        block(Some("B"), t(12, 16, 0), t(12, 17, 0)),
+    ];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 終わったブロックは予定済みと数えない。
+    ctx.time_blocks = vec![block(Some("A"), t(12, 8, 30), t(12, 9, 30))];
+    ctx.tasks.truncate(1);
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    // タスクのないブロックは無関係。
+    ctx.time_blocks = vec![block(None, t(12, 11, 0), t(12, 12, 0))];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+}
+
+#[test]
+fn urgent_task_interval_and_disable() {
+    let now = t(12, 14, 0);
+    let mut ctx = urgent_ctx(now);
+    // 100 分前に配信 → 既定 120 分未満なので出ない。
+    ctx.push_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 100 * MIN, None)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 125 分前 → 出る。
+    ctx.push_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 125 * MIN, None)];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    // 間隔の設定を伸ばせば出ない。
+    let mut c = cfg();
+    c.urgent_task_interval_min = 180;
+    assert!(evaluate(&ctx, &c).is_empty());
+    // 0 で無効。
+    let mut c = cfg();
+    c.urgent_task_interval_min = 0;
+    assert!(evaluate(&urgent_ctx(now), &c).is_empty());
+    // disabled_triggers。
+    let mut c = cfg();
+    c.disabled_triggers = vec!["urgent_task".into()];
+    assert!(evaluate(&urgent_ctx(now), &c).is_empty());
+}
+
+#[test]
+fn urgent_task_is_also_gated_by_common_rules() {
+    let now = t(12, 14, 0);
+    // 直前（5 分前）に別トリガーを配信している。
+    let mut ctx = urgent_ctx(now);
+    ctx.push_log = vec![log("weekly", now - 5 * MIN, true)];
+    let ds = evaluate(&ctx, &cfg());
+    assert!(delivered(&ds).is_empty());
+    assert!(ds.iter().any(|d| matches!(
+        d,
+        PushDecision::Suppress { trigger: PushTrigger::UrgentTask, reason } if reason == "recent_push"
+    )));
+    // 会議中は保留。
+    let mut ctx = urgent_ctx(now);
+    ctx.calendar_events = vec![event(t(12, 13, 30), t(12, 14, 30))];
+    assert!(matches!(
+        evaluate(&ctx, &cfg())[0],
+        PushDecision::Defer {
+            trigger: PushTrigger::UrgentTask,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn urgent_task_picks_longest_unnotified_then_oldest() {
+    let now = t(12, 14, 0);
+    let pick = |ctx: &PushContext| {
+        let ds = evaluate(ctx, &cfg());
+        let PushDecision::Deliver(p) = ds.into_iter().next().unwrap() else {
+            panic!()
+        };
+        p.task_id.unwrap()
+    };
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.tasks = vec![
+        nudge("A", true, false, t(5, 9, 0)),
+        nudge("B", true, false, t(3, 9, 0)),
+        nudge("C", true, false, t(4, 9, 0)),
+    ];
+    // 同順（まだ誰にも通知していない）なら作成が古い B。
+    assert_eq!(pick(&ctx), "B");
+    // B に通知済み → 次に作成が古い C。
+    ctx.push_log = vec![task_log(
+        payload::urgent_task("B", "x", 2),
+        now - 5 * 60 * MIN,
+        Some("task_later"),
+    )];
+    assert_eq!(pick(&ctx), "C");
+    // B, C に通知済み → A。
+    ctx.push_log.push(task_log(
+        payload::urgent_task("C", "x", 2),
+        now - 4 * 60 * MIN - 10,
+        Some("task_later"),
+    ));
+    assert_eq!(pick(&ctx), "A");
+    // 全員に通知済みなら、通知が最も古い B。
+    ctx.push_log.push(task_log(
+        payload::urgent_task("A", "x", 2),
+        now - 3 * 60 * MIN,
+        Some("task_later"),
+    ));
+    assert_eq!(pick(&ctx), "B");
+}
+
+fn important_ctx(now: Millis) -> PushContext {
+    let mut ctx = PushContext::new(now, TZ);
+    // 5 日前に作られ、一度も時間が入っていない。
+    ctx.tasks = vec![nudge("I1", false, true, now - 5 * DAY)];
+    ctx
+}
+
+#[test]
+fn important_task_fires_when_stale() {
+    let now = t(12, 10, 0);
+    let ctx = important_ctx(now);
+    let ds = evaluate(&ctx, &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::ImportantTask]);
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    assert_eq!(p.title, "重要なタスクに少し時間を取りませんか");
+    assert!(p.body.contains("「タスクI1」") && p.body.contains("まだ時間が入っていません"));
+    assert_eq!(p.task_id.as_deref(), Some("I1"));
+    assert_eq!(
+        p.actions.iter().map(|a| a.id.as_str()).collect::<Vec<_>>(),
+        vec!["task_start", "open", "task_skip_week"]
+    );
+    assert_eq!(p.open_screen.as_deref(), Some("today/design"));
+
+    // 時間が入っていれば、最後に手をつけてからの日数を本文に出す。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].last_worked_at = Some(now - 4 * DAY - 3 * 60 * MIN);
+    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+        panic!()
+    };
+    assert!(p.body.contains("ここ 4 日ほど時間が入っていません"));
+}
+
+#[test]
+fn important_task_threshold_uses_latest_of_work_and_creation() {
+    let now = t(12, 10, 0);
+    // 作業が最近ある（2 日前）→ 3 日未満なので出ない。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].last_worked_at = Some(now - 2 * DAY);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 作業は古いが作成が新しい → 作成からの経過で判定。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].created_at = now - 2 * DAY;
+    ctx.tasks[0].last_worked_at = Some(now - 10 * DAY);
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // ちょうど 3 日で対象。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].created_at = now - 3 * DAY;
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![PushTrigger::ImportantTask]
+    );
+    // 日数の設定を変える・0 で無効。
+    let mut c = cfg();
+    c.important_stale_days = 7;
+    assert!(evaluate(&important_ctx(now), &c).is_empty());
+    c.important_stale_days = 0;
+    assert!(evaluate(&important_ctx(now), &c).is_empty());
+    // disabled_triggers。
+    let mut c = cfg();
+    c.disabled_triggers = vec!["important_task".into()];
+    assert!(evaluate(&important_ctx(now), &c).is_empty());
+}
+
+#[test]
+fn important_task_excludes_urgent_blocked_and_active() {
+    let now = t(12, 10, 0);
+    // 緊急でもあるものは urgent_task の担当で、important_task の対象外。
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].urgent = true;
+    ctx.tasks[0].doing = true; // urgent_task も出さない
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 今日の time_block に割り当て済み（終わったブロックでも）。
+    let mut ctx = important_ctx(now);
+    ctx.time_blocks = vec![block(Some("I1"), t(12, 8, 30), t(12, 9, 0))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    ctx.time_blocks = vec![block(Some("I1"), t(12, 15, 0), t(12, 16, 0))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // いま取り組み中（作業の帰属 / doing）。
+    let mut ctx = important_ctx(now);
+    ctx.recent_segments = vec![work("I1", t(12, 9, 30), now)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    let mut ctx = important_ctx(now);
+    ctx.tasks[0].doing = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+}
+
+#[test]
+fn important_task_work_hours_idle_and_once_a_day() {
+    for (h, m) in [(7, 0), (18, 30), (22, 0)] {
+        let ctx = important_ctx(t(12, h, m));
+        assert!(
+            !delivered(&evaluate(&ctx, &cfg())).contains(&PushTrigger::ImportantTask),
+            "{h}:{m}"
+        );
+    }
+    let mut ctx = important_ctx(t(12, 10, 0));
+    ctx.idle = IdleState {
+        is_idle: true,
+        since_last_input_sec: 900,
+    };
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+
+    // 今日すでに配信済みなら出ない（別タスクでも）。
+    let now = t(12, 15, 0);
+    let mut ctx = important_ctx(now);
+    ctx.tasks.push(nudge("I2", false, true, now - 9 * DAY));
+    ctx.push_log = vec![task_log(
+        payload::important_task("I2", "x", None),
+        t(12, 9, 0),
+        None,
+    )];
+    assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
+    // 昨日の配信なら、1 日 1 回の制限にはかからない。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I2", "x", None),
+        t(11, 9, 0),
+        None,
+    )];
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![PushTrigger::ImportantTask]
+    );
+}
+
+#[test]
+fn important_task_skip_week_and_selection_order() {
+    let now = t(14, 10, 0); // 水曜
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.tasks = vec![
+        nudge("I1", false, true, now - 6 * DAY),
+        nudge("I2", false, true, now - 9 * DAY),
+        nudge("I3", false, true, now - 20 * DAY),
+    ];
+    ctx.tasks[0].last_worked_at = Some(now - 4 * DAY);
+    let pick = |ctx: &PushContext| {
+        let ds = evaluate(ctx, &cfg());
+        let Some(PushDecision::Deliver(p)) = ds.into_iter().find(|d| matches!(d, PushDecision::Deliver(_)))
+        else {
+            return None;
+        };
+        p.task_id
+    };
+    // 最後に手をつけた時刻が最も古いもの（I3）。
+    assert_eq!(pick(&ctx).as_deref(), Some("I3"));
+    // 今週（月曜 = 12 日以降）に I3 を「今週は見送る」→ 次は I2。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I3", "x", None),
+        t(12, 10, 0),
+        Some("task_skip_week"),
+    )];
+    assert_eq!(pick(&ctx).as_deref(), Some("I2"));
+    // 見送り以外の応答は除外しない。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I3", "x", None),
+        t(12, 10, 0),
+        Some("open"),
+    )];
+    assert_eq!(pick(&ctx).as_deref(), Some("I3"));
+    // 先週の見送りは今週に持ち越さない。
+    ctx.push_log = vec![task_log(
+        payload::important_task("I3", "x", None),
+        t(9, 10, 0),
+        Some("task_skip_week"),
+    )];
+    assert_eq!(pick(&ctx).as_deref(), Some("I3"));
+    // 全部見送り済みなら出ない。
+    ctx.push_log = ["I1", "I2", "I3"]
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            task_log(
+                payload::important_task(id, "x", None),
+                t(12, 10, i as u32),
+                Some("task_skip_week"),
+            )
+        })
+        .collect();
+    assert_eq!(pick(&ctx), None);
+}
+
+#[test]
+fn task_triggers_priority_order() {
+    let ids: Vec<&str> = PushTrigger::ALL.iter().map(|t| t.as_str()).collect();
+    let pos = |s: &str| ids.iter().position(|x| *x == s).unwrap();
+    assert!(pos("urgent_task") < pos("after_interrupt"));
+    assert!(pos("long_focus") < pos("important_task"));
+    assert_eq!(PushTrigger::label_of("urgent_task"), "緊急のタスク");
+    assert_eq!(PushTrigger::label_of("important_task"), "重要なタスク");
+    assert_eq!(
+        PushTrigger::parse("important_task"),
+        Some(PushTrigger::ImportantTask)
+    );
+}
+
+// ----- 応答 -----
+
+fn deliver_payload(conn: &rusqlite::Connection, p: PushPayload, at: Millis) -> String {
+    store::record_decision(conn, &PushDecision::Deliver(p), at)
+        .unwrap()
+        .unwrap()
+}
+
+fn act(action: &str) -> PushResponse {
+    PushResponse {
+        action: Some(action.into()),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn task_start_returns_task_id_and_others_only_record() {
+    let conn = db::open_in_memory().unwrap();
+    let id = deliver_payload(&conn, payload::urgent_task("TASK1", "x", 0), 1000);
+    let out = store::apply_response(&conn, &id, act("task_start"), 5000, TZ).unwrap();
+    assert_eq!(out.start_task.as_deref(), Some("TASK1"));
+    assert_eq!(out.snoozed_until, None);
+    let l = store::get_log(&conn, &id).unwrap();
+    assert_eq!(l.responded_at, Some(5000));
+
+    for a in ["task_later", "task_skip_week"] {
+        let id = deliver_payload(&conn, payload::important_task("TASK2", "x", Some(4)), 2000);
+        let out = store::apply_response(&conn, &id, act(a), 6000, TZ).unwrap();
+        assert_eq!(out, store::ResponseOutcome::default(), "{a}");
+        let l = store::get_log(&conn, &id).unwrap();
+        assert_eq!(l.responded_at, Some(6000));
+        assert!(l.response_json.unwrap().contains(a));
+    }
+
+    // 対象のタスクを持たない通知への task_start はエラー。
+    let id = deliver_payload(&conn, payload::day_start(), 3000);
+    let e = store::apply_response(&conn, &id, act("task_start"), 7000, TZ).unwrap_err();
+    assert_eq!(e.exit_code(), 2);
+}
+
+#[test]
+fn payload_task_id_serde_is_optional() {
+    // task_id の無い従来のペイロードも読める。出さないときは JSON にも出ない。
+    let s = serde_json::to_string(&payload::day_start()).unwrap();
+    assert!(!s.contains("task_id"));
+    let p: PushPayload = serde_json::from_str(&s).unwrap();
+    assert_eq!(p.task_id, None);
+    let s = serde_json::to_string(&payload::urgent_task("T", "x", 0)).unwrap();
+    assert!(s.contains(r#""task_id":"T""#));
+}
+
+// ===== block_start =====
+
+fn task_ref(id: &str, status: crate::model::TaskStatus) -> TaskRef {
+    TaskRef {
+        id: id.into(),
+        title: format!("タスク{id}"),
+        status,
+    }
+}
+
+/// 10:00-11:00 に A のブロックがあり、指定時刻の状況。
+fn block_ctx(now: Millis) -> PushContext {
+    let mut ctx = PushContext::new(now, TZ);
+    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 0), t(12, 11, 0))];
+    ctx.task_refs = vec![task_ref("A", crate::model::TaskStatus::Todo)];
+    ctx
+}
+
+fn block_delivered(ctx: &PushContext, c: &Push) -> Vec<PushTrigger> {
+    delivered(&evaluate(ctx, c))
+}
+
+#[test]
+fn block_start_fires_within_window_with_payload() {
+    let ds = evaluate(&block_ctx(t(12, 10, 3)), &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::BlockStart]);
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    assert_eq!(p.title, "計画の時間です");
+    assert_eq!(p.body, "今から「タスクA」の時間（10:00–11:00）です。始めますか？");
+    assert_eq!(p.task_id.as_deref(), Some("A"));
+    assert_eq!(p.block_id.as_deref(), Some(format!("b{}", t(12, 10, 0)).as_str()));
+    let ids: Vec<&str> = p.actions.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(ids, ["task_start", "block_skip"]);
+    assert_eq!(p.actions[0].label, "始める");
+    assert_eq!(p.actions[1].label, "今回はやめる");
+    assert_eq!(p.open_screen.as_deref(), Some("today"));
+    // 開始ちょうどと、窓の終わり（10 分）ちょうどは出る。
+    assert_eq!(
+        block_delivered(&block_ctx(t(12, 10, 0)), &cfg()),
+        vec![PushTrigger::BlockStart]
+    );
+    assert_eq!(
+        block_delivered(&block_ctx(t(12, 10, 10)), &cfg()),
+        vec![PushTrigger::BlockStart]
+    );
+}
+
+#[test]
+fn block_start_not_outside_window_or_for_other_blocks() {
+    // 開始前・窓の外。
+    assert!(evaluate(&block_ctx(t(12, 9, 59)), &cfg()).is_empty());
+    assert!(evaluate(&block_ctx(t(12, 10, 11)), &cfg()).is_empty());
+    // ブロックがすでに終わっている。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.time_blocks = vec![block(Some("A"), t(12, 9, 58), t(12, 10, 2))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // タスクの無いブロック、タスク情報の無いブロック。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.time_blocks = vec![block(None, t(12, 10, 0), t(12, 11, 0))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.task_refs.clear();
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+}
+
+#[test]
+fn block_start_not_when_doing_working_or_closed() {
+    use crate::model::TaskStatus::{Doing, Done, Dropped};
+    // すでに doing。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.task_refs = vec![task_ref("A", Doing)];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 完了・中止。
+    for st in [Done, Dropped] {
+        let mut ctx = block_ctx(t(12, 10, 3));
+        ctx.task_refs = vec![task_ref("A", st)];
+        assert!(evaluate(&ctx, &cfg()).is_empty(), "{st:?}");
+    }
+    // いまの作業区間がそのタスク。別のタスクなら出る。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.recent_segments = vec![work("A", t(12, 9, 50), t(12, 10, 3))];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.recent_segments = vec![work("B", t(12, 9, 50), t(12, 10, 3))];
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+}
+
+#[test]
+fn block_start_not_when_already_delivered_for_that_block() {
+    let mut ctx = block_ctx(t(12, 10, 3));
+    let p = payload::block_start(&format!("b{}", t(12, 10, 0)), "A", "タスクA", "10:00", "11:00");
+    ctx.push_log.push(task_log(p, t(12, 10, 1), Some("block_skip")));
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 別のブロックの配信済みは影響しない。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    let p = payload::block_start("other", "A", "タスクA", "09:00", "09:30");
+    ctx.push_log.push(task_log(p, t(12, 9, 1), None));
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+}
+
+#[test]
+fn block_start_not_while_idle_and_can_be_disabled() {
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.idle.is_idle = true;
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    let mut c = cfg();
+    c.disabled_triggers = vec!["block_start".into()];
+    assert!(evaluate(&block_ctx(t(12, 10, 3)), &c).is_empty());
+    assert_eq!(PushTrigger::label_of("block_start"), "計画ブロックの開始");
+}
+
+#[test]
+fn block_start_ignores_interval_rules() {
+    // 直前（2 分前）に別の通知が配信され、同じトリガーも 30 分前に配信済み（別ブロック）でも出る。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.push_log.push(log("long_focus", t(12, 10, 1), true));
+    let p = payload::block_start("older", "A", "タスクA", "09:30", "09:40");
+    ctx.push_log.push(task_log(p, t(12, 9, 33), None));
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+    // ほかのトリガーは同じ状況で recent_push に抑制される（比較）。
+    let mut other = PushContext::new(t(12, 10, 3), TZ);
+    other.resumed_at = Some(t(12, 9, 0));
+    other.push_log.push(log("long_focus", t(12, 10, 1), true));
+    let ds = evaluate(&other, &cfg());
+    assert!(matches!(&ds[0], PushDecision::Suppress { reason, .. } if reason == "recent_push"));
+}
+
+#[test]
+fn block_start_still_obeys_snooze_daily_limit_and_meeting() {
+    let mut ctx = block_ctx(t(12, 10, 3));
+    let mut l = log("long_focus", t(12, 9, 0), true);
+    l.snoozed_until = Some(t(12, 11, 0));
+    ctx.push_log.push(l);
+    let ds = evaluate(&ctx, &cfg());
+    assert!(
+        matches!(&ds[0], PushDecision::Suppress { trigger: PushTrigger::BlockStart, reason } if reason == "snoozed")
+    );
+
+    let mut ctx = block_ctx(t(12, 10, 3));
+    for i in 0..6 {
+        ctx.push_log.push(log("long_focus", t(12, 8, i), true));
+    }
+    let ds = evaluate(&ctx, &cfg());
+    assert!(matches!(&ds[0], PushDecision::Suppress { reason, .. } if reason == "daily_limit"));
+
+    // 会議中は保留される。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.calendar_events = vec![event(t(12, 10, 0), t(12, 10, 30))];
+    let ds = evaluate(&ctx, &cfg());
+    assert!(
+        matches!(&ds[0], PushDecision::Defer { trigger: PushTrigger::BlockStart, until } if *until == t(12, 10, 30))
+    );
+}
+
+#[test]
+fn block_start_not_deferred_by_its_own_focus_block_but_by_others() {
+    // 自分自身がフォーカスブロックなら保留されない。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    ctx.time_blocks[0].focus = true;
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+    // 別のフォーカスブロックの最中なら保留される。
+    let mut ctx = block_ctx(t(12, 10, 3));
+    let mut other = block(None, t(12, 9, 30), t(12, 10, 30));
+    other.focus = true;
+    ctx.time_blocks.push(other);
+    let ds = evaluate(&ctx, &cfg());
+    assert!(matches!(&ds[0], PushDecision::Defer { until, .. } if *until == t(12, 10, 30)));
+}
+
+#[test]
+fn block_start_priority_after_idle_return() {
+    let ids: Vec<&str> = PushTrigger::ALL.iter().map(|t| t.as_str()).collect();
+    let pos = |s: &str| ids.iter().position(|x| *x == s).unwrap();
+    assert!(pos("idle_return") < pos("block_start") && pos("block_start") < pos("day_end"));
+    // 同時に満たしたら idle_return が先、block_start は次の評価で出る（間隔ルールを受けない）。
+    let mut ctx = block_ctx(t(12, 10, 32));
+    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 30), t(12, 11, 30))];
+    ctx.last_idle = Some(ClosedIdle {
+        start_at: t(12, 10, 0),
+        end_at: t(12, 10, 30),
+    });
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::IdleReturn]);
+    ctx.now = t(12, 10, 33);
+    ctx.push_log.push(log("idle_return", t(12, 10, 32), true));
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+}
+
+#[test]
+fn block_start_skip_only_records_and_start_returns_task() {
+    let conn = db::open_in_memory().unwrap();
+    let mk = || payload::block_start("B1", "TASK1", "x", "10:00", "11:00");
+    let id = deliver_payload(&conn, mk(), 1000);
+    let out = store::apply_response(&conn, &id, act("block_skip"), 5000, TZ).unwrap();
+    assert_eq!(out, store::ResponseOutcome::default());
+    let l = store::get_log(&conn, &id).unwrap();
+    assert_eq!(l.responded_at, Some(5000));
+    assert!(l.response_json.unwrap().contains("block_skip"));
+    let id = deliver_payload(&conn, mk(), 2000);
+    let out = store::apply_response(&conn, &id, act("task_start"), 5000, TZ).unwrap();
+    assert_eq!(out.start_task.as_deref(), Some("TASK1"));
+}
+
+#[test]
+fn payload_block_id_serde_is_optional() {
+    let s = serde_json::to_string(&payload::day_start()).unwrap();
+    assert!(!s.contains("block_id"));
+    let s = serde_json::to_string(&payload::block_start("B", "T", "x", "10:00", "11:00")).unwrap();
+    assert!(s.contains(r#""block_id":"B""#));
+}
+
+// ===== idle_return の候補タスク =====
+
+fn doing_span(task: &str, start: Millis, end: Option<Millis>) -> DoingSpan {
+    DoingSpan {
+        task_id: task.into(),
+        start_at: start,
+        end_at: end,
+    }
+}
+
+fn idle_task_label(ds: &[PushDecision]) -> Option<(String, Option<String>)> {
+    let PushDecision::Deliver(p) = ds.iter().find(|d| matches!(d, PushDecision::Deliver(_)))? else {
+        return None;
+    };
+    let first = p.actions.first()?;
+    (first.id == "idle_task").then(|| (first.label.clone(), p.task_id.clone()))
+}
+
+#[test]
+fn idle_return_candidate_from_doing_log() {
+    use crate::model::TaskStatus::Doing;
+    let mut ctx = idle_ctx();
+    ctx.task_refs = vec![task_ref("A", Doing)];
+    // 無操作の前から開いたまま（進行中）。
+    ctx.doing_spans = vec![doing_span("A", t(12, 9, 0), None)];
+    let ds = evaluate(&ctx, &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::IdleReturn]);
+    assert_eq!(
+        idle_task_label(&ds),
+        Some(("タスクAをしていた".into(), Some("A".into())))
+    );
+    let PushDecision::Deliver(p) = &ds[0] else {
+        panic!()
+    };
+    let ids: Vec<&str> = p.actions.iter().map(|a| a.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "idle_task",
+            "idle_break",
+            "idle_meeting",
+            "idle_thinking",
+            "idle_away"
+        ]
+    );
+    assert!(p.actions.len() <= 5, "トーストのボタンは最大 5 個");
+    assert_eq!(p.idle_range, Some((t(12, 10, 0), t(12, 10, 30))));
+    // 無操作の前に閉じたログは候補にならない。
+    ctx.doing_spans = vec![doing_span("A", t(12, 9, 0), Some(t(12, 9, 59)))];
+    assert_eq!(idle_task_label(&evaluate(&ctx, &cfg())), None);
+}
+
+#[test]
+fn idle_return_candidate_from_block_and_doing_wins() {
+    use crate::model::TaskStatus::{Doing, Todo};
+    let mut ctx = idle_ctx();
+    ctx.task_refs = vec![task_ref("A", Todo), task_ref("B", Doing), task_ref("C", Todo)];
+    // ブロックだけ: 重なりが最も長いもの（A は 10 分、C は 20 分）。
+    ctx.time_blocks = vec![
+        block(Some("A"), t(12, 9, 50), t(12, 10, 10)),
+        block(Some("C"), t(12, 10, 10), t(12, 10, 40)),
+        block(None, t(12, 10, 0), t(12, 10, 30)),
+    ];
+    assert_eq!(
+        idle_task_label(&evaluate(&ctx, &cfg())),
+        Some(("タスクCをしていた".into(), Some("C".into())))
+    );
+    // doing があれば、ブロックのほうが長くても doing を優先する（重なり 5 分）。
+    ctx.doing_spans = vec![doing_span("B", t(12, 10, 25), None)];
+    assert_eq!(
+        idle_task_label(&evaluate(&ctx, &cfg())),
+        Some(("タスクBをしていた".into(), Some("B".into())))
+    );
+    // doing が複数なら重なりが長いもの（A は 15 分）。
+    ctx.doing_spans = vec![
+        doing_span("B", t(12, 10, 25), None),
+        doing_span("A", t(12, 10, 5), Some(t(12, 10, 20))),
+    ];
+    assert_eq!(
+        idle_task_label(&evaluate(&ctx, &cfg())).unwrap().1.as_deref(),
+        Some("A")
+    );
+}
+
+#[test]
+fn idle_return_without_candidate_is_unchanged() {
+    let ds = evaluate(&idle_ctx(), &cfg());
+    assert_eq!(idle_task_label(&ds), None);
+    // 重ならないブロック、タスク情報の無いブロックは候補にならない。
+    let mut ctx = idle_ctx();
+    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 30), t(12, 11, 0))];
+    ctx.task_refs = vec![task_ref("A", crate::model::TaskStatus::Todo)];
+    assert_eq!(idle_task_label(&evaluate(&ctx, &cfg())), None);
+    let mut ctx = idle_ctx();
+    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 0), t(12, 10, 30))];
+    assert_eq!(idle_task_label(&evaluate(&ctx, &cfg())), None);
+}
+
+#[test]
+fn idle_return_asks_after_locked_auto_break_only_with_candidate() {
+    let mut locked = seg(SegmentKind::Break, t(12, 10, 0), t(12, 10, 30));
+    locked.decided_by = Some("rule:locked".into());
+    locked.confidence = Some(1.0);
+    // 候補が無ければ従来どおり尋ねない。
+    let mut ctx = idle_ctx();
+    ctx.recent_segments = vec![locked.clone()];
+    assert!(evaluate(&ctx, &cfg()).is_empty());
+    // 候補があれば尋ねる。
+    ctx.time_blocks = vec![block(Some("A"), t(12, 9, 30), t(12, 11, 0))];
+    ctx.task_refs = vec![task_ref("A", crate::model::TaskStatus::Todo)];
+    let ds = evaluate(&ctx, &cfg());
+    assert_eq!(delivered(&ds), vec![PushTrigger::IdleReturn]);
+    assert_eq!(idle_task_label(&ds).unwrap().1.as_deref(), Some("A"));
+    // ユーザーが確定した休憩・会議は、候補があっても尋ねない。
+    for mutate in 0..3 {
+        let mut c = ctx.clone();
+        let mut s = locked.clone();
+        match mutate {
+            0 => s.status = SegmentStatus::Confirmed,
+            1 => s.decided_by = Some("user".into()),
+            _ => s.kind = SegmentKind::Meeting,
+        }
+        c.recent_segments = vec![s];
+        assert!(evaluate(&c, &cfg()).is_empty(), "{mutate}");
+    }
+    // 予定と重なる無操作も尋ねない。
+    let mut c = ctx.clone();
+    c.calendar_events = vec![event(t(12, 10, 5), t(12, 10, 25))];
+    assert!(evaluate(&c, &cfg()).is_empty());
+}
+
+#[test]
+fn idle_task_answer_confirms_range_as_offline_work_and_survives_rebuild() {
+    use crate::config::Config;
+    use crate::model::{IdleReason, IdleSpan, Task, TaskKind, TaskStatus};
+    use crate::repo::collect as rc;
+    use crate::timefmt::Range;
+    let conn = db::open_in_memory().unwrap();
+    crate::repo::task::insert(
+        &conn,
+        &Task {
+            id: "TASKA".into(),
+            title: "読書".into(),
+            body_md: String::new(),
+            status: TaskStatus::Doing,
+            kind: TaskKind::Normal,
+            urgent: None,
+            important: None,
+            estimate_min: None,
+            planned_start_at: None,
+            planned_end_at: None,
+            key_result_id: None,
+            external_url: None,
+            created_at: 0,
+            updated_at: 0,
+            done_at: None,
+        },
+    )
+    .unwrap();
+    let (s, e) = (t(12, 10, 0), t(12, 10, 30));
+    let now = t(12, 10, 32);
+    // 30 分のロック（長いロックは自動で休憩になる）。
+    rc::open_idle_span(
+        &conn,
+        &IdleSpan {
+            id: "I1".into(),
+            start_at: s,
+            end_at: None,
+            reason: IdleReason::Locked,
+        },
+    )
+    .unwrap();
+    rc::close_idle_span(&conn, "I1", e).unwrap();
+    let cfg = Config::default();
+    let range = Range::new(t(12, 9, 0), t(12, 11, 0));
+    crate::rebuild::rebuild(&conn, &cfg, range, now).unwrap();
+    let before = crate::repo::segment::list(&conn, range).unwrap();
+    assert_eq!(before.len(), 1);
+    assert_eq!(
+        (before[0].kind, before[0].decided_by.as_deref()),
+        (SegmentKind::Break, Some("rule:locked"))
+    );
+
+    let id = deliver_payload(
+        &conn,
+        payload::idle_return(s, e, Some(("TASKA", "読書"))),
+        t(12, 10, 31),
+    );
+    let out = store::apply_response(&conn, &id, act("idle_task"), now, TZ).unwrap();
+    assert_eq!(out.idle_labeled, 1);
+    assert!(store::get_log(&conn, &id).unwrap().responded_at.is_some());
+
+    let check = |conn: &rusqlite::Connection| {
+        let segs = crate::repo::segment::list(conn, range).unwrap();
+        assert_eq!(segs.len(), 1, "{segs:?}");
+        let g = &segs[0];
+        assert_eq!((g.start_at, g.end_at), (s, e));
+        assert_eq!(
+            (g.kind, g.offline, g.status),
+            (SegmentKind::Work, true, SegmentStatus::Confirmed)
+        );
+        assert_eq!(g.task_id.as_deref(), Some("TASKA"));
+    };
+    check(&conn);
+    // 再計算でも、そのタスクの実績（PC 外の作業）として残る。
+    crate::rebuild::rebuild(&conn, &cfg, range, now).unwrap();
+    check(&conn);
+    // 範囲指定の補正と同じ形で保存される: offline の override が補正に結び付く。
+    let ovs = crate::repo::overrides::list(&conn, range).unwrap();
+    assert_eq!(ovs.len(), 1);
+    assert!(ovs[0].offline && ovs[0].correction_id.is_some());
+    assert_eq!(
+        (ovs[0].kind, ovs[0].task_id.as_deref()),
+        (Some(SegmentKind::Work), Some("TASKA"))
+    );
+    assert_eq!(
+        crate::repo::correction::list(&conn, None, Some("TASKA"))
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // 通知にタスクが無ければエラー。
+    let id = deliver_payload(&conn, payload::idle_return(s, e, None), t(12, 10, 33));
+    let err = store::apply_response(&conn, &id, act("idle_task"), now, TZ).unwrap_err();
+    assert_eq!(err.exit_code(), 2);
 }

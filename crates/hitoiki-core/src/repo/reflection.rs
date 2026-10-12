@@ -87,7 +87,26 @@ pub fn referencing_record(conn: &Connection, record_id: &str) -> Result<Vec<Refl
         .collect())
 }
 
+/// 期間内（生成時刻）の振り返り（古い順）。
+pub fn list_range(conn: &Connection, start: i64, end: i64) -> Result<Vec<Reflection>> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {COLS} FROM reflection WHERE at >= ?1 AND at < ?2 ORDER BY at, id"
+    ))?;
+    let rows = stmt.query_map(params![start, end], from_row)?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// 回答を書き換えたので、AI 由来の ERG ラベルを捨てて判定をやり直せるようにする（ユーザーのラベルは残す）。
+fn reset_auto_erg(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'reflection' AND record_id = ?1 AND source <> 'user'",
+        [id],
+    )?;
+    Ok(())
+}
+
 pub fn set_answers(conn: &Connection, id: &str, answers_md: &str) -> Result<()> {
+    reset_auto_erg(conn, id)?;
     conn.execute(
         "UPDATE reflection SET answers_md = ?2 WHERE id = ?1",
         params![id, answers_md],
@@ -102,6 +121,7 @@ pub fn set_structured_answers(
     answers_md: Option<&str>,
     answers_json: &str,
 ) -> Result<()> {
+    reset_auto_erg(conn, id)?;
     conn.execute(
         "UPDATE reflection SET answers_md = ?2, answers_json = ?3 WHERE id = ?1",
         params![id, answers_md, answers_json],

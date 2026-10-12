@@ -6,7 +6,9 @@ use crate::error::{AppError, AppResult};
 use crate::state::{AppState, PushEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
-use hitoiki_core::model::{AbcRecord, CalendarEvent, Checkin, Hassle, Reflection, TimeBlock};
+use hitoiki_core::model::{
+    AbcRecord, CalendarEvent, Checkin, ErgChoice, ErgLabel, ErgRecordKind, Hassle, Reflection, TimeBlock,
+};
 use hitoiki_core::service::block_template::{
     self as btpl, ApplyInput, ApplyResult, Preview, SaveFromInput, Suggestion, TemplateInput, TemplateList,
     TemplateView, UndoResult,
@@ -16,6 +18,8 @@ use hitoiki_core::service::correction::{
     self, ApplyResult as CorrectionApplied, CandidateList, CorrectionFilter, CorrectionInput, CorrectionList,
     Include, Preview as CorrectionPreview, UndoResult as CorrectionUndone,
 };
+use hitoiki_core::service::erg;
+use hitoiki_core::service::heatmap::{self, Heatmap, HeatmapInput};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
@@ -507,6 +511,15 @@ pub fn reflect_answer_structured(
     state.with_ctx(|c| reflect::answer_structured(c, &id, &answers))
 }
 
+/// 回答済みの問いを、保存した記録（チェックイン・ハッスル・ABC）の中身つきで返す。
+#[tauri::command(rename_all = "snake_case")]
+pub fn reflect_answer_details(state: S, id: String) -> AppResult<Vec<reflect::AnswerDetail>> {
+    state.with_ctx(|c| {
+        let r = reflect::show(c, &id)?;
+        reflect::answer_details(c, &r)
+    })
+}
+
 /// 過去の振り返り（新しい順）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn reflect_list(state: S, kind: Option<String>, limit: Option<i64>) -> AppResult<Vec<Reflection>> {
@@ -519,19 +532,54 @@ pub fn reflect_show(state: S, id: String) -> AppResult<Reflection> {
     state.with_ctx(|c| reflect::show(c, &id))
 }
 
-/// 回答ごとの参照先の有無（`missing: true` は、その回答が作った記録が削除されている）。
-#[tauri::command(rename_all = "snake_case")]
-pub fn reflect_answer_details(state: S, id: String) -> AppResult<Vec<reflect::AnswerDetail>> {
-    state.with_ctx(|c| {
-        let r = reflect::show(c, &id)?;
-        reflect::answer_details(c, &r)
-    })
-}
-
 /// ABC 記録の B を掘り下げる問いを AI で生成し、記録に追記する。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn abc_dispute(app: AppHandle, id: String) -> AppResult<AbcRecord> {
     blocking(app, move |st| st.with_own_ctx(|c| reflect::abc_dispute(c, &id))).await
+}
+
+// ===== ERG（記録の内容から AI が判定し、ユーザーが確認・修正する） =====
+
+/// 期間内の記録の ERG ラベルと分布、確認待ちの数。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_overview(state: S, range: Option<RangeArgs>) -> AppResult<erg::ErgOverview> {
+    let args = range.unwrap_or_default();
+    state.with_ctx(|c| erg::overview(c, &args))
+}
+
+/// 確認待ち（AI の提案で未確定）の一覧。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_review(state: S) -> AppResult<erg::ErgReview> {
+    state.with_ctx(erg::review)
+}
+
+/// 未判定の記録を AI で判定する。時間がかかるので専用スレッドで実行する。
+#[tauri::command(rename_all = "snake_case")]
+pub async fn erg_classify(
+    app: AppHandle,
+    range: Option<RangeArgs>,
+    dry_run: Option<bool>,
+) -> AppResult<erg::ClassifyOutcome> {
+    let args = range.unwrap_or_default();
+    blocking(app, move |st| {
+        st.with_own_ctx(|c| erg::classify(c, &args, dry_run.unwrap_or(false)))
+    })
+    .await
+}
+
+/// ユーザーがタグを付ける・直す（`tag` は existence / relatedness / growth / none）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_set(state: S, record_kind: String, record_id: String, tag: String) -> AppResult<ErgLabel> {
+    let kind = ErgRecordKind::from_str(&record_kind)?;
+    let tag = ErgChoice::from_str(&tag)?;
+    state.with_ctx(|c| erg::set_for(c, kind, &record_id, tag))
+}
+
+/// 確認待ちの提案をそのまま確定する。
+#[tauri::command(rename_all = "snake_case")]
+pub fn erg_confirm(state: S, record_kind: String, record_id: String) -> AppResult<ErgLabel> {
+    let kind = ErgRecordKind::from_str(&record_kind)?;
+    state.with_ctx(|c| erg::confirm_for(c, kind, &record_id))
 }
 
 // ===== OKR・スキル =====
@@ -584,6 +632,13 @@ pub fn report(
         include_idle: include_idle.unwrap_or(false),
     };
     state.with_ctx(|c| report::report(c, &input))
+}
+
+/// 活動量ヒートマップ（日別の濃淡）。
+#[tauri::command(rename_all = "snake_case")]
+pub fn heatmap(state: S, by: Option<String>, from: Option<String>, to: Option<String>) -> AppResult<Heatmap> {
+    let input = HeatmapInput { by, from, to };
+    state.with_ctx(|c| heatmap::heatmap(c, &input))
 }
 
 // ===== 設定 =====

@@ -118,11 +118,20 @@ export const api = {
     call<T.Reflection>("reflect_answer", { id, answers_md: answersMd }),
   reflectAnswerStructured: (id: string, answers: T.AnswersInput) =>
     call<T.Reflection>("reflect_answer_structured", { id, answers }),
+  reflectAnswerDetails: (id: string) => call<T.AnswerDetail[]>("reflect_answer_details", { id }),
   reflectList: (kind?: T.ReflectionKind, limit = 30) =>
     call<T.Reflection[]>("reflect_list", { kind, limit }),
   reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
-  reflectAnswerDetails: (id: string) => call<T.AnswerDetail[]>("reflect_answer_details", { id }),
   abcDispute: (id: string) => call<T.AbcRecord>("abc_dispute", { id }),
+
+  // ERG
+  ergOverview: (range?: T.RangeArgs) => call<T.ErgOverview>("erg_overview", { range }),
+  ergReview: () => call<T.ErgReview>("erg_review"),
+  ergClassify: (range?: T.RangeArgs) => call<T.ErgClassifyOutcome>("erg_classify", { range }),
+  ergSet: (record_kind: T.ErgRecordKind, record_id: string, tag: T.ErgChoice) =>
+    call<T.ErgLabel>("erg_set", { record_kind, record_id, tag }),
+  ergConfirm: (record_kind: T.ErgRecordKind, record_id: string) =>
+    call<T.ErgLabel>("erg_confirm", { record_kind, record_id }),
 
   // OKR・スキル
   okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
@@ -138,6 +147,14 @@ export const api = {
   okrDeleteObjective: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_objective", { id, mode }),
   okrEditKr: (id: string, input: T.KrEdit) => call<T.KeyResult>("okr_edit_kr", { id, input }),
   okrDeleteKr: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_kr", { id, mode }),
+  // KR とタスクのつながり。紐付けは別の KR に紐付いていたタスクを付け替える。
+  okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
+  okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
+  okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
+  // KR の現在値の記録と履歴（値の推移と週ごとの時間）。
+  okrProgress: (kr: string, value: string, note?: string) =>
+    call<T.ProgressRecorded>("okr_progress", { kr, value, note }),
+  okrHistory: (kr: string) => call<T.KrHistory>("okr_history", { kr }),
   skillEdit: (key: string, input: T.SkillEdit) => call<T.Skill>("skill_edit", { key, input }),
   skillDelete: (key: string, children: T.ChildPolicy, mode: T.DeleteMode) =>
     call<T.DeleteOutcome>("skill_delete", { key, children, mode }),
@@ -177,6 +194,8 @@ export const api = {
   // レポート
   report: (by: T.ReportBy, range?: T.RangeArgs, includeIdle = false) =>
     call<T.Report>("report", { range, by, include_idle: includeIdle }),
+
+  heatmap: (by?: string, from?: string, to?: string) => call<T.Heatmap>("heatmap", { by, from, to }),
 
   // 設定
   configAll: () => call<Record<string, unknown>>("config_all"),

@@ -1,8 +1,10 @@
 import { useState } from "preact/hooks";
-import { api, type AbcRecord } from "../api";
+import { api, type AbcRecord, type ErgRecordKind } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
+import { ErgLine, ErgSummary } from "../erg-label";
+import { ergKey, labelMap } from "../erg-util";
 import { Markdown } from "../markdown";
-import { useAction, useAsync } from "../lib";
+import { fmtDateTime, useAction, useAsync } from "../lib";
 import { AbcItem, CheckinItem, HassleItem } from "../record-edit";
 
 const PERIODS = [
@@ -37,6 +39,19 @@ export function Records() {
   const checkins = useAsync(() => api.checkinList(range), [period]);
   const hassles = useAsync(() => api.hassleList(range), [period]);
   const abcs = useAsync(() => api.abcList(range), [period]);
+  const erg = useAsync(() => api.ergOverview(range), [period]);
+  const pending = useAsync(() => api.ergReview(), [period]);
+  const reloadErg = () => {
+    erg.reload();
+    pending.reload();
+  };
+  const labels = labelMap(erg.data?.labels ?? []);
+  // 記録ごとの ERG（AI の判定・確認待ち・ユーザーの確定）。文章の無い記録には出さない（ラベルがあれば出す）。
+  const ergLine = (kind: ErgRecordKind, id: string, hasText: boolean) => {
+    const label = labels.get(ergKey(kind, id));
+    if (!hasText && !label) return undefined;
+    return <ErgLine kind={kind} id={id} label={label} onChanged={reloadErg} />;
+  };
 
   return (
     <div class="stack">
@@ -54,13 +69,47 @@ export function Records() {
         <CheckinCard onAdded={checkins.reload} />
         <HassleCard onAdded={hassles.reload} />
       </div>
+      <Card title="ERG（存在・関係・成長）の分布">
+        <ErrorBox error={erg.error} />
+        {erg.data && (
+          <ErgSummary
+            distribution={erg.data.distribution}
+            range={range}
+            pendingTotal={erg.data.pending_total}
+            onChanged={reloadErg}
+          />
+        )}
+      </Card>
+      {(pending.data?.items.length ?? 0) > 0 && (
+        <Card title="ERG の確認待ち">
+          <p class="muted">
+            AI が確信を持てなかったものです。「これでよい」で提案のまま確定、「変える」で選び直せます。確定するまで集計には入りません。
+          </p>
+          <ul class="plain">
+            {pending.data!.items.map((i) => (
+              <li key={`${i.record_kind}:${i.record_id}`}>
+                <span class="muted">{fmtDateTime(i.record_at)}</span> {i.excerpt}
+                <ErgLine kind={i.record_kind} id={i.record_id} label={i} onChanged={reloadErg} />
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <div class="grid2">
         <Card title="チェックイン">
           <ErrorBox error={checkins.error} />
           {checkins.data?.items.length === 0 && <Empty>記録はありません。</Empty>}
           <ul class="plain">
             {checkins.data?.items.map((c) => (
-              <CheckinItem key={c.id} c={c} onChanged={checkins.reload} />
+              <CheckinItem
+                key={c.id}
+                c={c}
+                onChanged={() => {
+                  checkins.reload();
+                  reloadErg();
+                }}
+                erg={ergLine("checkin", c.id, !!c.note?.trim())}
+              />
             ))}
           </ul>
         </Card>
@@ -75,7 +124,9 @@ export function Records() {
                 onChanged={() => {
                   hassles.reload();
                   abcs.reload();
+                  reloadErg();
                 }}
+                erg={ergLine("hassle", h.id, true)}
               />
             ))}
           </ul>
@@ -87,7 +138,15 @@ export function Records() {
         {abcs.data?.items.length === 0 && <Empty>記録はありません。</Empty>}
         <ul class="plain">
           {abcs.data?.items.map((a) => (
-            <AbcItem key={a.id} a={a} onChanged={abcs.reload}>
+            <AbcItem
+              key={a.id}
+              a={a}
+              onChanged={() => {
+                abcs.reload();
+                reloadErg();
+              }}
+              erg={ergLine("abc", a.id, true)}
+            >
               <AbcDialog abc={a} onChanged={abcs.reload} />
             </AbcItem>
           ))}

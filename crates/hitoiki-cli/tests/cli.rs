@@ -87,6 +87,43 @@ fn insert_segment(
 }
 
 #[test]
+fn kr_の現在値の記録と履歴() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let o = run(h, &["--json", "okr", "add-objective", "目標"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let k = run(h, &["--json", "okr", "add-kr", &o, "成果", "--target", "10"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let p = run(h, &["--json", "okr", "progress", &k, "3", "--note", "初回"]);
+    assert_eq!(p.code, 0, "{}", p.stderr);
+    assert_eq!(p.json()["entry"]["value"], 3.0);
+    assert_eq!(p.json()["key_result"]["current"], "3");
+    // edit-kr --current でも履歴が残る（同じ値は残さない）
+    run(h, &["okr", "edit-kr", &k, "--current", "5", "--note", "追加"]);
+    run(h, &["okr", "edit-kr", &k, "--current", "5"]);
+    assert_eq!(run(h, &["okr", "progress", &k, " "]).code, 2);
+    assert_eq!(run(h, &["okr", "progress", "ZZZ", "1"]).code, 3);
+    assert_eq!(run(h, &["okr", "edit-kr", &k, "--note", "x"]).code, 2);
+
+    let j = run(h, &["--json", "okr", "history", &k]).json();
+    let entries = j["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[1]["note"], "追加");
+    assert_eq!(j["weeks"].as_array().unwrap().len(), 8);
+    let text = run(h, &["okr", "history", &k]);
+    assert_eq!(text.code, 0, "{}", text.stderr);
+    assert!(text.stdout.contains("初回"), "{}", text.stdout);
+
+    // KR を消すと履歴も消える
+    assert_eq!(run(h, &["okr", "delete-kr", &k]).code, 0);
+    assert_eq!(run(h, &["okr", "history", &k]).code, 3);
+}
+
+#[test]
 fn 編集と削除_force_dry_run_終了コード() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
@@ -588,6 +625,88 @@ fn config_doctor_and_reflect() {
     assert_eq!(run(h, &["context", "--kind", "bogus"]).code, 2);
     assert_eq!(run(h, &["reflect", "list"]).code, 0);
     assert_eq!(run(h, &["abc", "dispute", "X"]).code, 3);
+}
+
+#[test]
+fn erg_判定_確認待ち_確定() {
+    use hitoiki_core::model::{ErgChoice, ErgLabel, ErgRecordKind, ErgSource};
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    // AI が未設定なら、エラーにせず判定しない
+    std::fs::write(h.join("config.toml"), "[ai]\ncommand = []\n").unwrap();
+    let id = run(h, &["--json", "hassle", "新しいことを学んだ"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let c = run(h, &["--json", "erg", "classify"]);
+    assert_eq!(c.code, 0, "{}", c.stderr);
+    assert_eq!(c.json()["skipped"], "AI が設定されていないため判定しません");
+    let c = run(h, &["erg", "classify", "--dry-run"]);
+    assert_eq!(c.code, 0);
+    assert!(
+        c.stdout.contains("AI が設定されていないため判定しません"),
+        "{}",
+        c.stdout
+    );
+    assert_eq!(
+        run(h, &["--json", "erg", "review"]).json()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+
+    // 確認待ちの提案を直接用意する（AI は呼ばない）
+    let conn = db::open(&h.join("hitoiki.db")).unwrap();
+    hitoiki_core::repo::erg::set_auto(
+        &conn,
+        &ErgLabel {
+            record_kind: ErgRecordKind::Hassle,
+            record_id: id.clone(),
+            tag: ErgChoice::Growth,
+            source: ErgSource::Suggested,
+            confidence: Some(0.5),
+            reason: Some("学びに触れている".into()),
+            at: 1,
+        },
+    )
+    .unwrap();
+    drop(conn);
+    let r = run(h, &["--json", "erg", "review"]).json();
+    assert_eq!(r["items"][0]["tag"], "growth");
+    assert_eq!(r["items"][0]["source"], "suggested");
+    assert_eq!(r["items"][0]["reason"], "学びに触れている");
+    assert!(run(h, &["erg", "review"]).stdout.contains("成長"));
+    let s = run(h, &["--json", "erg", "show"]).json();
+    assert_eq!(s["distribution"]["pending"], 1);
+    assert_eq!(s["pending_total"], 1);
+
+    // そのまま確定 → user。確認待ちではなくなる
+    let c = run(h, &["--json", "erg", "confirm", &id[..14]]);
+    assert_eq!(c.code, 0, "{}", c.stderr);
+    assert_eq!(c.json()["source"], "user");
+    assert_eq!(
+        run(h, &["--json", "erg", "review"]).json()["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        0
+    );
+    assert_eq!(
+        run(h, &["--json", "erg", "show"]).json()["distribution"]["growth"],
+        1
+    );
+    // 確認待ちでないものは confirm できない（2）。変えるのは set
+    assert_eq!(run(h, &["erg", "confirm", &id]).code, 2);
+    let s = run(h, &["--json", "erg", "set", &id, "none"]);
+    assert_eq!((s.code, s.json()["tag"].as_str()), (0, Some("none")));
+    assert_eq!(
+        run(h, &["--json", "erg", "show"]).json()["distribution"]["none"],
+        1
+    );
+    // 終了コード: 不正なタグ 2 / 対象なし 3
+    assert_eq!(run(h, &["erg", "set", &id, "power"]).code, 2);
+    assert_eq!(run(h, &["erg", "set", "ZZZZZZ", "growth"]).code, 3);
 }
 
 #[test]
@@ -1502,4 +1621,241 @@ fn push_list_and_answer() {
     assert_eq!(run(h, &["push", "answer", &a, "--energy", "9"]).code, 2);
     assert_eq!(run(h, &["push", "answer", &a, "--idle", "x"]).code, 2);
     assert_eq!(run(h, &["push", "answer", "ZZZZ", "--dismiss"]).code, 3);
+}
+
+#[test]
+fn heatmap_日別の濃淡と終了コード() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let t = run(h, &["--json", "task", "add", "実装"]);
+    let tid = t.json()["id"].as_str().unwrap().to_string();
+    insert_segment(
+        h,
+        "H1",
+        "2026-01-05 10:00",
+        "2026-01-05 11:00",
+        "work",
+        Some(&tid),
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "H2",
+        "2026-01-06 10:00",
+        "2026-01-06 12:00",
+        "work",
+        None,
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "H3",
+        "2026-01-06 12:00",
+        "2026-01-06 13:00",
+        "idle",
+        None,
+        "auto",
+    );
+
+    let r = run(
+        h,
+        &["--json", "heatmap", "--from", "2026-01-05", "--to", "2026-01-11"],
+    );
+    assert_eq!(r.code, 0, "{}", r.stderr);
+    let v = r.json();
+    assert_eq!(v["version"], 1);
+    assert_eq!(v["by"], "time");
+    assert_eq!(v["days"].as_array().unwrap().len(), 7);
+    assert_eq!(v["days"][0]["value"], 60 * 60_000);
+    assert_eq!(v["days"][1]["value"], 120 * 60_000);
+    assert_eq!(v["days"][1]["level"], 4);
+    assert_eq!(v["total"], 180 * 60_000);
+    assert_eq!(v["active_days"], 2);
+
+    let tk = run(
+        h,
+        &[
+            "--json",
+            "heatmap",
+            "--by",
+            "task:実装",
+            "--from",
+            "2026-01-05",
+            "--to",
+            "2026-01-11",
+        ],
+    );
+    assert_eq!(tk.json()["total"], 60 * 60_000);
+
+    let human = run(h, &["heatmap", "--from", "2026-01-05", "--to", "2026-01-11"]);
+    assert_eq!(human.code, 0, "{}", human.stderr);
+    assert!(human.stdout.contains('█'), "{}", human.stdout);
+    assert!(human.stdout.contains("値のあった日: 2 日"), "{}", human.stdout);
+
+    assert_eq!(run(h, &["heatmap", "--by", "nope"]).code, 2);
+    assert_eq!(run(h, &["heatmap", "--by", "task:存在しないタスク"]).code, 3);
+    assert_eq!(
+        run(h, &["heatmap", "--from", "2026-02-01", "--to", "2026-01-01"]).code,
+        2
+    );
+}
+
+#[test]
+fn okr_link_unlink_show_と軸の編集() {
+    let dir = tempfile::tempdir().unwrap();
+    let h = dir.path();
+    let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
+    let o = id_of(&run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "add-objective",
+            "読書",
+            "--from",
+            "2026-01-01",
+            "--to",
+            "2026-01-31",
+        ],
+    ));
+    let k1 = id_of(&run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "add-kr",
+            &o,
+            "週 3 回読書",
+            "--target",
+            "週 3 回",
+        ],
+    ));
+    let k2 = id_of(&run(h, &["--json", "okr", "add-kr", &o, "別の成果"]));
+    let t1 = id_of(&run(h, &["--json", "task", "add", "本を読む"]));
+    let t2 = id_of(&run(h, &["--json", "task", "add", "記事を読む", "--kr", &k2]));
+
+    // 紐付け（付け替えは previous_kr に出る）
+    let l = run(h, &["--json", "okr", "link", &k1, &t1, &t2]);
+    assert_eq!(l.code, 0, "{}", l.stderr);
+    let v = l.json();
+    assert_eq!(v["linked"].as_array().unwrap().len(), 2);
+    assert!(v["linked"][0]["previous_kr"].is_null());
+    assert_eq!(v["linked"][1]["previous_kr"]["id"], k2.as_str());
+    let human = run(h, &["okr", "link", &k1, &t1]);
+    assert!(human.stdout.contains("紐付けました"), "{}", human.stdout);
+    assert_eq!(run(h, &["okr", "link", "ZZZZ", &t1]).code, 3);
+    assert_eq!(run(h, &["okr", "link", &k1, "ZZZZ"]).code, 3);
+    assert_eq!(run(h, &["okr", "link", &k1]).code, 2);
+
+    // 軸の編集
+    let e = run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "edit-kr",
+            &k1,
+            "--measure",
+            "days",
+            "--day-min",
+            "20",
+        ],
+    );
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert_eq!(e.json()["measure"], "days");
+    assert_eq!(e.json()["day_min"], 20);
+    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--measure", "bad"]).code, 2);
+    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--day-min", "0"]).code, 2);
+
+    // 集計: 25 分の日と 15 分の日（day_min 20 なら 1 日だけ）
+    insert_segment(
+        h,
+        "K1",
+        "2026-01-05 10:00",
+        "2026-01-05 10:25",
+        "work",
+        Some(&t1),
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "K2",
+        "2026-01-06 10:00",
+        "2026-01-06 10:15",
+        "work",
+        Some(&t2),
+        "confirmed",
+    );
+    insert_segment(
+        h,
+        "K3",
+        "2026-01-06 11:00",
+        "2026-01-06 12:00",
+        "idle",
+        Some(&t2),
+        "auto",
+    );
+    let s = run(h, &["--json", "okr", "show", &k1]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    let v = s.json();
+    assert_eq!(v["measure"], "days");
+    assert_eq!(v["range_source"], "objective");
+    assert_eq!(v["time_ms"], 40 * 60_000);
+    assert_eq!(v["active_days"], 1);
+    assert_eq!(v["task_count"], 2);
+    assert_eq!(v["key_result"]["target"], "週 3 回");
+    let human = run(h, &["okr", "show", &k1]);
+    assert_eq!(human.code, 0, "{}", human.stderr);
+    assert!(human.stdout.contains("軸（回数）"), "{}", human.stdout);
+    // 期間の指定
+    let r = run(
+        h,
+        &[
+            "--json",
+            "okr",
+            "show",
+            &k1,
+            "--from",
+            "2026-01-06",
+            "--to",
+            "2026-01-06",
+        ],
+    );
+    assert_eq!(r.json()["time_ms"], 15 * 60_000);
+    assert_eq!(r.json()["range_source"], "given");
+    assert_eq!(run(h, &["okr", "show", "ZZZZ"]).code, 3);
+
+    // heatmap の kr 指標
+    let hm = run(
+        h,
+        &[
+            "--json",
+            "heatmap",
+            "--by",
+            &format!("kr:{k1}"),
+            "--from",
+            "2026-01-05",
+            "--to",
+            "2026-01-11",
+        ],
+    );
+    assert_eq!(hm.code, 0, "{}", hm.stderr);
+    assert_eq!(hm.json()["total"], 40 * 60_000);
+
+    // 外す（KR に紐付いていないものは 0 件）
+    let u = run(h, &["--json", "okr", "unlink", &t1]);
+    assert_eq!(u.json()["unlinked"].as_array().unwrap().len(), 1);
+    let u = run(h, &["--json", "okr", "unlink", &t1]);
+    assert_eq!(u.code, 0);
+    assert_eq!(u.json()["unlinked"].as_array().unwrap().len(), 0);
+    assert_eq!(
+        run(h, &["--json", "okr", "show", &k1]).json()["time_ms"],
+        15 * 60_000
+    );
+
+    // task edit --no-kr
+    let ne = run(h, &["--json", "task", "edit", &t2, "--no-kr"]);
+    assert_eq!(ne.code, 0, "{}", ne.stderr);
+    assert!(run(h, &["--json", "task", "show", &t2]).json()["task"]["key_result"].is_null());
+    assert_eq!(run(h, &["task", "edit", &t2, "--kr", &k1, "--no-kr"]).code, 2);
 }

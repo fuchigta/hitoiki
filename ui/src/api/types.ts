@@ -107,6 +107,8 @@ export interface TaskInput {
   important?: boolean;
   estimate_min?: number;
   key_result?: string;
+  /** 編集で KR との紐付けを外す。 */
+  clear_key_result?: boolean;
   skills?: string[];
   /** 編集でスキルを全て外す。 */
   clear_skills?: boolean;
@@ -193,6 +195,29 @@ export interface Report {
   include_idle: boolean;
   multi_attribution: boolean;
   note: string | null;
+}
+
+export interface HeatmapDay {
+  date: string;
+  value: number;
+  /** 濃淡の段階（0〜4）。 */
+  level: 0 | 1 | 2 | 3 | 4;
+}
+
+export interface Heatmap {
+  from: string;
+  to: string;
+  /** `from` の曜日（月曜 = 0）。 */
+  from_weekday: number;
+  week_start: "monday";
+  by: string;
+  label: string;
+  unit: "ms" | "count";
+  days: HeatmapDay[];
+  total: number;
+  active_days: number;
+  max: number;
+  thresholds: number[];
 }
 
 export interface DoingView {
@@ -524,7 +549,6 @@ export interface CheckInput {
   energy?: number;
   mood?: number;
   stress?: number;
-  erg?: ErgTag;
   note?: string;
 }
 
@@ -552,6 +576,99 @@ export interface KeyResult {
   target: string | null;
   current: string | null;
   status: string;
+  /** 何を軸に見るか。 */
+  measure: KrMeasure;
+  /** 回数の軸で「取り組んだ日」とみなす 1 日の最小分数。 */
+  day_min: number;
+}
+
+export type KrMeasure = "time" | "days" | "done";
+
+export interface KrWeekBar {
+  /** 週の月曜（YYYY-MM-DD）。 */
+  week_start: string;
+  duration_ms: number;
+}
+
+export interface KrSkillTime {
+  skill_id: string | null;
+  name: string;
+  duration_ms: number;
+}
+
+export interface KrTask {
+  id: string;
+  title: string;
+  status: TaskStatus;
+  estimate_min: number | null;
+  tracked_ms: number;
+  done_at: Millis | null;
+}
+
+/** KR の集計（core の `kr_summary`）。 */
+export interface KrSummary {
+  key_result: KeyResult;
+  objective: { id: string; title: string };
+  range: RangeView;
+  range_source: "given" | "objective" | "recent_weeks";
+  measure: KrMeasure;
+  time_ms: number;
+  active_days: number;
+  day_min: number;
+  done_count: number;
+  task_count: number;
+  weekly: KrWeekBar[];
+  skills: KrSkillTime[];
+  estimate: { estimate_min_total: number; estimated_tasks: number; actual_ms_of_estimated: number };
+  tasks: KrTask[];
+}
+
+/** KR の現在値の履歴 1 件（core の `KrProgress`）。 */
+export interface KrProgressEntry {
+  id: string;
+  kr_id: string;
+  /** `text` の先頭の数値。数として読めなければ null。 */
+  value: number | null;
+  /** 入力された現在値。消したときは null。 */
+  text: string | null;
+  note: string | null;
+  at: Millis;
+}
+
+export interface KrHistoryWeek {
+  week_start: string;
+  duration_ms: number;
+  /** その週の終わり時点の現在値の数値。 */
+  value: number | null;
+  text: string | null;
+  /** その週に残した履歴の数。 */
+  changes: number;
+}
+
+/** KR の時系列（core の `kr_history`）。 */
+export interface KrHistory {
+  key_result: KeyResult;
+  range: RangeView;
+  range_source: "given" | "objective" | "recent_weeks";
+  weeks: KrHistoryWeek[];
+  entries: KrProgressEntry[];
+}
+
+export interface ProgressRecorded {
+  key_result: KeyResult;
+  entry: KrProgressEntry;
+}
+
+export interface LinkedTask {
+  id: string;
+  title: string;
+  /** 付け替え前の KR（無かったときは null）。 */
+  previous_kr: { id: string; title: string } | null;
+}
+
+export interface LinkResult {
+  key_result: KeyResult;
+  linked: LinkedTask[];
 }
 
 export interface ObjectiveView extends Objective {
@@ -616,8 +733,12 @@ export interface KrEdit {
   /** 空文字で消す。 */
   target?: string;
   current?: string;
+  /** 現在値を変えたときに履歴へ残すメモ。 */
+  current_note?: string;
   status?: string;
   objective?: string;
+  measure?: KrMeasure;
+  day_min?: number;
 }
 
 export interface SkillEdit {
@@ -706,6 +827,10 @@ export interface PushPayload {
   open_screen: string | null;
   /** idle_return の対象期間 [開始, 終了]（無ければ省略）。 */
   idle_range?: [Millis, Millis];
+  /** urgent_task / important_task の対象タスク（無ければ省略）。「始める」でこのタスクを始める。 */
+  task_id?: string;
+  /** block_start の対象ブロック（無ければ省略）。 */
+  block_id?: string;
 }
 
 /** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */
@@ -738,7 +863,6 @@ export interface Question {
   kind: QuestionKind;
   prompt: string;
   scales?: Scale[];
-  erg_candidates?: ErgTag[];
   examples?: string[];
   activating_event?: string;
   belief_prompt?: string;
@@ -757,17 +881,22 @@ export interface AnsweredItem {
   text?: string;
 }
 
-/** 回答ごとの参照先の有無（core の `reflect::AnswerDetail`）。`missing` は、その回答が作った記録が削除されている。 */
+export interface AnswersRecord {
+  items: AnsweredItem[];
+}
+
+/** core の `reflect::AnswerDetail`。回答済みの問いと、保存した記録の中身。記録が削除されていれば無い。 */
 export interface AnswerDetail {
   index: number;
   kind: QuestionKind;
+  prompt: string;
   record_id?: string;
   text?: string;
-  missing: boolean;
-}
-
-export interface AnswersRecord {
-  items: AnsweredItem[];
+  checkin?: Checkin;
+  hassle?: Hassle;
+  abc?: AbcRecord;
+  /** 回答が作った記録が削除されていて、もう無い。 */
+  missing?: boolean;
 }
 
 /** core の `reflect::AnswerItem`（問いの種類で使う項目が決まる）。 */
@@ -776,7 +905,6 @@ export interface AnswerItem {
   energy?: number;
   mood?: number;
   stress?: number;
-  erg?: ErgTag;
   note?: string;
   text?: string;
   intensity?: number;
@@ -900,4 +1028,75 @@ export interface CorrectionUndone {
   correction: CorrectionView;
   overrides_removed: number;
   range: RangeView;
+}
+
+// ===== ERG（記録の内容から AI が判定し、ユーザーが確認・修正する） =====
+
+/** 3 つの観点か、どれにも関わらない（none）。 */
+export type ErgChoice = ErgTag | "none";
+export type ErgRecordKind = "checkin" | "hassle" | "abc" | "reflection";
+/** user = ユーザーが付けた・確定した / ai = 確信度が閾値以上で AI が採用 / suggested = 確認待ち（AI の提案で未確定） */
+export type ErgSource = "user" | "ai" | "suggested";
+
+/** core の `model::ErgLabel`。 */
+export interface ErgLabel {
+  record_kind: ErgRecordKind;
+  record_id: string;
+  tag: ErgChoice;
+  source: ErgSource;
+  confidence: number | null;
+  reason: string | null;
+  at: Millis;
+}
+
+/** 期間内の記録の分布（件数。事実の集計で、評価は含まない）。 */
+export interface ErgDistribution {
+  existence: number;
+  relatedness: number;
+  growth: number;
+  none: number;
+  pending: number;
+  unlabeled: number;
+  ai_decided: number;
+  total: number;
+  legend: string;
+}
+
+export interface ErgOverview {
+  range: RangeView;
+  distribution: ErgDistribution;
+  labels: ErgLabel[];
+  pending_total: number;
+}
+
+export interface ErgItem extends ErgLabel {
+  record_at: Millis;
+  excerpt: string;
+}
+
+export interface ErgReview {
+  items: ErgItem[];
+}
+
+export interface ErgClassifiedItem {
+  record_kind: ErgRecordKind;
+  record_id: string;
+  at: Millis;
+  excerpt: string;
+  tag: ErgChoice;
+  confidence: number | null;
+  reason: string;
+  source: ErgSource;
+}
+
+export interface ErgClassifyOutcome {
+  range: RangeView;
+  dry_run: boolean;
+  /** 判定しなかった理由（AI が未設定など）。 */
+  skipped: string | null;
+  targets: number;
+  adopted: number;
+  pending: number;
+  unread: number;
+  items: ErgClassifiedItem[];
 }

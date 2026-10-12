@@ -9,8 +9,10 @@ use hitoiki_core::service::{
         ApplyResult as CorrApplied, Candidate, CorrectionList, CorrectionView, Preview as CorrPreview,
         UndoResult as CorrUndone,
     },
+    heatmap::Heatmap,
     log::Log,
-    okr::OkrList,
+    okr::{KrSummary, LinkResult, LinkedTask, OkrList},
+    okr_progress::{KrHistory, ProgressRecorded},
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
     review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
@@ -412,6 +414,65 @@ pub fn report(tz: Tz, r: &Report) -> String {
     s
 }
 
+/// 活動量ヒートマップ。月曜始まり、7 行 × 週の列。濃淡は `·░▒▓█`（0〜4 段階）。
+pub fn heatmap(h: &Heatmap) -> String {
+    const SHADES: [char; 5] = ['·', '░', '▒', '▓', '█'];
+    let lead = h.from_weekday as usize;
+    let weeks = (lead + h.days.len()).div_ceil(7);
+    let cell = |week: usize, row: usize| -> char {
+        match (week * 7 + row).checked_sub(lead).and_then(|i| h.days.get(i)) {
+            Some(d) => SHADES[d.level.min(4) as usize],
+            None => ' ',
+        }
+    };
+    let mut s = format!("{}（{} - {}）\n\n", h.label, h.from, h.to);
+
+    // 月ラベル: 月が替わる週の列に出す。前のラベルと重なるときは出さない。
+    let mut months = vec![' '; weeks];
+    let mut next_free = 0usize;
+    let mut prev_month: Option<&str> = None;
+    for w in 0..weeks {
+        let i = (w * 7).saturating_sub(lead);
+        let Some(d) = h.days.get(i) else { continue };
+        let month = &d.date[5..7];
+        if prev_month != Some(month) {
+            prev_month = Some(month);
+            let label: Vec<char> = month.trim_start_matches('0').chars().collect();
+            if w >= next_free {
+                for (k, c) in label.iter().enumerate() {
+                    if w + k < weeks {
+                        months[w + k] = *c;
+                    }
+                }
+                next_free = w + label.len() + 1;
+            }
+        }
+    }
+    s += &format!("   {}\n", months.iter().collect::<String>());
+    for (row, name) in ["月", "", "水", "", "金", "", ""].iter().enumerate() {
+        let label = if name.is_empty() {
+            "  ".to_string()
+        } else {
+            name.to_string()
+        };
+        let line: String = (0..weeks).map(|w| cell(w, row)).collect();
+        s += &format!("{label} {line}\n");
+    }
+    s += "\n濃淡: · なし  ░ ▒ ▓ █（値のある日を四分位で 4 段階に分けた相対的な濃さ）\n";
+    let fmt = |v: i64| {
+        if h.unit == "ms" {
+            dur(v)
+        } else {
+            format!("{v} 件")
+        }
+    };
+    s += &format!("合計: {}\n値のあった日: {} 日", fmt(h.total), h.active_days);
+    if h.active_days > 0 {
+        s += &format!("\n1 日の最大: {}", fmt(h.max));
+    }
+    s
+}
+
 pub fn status(tz: Tz, st: &Status) -> String {
     let mut s = String::new();
     s += "実行中のタスク:\n";
@@ -551,13 +612,14 @@ pub fn okr_list(l: &OkrList) -> String {
         );
         for k in &o.key_results {
             s += &format!(
-                "  {} {}{}\n",
+                "  {} {}{} [軸: {}]\n",
                 short(&k.id),
                 k.title,
                 k.target
                     .as_ref()
                     .map(|t| format!(" (目標: {t})"))
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                measure_label(&k.measure)
             );
         }
     }
@@ -570,6 +632,182 @@ pub fn objective_added(o: &Objective) -> String {
 
 pub fn kr_added(k: &KeyResult) -> String {
     format!("KR を追加しました: {} {}", short(&k.id), k.title)
+}
+
+fn measure_label(m: &str) -> &'static str {
+    match m {
+        "days" => "回数",
+        "done" => "完了数",
+        _ => "時間",
+    }
+}
+
+pub fn kr_linked(r: &LinkResult) -> String {
+    let mut s = format!(
+        "{} 件のタスクを KR「{}」に紐付けました。",
+        r.linked.len(),
+        r.key_result.title
+    );
+    for t in &r.linked {
+        s += &format!("\n  {} {}", short(&t.id), t.title);
+        if let Some(p) = &t.previous_kr {
+            s += &format!("（KR「{}」から付け替え）", p.title);
+        }
+    }
+    s
+}
+
+pub fn kr_unlinked(l: &[LinkedTask]) -> String {
+    if l.is_empty() {
+        return "外したタスクはありません（KR に紐付いていませんでした）。".into();
+    }
+    let mut s = format!("{} 件のタスクの KR との紐付けを外しました。", l.len());
+    for t in l {
+        s += &format!("\n  {} {}", short(&t.id), t.title);
+        if let Some(p) = &t.previous_kr {
+            s += &format!("（KR「{}」）", p.title);
+        }
+    }
+    s
+}
+
+/// KR の集計。選んだ軸の値を先頭に、残りは補助として並べる。評価や達成率は出さない。
+pub fn kr_summary(s: &KrSummary) -> String {
+    let k = &s.key_result;
+    let mut out = format!(
+        "{} / {} ({})\n期間: {} 〜 {}（{}）\n",
+        s.objective.title,
+        k.title,
+        short(&k.id),
+        s.range.start,
+        s.range.end,
+        match s.range_source {
+            "objective" => "Objective の期間",
+            "given" => "指定",
+            _ => "直近 8 週",
+        }
+    );
+    if k.target.is_some() || k.current.is_some() {
+        out += &format!(
+            "目標: {}  現在値: {}\n",
+            k.target.as_deref().unwrap_or("-"),
+            k.current.as_deref().unwrap_or("-")
+        );
+    }
+    let time = format!("時間 {}", dur(s.time_ms));
+    let days = format!("取り組んだ日 {} 日（1 日 {} 分以上）", s.active_days, s.day_min);
+    let done = format!("完了 {} / {} 件", s.done_count, s.task_count);
+    let (main, others) = match s.measure.as_str() {
+        "days" => (days, [time, done]),
+        "done" => (done, [time, days]),
+        _ => (time, [days, done]),
+    };
+    out += &format!(
+        "\n軸（{}）: {}\n  補助: {} ・ {}\n",
+        measure_label(&s.measure),
+        main,
+        others[0],
+        others[1]
+    );
+    if s.estimate.estimated_tasks > 0 {
+        out += &format!(
+            "見積の合計 {}分（{} 件）・ そのタスクの期間内の実績 {}\n",
+            s.estimate.estimate_min_total,
+            s.estimate.estimated_tasks,
+            dur(s.estimate.actual_ms_of_estimated)
+        );
+    }
+    let max = s.weekly.iter().map(|w| w.duration_ms).max().unwrap_or(0);
+    if max > 0 {
+        out += "\n週ごとの時間（月曜始まり）\n";
+        for w in &s.weekly {
+            let n = (w.duration_ms * 20 / max) as usize;
+            out += &format!(
+                "  {} {:<20} {}\n",
+                w.week_start,
+                "█".repeat(n),
+                dur(w.duration_ms)
+            );
+        }
+    }
+    if !s.skills.is_empty() {
+        out += "\nスキル別（複数のスキルが付いたタスクは各スキルに全時間を計上）\n";
+        for k in &s.skills {
+            out += &format!("  {}  {}\n", dur(k.duration_ms), k.name);
+        }
+    }
+    if s.tasks.is_empty() {
+        out += "\n紐付いたタスクはありません。`hitoiki okr link` で紐付けられます。";
+    } else {
+        out += "\n紐付いたタスク\n";
+        for t in &s.tasks {
+            out += &format!(
+                "  {} [{}] {}  {}\n",
+                short(&t.id),
+                t.status,
+                t.title,
+                dur(t.tracked_ms)
+            );
+        }
+    }
+    out.trim_end().to_string()
+}
+
+fn progress_value(text: Option<&str>) -> &str {
+    text.unwrap_or("（消した）")
+}
+
+pub fn kr_progress_recorded(tz: Tz, r: &ProgressRecorded) -> String {
+    let e = &r.entry;
+    let mut s = format!(
+        "現在値を記録しました: {} {}  {} ({})",
+        short(&r.key_result.id),
+        r.key_result.title,
+        progress_value(e.text.as_deref()),
+        dt(tz, e.at)
+    );
+    if let Some(n) = &e.note {
+        s += &format!("\n  メモ: {n}");
+    }
+    s
+}
+
+/// KR の現在値の履歴。週ごとに「その週の終わり時点の現在値」と時間を並べるだけで、評価は付けない。
+pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
+    let k = &h.key_result;
+    let mut out = format!(
+        "{} ({})\n期間: {} 〜 {}（{}）\n",
+        k.title,
+        short(&k.id),
+        h.range.start,
+        h.range.end,
+        match h.range_source {
+            "objective" => "Objective の期間",
+            "given" => "指定",
+            _ => "直近 8 週",
+        }
+    );
+    if let Some(t) = &k.target {
+        out += &format!("目標: {t}\n");
+    }
+    out += "\n週（月曜始まり）  現在値        時間\n";
+    for w in &h.weeks {
+        let v = truncate(w.text.as_deref().unwrap_or("-"), 12);
+        out += &format!("  {}  {}  {}\n", w.week_start, pad(&v, 12), dur(w.duration_ms));
+    }
+    if h.entries.is_empty() {
+        out += "\n値の履歴はまだありません。`hitoiki okr progress` で記録できます。";
+    } else {
+        out += "\n値の履歴\n";
+        for e in &h.entries {
+            out += &format!("  {}  {}", dt(tz, e.at), progress_value(e.text.as_deref()));
+            if let Some(n) = &e.note {
+                out += &format!("  {n}");
+            }
+            out += "\n";
+        }
+    }
+    out.trim_end().to_string()
 }
 
 pub fn skills(l: &SkillList) -> String {
@@ -602,6 +840,35 @@ pub fn preset_import(p: &PresetImport) -> String {
         p.imported.join(", "),
         p.skipped.len()
     )
+}
+
+/// 回答済みの問いに保存した記録の中身を「ラベル: 値」の行にする。
+fn detail_lines(d: &hitoiki_core::service::reflect::AnswerDetail) -> Vec<String> {
+    let mut v = Vec::new();
+    let mut add = |label: &str, val: Option<String>| {
+        if let Some(x) = val.filter(|x| !x.trim().is_empty()) {
+            v.push(format!("{label}: {x}"));
+        }
+    };
+    if let Some(c) = &d.checkin {
+        add("元気", c.energy.map(|n| n.to_string()));
+        add("気分", c.mood.map(|n| n.to_string()));
+        add("ストレス", c.stress.map(|n| n.to_string()));
+        add("ERG タグ", c.erg_tag.map(|t| t.to_string()));
+        add("メモ", c.note.clone());
+    }
+    if let Some(h) = &d.hassle {
+        add("気になったこと", Some(h.text.clone()));
+        add("強さ", Some(h.intensity.to_string()));
+    }
+    if let Some(a) = &d.abc {
+        add("A（出来事）", Some(a.activating_event.clone()));
+        add("B（受け止め方）", a.belief.clone());
+        add("C（感情）", a.consequence_emotion.clone());
+        add("感情の強さ", a.consequence_intensity.map(|n| n.to_string()));
+        add("反論", a.dispute.clone());
+    }
+    v
 }
 
 pub fn reflection(
@@ -641,10 +908,6 @@ pub fn reflection(
             QuestionKind::Checkin => {
                 let names: Vec<&str> = q.scales.iter().map(Scale::label).collect();
                 s += &format!("    尺度: {}（1〜5）\n", names.join("・"));
-                if !q.erg_candidates.is_empty() {
-                    let tags: Vec<String> = q.erg_candidates.iter().map(|t| t.to_string()).collect();
-                    s += &format!("    ERG タグの候補: {}\n", tags.join(", "));
-                }
             }
             QuestionKind::Abc => {
                 if let Some(a) = &q.activating_event {
@@ -673,8 +936,13 @@ pub fn reflection(
             match (&a.record_id, &a.text) {
                 (Some(id), _) => {
                     s += &format!("\n[{}] {label} → 記録 {}", a.index, short(id));
-                    if details.iter().any(|d| d.index == a.index && d.missing) {
-                        s += "（この回答の記録は削除されています）";
+                    if let Some(d) = details.iter().find(|d| d.index == a.index) {
+                        if d.missing {
+                            s += "（この回答の記録は削除されています）";
+                        }
+                        for l in detail_lines(d) {
+                            s += &format!("\n    {l}");
+                        }
                     }
                 }
                 (None, Some(t)) => s += &format!("\n[{}] {label}: {t}", a.index),
@@ -1058,7 +1326,139 @@ pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String
             if r.idle_labeled > 0 {
                 parts.push(format!("無操作の分類（{} 区間）", r.idle_labeled));
             }
+            if r.started_task.is_some() {
+                parts.push("タスクを開始".to_string());
+            }
             format!("答えました: {} ({})", short(&r.id), parts.join("・"))
         }
     }
+}
+
+fn erg_name(t: hitoiki_core::model::ErgChoice) -> &'static str {
+    use hitoiki_core::model::ErgChoice::*;
+    match t {
+        Existence => "存在",
+        Relatedness => "関係",
+        Growth => "成長",
+        None => "なし",
+    }
+}
+
+fn erg_source(s: hitoiki_core::model::ErgSource) -> &'static str {
+    use hitoiki_core::model::ErgSource::*;
+    match s {
+        User => "ユーザー",
+        Ai => "AI",
+        Suggested => "確認待ち",
+    }
+}
+
+fn erg_conf(c: Option<f64>) -> String {
+    c.map(|v| format!("{v:.2}")).unwrap_or_else(|| "-".into())
+}
+
+/// `hitoiki erg classify` の人間向け表示。
+pub fn erg_classify(tz: Tz, o: &hitoiki_core::service::erg::ClassifyOutcome) -> String {
+    if let Some(why) = &o.skipped {
+        return why.clone();
+    }
+    if o.targets == 0 {
+        return "判定する記録はありません（未判定のものがありません）。".into();
+    }
+    let mut s = format!(
+        "{}対象 {} 件: AI の判定を採用 {} 件 / 確認待ち {} 件{}\n",
+        if o.dry_run {
+            "（dry-run・保存していません）"
+        } else {
+            ""
+        },
+        o.targets,
+        o.adopted,
+        o.pending,
+        if o.unread > 0 {
+            format!(" / 判定が得られず未判定のまま {} 件", o.unread)
+        } else {
+            String::new()
+        }
+    );
+    if !o.items.is_empty() {
+        let rows: Vec<Vec<String>> = o
+            .items
+            .iter()
+            .map(|i| {
+                vec![
+                    short(&i.record_id),
+                    dt(tz, i.at),
+                    erg_name(i.tag).to_string(),
+                    erg_source(i.source).to_string(),
+                    erg_conf(i.confidence),
+                    truncate(&i.excerpt, 30),
+                    truncate(&i.reason, 30),
+                ]
+            })
+            .collect();
+        s += &table(&["ID", "時刻", "ERG", "出所", "確信度", "記録", "理由"], &rows);
+    }
+    s
+}
+
+/// `hitoiki erg review` の人間向け表示。
+pub fn erg_review(tz: Tz, r: &hitoiki_core::service::erg::ErgReview) -> String {
+    if r.items.is_empty() {
+        return "確認待ちはありません。".into();
+    }
+    let rows: Vec<Vec<String>> = r
+        .items
+        .iter()
+        .map(|i| {
+            vec![
+                short(&i.label.record_id),
+                i.label.record_kind.to_string(),
+                dt(tz, i.record_at),
+                erg_name(i.label.tag).to_string(),
+                erg_conf(i.label.confidence),
+                truncate(&i.excerpt, 30),
+                truncate(&opt(&i.label.reason), 30),
+            ]
+        })
+        .collect();
+    let mut s = table(&["ID", "種類", "時刻", "提案", "確信度", "記録", "理由"], &rows);
+    s += "\n\n`hitoiki erg confirm <ID>` で提案のまま確定、`hitoiki erg set <ID> <existence|relatedness|growth|none>` で変えられます。";
+    s
+}
+
+/// `hitoiki erg set` / `confirm` の人間向け表示。
+pub fn erg_label(l: &hitoiki_core::model::ErgLabel) -> String {
+    format!(
+        "ERG を確定しました: {} {} → {}",
+        l.record_kind,
+        short(&l.record_id),
+        erg_name(l.tag)
+    )
+}
+
+/// `hitoiki erg show` の人間向け表示。
+pub fn erg_overview(tz: Tz, o: &hitoiki_core::service::erg::ErgOverview) -> String {
+    let d = &o.distribution;
+    let mut s = format!(
+        "{} 〜 {} の記録 {} 件\n  存在 {} / 関係 {} / 成長 {} / どれにも関わらない {}\n  確認待ち {} / 未判定 {}（うち AI の判定を採用 {}）\n  （{}）",
+        dt(tz, o.range.start_at),
+        dt(tz, o.range.end_at),
+        d.total,
+        d.existence,
+        d.relatedness,
+        d.growth,
+        d.none,
+        d.pending,
+        d.unlabeled,
+        d.ai_decided,
+        d.legend
+    );
+    if o.pending_total > 0 {
+        s += &format!(
+            "\n確認待ちは全期間で {} 件あります（`hitoiki erg review`）。",
+            o.pending_total
+        );
+    }
+    s
 }

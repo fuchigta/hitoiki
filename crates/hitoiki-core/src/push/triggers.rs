@@ -3,7 +3,7 @@
 //! 共通ルール: day_end 以外は、無操作中（`ctx.idle.is_idle`）には発火しない。
 //! 「1 日 1 回」系は、今日の push_log に配信済み（delivered）があれば発火しない。
 
-use super::{payload, PushContext, PushPayload, PushTrigger};
+use super::{payload, PushContext, PushPayload, PushTrigger, TaskNudge};
 use crate::config::Push;
 use crate::model::{ActivitySegment, SegmentKind};
 use crate::timefmt::{day_range, local_date_of, to_local, week_range};
@@ -104,8 +104,11 @@ fn check(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment], t: PushTrigge
     match t {
         PushTrigger::DayStart => day_start(ctx, cfg),
         PushTrigger::IdleReturn => idle_return(ctx, cfg),
+        PushTrigger::BlockStart => block_start(ctx, segs),
         PushTrigger::DayEnd => day_end(ctx, cfg),
         PushTrigger::Weekly => weekly(ctx, cfg),
+        PushTrigger::UrgentTask => urgent_task(ctx, cfg, segs),
+        PushTrigger::ImportantTask => important_task(ctx, cfg, segs),
         PushTrigger::LongFocus => long_focus(ctx, cfg, segs),
         PushTrigger::SwitchSpike => switch_spike(ctx, cfg, segs),
         PushTrigger::AfterInterrupt => after_interrupt(ctx, segs),
@@ -157,15 +160,105 @@ fn idle_return(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
     {
         return None;
     }
+    let candidate = idle_candidate_task(ctx, idle.start_at, idle.end_at);
+    // ロックの自動休憩（decided_by `rule:locked` で未確定）は、候補のタスクがあるときだけ「分類済み」とみなさない。
+    let auto_locked = |s: &ActivitySegment| {
+        s.kind == SegmentKind::Break
+            && s.status != crate::model::SegmentStatus::Confirmed
+            && s.decided_by.as_deref() == Some("rule:locked")
+    };
     let classified = ctx.recent_segments.iter().any(|s| {
         overlaps(s.start_at, s.end_at)
             && (matches!(s.kind, SegmentKind::Break | SegmentKind::Meeting)
                 || s.status == crate::model::SegmentStatus::Confirmed)
+            && !(candidate.is_some() && auto_locked(s))
     });
     if classified || delivered_since(ctx, PushTrigger::IdleReturn, idle.start_at) {
         return None;
     }
-    Some(payload::idle_return(idle.start_at, idle.end_at))
+    Some(payload::idle_return(
+        idle.start_at,
+        idle.end_at,
+        candidate.map(|t| (t.id.as_str(), t.title.as_str())),
+    ))
+}
+
+/// 無操作の期間 [start, end) に「していた」候補のタスク。
+/// (1) doing ログが開いていたタスク、なければ (2) タスク付きの time_block が重なっていたタスクで、
+/// それぞれ重なりが最も長い 1 件（同じ長さなら先に始まったもの）。doing を優先する。
+fn idle_candidate_task(ctx: &PushContext, start: Millis, end: Millis) -> Option<&super::TaskRef> {
+    let overlap = |s: Millis, e: Millis| (e.min(end) - s.max(start)).max(0);
+    // 重なりが最長（同じなら開始が早い、さらに同じなら ID 順）の 1 件。
+    fn longest(items: Vec<(Millis, Millis, &str)>) -> Option<(Millis, Millis, &str)> {
+        items
+            .into_iter()
+            .filter(|&(len, _, _)| len > 0)
+            .min_by(|a, b| (std::cmp::Reverse(a.0), a.1, a.2).cmp(&(std::cmp::Reverse(b.0), b.1, b.2)))
+    }
+    let doing = longest(
+        ctx.doing_spans
+            .iter()
+            .map(|d| {
+                (
+                    overlap(d.start_at, d.end_at.unwrap_or(end)),
+                    d.start_at,
+                    d.task_id.as_str(),
+                )
+            })
+            .collect(),
+    );
+    let (_, _, id) = doing.or_else(|| {
+        longest(
+            ctx.time_blocks
+                .iter()
+                .filter_map(|b| Some((overlap(b.start_at, b.end_at), b.start_at, b.task_id.as_deref()?)))
+                .collect(),
+        )
+    })?;
+    ctx.task_refs.iter().find(|t| t.id == id)
+}
+
+/// block_start: 今日の time_block のうち、タスクがあり、開始を過ぎて `tuning.block_start_window_min` 分以内
+/// （かつ終了前）のもの。次の場合は出さない。
+/// - そのタスクがすでに doing、いまの作業区間がそのタスク、または完了・中止済み。
+/// - そのブロックについて配信済み（push_log のペイロードの `block_id`）。
+///
+/// 候補が複数なら、開始が最も新しいブロック。タスクの情報（`ctx.task_refs`）が無いブロックは対象外。
+/// 無操作中は共通ルールで出ない。抑制の例外は `gate.rs`。
+fn block_start(ctx: &PushContext, segs: &[&ActivitySegment]) -> Option<PushPayload> {
+    let window = ctx.tuning.block_start_window_min as Millis * MIN_MS;
+    let active = active_task_id(ctx, segs);
+    let sent: Vec<String> = ctx
+        .push_log
+        .iter()
+        .filter(|l| l.delivered && l.trigger == PushTrigger::BlockStart.as_str())
+        .filter_map(|l| {
+            serde_json::from_str::<PushPayload>(&l.payload_json)
+                .ok()?
+                .block_id
+        })
+        .collect();
+    let (block, task) = ctx
+        .time_blocks
+        .iter()
+        .filter(|b| b.start_at <= ctx.now && ctx.now - b.start_at <= window && ctx.now < b.end_at)
+        .filter(|b| !sent.contains(&b.id))
+        .filter_map(|b| {
+            let task = ctx
+                .task_refs
+                .iter()
+                .find(|t| Some(t.id.as_str()) == b.task_id.as_deref())?;
+            (task.status == crate::model::TaskStatus::Todo && active.as_deref() != Some(task.id.as_str()))
+                .then_some((b, task))
+        })
+        .max_by_key(|(b, _)| (b.start_at, b.id.clone()))?;
+    Some(payload::block_start(
+        &block.id,
+        &task.id,
+        &task.title,
+        &local_time(ctx, block.start_at).format("%H:%M").to_string(),
+        &local_time(ctx, block.end_at).format("%H:%M").to_string(),
+    ))
 }
 
 /// day_end: `day_end_at` 以降で `tuning.day_end_idle_min` 分以上無操作、
@@ -310,4 +403,120 @@ fn late_work(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Option
         .map(|d| d.timestamp_millis())
         .unwrap_or_else(|| day_range(ctx.tz, start_date).start);
     (!delivered_since(ctx, PushTrigger::LateWork, since)).then(payload::late_work)
+}
+
+/// 勤務時間内（`day_start_after` ≤ 現在 < `day_end_at`）か。時刻の設定が読めなければ、その側は制限しない。
+fn in_work_hours(ctx: &PushContext, cfg: &Push) -> bool {
+    let now_t = local_time(ctx, ctx.now);
+    parse_hm(&cfg.day_start_after).is_none_or(|s| now_t >= s)
+        && parse_hm(&cfg.day_end_at).is_none_or(|e| now_t < e)
+}
+
+/// 通知ログのペイロードから、対象のタスク ID を読む。
+fn log_task_id(l: &crate::model::PushLog) -> Option<String> {
+    serde_json::from_str::<PushPayload>(&l.payload_json).ok()?.task_id
+}
+
+/// いま取り組んでいるタスクの ID（作業系の最終区間が帰属しているタスク）。
+fn active_task_id(ctx: &PushContext, segs: &[&ActivitySegment]) -> Option<String> {
+    active_work_segment(ctx, segs)?.task_id.clone()
+}
+
+/// 今日の time_block が、そのタスクに割り当てられているか。`only_upcoming` なら終了がまだ先のものだけ。
+fn has_block(ctx: &PushContext, task_id: &str, only_upcoming: bool) -> bool {
+    ctx.time_blocks
+        .iter()
+        .any(|b| b.task_id.as_deref() == Some(task_id) && (!only_upcoming || b.end_at > ctx.now))
+}
+
+/// urgent_task: 勤務時間内に、緊急のしるしが付いた未完了のタスクがあり、それに取り組んでいない。
+/// 次のタスクは対象から外す。
+/// - いま作業している（作業系の最終区間の帰属、または doing）。対象のどれかに取り組み中なら、そもそも出さない。
+/// - 今日の time_block が割り当てられ、終了がまだ先（予定済み・進行中）。
+///
+/// 前回の urgent_task の配信から `push.urgent_task_interval_min` 分以上（0 で無効）。
+/// 示すのは、最も長く通知していないもの（同順なら作成が古いもの）。通知した履歴は `ctx.push_log`
+/// （今週分＋直近）のペイロードのタスク ID で見る。
+fn urgent_task(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Option<PushPayload> {
+    if cfg.urgent_task_interval_min == 0 || !in_work_hours(ctx, cfg) {
+        return None;
+    }
+    let urgent: Vec<&TaskNudge> = ctx.tasks.iter().filter(|t| t.urgent).collect();
+    if urgent.is_empty() {
+        return None;
+    }
+    let active = active_task_id(ctx, segs);
+    if urgent
+        .iter()
+        .any(|t| t.doing || active.as_deref() == Some(t.id.as_str()))
+    {
+        return None;
+    }
+    let sent: Vec<&crate::model::PushLog> = ctx
+        .push_log
+        .iter()
+        .filter(|l| l.delivered && l.trigger == PushTrigger::UrgentTask.as_str())
+        .collect();
+    let interval = cfg.urgent_task_interval_min as Millis * MIN_MS;
+    if sent.iter().any(|l| ctx.now - l.at < interval) {
+        return None;
+    }
+    let mut cands: Vec<&TaskNudge> = urgent
+        .into_iter()
+        .filter(|t| !has_block(ctx, &t.id, true))
+        .collect();
+    // 最後に通知した時刻（無ければ 0）が古い順、同じなら作成が古い順、さらに同じなら ID 順。
+    let last_notified = |t: &TaskNudge| {
+        sent.iter()
+            .filter(|l| log_task_id(l).as_deref() == Some(t.id.as_str()))
+            .map(|l| l.at)
+            .max()
+            .unwrap_or(0)
+    };
+    cands.sort_by(|a, b| {
+        (last_notified(a), a.created_at, &a.id).cmp(&(last_notified(b), b.created_at, &b.id))
+    });
+    let first = cands.first()?;
+    Some(payload::urgent_task(&first.id, &first.title, cands.len() - 1))
+}
+
+/// important_task: 重要（緊急でない）な未完了のタスクのうち、最後に手をつけた時刻（作業系の区間の最終終了と
+/// 作成時刻の大きいほう）が `push.important_stale_days` 日以上前のものを、最も古いもの 1 件示す（0 で無効）。
+/// 今日の time_block に割り当て済み、いま取り組み中（doing を含む）、今週この通知に「今週は見送る」と
+/// 答えたタスクは除く。勤務時間内に 1 日 1 回まで。
+fn important_task(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Option<PushPayload> {
+    if cfg.important_stale_days == 0
+        || !in_work_hours(ctx, cfg)
+        || delivered_today(ctx, PushTrigger::ImportantTask)
+    {
+        return None;
+    }
+    let active = active_task_id(ctx, segs);
+    let week = week_range(ctx.tz, local_date_of(ctx.tz, ctx.now));
+    let skipped: Vec<String> = ctx
+        .push_log
+        .iter()
+        .filter(|l| l.delivered && l.at >= week.start && l.trigger == PushTrigger::ImportantTask.as_str())
+        .filter(|l| {
+            l.response_json
+                .as_deref()
+                .and_then(|j| serde_json::from_str::<super::PushResponse>(j).ok())
+                .is_some_and(|r| r.action.as_deref() == Some(payload::TASK_SKIP_WEEK))
+        })
+        .filter_map(log_task_id)
+        .collect();
+    let stale = cfg.important_stale_days as Millis * 24 * 60 * MIN_MS;
+    let last_touch = |t: &TaskNudge| t.last_worked_at.unwrap_or(0).max(t.created_at);
+    let first = ctx
+        .tasks
+        .iter()
+        .filter(|t| t.important && !t.urgent)
+        .filter(|t| !t.doing && active.as_deref() != Some(t.id.as_str()))
+        .filter(|t| !has_block(ctx, &t.id, false) && !skipped.contains(&t.id))
+        .filter(|t| ctx.now - last_touch(t) >= stale)
+        .min_by(|a, b| (last_touch(a), a.created_at, &a.id).cmp(&(last_touch(b), b.created_at, &b.id)))?;
+    let days = first
+        .last_worked_at
+        .map(|_| ((ctx.now - last_touch(first)) / (24 * 60 * MIN_MS)) as u64);
+    Some(payload::important_task(&first.id, &first.title, days))
 }

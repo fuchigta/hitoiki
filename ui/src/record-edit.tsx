@@ -54,14 +54,14 @@ function SaveBar({ busy, ok, onCancel }: { busy: boolean; ok: boolean; onCancel:
   );
 }
 
-export function CheckinItem({ c, onChanged }: { c: Checkin; onChanged: () => void }) {
+export function CheckinItem({ c, onChanged, erg }: { c: Checkin; onChanged: () => void; erg?: ComponentChildren }) {
   const [editing, setEditing] = useState(false);
   const [energy, setEnergy] = useState(str(c.energy));
   const [mood, setMood] = useState(str(c.mood));
   const [stress, setStress] = useState(str(c.stress));
   const [note, setNote] = useState(c.note ?? "");
   const act = useAction();
-  const ok = !!(energy || mood || stress || note.trim() || c.erg_tag);
+  const ok = !!(energy || mood || stress || note.trim());
   if (editing) {
     return (
       <li>
@@ -74,7 +74,6 @@ export function CheckinItem({ c, onChanged }: { c: Checkin; onChanged: () => voi
                 energy: num(energy),
                 mood: num(mood),
                 stress: num(stress),
-                erg: c.erg_tag ?? undefined,
                 note: note.trim() || undefined,
               }),
             );
@@ -105,6 +104,7 @@ export function CheckinItem({ c, onChanged }: { c: Checkin; onChanged: () => voi
       {c.mood != null && ` ・ 気分 ${c.mood}`}
       {c.stress != null && ` ・ ストレス ${c.stress}`}
       {c.note && <div>{c.note}</div>}
+      {erg}
       <Actions
         onEdit={() => {
           setEnergy(str(c.energy));
@@ -125,7 +125,7 @@ export function CheckinItem({ c, onChanged }: { c: Checkin; onChanged: () => voi
   );
 }
 
-export function HassleItem({ h, onChanged }: { h: Hassle; onChanged: () => void }) {
+export function HassleItem({ h, onChanged, erg }: { h: Hassle; onChanged: () => void; erg?: ComponentChildren }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(h.text);
   const [intensity, setIntensity] = useState(String(h.intensity));
@@ -159,6 +159,7 @@ export function HassleItem({ h, onChanged }: { h: Hassle; onChanged: () => void 
     <li>
       <span class="muted">{fmtDateTime(h.at)}</span> {h.text}
       <span class="muted"> （強さ {h.intensity}）</span>
+      {erg}
       <Actions
         onEdit={() => {
           setText(h.text);
@@ -177,7 +178,17 @@ export function HassleItem({ h, onChanged }: { h: Hassle; onChanged: () => void 
   );
 }
 
-export function AbcItem({ a, onChanged, children }: { a: AbcRecord; onChanged: () => void; children?: ComponentChildren }) {
+export function AbcItem({
+  a,
+  onChanged,
+  erg,
+  children,
+}: {
+  a: AbcRecord;
+  onChanged: () => void;
+  erg?: ComponentChildren;
+  children?: ComponentChildren;
+}) {
   const [editing, setEditing] = useState(false);
   const [ev, setEv] = useState(a.activating_event);
   const [belief, setBelief] = useState(a.belief ?? "");
@@ -241,6 +252,7 @@ export function AbcItem({ a, onChanged, children }: { a: AbcRecord; onChanged: (
         </div>
       )}
       {a.dispute && <div class="muted">反論: {a.dispute}</div>}
+      {erg}
       <Actions
         onEdit={() => {
           setEv(a.activating_event);

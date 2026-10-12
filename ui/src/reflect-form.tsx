@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
-import { api, type ErgTag, type Question, type Reflection } from "./api";
+import { api, type AnswerDetail, type Question, type Reflection } from "./api";
 import { ErrorBox, Field } from "./components";
 import { useAction } from "./lib";
 import { Markdown } from "./markdown";
 import {
   askedScales,
   buildAnswers,
-  ERG_LABELS,
+  detailLines,
   hasAnswers,
   initialForms,
   parseAnswered,
@@ -80,25 +80,25 @@ export function StructuredAnswer({
   const out = useMemo(() => parseStructured(reflection), [reflection.structured_json]);
   const answered = useMemo(() => parseAnswered(reflection), [reflection.answers_json]);
   const answeredIdx = useMemo(() => new Set(answered.items.map((i) => i.index)), [answered]);
-  // 回答が作った記録（チェックイン・ハッスル・ABC）がもう無い問いの番号。
-  const [missingIdx, setMissingIdx] = useState<Set<number>>(new Set());
+  const [forms, setForms] = useState<QuestionForm[]>(() => (out ? initialForms(out) : []));
+  const [saved, setSaved] = useState("");
+  const save = useAction();
+  // 回答済みの問いに、保存したチェックイン・ハッスル・ABC の中身を並べて見せる。
+  const [details, setDetails] = useState<AnswerDetail[] | null>(null);
+  const detailOf = (i: number) => details?.find((d) => d.index === i);
   useEffect(() => {
-    if (answered.items.length === 0) {
-      setMissingIdx(new Set());
-      return;
-    }
     let live = true;
-    api
-      .reflectAnswerDetails(reflection.id)
-      .then((ds) => live && setMissingIdx(new Set(ds.filter((d) => d.missing).map((d) => d.index))))
-      .catch(() => {});
+    setDetails(null);
+    if (answered.items.length > 0) {
+      api
+        .reflectAnswerDetails(reflection.id)
+        .then((d) => live && setDetails(d))
+        .catch(() => {});
+    }
     return () => {
       live = false;
     };
   }, [reflection.id, reflection.answers_json]);
-  const [forms, setForms] = useState<QuestionForm[]>(() => (out ? initialForms(out) : []));
-  const [saved, setSaved] = useState("");
-  const save = useAction();
 
   useEffect(() => {
     setForms(out ? initialForms(out) : []);
@@ -136,11 +136,15 @@ export function StructuredAnswer({
             {done ? (
               <>
                 {done.text && <Markdown text={done.text} />}
-                {missingIdx.has(i) ? (
-                  <p class="muted">この回答の記録は削除されています。</p>
-                ) : (
-                  q.kind === "abc" && done.record_id && <AbcFollowUp recordId={done.record_id} />
+                {detailOf(i) && (
+                  <ul class="plain" aria-label="保存した回答">
+                    {detailLines(detailOf(i)!).map((l) => (
+                      <li key={l}>{l}</li>
+                    ))}
+                  </ul>
                 )}
+                {detailOf(i)?.missing && <p class="muted">この回答の記録は削除されています。</p>}
+                {q.kind === "abc" && done.record_id && !detailOf(i)?.missing && <AbcFollowUp recordId={done.record_id} />}
               </>
             ) : (
               f && (
@@ -150,24 +154,6 @@ export function StructuredAnswer({
                       {askedScales(q).map((s) => (
                         <Scale key={s} label={SCALE_LABELS[s]} value={f[s]} onChange={(n) => patch(i, { [s]: n })} />
                       ))}
-                      {(q.erg_candidates?.length ?? 0) > 0 && (
-                        <div class="field">
-                          <span>ERG タグ（任意）</span>
-                          <div class="row" role="group" aria-label="ERG タグ">
-                            {q.erg_candidates!.map((t: ErgTag) => (
-                              <button
-                                type="button"
-                                key={t}
-                                class={f.erg === t ? "chip on" : "chip"}
-                                aria-pressed={f.erg === t}
-                                onClick={() => patch(i, { erg: f.erg === t ? undefined : t })}
-                              >
-                                {ERG_LABELS[t]}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
                       <Field label="メモ（任意）">
                         <input value={f.note} onInput={(e) => patch(i, { note: e.currentTarget.value })} />
                       </Field>

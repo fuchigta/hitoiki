@@ -143,9 +143,10 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `time_block` | 計画（タイムブロッキング）。`focus` が 1 のものは集中ブロック |
 | `block_template` / `block_template_item` | ブロックのテンプレート（働き方のパターン）。`block_template` は名前（一意）・説明・割り当てた曜日（`weekdays`、JSON 配列、1=月 … 7=日）、`block_template_item` はローカル時刻の 0 時からの分（`start_min` 0〜1439、`end_min` 1〜1440）・`label`・`focus`・任意の `task_id` |
 | `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `time_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
-| `objective` / `key_result` | OKR |
+| `objective` / `key_result` | OKR。`key_result.measure`（`time` / `days` / `done`、既定 `time`）は何を軸に見るか、`day_min`（既定 15）は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（マイグレーション 0006）。タスクは `task.key_result_id` で KR を 1 つ持つ |
+| `kr_progress` | KR の現在値（`key_result.current`）の変更履歴（マイグレーション 0009）。`id` / `kr_id` / `value`（REAL。`text` の先頭の数値で、数として読めなければ NULL）/ `text`（入力された現在値。消したときは NULL）/ `note` / `at`。値が変わったとき（`edit_kr`）と明示の記録（`okr_progress::record`。同じ値でも 1 行残す）で 1 行追加する。既存 KR の現在値は初期行としては入れない。KR / Objective の削除で一緒に消す |
 | `skill` / `task_skill` / `activity_skill_rule` | スキル（階層あり、`preset` フラグ）とタスク・活動との紐づけ |
-| `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`、`note`） |
+| `checkin` | コンディション（`energy` / `mood` / `stress` 各 1〜5、`erg_tag`（互換用の列。ERG は `erg_label` に持つ）、`note`） |
 | `hassle` | デイリーハッスル（`text`, `intensity`, `segment_id`） |
 | `abc_record` | ABC 理論の記録（`activating_event`, `belief`, `consequence_*`, `dispute`, `ai_dialog_md`） |
 | `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`, `structured_json`, `answers_json`） |
@@ -162,7 +163,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | 消すもの | 参照の扱い |
 |---|---|
 | `objective` | 配下の `key_result` も消す。KR に紐付いた `task.key_result_id` は NULL に戻す（タスクは残す） |
-| `key_result` | 紐付いた `task.key_result_id` を NULL に戻す（タスクは残す） |
+| `key_result` | 紐付いた `task.key_result_id` を NULL に戻す（タスクは残す）。`kr_progress` の履歴も消す（影響の件数には数えず、`--force` の要否に影響しない） |
 | `skill` | `task_skill` と `activity_skill_rule` の該当行を消す。子スキルは `reparent`（削除するスキルの親へ付け替え。既定）か `delete`（子孫ごと削除）を選ぶ。プリセットのスキルも消せ、`skill import-preset` で戻せる。名前の変更・親の付け替えは循環と重複名を拒否する |
 | `task_match_rule` / `activity_rule` | 行を消す（他から参照されない）。`enabled` で無効化だけもできる。編集・削除すると派生層（区間の帰属と活動ラベル）が変わりうるので、常駐側へ再計算を要求する（CLI は `segments` の通知、アプリは `request_rebuild`）。再計算の既定範囲は今日で、過去の日は `hitoiki rebuild` で作り直す |
 | `hassle` | それを元にした `abc_record.hassle_id` を NULL に戻す（ABC 記録は残す） |
@@ -316,7 +317,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 ### 8.1 トリガー
 
-同時に満たした場合の優先順は次のとおり。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
+同時に満たした場合の優先順は次のとおり（`PushTrigger::ALL` の順。表は条件の説明のため前後する）。`day_start` → `idle_return` → `block_start` → `day_end` → `weekly` → `urgent_task` → `after_interrupt` → `meeting_overrun` → `switch_spike` → `long_focus` → `important_task` → `late_work`。`urgent_task` は割り込み・会議・切り替えの通知より前に置く（急ぎのものを示す通知を後回しにしない）。`important_task` は 1 日 1 回の穏やかな提案なので、集中や切り替えへの声かけを優先して `long_focus` の後に置く。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
 
 | ID | 条件 |
 |---|---|
@@ -327,8 +328,11 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 | `meeting_overrun` | 会議アプリが前面で、予定の終了から 5〜180 分経過（ほかの予定が進行中なら対象外） |
 | `switch_spike` | 直近 `push.switch_spike.window_min`（15）分の切替回数が `count`（20）を超える |
 | `long_focus` | 同一キー（task、エージェントセッション、活動ラベルの順）の作業が `push.long_focus_min`（90）分以上連続 |
+| `urgent_task` | 勤務時間内（`push.day_start_after` ≤ 現在 < `push.day_end_at`）に、緊急のしるし（`task.urgent`）が付いた未完了（todo / doing）のタスクがあり、直近の `urgent_task` 配信から `push.urgent_task_interval_min`（既定 120 分、0 で無効）以上経っている。対象から外すもの: いま作業しているタスク（作業系の最終区間の `task_id`、または doing）、今日の `time_block` に割り当てられ終了がまだ先のもの。対象のどれかが doing か作業中なら、そもそも出さない。示すのは「最後に通知した時刻」が最も古いタスク（`push_log` のペイロードの `task_id` で判定。`push_log` は今週分＋直近 10 件なので、それより前の通知は「通知していない」扱い）で、同順なら作成が古いもの。ほかの対象の件数を「（ほかに N 件）」として添える。ボタンは「始める」（`task_start`）と「あとで」（`task_later`）。クリックでタスク画面（`tasks`）を開く |
+| `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに帰属した作業系の区間（work / agent_dialog / agent_watch）の最終 `end_at` と `created_at` の大きいほう）が `push.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `time_block` に割り当て済み、いま取り組み中（作業の帰属 / doing）、今週この通知に「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
 | `late_work` | `push.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
-| `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次 |
+| `block_start` | 今日の `time_block` でタスク（`task_id`）が付き、開始を過ぎて `tuning.block_start_window_min`（10 分）以内かつ終了前のもの（複数なら開始が最も新しいもの）。そのタスクが todo でない（doing・完了・中止）、いまの作業区間がそのタスク、そのブロックについて配信済み（push_log のペイロードの `block_id`）のいずれかなら出さない。無操作中は出さない。設定項目は持たず、`push.disabled_triggers` に `block_start` を入れて止める。優先順は `idle_return` の次（同時なら `idle_return` が先で、次の評価で出る）。例外の抑制ルールは 8.2 |
+| `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む。ただし下の候補タスクがあるときは、自動の休憩（`decided_by = rule:locked` で未確定）は分類済みとみなさず尋ねる）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次。**候補タスク**: 無操作の期間に (1) 開いていた doing ログのタスク、なければ (2) タスク付きの `time_block` が重なっていたタスクのうち、重なりが最も長い 1 件（`PushContext.doing_spans` / `time_blocks` / `task_refs`）。あれば先頭のボタンに「{タスク名}をしていた」（`idle_task`、ペイロードの `task_id`）を加える（ボタンは最大 5 個に収まる） |
 
 ### 8.2 抑制ルール
 
@@ -340,9 +344,13 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 4. 同一トリガーの最小間隔（`push.min_interval_min`、既定 60 分）。直近 5 件のうち配信から 30 分以上経ったものの応答率が低い（3 件以上で評価）と、間隔を最大 4 倍まで延長する（`min_interval` / `min_interval_backoff`）。
 5. 会議中、または `focus` の `time_block` 中は保留（`Defer`。ログは残さず、条件が残っていれば後の評価で出る）。`meeting_overrun` は会議の保留を受けない。
 
+例外: `block_start` は計画した時刻に意味があるので、3 と 4 を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。5 のフォーカスブロックの保留は、そのブロック自身の開始通知には適用しない（`gate::check` がペイロードの `block_id` を見る）。
+
 ### 8.3 応答と表示
 
 - **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（override 保存。UI へは `segments_updated` を送り、再計算を要求する）。
+- **`idle_task`**（idle_return の「{タスク名}をしていた」）: ペイロードの `idle_range` を、`task_id` のタスクの PC 外の作業として `service::correction::assign_offline_range` で確定する。実績の補正で無操作・記録なしを選んだときと同じ形（種別 work・`offline` の override と `segment_correction`。補正の一覧から取り消せる）で、自動の休憩にも勝つ。自動では確定せず、ボタンを押したときだけ。`block_skip`（block_start の「今回はやめる」）は記録のみ。
+- **タスク通知の応答**（`urgent_task` / `important_task` / `block_start`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::pushlog::start_pushed_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `push answer --task start|later|skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
 - **後からの回答と見送り**（`service::pushlog`）: `list`（配信済みの通知を状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `PushTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `push answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/push-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `push_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
   - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく通知の時刻（`push_log.at`）。あとから答えても、通知時点の状態として時系列に載る。
   - **見送り**（`dismiss`）: `responded_at` を付けず `response_json` に `{"action":"dismiss"}` を残す（スキーマ変更なし）。未回答の一覧（`repo::push::list_unanswered`）から外れる。応答率（8.2 の 4）は `responded_at` の有無で数えるので、見送りは無応答のまま数える。つまり「答えない通知が続くと間隔を延ばす」ルールは、一覧から外しても効き続ける。見送ったあとでも答え直せる。
@@ -359,15 +367,28 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 - **コンテキスト**: `service/context.rs` の `ContextJson`（集計、計画、doing タスク、割り込み、ハッスル、ABC 記録、チェックイン、要確認件数、OKR、前週との差、ERG の分布など。種別ごとに含める項目が変わる）。`hitoiki context` で AI 用に JSON 出力もできる。
 - **テンプレート**: `crates/hitoiki-core/templates/{day_start,day_end,weekly,abc_dispute}.md` を組み込みで持つ。`{{context}}` や `{{date}}` などのプレースホルダを展開する。`ai.templates_dir`（未指定なら `%APPDATA%\hitoiki\templates`）に同名の `<name>.md` があればそちらを優先する。
 - **保存**: 生成した問いを `reflection.questions_md` に保存し、回答を `answers_md` に書く。
-- **構造化出力**（`service/structured.rs`、マイグレーション 0005）: `ai.structured`（`auto` は `ai.command` の先頭が claude のときだけ有効）が有効なら、`<kind>_structured` テンプレートで問いを JSON として受け取る。スキーマ（`schema_json()`）は `oneOf` を使わないフラットな形で、`summary` と `questions[]`（`kind` は `checkin` / `hassle` / `abc` / `free`、ほかに `prompt`、`scales`、`erg_candidates`、`examples`、`activating_event`、`belief_prompt`）。claude には `--output-format json --json-schema {schema}`（`ai.structured_args` で上書き。`{schema_file}` は一時ファイル）を付ける。出力は先頭から JSON 値を順に読み（連結・配列も可）、`structured_output` を持つオブジェクト（無ければ `questions` を持つもの）を採用する。種類ごとに使う kind と数の上限はテンプレート側で指示する（始業は free 中心と checkin、終業は checkin / hassle / free、週次は free / abc / hassle）。`abc_dispute` は従来の Markdown のまま。
-- **構造化の保存と回答**: 正規化した JSON を `structured_json`、表示互換の Markdown を `questions_md`、要約を `summary_md` に保存する。コマンド失敗・JSON 不正・`structured_output` 欠落・スキーマ違反のいずれでも、エラーをログに残して従来の Markdown の問いにフォールバックする（`structured_json` は NULL）。回答は `reflect::answer_structured`（Tauri の `reflect_answer_structured`、CLI の `reflect answer` に JSON を渡したとき）が、問いの種類で `checkin`（`record::check`）、`hassle`、`abc_record`（`abc_add` と反論）に保存し、自由記述は `answers_md` に集約する。reflection との紐付けは `answers_json`（問いの番号・種類・作成したレコードの ID）で持ち、回答済みの問いの二重保存を防ぐ。全体を 1 トランザクションで保存する。
+- **構造化出力**（`service/structured.rs`、マイグレーション 0005）: `ai.structured`（`auto` は `ai.command` の先頭が claude のときだけ有効）が有効なら、`<kind>_structured` テンプレートで問いを JSON として受け取る。スキーマ（`schema_json()`）は `oneOf` を使わないフラットな形で、`summary` と `questions[]`（`kind` は `checkin` / `hassle` / `abc` / `free`、ほかに `prompt`、`scales`、`examples`、`activating_event`、`belief_prompt`）。claude には `--output-format json --json-schema {schema}`（`ai.structured_args` で上書き。`{schema_file}` は一時ファイル）を付ける。出力は先頭から JSON 値を順に読み（連結・配列も可）、`structured_output` を持つオブジェクト（無ければ `questions` を持つもの）を採用する。種類ごとに使う kind と数の上限はテンプレート側で指示する（始業は free 中心と checkin、終業は checkin / hassle / free、週次は free / abc / hassle）。`abc_dispute` は従来の Markdown のまま。
+- **構造化の保存と回答**: 正規化した JSON を `structured_json`、表示互換の Markdown を `questions_md`、要約を `summary_md` に保存する。コマンド失敗・JSON 不正・`structured_output` 欠落・スキーマ違反のいずれでも、エラーをログに残して従来の Markdown の問いにフォールバックする（`structured_json` は NULL）。回答は `reflect::answer_structured`（Tauri の `reflect_answer_structured`、CLI の `reflect answer` に JSON を渡したとき）が、問いの種類で `checkin`（`record::check`）、`hassle`、`abc_record`（`abc_add` と反論）に保存し、自由記述は `answers_md` に集約する。reflection との紐付けは `answers_json`（問いの番号・種類・作成したレコードの ID）で持ち、回答済みの問いの二重保存を防ぐ。全体を 1 トランザクションで保存する。回答済みの表示は `reflect::answer_details`（Tauri の `reflect_answer_details`、CLI の `reflect show` と `--json` の `answer_details`）が `answers_json` の ID から各レコードを引いて、問いと並べて返す（レコードが削除済みなら中身は無し）。
+- **ERG の判定**（`service/erg.rs`、`repo/erg.rs`、マイグレーション 0007）: ERG（存在・関係・成長）はユーザーに選ばせず、記録の内容から AI が判定し、ユーザーが確認・修正する。問いのスキーマ・プロンプトから `erg_candidates` は外した（過去の `structured_json` に残っていても、未知の項目として読み飛ばすので読める）。
+  - **保存の形**: 別表 `erg_label(record_kind, record_id, tag, source, confidence, reason, at)`（主キーは `record_kind` + `record_id`）。記録のテーブルごとに列を足すより、対象を増やしやすく、出所・確信度・理由を同じ形で持てるため別表にした。`record_kind` は `checkin` / `hassle` / `abc` / `reflection`、`tag` は `existence` / `relatedness` / `growth` / `none`（どれにも関わらない）、`source` は `user`（ユーザーが付けた・確定した。AI は上書きしない）/ `ai`（確信度が閾値以上で採用）/ `suggested`（確認待ち。提案のタグと理由だけで未確定）。`checkin.erg_tag` は使わなくなり（0007 で既存値を `user` のラベルに移した）、`Checkin.erg_tag` は確定したラベル（`user` / `ai`、`none` を除く）から読み出す。記録を削除するとラベルも消え、本文を編集すると AI 由来（`ai` / `suggested`）のラベルだけ捨てて再判定できるようにする（`user` は残す）。
+  - **判定の対象**（`subjects`）: 文章を持つ記録。チェックインのメモ、ハッスルの本文、ABC（出来事・受け止め方・感情・反論）、振り返りの回答（`answers_md`）。メモの無いチェックインなど文章の無い記録は対象外（ユーザーが明示的にタグを付けたものは分布には数える）。ラベルがある記録（確認待ちを含む）は再判定しない。
+  - **判定**: 未判定の記録を 30 件ずつまとめ、`erg_classify` テンプレートで AI に渡す（記録の ID は `r1`, `r2` … に置き換え、1 件 600 文字で切る）。応答は `{"labels":[{"id","tag","confidence","reason"}]}`。構造化出力が使えるコマンドにはスキーマを付け、読めなければ付けずに再実行する。コードフェンスや前置きに包まれた JSON も読む。JSON として読めない・`labels` が無いときはエラー。`id` が不正・未知のタグの要素は読み捨て（その記録は未判定のまま）、`confidence` が 0〜1 の数値でなければ `None` として採用せず確認待ちにする。確信度が `ai.erg_auto_threshold`（既定 0.8）以上なら `ai`、未満または確信度なしなら `suggested`。保存は `user` のラベルを更新しない条件付きの UPSERT。AI が未設定（`ai.command` が空）のときは何もせず「AI が設定されていないため判定しません」を返す（エラーにしない）。
+  - **実行**: 終業・週次の振り返りの生成の直前に、その期間の未判定分を判定する（`ai.erg_classify = false` で止められる。失敗してもログに警告を残して振り返りは続ける）。CLI は `hitoiki erg classify|review|set|confirm|show`、GUI は Tauri の `erg_overview` / `erg_review` / `erg_classify` / `erg_set` / `erg_confirm`。
+  - **分布**: `erg::distribution` が期間内の記録を `existence` / `relatedness` / `growth` / `none` / `pending`（確認待ち）/ `unlabeled`（未判定）に数える（`ai_decided` は AI の判定を採用した件数）。週次のコンテキストの `erg_distribution` と記録画面・振り返り画面が使う。テンプレートは偏りを事実として述べるだけにし、良し悪しや「もっと〇〇すべき」は言わない。用語には短い説明（存在 = 体や生活の安心、関係 = 人とのつながり、成長 = 手応えや学び）を添える。
+  - **送信とログ**: 記録の文章が `ai.command` に送られる。文章・プロンプトはログに出さない。
 - **エージェントからの利用**: `hitoiki context`、`hitoiki reflect ...` を CLI から呼べる。なお Claude Code が `claude -p` を実行しても、その `entrypoint` が `sdk-` で始まるので作業時間には混ざらない（5 章）。
 
 ## 10. CLI
 
 共通仕様: 参照系は `--json` で機械可読な出力。対話的なプロンプトは出さず、不足引数はエラー。終了コードは 0 成功、1 一般、2 引数、3 対象なし、4 曖昧（`Error::exit_code()`）。`HITOIKI_HOME` で設定と DB の置き場所を差し替えられる。
 
-主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`okr`、`skill`、`report`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
+`heatmap`（`service::heatmap`）は日別の値と濃淡の段階を返す。時間の指標は派生層 `activity_segment`（`segment_override` 適用後）をローカル日付の 0 時で分割して合算し、記録の指標は `checkin` / `hassle` / `abc_record` / `reflection` の `at` を数える。段階は値のある日の分布で決め（値以下の日の割合を 4 等分、0 は値なし）、スキルは子孫のスキルを含める。`kr:<KR>` は KR に紐付いたタスクの時間（日付分割は `heatmap::add_per_day` を KR の集計と共有）。
+
+KR の集計（`service::okr::kr_summary`、実装は `service/okr_summary.rs`）は、紐付いたタスク（`task.key_result_id`）に帰属した派生層の区間から算出する（実績の入力欄は無い）。期間は Objective の `period_start/end`（片方だけなら、開始のみは今日まで、終了のみは 8 週前から）、無ければ直近 8 週（今日を含む週の月曜の 7 週前〜今日の終わり）。時間は無操作・休憩・無視を除いて期間で切り、ローカル日付で日ごとに分けて合算する。回数はその日別の合計が `day_min` 分以上の日数、完了数は「期間内に `done_at` があるタスクの数 / やめたタスクを除く紐付き全体の数」を割り算せず別々の値で返す（`done_count` / `task_count`）。週ごとの時間は月曜始まりで日別の値を束ね、スキル別は report の skill 集計と同じく付いているスキルそれぞれに全時間を計上する（付いていなければ `(なし)`）。見積は `estimate_min` のあるタスク（やめたものを除く）の合計と、そのタスクの期間内の実績。選んだ軸（`measure`）は表示の主従を決めるだけで、`target` / `current` は自由記述のまま返し、達成率の計算や評価はしない。紐付けは `okr::link_tasks`（別の KR からの付け替えを含み、先に全タスクを解決して 1 件でも無ければ何も変えない）と `okr::unlink_tasks`、`task edit` の `clear_key_result`。UI は CLI と同じ関数を Tauri コマンド（`okr_link` / `okr_unlink` / `okr_show`）経由で呼ぶ。
+
+KR の現在値の履歴と時系列（`service::okr_progress`、`repo/kr_progress.rs`）: `edit_kr` は現在値が変わったとき（同じ値への編集では残さない）、`okr_progress::record` は呼ばれるたびに、`kr_progress` に 1 行足す。メモは `KrEdit.current_note` / `record` の引数。`kr_history` は `kr_summary` と同じ期間・同じ週の区切りで、週ごとに `duration_ms`（`kr_summary.weekly` と同じ値）と、その週の終わり（`at` がその週の翌月曜 0 時より前）までで最後の履歴の `value` / `text`、その週に足した行数 `changes` を並べる。期間の前の履歴も引き継ぐ。値は自由記述のまま（`value` は先頭の数値を読めたときだけ）で、目標との比較や達成率は出さない。UI は Tauri コマンド `okr_progress` / `okr_history` 経由で、KR のカードの「値の履歴」に棒（時間）と折れ線（値。数値のある週だけ、最小〜最大を縦に伸ばす）を同じ週の軸で描く。
+
+主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`okr`、`skill`、`report`、`heatmap`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
 
 `doctor` は config / db / collect / agent / calendar / notify / judge / ai を ok・warn・error で診断する。`collect` は直近 24 時間の記録停止（2.4）、`agent` は直近 24 時間のプロンプトのうちウインドウに対応付けできなかった件数（4.2）も見る。ネットワークへの実アクセス（カレンダー取得・判定器への疎通）は `--network` 指定時だけ。
 
@@ -405,10 +426,10 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120: 補正の範囲選択の吸着幅）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（false: 補正の初期チェック） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`disabled_triggers` |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
-| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |
+| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources`（`name`, `type`, `url`） |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 

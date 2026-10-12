@@ -6,12 +6,16 @@
 pub mod block_template;
 pub mod context;
 pub mod correction;
+pub mod erg;
+pub mod heatmap;
 pub mod hint;
 pub mod ignore;
 pub mod impact;
 pub mod ingest;
 pub mod log;
 pub mod okr;
+pub mod okr_progress;
+mod okr_summary;
 pub mod onboarding;
 pub mod plan;
 pub mod pushlog;

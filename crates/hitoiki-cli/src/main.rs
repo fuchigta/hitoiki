@@ -13,8 +13,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, log as log_svc, okr, plan, pushlog, quick, record, reflect, report, review,
-    skill, status, task, Ctx, RangeArgs,
+    self, context, correction, erg, heatmap, log as log_svc, okr, plan, pushlog, quick, record, reflect,
+    report, review, skill, status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -77,19 +77,19 @@ struct ReflectionOut<'a> {
     r: &'a hitoiki_core::model::Reflection,
     structured: Option<serde_json::Value>,
     answers: Option<serde_json::Value>,
-    /// 回答ごとの参照先の有無（`missing: true` は、その回答が作った記録が削除されている）。
-    answer_details: Vec<reflect::AnswerDetail>,
+    /// 回答済みの問いと、保存した記録（チェックイン・ハッスル・ABC）の中身。
+    answer_details: &'a [reflect::AnswerDetail],
 }
 
 impl<'a> ReflectionOut<'a> {
-    fn new(ctx: &Ctx, r: &'a hitoiki_core::model::Reflection) -> Result<Self> {
+    fn new(r: &'a hitoiki_core::model::Reflection, details: &'a [reflect::AnswerDetail]) -> Self {
         let parse = |s: &Option<String>| s.as_deref().and_then(|j| serde_json::from_str(j).ok());
-        Ok(Self {
+        Self {
             r,
             structured: parse(&r.structured_json),
             answers: parse(&r.answers_json),
-            answer_details: reflect::answer_details(ctx, r)?,
-        })
+            answer_details: details,
+        }
     }
 }
 
@@ -312,9 +312,17 @@ fn run(cli: Cli) -> Result<()> {
                 stress,
                 hassle,
                 idle,
+                task,
                 dismiss,
             } => {
+                // `--idle task` は「通知が示したタスクをしていた」（`--task idle_task` と同じ）。
+                let (idle, task) = match idle.as_deref() {
+                    Some("task") if task.is_none() => (None, Some("idle_task".to_string())),
+                    _ => (idle, task),
+                };
+                let idle_task = task.as_deref() == Some("idle_task");
                 let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
+                let task = task.map(|s| s.parse::<pushlog::TaskAnswer>()).transpose()?;
                 let r = pushlog::answer(
                     &ctx,
                     &id,
@@ -324,6 +332,7 @@ fn run(cli: Cli) -> Result<()> {
                         stress,
                         hassle,
                         idle,
+                        task,
                         dismiss,
                     },
                 )?;
@@ -333,8 +342,11 @@ fn run(cli: Cli) -> Result<()> {
                 if r.hassle_id.is_some() {
                     ext::notify_data("hassle");
                 }
-                if idle.is_some() {
+                if idle.is_some() || idle_task {
                     ext::notify_data("segments");
+                }
+                if let Some(id) = r.started_task.as_deref() {
+                    ext::notify_task(Some(id));
                 }
                 emit(json, &r, || render::push_answered(&r))
             }
@@ -664,6 +676,7 @@ fn run(cli: Cli) -> Result<()> {
             print_json(&c)
         }
         Cmd::Reflect(r) => reflect_cmd(&ctx, r, json),
+        Cmd::Erg(e) => erg_cmd(&ctx, e, json),
         Cmd::Okr(o) => match o {
             OkrCmd::AddObjective { title, from, to } => {
                 let now = ctx.now();
@@ -731,6 +744,17 @@ fn run(cli: Cli) -> Result<()> {
             )?;
             emit(json, &r, || render::report(tz, &r))
         }
+        Cmd::Heatmap { by, from, to } => {
+            let h = heatmap::heatmap(
+                &ctx,
+                &heatmap::HeatmapInput {
+                    by: Some(by),
+                    from,
+                    to,
+                },
+            )?;
+            emit(json, &h, || render::heatmap(&h))
+        }
         // DB を開く前に処理済み
         _ => unreachable!("handled before opening the database"),
     }
@@ -740,8 +764,9 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
     let tz = ctx.tz()?;
     let generate = |kind: ReflectionKind, date: Option<String>| -> Result<()> {
         let r = reflect::reflect(ctx, kind, date.as_deref())?;
-        let o = ReflectionOut::new(ctx, &r)?;
-        emit(json, &o, || render::reflection(tz, &r, &o.answer_details))
+        emit(json, &ReflectionOut::new(&r, &[]), || {
+            render::reflection(tz, &r, &[])
+        })
     };
     match cmd {
         ReflectCmd::DayStart { date } => generate(ReflectionKind::DayStart, date),
@@ -753,7 +778,8 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
                 Some(path) => std::fs::read_to_string(path)?,
             };
             let r = reflect::answer_text(ctx, &id, &text)?;
-            emit(json, &ReflectionOut::new(ctx, &r)?, || {
+            let details = reflect::answer_details(ctx, &r)?;
+            emit(json, &ReflectionOut::new(&r, &details), || {
                 format!("回答を保存しました: {}", render::short(&r.id))
             })
         }
@@ -766,8 +792,36 @@ fn reflect_cmd(ctx: &Ctx, cmd: ReflectCmd, json: bool) -> Result<()> {
         }
         ReflectCmd::Show { id } => {
             let r = reflect::show(ctx, &id)?;
-            let o = ReflectionOut::new(ctx, &r)?;
-            emit(json, &o, || render::reflection(tz, &r, &o.answer_details))
+            let details = reflect::answer_details(ctx, &r)?;
+            emit(json, &ReflectionOut::new(&r, &details), || {
+                render::reflection(tz, &r, &details)
+            })
+        }
+    }
+}
+
+fn erg_cmd(ctx: &Ctx, cmd: ErgCmd, json: bool) -> Result<()> {
+    let tz = ctx.tz()?;
+    match cmd {
+        ErgCmd::Classify { range, dry_run } => {
+            let o = erg::classify(ctx, &range_args(&range), dry_run)?;
+            emit(json, &o, || render::erg_classify(tz, &o))
+        }
+        ErgCmd::Review => {
+            let r = erg::review(ctx)?;
+            emit(json, &r, || render::erg_review(tz, &r))
+        }
+        ErgCmd::Set { record, tag } => {
+            let l = erg::set(ctx, &record, tag)?;
+            emit(json, &l, || render::erg_label(&l))
+        }
+        ErgCmd::Confirm { record } => {
+            let l = erg::confirm(ctx, &record)?;
+            emit(json, &l, || render::erg_label(&l))
+        }
+        ErgCmd::Show { range } => {
+            let o = erg::overview(ctx, &range_args(&range))?;
+            emit(json, &o, || render::erg_overview(tz, &o))
         }
     }
 }
@@ -800,6 +854,7 @@ fn task_input(ctx: &Ctx, title: Option<String>, o: TaskOpts) -> Result<task::Tas
             .map(timefmt::parse_duration_min)
             .transpose()?,
         key_result: o.kr,
+        clear_key_result: o.no_kr,
         skills: o.skill,
         clear_skills: false,
         external_url: o.url,

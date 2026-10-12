@@ -35,6 +35,12 @@ pub struct PushPayload {
     /// idle_return: 「さっきの無操作は？」の対象の期間 (開始, 終了)。ボタンの応答でこの期間に分類をつける。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub idle_range: Option<(Millis, Millis)>,
+    /// urgent_task / important_task: 対象のタスク。`task_start` の応答でこのタスクを始める。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<String>,
+    /// block_start: 対象の time_block。同じブロックに二度通知しないための目印（push_log のペイロードで見る）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_id: Option<String>,
 }
 
 fn scale(id: &str) -> Vec<PushAction> {
@@ -72,6 +78,8 @@ pub(crate) fn day_start() -> PushPayload {
         // 始業の通知は「今日のデザイン」（今日の画面）へ。始業の振り返りは今日の画面から開ける。
         open_screen: Some("today/design".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -91,6 +99,8 @@ pub(crate) fn day_end(needs_review: u32) -> PushPayload {
         input: None,
         open_screen: Some("reflection/day_end".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -103,6 +113,8 @@ pub(crate) fn weekly() -> PushPayload {
         input: None,
         open_screen: Some("reflection/weekly".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -118,6 +130,8 @@ pub(crate) fn long_focus(minutes: u64, label: Option<&str>) -> PushPayload {
         input: None,
         open_screen: Some("checkin".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -132,6 +146,8 @@ pub(crate) fn switch_spike(window_min: u64, count: u32) -> PushPayload {
         input: hassle_input(),
         open_screen: Some("hassle".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -144,6 +160,8 @@ pub(crate) fn after_interrupt() -> PushPayload {
         input: hassle_input(),
         open_screen: Some("hassle".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -156,6 +174,8 @@ pub(crate) fn meeting_overrun() -> PushPayload {
         input: hassle_input(),
         open_screen: Some("hassle".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
@@ -168,30 +188,139 @@ pub(crate) fn late_work() -> PushPayload {
         input: None,
         open_screen: Some("checkin".into()),
         idle_range: None,
+        task_id: None,
+        block_id: None,
     }
 }
 
 /// idle_return: 無操作から戻ったときに、その時間が何だったかを 1 タップで答えてもらう。
 /// ボタンの `id` は `idle_<分類>`（`service::review::IdlePreset` の ID）。
-pub(crate) fn idle_return(start: Millis, end: Millis) -> PushPayload {
+/// `candidate`（タスク ID, タイトル）があれば、先頭に「{タスク名}をしていた」（`idle_task`）を加える。
+/// ボタンの数は最大 5（トーストの上限）に収まる。
+pub(crate) fn idle_return(start: Millis, end: Millis, candidate: Option<(&str, &str)>) -> PushPayload {
     let minutes = ((end - start) / 60_000).max(1);
-    PushPayload {
-        trigger: PushTrigger::IdleReturn,
-        title: "おかえりなさい".into(),
-        body: format!("さっきの {minutes} 分は、どう過ごしていましたか？ 答えなくても大丈夫です。"),
-        actions: crate::service::review::IdlePreset::ALL
+    let mut actions = Vec::new();
+    if let Some((_, title)) = candidate {
+        actions.push(PushAction {
+            id: IDLE_TASK_ACTION.into(),
+            label: format!("{}をしていた", shorten(title, 16)),
+            value: None,
+        });
+    }
+    actions.extend(
+        crate::service::review::IdlePreset::ALL
             .iter()
             .map(|p| PushAction {
                 id: format!("{IDLE_ACTION_PREFIX}{}", p.as_str()),
                 label: p.label().into(),
                 value: None,
-            })
-            .collect(),
+            }),
+    );
+    PushPayload {
+        trigger: PushTrigger::IdleReturn,
+        title: "おかえりなさい".into(),
+        body: format!("さっきの {minutes} 分は、どう過ごしていましたか？ 答えなくても大丈夫です。"),
+        actions,
         input: None,
         open_screen: Some("review".into()),
         idle_range: Some((start, end)),
+        task_id: candidate.map(|(id, _)| id.to_string()),
+        block_id: None,
+    }
+}
+
+/// 長いタイトルをボタンに収めるために切り詰める（文字数で数え、超えたら「…」を付ける）。
+fn shorten(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max).collect::<String>())
+    }
+}
+
+/// block_start: 計画したブロックの時間になったとき、そのタスクを始めるか尋ねる。
+/// `start` / `end` は表示用の時刻（`HH:MM`）。
+pub(crate) fn block_start(block_id: &str, task_id: &str, title: &str, start: &str, end: &str) -> PushPayload {
+    PushPayload {
+        trigger: PushTrigger::BlockStart,
+        title: "計画の時間です".into(),
+        body: format!("今から「{title}」の時間（{start}–{end}）です。始めますか？"),
+        actions: vec![
+            task_button(TASK_START, "始める"),
+            task_button(BLOCK_SKIP, "今回はやめる"),
+        ],
+        input: None,
+        open_screen: Some("today".into()),
+        idle_range: None,
+        task_id: Some(task_id.into()),
+        block_id: Some(block_id.into()),
     }
 }
 
 /// idle_return のボタン ID の接頭辞。
 pub const IDLE_ACTION_PREFIX: &str = "idle_";
+/// idle_return の「{タスク名}をしていた」のボタン ID（`idle_` 接頭辞だが分類ではない）。
+pub const IDLE_TASK_ACTION: &str = "idle_task";
+/// block_start の「今回はやめる」（記録のみ）。
+pub const BLOCK_SKIP: &str = "block_skip";
+
+/// タスク通知のボタン ID。
+pub const TASK_START: &str = "task_start";
+pub const TASK_LATER: &str = "task_later";
+pub const TASK_SKIP_WEEK: &str = "task_skip_week";
+
+fn task_button(id: &str, label: &str) -> PushAction {
+    PushAction {
+        id: id.into(),
+        label: label.into(),
+        value: None,
+    }
+}
+
+/// urgent_task: 緊急のしるしが付いたタスクを 1 件示す。`others` は同じしるしの付いたほかのタスクの数。
+pub(crate) fn urgent_task(task_id: &str, title: &str, others: usize) -> PushPayload {
+    let more = if others > 0 {
+        format!("（ほかに {others} 件）")
+    } else {
+        String::new()
+    };
+    PushPayload {
+        trigger: PushTrigger::UrgentTask,
+        title: "緊急のタスクがあります".into(),
+        body: format!("「{title}」に緊急のしるしが付いています。いま取りかかりますか？{more}"),
+        actions: vec![
+            task_button(TASK_START, "始める"),
+            task_button(TASK_LATER, "あとで"),
+        ],
+        input: None,
+        open_screen: Some("tasks".into()),
+        idle_range: None,
+        task_id: Some(task_id.into()),
+        block_id: None,
+    }
+}
+
+/// important_task: 重要だが緊急でないタスクに、少し時間を取ることを提案する。`days` は最後に手をつけてからの日数
+/// （一度も時間が入っていなければ None）。
+pub(crate) fn important_task(task_id: &str, title: &str, days: Option<u64>) -> PushPayload {
+    let since = match days {
+        Some(n) => format!("ここ {n} 日ほど時間が入っていません"),
+        None => "まだ時間が入っていません".to_string(),
+    };
+    PushPayload {
+        trigger: PushTrigger::ImportantTask,
+        title: "重要なタスクに少し時間を取りませんか".into(),
+        body: format!("「{title}」に、{since}。今日どこかで少し時間を取りますか？"),
+        actions: vec![
+            task_button(TASK_START, "始める"),
+            // 押すと今日のデザイン画面（open_screen）を開く。
+            open_action("今日の予定に入れる"),
+            task_button(TASK_SKIP_WEEK, "今週は見送る"),
+        ],
+        input: None,
+        open_screen: Some("today/design".into()),
+        idle_range: None,
+        task_id: Some(task_id.into()),
+        block_id: None,
+    }
+}

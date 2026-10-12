@@ -41,8 +41,8 @@ pub fn update_objective(conn: &Connection, o: &Objective) -> Result<()> {
 
 pub fn update_kr(conn: &Connection, k: &KeyResult) -> Result<()> {
     conn.execute(
-        "UPDATE key_result SET objective_id = ?2, title = ?3, target = ?4, current = ?5, status = ?6 WHERE id = ?1",
-        params![k.id, k.objective_id, k.title, k.target, k.current, k.status],
+        "UPDATE key_result SET objective_id = ?2, title = ?3, target = ?4, current = ?5, status = ?6, measure = ?7, day_min = ?8 WHERE id = ?1",
+        params![k.id, k.objective_id, k.title, k.target, k.current, k.status, k.measure, k.day_min],
     )?;
     Ok(())
 }
@@ -73,6 +73,7 @@ pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
         "UPDATE task SET key_result_id = NULL WHERE key_result_id = ?1",
         [kr_id],
     )?;
+    conn.execute("DELETE FROM kr_progress WHERE kr_id = ?1", [kr_id])?;
     conn.execute("DELETE FROM key_result WHERE id = ?1", [kr_id])?;
     Ok(())
 }
@@ -81,6 +82,10 @@ pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
 pub fn delete_objective(conn: &Connection, objective_id: &str) -> Result<()> {
     conn.execute(
         "UPDATE task SET key_result_id = NULL WHERE key_result_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
+        [objective_id],
+    )?;
+    conn.execute(
+        "DELETE FROM kr_progress WHERE kr_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
         [objective_id],
     )?;
     conn.execute("DELETE FROM key_result WHERE objective_id = ?1", [objective_id])?;
@@ -217,32 +222,18 @@ pub fn get_checkin(conn: &Connection, id: &str) -> Result<Checkin> {
 
 pub fn update_checkin(conn: &Connection, c: &Checkin) -> Result<()> {
     conn.execute(
-        "UPDATE checkin SET energy = ?2, mood = ?3, stress = ?4, erg_tag = ?5, note = ?6 WHERE id = ?1",
-        params![
-            c.id,
-            c.energy,
-            c.mood,
-            c.stress,
-            c.erg_tag.map(|e| e.as_str()),
-            c.note
-        ],
+        "UPDATE checkin SET energy = ?2, mood = ?3, stress = ?4, note = ?5 WHERE id = ?1",
+        params![c.id, c.energy, c.mood, c.stress, c.note],
     )?;
     Ok(())
 }
 
-/// 記録（`checkin` / `hassle` / `abc_record`）が存在するか。
-pub fn record_exists(conn: &Connection, table: &str, id: &str) -> Result<bool> {
-    let sql = match table {
-        "checkin" => "SELECT COUNT(*) FROM checkin WHERE id = ?1",
-        "hassle" => "SELECT COUNT(*) FROM hassle WHERE id = ?1",
-        "abc_record" => "SELECT COUNT(*) FROM abc_record WHERE id = ?1",
-        _ => return Err(Error::InvalidArgument(format!("不明な記録の種類: {table}"))),
-    };
-    Ok(count(conn, sql, id)? > 0)
-}
-
 pub fn delete_checkin(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM checkin WHERE id = ?1", [id])?;
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'checkin' AND record_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 
@@ -270,6 +261,10 @@ pub fn delete_hassle(conn: &Connection, id: &str) -> Result<()> {
         [id],
     )?;
     conn.execute("DELETE FROM hassle WHERE id = ?1", [id])?;
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'hassle' AND record_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 
@@ -298,6 +293,10 @@ pub fn update_abc(conn: &Connection, a: &AbcRecord) -> Result<()> {
 
 pub fn delete_abc(conn: &Connection, id: &str) -> Result<()> {
     conn.execute("DELETE FROM abc_record WHERE id = ?1", [id])?;
+    conn.execute(
+        "DELETE FROM erg_label WHERE record_kind = 'abc' AND record_id = ?1",
+        [id],
+    )?;
     Ok(())
 }
 

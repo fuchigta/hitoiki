@@ -1,7 +1,7 @@
 //! コマンド体系の定義（docs/dev/architecture.md「CLI」）。
 
 use clap::{Args, Parser, Subcommand};
-use hitoiki_core::model::{ErgTag, MatchField, PatternType, SegmentKind, TaskKind};
+use hitoiki_core::model::{ErgChoice, ErgTag, MatchField, PatternType, SegmentKind, TaskKind};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -78,7 +78,7 @@ pub enum Cmd {
         /// ストレス 1-5
         #[arg(short = 's', long)]
         stress: Option<i64>,
-        /// ERG タグ
+        /// ERG タグ（ふつうは付けなくてよい。メモの内容から AI が判定する。付けるとユーザーの確定になる）
         #[arg(long)]
         erg: Option<ErgTag>,
         #[arg(long)]
@@ -130,6 +130,18 @@ pub enum Cmd {
         #[arg(long)]
         include_idle: bool,
     },
+    /// 活動量ヒートマップ（日別の濃淡）
+    Heatmap {
+        /// time | kind:<種別> | task:<ID・タイトル> | skill:<名前> | records[:checkin|hassle|abc|reflection]
+        #[arg(long, default_value = "time")]
+        by: String,
+        /// 開始日（既定: 今日を含む週から数えて 53 週分）
+        #[arg(long)]
+        from: Option<String>,
+        /// 終了日（含む。既定: 今日）
+        #[arg(long)]
+        to: Option<String>,
+    },
     /// AI 用コンテキストを JSON で出力
     Context {
         #[arg(long)]
@@ -140,6 +152,9 @@ pub enum Cmd {
     /// AI で問いを生成して保存
     #[command(subcommand)]
     Reflect(ReflectCmd),
+    /// ERG（存在・関係・成長）。記録の内容から AI が判定し、確認待ちをユーザーが確定する
+    #[command(subcommand)]
+    Erg(ErgCmd),
     /// エージェントセッション
     #[command(subcommand)]
     Agent(AgentCmd),
@@ -193,8 +208,11 @@ pub struct TaskOpts {
     #[arg(long)]
     pub estimate: Option<String>,
     /// KR の ID
-    #[arg(long)]
+    #[arg(long, conflicts_with = "no_kr")]
     pub kr: Option<String>,
+    /// KR との紐付けを外す（edit のみ）
+    #[arg(long)]
+    pub no_kr: bool,
     /// スキル名（複数指定可。`,` 区切りも可）
     #[arg(long, value_delimiter = ',')]
     pub skill: Vec<String>,
@@ -488,9 +506,12 @@ pub enum PushCmd {
         /// 一言（デイリーハッスルとして保存）
         #[arg(long)]
         hassle: Option<String>,
-        /// 無操作の分類: break / meeting / thinking / away（無操作からの復帰の通知のみ）
+        /// 無操作の分類: break / meeting / thinking / away、または task（通知が示したタスクをしていた。PC 外の作業として確定）（無操作からの復帰の通知のみ）
         #[arg(long)]
         idle: Option<String>,
+        /// タスク通知への答え: start（始める）/ later（あとで）/ skip_week（今週は見送る）/ skip（計画ブロックの開始を今回はやめる）
+        #[arg(long)]
+        task: Option<String>,
         /// 答えない（見送り）。一覧からは消えるが、応答率では無応答として数える
         #[arg(long)]
         dismiss: bool,
@@ -807,12 +828,61 @@ pub enum OkrCmd {
         /// 現在値
         #[arg(long)]
         current: Option<String>,
+        /// --current で値を変えるときに履歴へ残すメモ
+        #[arg(long, requires = "current")]
+        note: Option<String>,
         /// active | done | dropped
         #[arg(long)]
         status: Option<String>,
         /// 別の Objective へ付け替える
         #[arg(long)]
         objective: Option<String>,
+        /// 何を軸に見るか: time（時間）| days（取り組んだ日の回数）| done（完了数）
+        #[arg(long)]
+        measure: Option<String>,
+        /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15）
+        #[arg(long)]
+        day_min: Option<i64>,
+    },
+    /// KR にタスクを紐付ける（別の KR に紐付いていたものは付け替える）
+    Link {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// タスクの ID（前方一致。複数可）
+        #[arg(required = true)]
+        tasks: Vec<String>,
+    },
+    /// タスクの KR との紐付けを外す
+    Unlink {
+        /// タスクの ID（前方一致。複数可）
+        #[arg(required = true)]
+        tasks: Vec<String>,
+    },
+    /// KR の集計（軸の値、取り組んだ日、完了数、週ごとの時間、スキル別、見積と実績）
+    Show {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 集計の期間（省略時は Objective の期間、無ければ直近 8 週）
+        #[command(flatten)]
+        range: RangeOpts,
+    },
+    /// KR の現在値を記録する（現在値を更新し、履歴に 1 行残す。同じ値でも残る）
+    Progress {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 現在値（例: 12、3 回）
+        value: String,
+        /// 履歴に添えるメモ
+        #[arg(long)]
+        note: Option<String>,
+    },
+    /// KR の現在値の履歴を、週ごとの時間と並べて表示する
+    History {
+        /// KR の ID（前方一致）またはタイトル
+        kr: String,
+        /// 期間（省略時は Objective の期間、無ければ直近 8 週）
+        #[command(flatten)]
+        range: RangeOpts,
     },
     /// KR を削除する（紐付いたタスクは残って紐付けだけ外れる）
     DeleteKr {
@@ -894,6 +964,37 @@ pub enum ReflectCmd {
     },
     /// 振り返りの詳細（問い・回答）
     Show { id: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ErgCmd {
+    /// 未判定の記録を AI で判定する。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は確認待ち。AI が未設定なら何もしない
+    Classify {
+        #[command(flatten)]
+        range: RangeOpts,
+        /// 保存せず、判定の結果だけ表示する
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// 確認待ち（AI の提案で未確定）の一覧
+    Review,
+    /// タグを付ける・直す（ユーザーの確定。AI は上書きしない）。`none` はどれにも関わらない
+    Set {
+        /// 記録の ID（前方一致。チェックイン・ハッスル・ABC・振り返り）
+        record: String,
+        /// existence | relatedness | growth | none
+        tag: ErgChoice,
+    },
+    /// 確認待ちの提案をそのまま確定する
+    Confirm {
+        /// 記録の ID（前方一致）
+        record: String,
+    },
+    /// 期間内の ERG の分布（件数）と、記録ごとのラベル
+    Show {
+        #[command(flatten)]
+        range: RangeOpts,
+    },
 }
 
 #[derive(Debug, Subcommand)]

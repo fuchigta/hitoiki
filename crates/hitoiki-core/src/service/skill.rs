@@ -176,7 +176,7 @@ pub fn find(ctx: &Ctx, key: &str) -> Result<Skill> {
 }
 
 /// `id` の子孫（自身を除く）の ID。
-fn descendants(all: &[Skill], id: &str) -> Vec<String> {
+pub(crate) fn descendants(all: &[Skill], id: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut frontier = vec![id.to_string()];
     while let Some(cur) = frontier.pop() {

@@ -31,10 +31,10 @@ hitoiki config get push.daily_limit
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`toast_persistent`（true）、`disabled_triggers` |
+| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`toast_persistent`（true）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
-| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir` |
+| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources` |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 
@@ -113,6 +113,8 @@ command = ["claude", "-p"]
 timeout_sec = 180
 ```
 
+- `erg_classify`（既定 true）は、終業・週次の振り返りを作る前に、その期間の記録の ERG（存在・関係・成長）を AI で判定するかの設定です。**true のとき、ERG が未判定の記録の文章（チェックインのメモ、ハッスル、ABC、振り返りの回答）が `command` に送られます**（`hitoiki erg classify` を実行したときは設定にかかわらず送られます）。`command` が空なら送らず、判定もしません。
+- `erg_auto_threshold`（既定 0.8）は、AI の判定を採用する確信度の下限です（0〜1）。未満のものは「確認待ち」になり、あなたが確定するまで集計に入りません。
 - 既定は `claude -p` です。他のコマンドに替えるときは、プロンプトを標準入力から読み、回答を標準出力に書くものを指定します。
 - `timeout_sec` を超えると強制終了してエラーにします。終了コードが 0 以外、または出力が空の場合もエラーです。
 - `structured` は、問いを JSON（種類つき）で受け取って画面で答えられるようにするかの設定です。`auto`（既定）は `command` の先頭が `claude`（パスの末尾のファイル名で判定）のときだけ構造化し、それ以外は従来の Markdown です。`on` は常に試み、`off` は使いません。構造化に失敗した場合（コマンドが対応していない、JSON が読めない、形式が合わない）は、従来の Markdown の問いに自動で切り替え、エラーはログに残します。
@@ -171,8 +173,10 @@ timeout_sec = 10
 - `push.switch_spike.window_min` / `push.switch_spike.count`: 切り替えが多いと判断する、期間（分）と回数。
 - `push.late_work_after`: 遅い時間の作業に声をかけ始める時刻。
 - `push.idle_return_min`: 予定外の無操作がこの分数以上続いたあと復帰したときに、「さっきの時間は？」と尋ねます（トリガー `idle_return`）。`0` で無効。`push.disabled_triggers` に `idle_return` を入れても止められます。
+- `push.urgent_task_interval_min`: 緊急のしるしが付いた未完了のタスクがあるとき、勤務時間内（`push.day_start_after`〜`push.day_end_at`）に、この分数以上の間隔で「いま取りかかりますか？」と知らせます（トリガー `urgent_task`、既定 120 分）。`0` で無効。そのタスクに取り組み中のとき、今日の計画でそのタスクの枠がこれから先にあるときは知らせません。
+- `push.important_stale_days`: 重要（緊急ではない）な未完了のタスクに、この日数以上時間が入っていないとき、勤務時間内に 1 日 1 回まで「少し時間を取りませんか」と知らせます（トリガー `important_task`、既定 3 日）。`0` で無効。今日の計画に入っているタスク、取り組み中のタスク、今週「今週は見送る」を押したタスクは対象外です。
 - `push.toast_persistent`: 回答を求める通知（ボタンや入力欄のあるトースト）を、操作するまで画面に残します（Windows のトーストの `scenario="reminder"`）。`false` にすると一定時間で自動的に消えます。更新のお知らせやテスト通知は常に自動で消えます。見逃した通知は今日画面の「未回答の問いかけ」から答えられます。
-- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`day_end`、`weekly`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`late_work` のいずれか。
+- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`idle_return`、`block_start`（計画ブロックの開始。これ専用の設定項目はなく、止めるにはここに入れる）、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`important_task`、`late_work` のいずれか。
 
 通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。
 
