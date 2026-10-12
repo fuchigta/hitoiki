@@ -314,6 +314,12 @@ fn run(cli: Cli) -> Result<()> {
                 task,
                 dismiss,
             } => {
+                // `--idle task` は「通知が示したタスクをしていた」（`--task idle_task` と同じ）。
+                let (idle, task) = match idle.as_deref() {
+                    Some("task") if task.is_none() => (None, Some("idle_task".to_string())),
+                    _ => (idle, task),
+                };
+                let idle_task = task.as_deref() == Some("idle_task");
                 let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
                 let task = task.map(|s| s.parse::<pushlog::TaskAnswer>()).transpose()?;
                 let r = pushlog::answer(
@@ -335,7 +341,7 @@ fn run(cli: Cli) -> Result<()> {
                 if r.hassle_id.is_some() {
                     ext::notify_data("hassle");
                 }
-                if idle.is_some() {
+                if idle.is_some() || idle_task {
                     ext::notify_data("segments");
                 }
                 if let Some(id) = r.started_task.as_deref() {

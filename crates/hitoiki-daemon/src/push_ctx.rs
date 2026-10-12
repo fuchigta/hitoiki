@@ -8,7 +8,9 @@ use hitoiki_core::config::Config;
 use hitoiki_core::model::{
     ActivitySegment, CalendarEvent, IdleSpan, PushLog, SegmentStatus, TimeBlock, WindowSpan,
 };
-use hitoiki_core::push::{evaluate, store, ClosedIdle, IdleState, PushContext, PushDecision, TaskNudge};
+use hitoiki_core::push::{
+    evaluate, store, ClosedIdle, DoingSpan, IdleState, PushContext, PushDecision, TaskNudge, TaskRef,
+};
 use hitoiki_core::repo::{calendar, raw, segment};
 use hitoiki_core::timefmt::{day_range, local_date_of, week_range, Range};
 use hitoiki_core::{Millis, Result};
@@ -31,6 +33,10 @@ pub struct PushSnapshot {
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク。
     pub tasks: Vec<TaskNudge>,
+    /// 今日の time_block と直近の doing ログが指すタスク。
+    pub task_refs: Vec<TaskRef>,
+    /// 直近の doing ログ（進行中を含む）。
+    pub doing_spans: Vec<DoingSpan>,
 }
 
 /// スナップショットから `PushContext` を作る（純粋関数）。
@@ -73,6 +79,8 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
     ctx.push_log = snap.push_log;
     ctx.needs_review_count = snap.needs_review_count;
     ctx.tasks = snap.tasks;
+    ctx.task_refs = snap.task_refs;
+    ctx.doing_spans = snap.doing_spans;
     ctx
 }
 
@@ -112,15 +120,27 @@ pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64
         .filter(|s| s.end_at - s.start_at >= review_min_ms)
         .count() as u32;
     let week = week_range(tz, local_date_of(tz, now));
+    let time_blocks = raw::time_blocks(conn, today)?;
+    let doing_spans: Vec<DoingSpan> = raw::task_doing_logs(conn, Range::new(now - 24 * HOUR_MS, now + 1))?
+        .into_iter()
+        .map(|d| DoingSpan {
+            task_id: d.task_id,
+            start_at: d.start_at,
+            end_at: d.end_at,
+        })
+        .collect();
+    let task_refs = store::load_task_refs(conn, &time_blocks, &doing_spans)?;
     Ok(PushSnapshot {
         segments,
         idle_spans: raw::idle_spans(conn, Range::new(now - 24 * HOUR_MS, now + 1))?,
         window_spans: raw::window_spans(conn, Range::new(now - HOUR_MS, now + 1))?,
-        time_blocks: raw::time_blocks(conn, today)?,
+        time_blocks,
         calendar_events: calendar::list(conn, Range::new(today.start - HOUR_MS, today.end + HOUR_MS))?,
         push_log: store::load_recent(conn, week.start, 10)?,
         needs_review_count,
         tasks: store::load_task_nudges(conn)?,
+        task_refs,
+        doing_spans,
     })
 }
 

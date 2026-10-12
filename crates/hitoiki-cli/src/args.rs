@@ -500,10 +500,10 @@ pub enum PushCmd {
         /// 一言（デイリーハッスルとして保存）
         #[arg(long)]
         hassle: Option<String>,
-        /// 無操作の分類: break / meeting / thinking / away（無操作からの復帰の通知のみ）
+        /// 無操作の分類: break / meeting / thinking / away、または task（通知が示したタスクをしていた。PC 外の作業として確定）（無操作からの復帰の通知のみ）
         #[arg(long)]
         idle: Option<String>,
-        /// タスク通知（緊急のタスク・重要なタスク）への答え: start（始める）/ later（あとで）/ skip_week（今週は見送る）
+        /// タスク通知への答え: start（始める）/ later（あとで）/ skip_week（今週は見送る）/ skip（計画ブロックの開始を今回はやめる）
         #[arg(long)]
         task: Option<String>,
         /// 答えない（見送り）。一覧からは消えるが、応答率では無応答として数える

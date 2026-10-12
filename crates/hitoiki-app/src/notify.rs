@@ -45,6 +45,7 @@ pub fn test_payload() -> PushPayload {
         open_screen: Some("records".into()),
         idle_range: None,
         task_id: None,
+        block_id: None,
     }
 }
 
@@ -69,6 +70,7 @@ pub fn update_payload(version: &str) -> PushPayload {
         open_screen: Some(UPDATE_OPEN.into()),
         idle_range: None,
         task_id: None,
+        block_id: None,
     }
 }
 

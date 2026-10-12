@@ -729,6 +729,8 @@ export interface PushPayload {
   idle_range?: [Millis, Millis];
   /** urgent_task / important_task の対象タスク（無ければ省略）。「始める」でこのタスクを始める。 */
   task_id?: string;
+  /** block_start の対象ブロック（無ければ省略）。 */
+  block_id?: string;
 }
 
 /** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */

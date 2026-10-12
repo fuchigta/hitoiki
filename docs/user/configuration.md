@@ -174,7 +174,7 @@ timeout_sec = 10
 - `push.urgent_task_interval_min`: 緊急のしるしが付いた未完了のタスクがあるとき、勤務時間内（`push.day_start_after`〜`push.day_end_at`）に、この分数以上の間隔で「いま取りかかりますか？」と知らせます（トリガー `urgent_task`、既定 120 分）。`0` で無効。そのタスクに取り組み中のとき、今日の計画でそのタスクの枠がこれから先にあるときは知らせません。
 - `push.important_stale_days`: 重要（緊急ではない）な未完了のタスクに、この日数以上時間が入っていないとき、勤務時間内に 1 日 1 回まで「少し時間を取りませんか」と知らせます（トリガー `important_task`、既定 3 日）。`0` で無効。今日の計画に入っているタスク、取り組み中のタスク、今週「今週は見送る」を押したタスクは対象外です。
 - `push.toast_persistent`: 回答を求める通知（ボタンや入力欄のあるトースト）を、操作するまで画面に残します（Windows のトーストの `scenario="reminder"`）。`false` にすると一定時間で自動的に消えます。更新のお知らせやテスト通知は常に自動で消えます。見逃した通知は今日画面の「未回答の問いかけ」から答えられます。
-- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`idle_return`、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`important_task`、`late_work` のいずれか。
+- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`idle_return`、`block_start`（計画ブロックの開始。これ専用の設定項目はなく、止めるにはここに入れる）、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`important_task`、`late_work` のいずれか。
 
 通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。
 

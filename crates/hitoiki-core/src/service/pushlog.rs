@@ -115,7 +115,7 @@ pub struct AnswerInput {
     pub stress: Option<i64>,
     pub hassle: Option<String>,
     pub idle: Option<IdlePreset>,
-    /// タスク通知（urgent_task / important_task）への答え。
+    /// タスク通知（urgent_task / important_task / block_start）と、idle_return の「{タスク名}をしていた」への答え。
     pub task: Option<TaskAnswer>,
     pub dismiss: bool,
 }
@@ -129,6 +129,10 @@ pub enum TaskAnswer {
     Later,
     /// 今週は見送る（`task_skip_week`。今週その通知の対象から外す）。
     SkipWeek,
+    /// 無操作の期間を、通知が示したタスクの PC 外の作業として確定する（`idle_task`。idle_return）。
+    IdleTask,
+    /// 今回はやめる（`block_skip`。block_start。記録だけ）。
+    BlockSkip,
 }
 
 impl TaskAnswer {
@@ -137,6 +141,8 @@ impl TaskAnswer {
             TaskAnswer::Start => payload::TASK_START,
             TaskAnswer::Later => payload::TASK_LATER,
             TaskAnswer::SkipWeek => payload::TASK_SKIP_WEEK,
+            TaskAnswer::IdleTask => payload::IDLE_TASK_ACTION,
+            TaskAnswer::BlockSkip => payload::BLOCK_SKIP,
         }
     }
 }
@@ -148,8 +154,10 @@ impl std::str::FromStr for TaskAnswer {
             "start" => Ok(TaskAnswer::Start),
             "later" => Ok(TaskAnswer::Later),
             "skip_week" | "skip-week" => Ok(TaskAnswer::SkipWeek),
+            "idle_task" | "idle-task" => Ok(TaskAnswer::IdleTask),
+            "block_skip" | "block-skip" | "skip" => Ok(TaskAnswer::BlockSkip),
             other => Err(Error::InvalidArgument(format!(
-                "不明なタスクの答え: {other}（start / later / skip_week）"
+                "不明なタスクの答え: {other}（start / later / skip_week / idle_task / block_skip）"
             ))),
         }
     }
@@ -277,7 +285,7 @@ mod tests {
         let a = deliver(&env, payload::day_start(), d + 3_600_000);
         let b = deliver(
             &env,
-            payload::idle_return(d + 1000, d + 20 * 60_000),
+            payload::idle_return(d + 1000, d + 20 * 60_000, None),
             d + 7_200_000,
         );
         let v = list(&ctx, &RangeArgs::default(), true).unwrap().pushes;
@@ -359,7 +367,7 @@ mod tests {
         let d = env.day_start();
         let id = deliver(
             &env,
-            payload::idle_return(d + 600_000, d + 1_800_000),
+            payload::idle_return(d + 600_000, d + 1_800_000, None),
             d + 1_900_000,
         );
         let r = answer(
