@@ -8,6 +8,7 @@
 //! 「その値以下の日」が全体に占める割合 p を 4 等分する（段階 = ceil(4p)）。同じ値は同じ段階。
 //! 段階は相対的な濃淡であり、多い少ないの評価ではない。
 
+use super::okr_summary::KrSelector;
 use super::skill::descendants;
 use super::Ctx;
 use crate::model::SegmentKind;
@@ -25,7 +26,7 @@ pub const DEFAULT_WEEKS: i64 = 53;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct HeatmapInput {
-    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `kr:<ID・タイトル>`（KR に紐付いたタスクの時間）/ `records[:checkin|hassle|abc|reflection]`。
+    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `kr:<ID・タイトル>`（`okr show` と同じ KR の時間: KR のスキルが付いた作業と紐付けたタスク）/ `records[:checkin|hassle|abc|reflection]`。
     pub by: Option<String>,
     /// 開始日（`YYYY-MM-DD` / `today` / `yesterday`）。既定は 53 週前の週の月曜。
     pub from: Option<String>,
@@ -74,10 +75,8 @@ enum Metric {
     Skill {
         ids: HashSet<String>,
     },
-    /// KR に紐付いたタスクの時間。
-    Kr {
-        task_ids: HashSet<String>,
-    },
+    /// KR の集計（`okr show` と同じ区間の選び方）。
+    Kr(KrSelector),
     Records(Option<&'static str>),
 }
 
@@ -156,12 +155,8 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
         }
         ("kr", Some(k)) if !k.is_empty() => {
             let kr = super::okr::find_kr(ctx, k)?;
-            let task_ids = repo::task::list_of_kr(ctx.conn, &kr.id)?
-                .into_iter()
-                .map(|t| t.id)
-                .collect();
             (
-                Metric::Kr { task_ids },
+                Metric::Kr(KrSelector::new(ctx, &kr.id)?),
                 format!("kr:{}", kr.id),
                 format!("KR: {}", kr.title),
                 "ms",
@@ -300,6 +295,13 @@ pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
                 _ => None,
             };
             for s in repo::segment::list(ctx.conn, range)? {
+                if let Metric::Kr(sel) = &metric {
+                    // 無操作・休憩・無視の除外もセレクタが行う。
+                    if sel.pick(&s).is_some() {
+                        add_per_day(&mut per_day, tz, range, s.start_at, s.end_at);
+                    }
+                    continue;
+                }
                 let counted = match &metric {
                     Metric::Kind(k) => s.kind == *k,
                     // 時間・タスク・スキルは「今日の合計」と同じ数え方（無操作・休憩・無視を除く）。
@@ -318,7 +320,6 @@ pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
                         .as_ref()
                         .zip(task_ids.as_ref())
                         .is_some_and(|(t, set)| set.contains(t)),
-                    Metric::Kr { task_ids } => s.task_id.as_ref().is_some_and(|t| task_ids.contains(t)),
                     _ => true,
                 };
                 if !matches_target {
