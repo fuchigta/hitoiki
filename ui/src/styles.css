@@ -1735,9 +1735,10 @@ a.link-chip:hover {
 .nav-badge {
   margin-left: var(--sp-2);
   padding: 0 var(--sp-2);
-  border-radius: 999px;
-  background: var(--warn);
-  color: var(--bg);
+  border-radius: var(--r-pill);
+  /* 件数を知らせるだけ。警告色にして良し悪しに見せない。 */
+  background: var(--accent-soft);
+  color: var(--text);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
