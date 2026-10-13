@@ -59,6 +59,7 @@ async function main() {
         const shot = join(OUT_DIR, `${flow.name}.png`);
         await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
         failed.push(flow.name);
+        if (process.env.FLOW_STACK) console.error(error.stack);
         console.error(`  NG ${flow.name}: ${String(error.message ?? error).split("\n")[0]}`);
         if (problems.length > 0) for (const p of new Set(problems)) console.error(`       ${p}`);
         console.error(`     画面: ${shot}`);

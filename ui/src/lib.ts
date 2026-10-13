@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
 import { leaveGuard } from "./edit-util";
+import { hashStep } from "./hash-guard";
 import { api, on, toAppError, type AppError, type EventName, type Millis, type SegmentKind } from "./api";
 
 // ===== 表示用の整形 =====
@@ -257,6 +258,29 @@ export function navigate(href: string, opts: { replace?: boolean } = {}): void {
 }
 
 const hashOf = (r: Route) => hrefOf(r.screen, r.path, r.params);
+
+// ===== 戻る・進むのガード =====
+// 未保存の変更があるときにブラウザの戻る・進むでハッシュが変わったら、元のハッシュに戻してから離脱の確認を出す。
+// リスナーはモジュールの読み込み時に 1 つだけ登録する（`useRoute` の各リスナーより先に動く。
+// 戻したあとのハッシュを各リスナーが読むので、保留中の画面は切り替わらない）。
+
+/** 最後に受け入れたハッシュ。 */
+let acceptedHash = typeof location !== "undefined" ? location.hash : "";
+
+function onGuardedHashChange() {
+  const hash = location.hash;
+  const step = hashStep(acceptedHash, hash, leaveGuard.isDirty());
+  if (step === "accept") acceptedHash = hash;
+  else if (step === "restore") {
+    location.replace(acceptedHash || "#/");
+    leaveGuard.requestLeave(() => {
+      location.hash = hash;
+    });
+  }
+}
+if (typeof window !== "undefined" && typeof location !== "undefined") {
+  window.addEventListener("hashchange", onGuardedHashChange);
+}
 
 /** 現在のルート。ハッシュが変わると更新する。旧名のハッシュは、履歴を増やさず正規のルートに置き換える。 */
 export function useRoute(): Route {

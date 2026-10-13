@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { hashStep } from "./hash-guard";
 import {
   SIDE_INITIAL,
   blockIsTask,
@@ -105,3 +106,16 @@ describe("daySum", () => {
   });
 });
 
+describe("戻る・進むのガード", () => {
+  it("同じハッシュは何もしない", () => {
+    expect(hashStep("#/tasks", "#/tasks", true)).toBe("skip");
+  });
+  it("未保存がなければ受け入れる", () => {
+    expect(hashStep("#/tasks", "#/today", false)).toBe("accept");
+  });
+  it("未保存があれば元に戻して確認する", () => {
+    expect(hashStep("#/tasks/T1", "#/today", true)).toBe("restore");
+    // 戻したあとに届く（受け入れ済みと同じ）イベントは何もしない。
+    expect(hashStep("#/tasks/T1", "#/tasks/T1", true)).toBe("skip");
+  });
+});
