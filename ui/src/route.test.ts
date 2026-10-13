@@ -51,3 +51,33 @@ describe("legacyRoute", () => {
     expect(legacyRoute(r)).toEqual(r);
   });
 });
+
+describe("legacyRoute: 記録・振り返り（P5）", () => {
+  const map = (hash: string) => {
+    const r = legacyRoute(routeFromHash(hash));
+    return hrefOf(r.screen, r.path, r.params);
+  };
+  it("reflect は記録の振り返りの絞り込みに写す", () => {
+    expect(map("#/reflect")).toBe("#/records?kind=reflection");
+    expect(map("#/reflect/bogus")).toBe("#/records?kind=reflection");
+  });
+  it("reflect/<kind> と reflection/<kind> は作成フォームに写す", () => {
+    expect(map("#/reflect/day_start")).toBe("#/records/new/day_start");
+    expect(map("#/reflect/day_end")).toBe("#/records/new/day_end");
+    expect(map("#/reflect/weekly")).toBe("#/records/new/weekly");
+    expect(map("#/reflection/day_end")).toBe("#/records/new/day_end");
+    expect(map("#/reflection/weekly")).toBe("#/records/new/weekly");
+  });
+  it("reflection だけ（種類なし）は記録の振り返りの絞り込み", () => {
+    expect(map("#/reflection")).toBe("#/records?kind=reflection");
+  });
+  it("checkin と hassle は作成フォームに写す", () => {
+    expect(map("#/checkin")).toBe("#/records/new/checkin");
+    expect(map("#/hassle")).toBe("#/records/new/hassle");
+  });
+  it("記録の新しいルートはそのまま", () => {
+    expect(map("#/records")).toBe("#/records");
+    expect(map("#/records/checkin/C1?period=today")).toBe("#/records/checkin/C1?period=today");
+    expect(map("#/records/new/abc")).toBe("#/records/new/abc");
+  });
+});
