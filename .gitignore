@@ -8,3 +8,4 @@ node_modules/
 /crates/hitoiki-app/gen/
 /crates/hitoiki-app/binaries/
 /ui/shots
+/ui/shots-prev
