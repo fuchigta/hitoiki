@@ -395,7 +395,7 @@ export function Today() {
                     <li key={t.id}>
                       <button
                         type="button"
-                        class={`chip${armed?.id === t.id ? " on" : ""}`}
+                        class={`chip task-chip${armed?.id === t.id ? " on" : ""}`}
                         onPointerDown={(e) => startTaskDrag(e, t)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" || e.key === " ") {
