@@ -23,6 +23,51 @@ cd ..
 
 CLI だけなら UI のビルドは不要です（`cargo build -p hitoiki-cli`）。
 
+## UI の確認（モックとスクリーンショット）
+
+Tauri（Rust 側）を起動せずに、UI だけをブラウザで表示・操作・撮影できます。Tauri の IPC を `ui/src/dev/` のモックに差し替える仕組みで、AI エージェントが画面を目で確認する用途も想定しています。画面の再設計の計画と、段階ごとの確かめ方は [ui-redesign.md](./ui-redesign.md) にあります。モックは `vite --mode mock` のときだけ読み込まれ、`npm run build` の成果物には含まれません。ローカルの開発サーバ（127.0.0.1）だけを使い、外部への通信はありません。
+
+### 起動
+
+```powershell
+cd ui
+npm run dev:mock    # http://localhost:5173/ をブラウザで開く
+```
+
+URL のクエリで切り替えます。
+
+- `?scenario=default|empty|busy`: データの状態（既定は `default`）
+  - `default`: 普通の 1 日（タスク、計画ブロック、活動区間、要確認、OKR/KR、テンプレート、ルール、記録など）
+  - `empty`: 初回起動直後。データなしで、はじめにの案内が出る
+  - `busy`: 要確認が多い、タスクが多数、長い名前など、詰まった状態
+- `?window=main|popup|quick`: ウインドウの種別（既定は `main`）。main の画面は `#/today`、`#/review` のようにハッシュで切り替える
+
+例: `http://localhost:5173/?scenario=busy#/review`
+
+現在時刻は 2026-10-13（火）10:30 JST に固定した基準時刻で、データはそこからの相対で作ります。状態はメモリ上だけにあり、タスクの追加・編集・削除、仕分け、計画ブロックの操作などは画面に反映されます（再読み込みで初期状態に戻る）。ブラウザのコンソールでは `window.__mock.state` から状態を確認できます。
+
+### モックの追加
+
+新しい Tauri コマンドを `ui/src/api/index.ts` に足したら、`ui/src/dev/handlers.ts` のコマンド表 `H` にも同名のハンドラを足します。足し忘れると `npm test`（`ui/src/dev/mock.test.ts`）が落ちます。未実装のコマンドが呼ばれると、モックは `console.error("[mock] unhandled command: ...")` を出して reject します。フィクスチャは `ui/src/dev/state.ts` にあります。型は `api/types.ts` を使うので、`npm run typecheck` で形の食い違いが分かります。
+
+### スクリーンショットの巡回
+
+```powershell
+cd ui
+npm run shots                                        # 全シナリオ × 全画面 × 全ウインドウ
+npm run shots -- --scenario default --screen today   # 絞り込み
+npm run shots -- --window popup --dark               # ダークテーマも撮る
+```
+
+`ui/shots/<scenario>/<window>-<screen>.png`（popup と quick は `<window>.png`、ダークは末尾に `-dark`）に保存します（`ui/shots/` は git の管理外）。Vite をプログラムから起動し、Windows に入っている Edge（なければ Chrome）を Playwright で操作するので、ブラウザのダウンロードは要りません。ビューポートは main が 1280x800（本文が長い画面は高さを伸ばして全体を撮る）、popup が 360x320、quick が 520x380 です。各ページの console error・pageerror・`[mock] unhandled` を集め、1 件でもあれば最後に一覧を出して終了コード 1 になります。
+
+### AI エージェントが画面を確認する手順
+
+1. UI を変えたら `npm run shots -- --scenario <シナリオ> --screen <画面>` で該当の画面だけを撮る。
+2. 終了コードとエラー一覧を確認する（エラーが出たら、まずモックか UI のどちらの不具合かを切り分ける）。
+3. 撮れた PNG を画像として読み、データが表示されているか、空画面やエラー表示になっていないか、レイアウトが崩れていないかを目で確認する。
+4. 空の状態は `empty`、詰まった状態（長い名前・件数が多い）は `busy` でも確認する。
+
 ## ビルド・テスト・検査
 
 ```powershell
