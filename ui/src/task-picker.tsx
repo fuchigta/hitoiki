@@ -168,7 +168,7 @@ export function TaskPicker(p: Props) {
               onMouseMove={() => setActive(i)}
             >
               {itemLabel(it)}
-              {it.kind === "task" && it.task.status === "doing" && <span class="muted"> （進行中）</span>}
+              {it.kind === "task" && it.task.status === "doing" && <span class="meta"> （進行中）</span>}
             </li>
           ))}
         </ul>

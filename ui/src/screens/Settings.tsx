@@ -5,6 +5,7 @@ import { QuickShortcutCard } from "../quick-shortcut";
 import { hasExe, normalizeExe } from "../ignore-util";
 import { DataSettings } from "../data-settings";
 import { loadTimeZone, useAction, useAsync } from "../lib";
+import { OverflowMenu } from "../ui/parts";
 
 type Cfg = {
   general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number; urgent_task_interval_min?: number; important_stale_days?: number; kr_idle_weekday?: number };
@@ -58,7 +59,7 @@ export function Settings() {
             />
             新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）
           </label>
-          <p class="muted">タイムゾーン: {c.general?.timezone ?? "-"}</p>
+          <p class="meta">タイムゾーン: {c.general?.timezone ?? "-"}</p>
         </div>
       </Card>
       <QuickShortcutCard />
@@ -149,7 +150,7 @@ export function Settings() {
         </div>
       </Card>
       <Card title="設定ファイル">
-        <p class="muted">
+        <p class="meta">
           {path.data?.path}
           <br />
           DB: {path.data?.db}
@@ -169,7 +170,7 @@ export function Settings() {
           </Field>
           <button disabled={act.busy || !key.trim()}>保存</button>
         </form>
-        {msg && <p class="muted">{msg}</p>}
+        {msg && <p class="meta" role="status">{msg}</p>}
         <details>
           <summary>現在の設定</summary>
           <pre>{JSON.stringify(cfg.data, null, 2)}</pre>
@@ -196,21 +197,18 @@ function IgnoreCard() {
     if (await act.run(() => api.ignoreRemove(e))) list.reload();
   };
   return (
-    <Card title="無視するアプリ">
+    <Card
+      title="無視するアプリ"
+      help="ここのアプリが前面の時間は、短いものは前後の作業に含め、続いたものは集計・仕分け・レポートに数えません。記録は消えず、外せば元に戻ります。追加・削除すると直近 7 日を再計算します。"
+    >
       <div class="stack">
-        <p class="muted">
-          ここのアプリが前面の時間は、短いものは前後の作業に含め、続いたものは集計・仕分け・レポートに数えません。記録は消えず、外せば元に戻ります。
-          追加・削除すると直近 7 日を再計算します。
-        </p>
         <ErrorBox error={list.error ?? act.error} />
         <ul class="plain">
           {exes.map((e) => (
             <li key={e} class="row">
               <span>{e}</span>
               <span class="spacer" />
-              <button class="ghost" disabled={act.busy} onClick={() => remove(e)}>
-                外す
-              </button>
+              <OverflowMenu label={`${e} の操作`} items={[{ label: "外す", onSelect: () => remove(e), disabled: act.busy }]} />
             </li>
           ))}
         </ul>

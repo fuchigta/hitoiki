@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, type MatchField, type PatternType, type TaskDeletePreview, type TaskStatus, type TaskView } from "../api";
+import { api, type MatchField, type PatternType, type TaskStatus, type TaskView } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
+import { useConfirmDelete } from "../confirm-delete";
+import { Help, ListDetail, ObjectList, ObjectRow, OverflowMenu } from "../ui/parts";
 import { defaultBodyMode, isDirty, isSaveShortcut, krPatch, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
 import { KrPicker } from "../kr-picker";
 import { krOptions } from "../kr-util";
@@ -43,39 +45,42 @@ export function Tasks() {
   );
 
   return (
-    <div class="split">
-      <div class="stack">
-        <NewTask onAdded={list.reload} />
-        <div class="row">
-          {FILTERS.map((f) => (
-            <button key={f.id} class={filter === f.id ? "chip on" : "chip"} onClick={() => setFilter(f.id)}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <ErrorBox error={list.error} />
-        {list.data && list.data.tasks.length === 0 && <Empty>タスクはありません。</Empty>}
-        <ul class="tasklist">
-          {list.data?.tasks.map((t) => (
-            <li key={t.id} class={selected === t.id ? "sel" : ""}>
-              <button
-                class="task-row"
-                onClick={() => {
+    <ListDetail
+      list={
+        <div class="stack">
+          <NewTask onAdded={list.reload} />
+          <div class="row">
+            {FILTERS.map((f) => (
+              <button key={f.id} class={filter === f.id ? "chip on" : "chip"} onClick={() => setFilter(f.id)}>
+                {f.label}
+              </button>
+            ))}
+          </div>
+          <ErrorBox error={list.error} />
+          {list.data && list.data.tasks.length === 0 && <Empty>タスクはありません。</Empty>}
+          <ObjectList label="タスク">
+            {list.data?.tasks.map((t) => (
+              <ObjectRow
+                key={t.id}
+                selected={selected === t.id}
+                title={
+                  <>
+                    <span class={`status s-${t.status}`}>{STATUS_LABEL[t.status]}</span> {t.title}
+                  </>
+                }
+                tags={t.kind === "interrupt" ? ["割り込み"] : undefined}
+                meta={t.estimate_min != null ? `${t.estimate_min}分` : undefined}
+                onSelect={() => {
                   // 未保存の編集があれば、確認してから別のタスクへ切り替える。
                   if (t.id !== selected) leaveGuard.requestLeave(() => setSelected(t.id));
                 }}
-              >
-                <span class={`status s-${t.status}`}>{STATUS_LABEL[t.status]}</span>
-                <span class="title">{t.title}</span>
-                {t.kind === "interrupt" && <span class="tag">割り込み</span>}
-                {t.estimate_min != null && <span class="muted">{t.estimate_min}分</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div>
-        {selected ? (
+              />
+            ))}
+          </ObjectList>
+        </div>
+      }
+      detail={
+        selected ? (
           <TaskDetail
             key={selected}
             id={selected}
@@ -87,9 +92,9 @@ export function Tasks() {
           />
         ) : (
           <Empty>タスクを選ぶと詳細を編集できます。</Empty>
-        )}
-      </div>
-    </div>
+        )
+      }
+    />
   );
 }
 
@@ -130,11 +135,19 @@ function TaskDetail({ id, onChanged, onDeleted }: { id: string; onChanged: () =>
     }
   };
   return (
-    <Card title={task.title} aside={<span class={`status s-${task.status}`}>{STATUS_LABEL[task.status]}</span>}>
-      <p class="muted">これまでの時間: {fmtDur(tracked_ms)}</p>
+    <Card
+      title={task.title}
+      aside={
+        <>
+          <span class={`status s-${task.status}`}>{STATUS_LABEL[task.status]}</span>
+          <TaskMenu taskId={task.id} title={task.title} disabled={act.busy} onDeleted={onDeleted} />
+        </>
+      }
+    >
+      <p class="meta">これまでの時間: {fmtDur(tracked_ms)}</p>
       <div class="row">
         {task.status !== "doing" && task.status !== "done" && task.status !== "dropped" && (
-          <button class="primary" disabled={act.busy} onClick={() => after(() => api.taskStart(task.id))}>
+          <button disabled={act.busy} onClick={() => after(() => api.taskStart(task.id))}>
             始める
           </button>
         )}
@@ -169,17 +182,17 @@ function TaskDetail({ id, onChanged, onDeleted }: { id: string; onChanged: () =>
         show.reload();
         onChanged();
       }} />
-      <DeleteTask taskId={task.id} title={task.title} disabled={act.busy} onDeleted={onDeleted} />
       <ErrorBox error={act.error} />
     </Card>
   );
 }
 
 /**
- * 誤入力のタスクの削除。押すと影響（計上済みの時間・確定した割り当て・ルールなど）を見せる確認を出し、
+ * タスクの「…」メニュー（削除）。削除は影響（計上済みの時間・確定した割り当て・ルールなど）を見せる確認を出し、
  * 「削除する」で実行する。確認はアプリ内のダイアログ（`window.confirm` は使わない）。
+ * 「やめる」は記録として残し、「削除」は誤入力を消す（計上した時間は未割り当てに戻る）。
  */
-function DeleteTask({
+function TaskMenu({
   taskId,
   title,
   disabled,
@@ -190,57 +203,34 @@ function DeleteTask({
   disabled: boolean;
   onDeleted: () => void;
 }) {
-  const [preview, setPreview] = useState<TaskDeletePreview | null>(null);
-  const act = useAction();
-  const ask = async () => {
-    const p = await act.run(() => api.taskDeletePreview(taskId));
-    if (p) setPreview(p);
-  };
-  const doDelete = async () => {
-    const r = await act.run(() => api.taskDelete(taskId));
-    if (r) {
-      setPreview(null);
-      onDeleted();
-    }
-  };
-  useEffect(() => {
-    if (!preview) return;
-    const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPreview(null);
-    };
-    window.addEventListener("keydown", h);
-    return () => window.removeEventListener("keydown", h);
-  }, [preview]);
+  const del = useConfirmDelete({
+    what: "タスク",
+    preview: async () => {
+      const p = await api.taskDeletePreview(taskId);
+      return {
+        dry_run: true,
+        deleted: false,
+        impact: {
+          entity: "task",
+          id: taskId,
+          name: title,
+          lines: [],
+          warnings: p.summary ? [p.summary] : [],
+          note: "削除は元に戻せません。記録として残したいときは「やめる」を使ってください（やめる=記録として残す／削除=誤入力を消す。計上した時間は未割り当てに戻ります）。",
+        },
+      };
+    },
+    commit: () => api.taskDelete(taskId),
+    onDeleted,
+  });
   return (
-    <div class="stack delete-task">
-      <div class="row">
-        <button type="button" class="ghost" disabled={disabled || act.busy} onClick={ask}>
-          削除
-        </button>
-        <span class="muted note">
-          やめる=記録として残す／削除=誤入力を消す（計上した時間は未割り当てに戻ります）
-        </span>
-      </div>
-      <ErrorBox error={act.error} />
-      {preview && (
-        <div class="modal-back">
-          <div class="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-title">
-            <p id="delete-title">タスク「{title}」を削除しますか？</p>
-            <p class="muted">{preview.summary}</p>
-            <p class="muted">削除は元に戻せません。記録として残したいときは「やめる」を使ってください。</p>
-            <div class="row">
-              <span class="spacer" />
-              <button autoFocus disabled={act.busy} onClick={() => setPreview(null)}>
-                キャンセル
-              </button>
-              <button class="primary" disabled={act.busy} onClick={doDelete}>
-                削除する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    <>
+      <OverflowMenu
+        label="タスクの操作"
+        items={[{ label: "削除…", onSelect: del.start, disabled: disabled || del.busy }]}
+      />
+      {del.dialog}
+    </>
   );
 }
 
@@ -259,10 +249,12 @@ function Corrections({ taskId, onUndone }: { taskId: string; onUndone: () => voi
   };
   return (
     <>
-      <h3>補正した時間帯</h3>
+      <h3>
+        補正した時間帯 <Help>今日画面の「実績」の列をドラッグすると、その時間帯をタスクへ付け替えられます。</Help>
+      </h3>
       <ErrorBox error={list.error ?? act.error} />
       {items.length === 0 ? (
-        <Empty>このタスクへ付け替えた時間帯はありません。今日画面の「実績」の列をドラッグすると付け替えられます。</Empty>
+        <Empty>このタスクへ付け替えた時間帯はありません。</Empty>
       ) : (
         <ul class="plain corr-done">
           {items.map((c) => (
@@ -272,10 +264,11 @@ function Corrections({ taskId, onUndone }: { taskId: string; onUndone: () => voi
               </span>{" "}
               <strong>{fmtDur(c.total_ms)}</strong>
               {c.offline_ms > 0 && <span class="tag">うち PC 外 {fmtDur(c.offline_ms)}</span>}
-              {c.activity_label && <span class="muted"> {c.activity_label}</span>}
-              <button type="button" class="ghost" disabled={act.busy} onClick={() => undo(c.id)}>
-                取り消す
-              </button>
+              {c.activity_label && <span class="meta"> {c.activity_label}</span>}
+              <OverflowMenu
+                label="補正の操作"
+                items={[{ label: "取り消す", onSelect: () => undo(c.id), disabled: act.busy }]}
+              />
             </li>
           ))}
         </ul>
@@ -405,7 +398,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         )}
       </div>
       <div class="field">
-        <span>スキル（既知のスキルから選びます）</span>
+        <span>スキル</span>
         <SkillPicker
           value={draft.skills}
           skills={known.data?.skills ?? []}
@@ -415,7 +408,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         />
       </div>
       <div class="field">
-        <span>KR（OKR のどの成果につながるか。外すこともできます）</span>
+        <span>KR</span>
         <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="KR を選ぶ" disabled={busy} />
       </div>
       <div class="row">

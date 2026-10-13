@@ -2,6 +2,7 @@ import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { api, type AppError, type BlockView, type GapView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
 import { leaveGuard } from "./edit-util";
+import { Help } from "./ui/parts";
 import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime } from "./lib";
 
 export function ErrorBox({ error }: { error: AppError | null }) {
@@ -27,18 +28,38 @@ export function RuntimeBanner() {
   );
 }
 
-export function Card({ title, children, aside }: { title?: string; children: ComponentChildren; aside?: ComponentChildren }) {
+interface SectionProps {
+  title?: string;
+  /** 見出しの階層。2 = 画面内の区画（カード）、3 = 区画の中の小見出し。 */
+  level?: 2 | 3;
+  /** 見出しの右に置く要素（操作ボタンなど）。 */
+  aside?: ComponentChildren;
+  /** 見出しの横の「?」に入れる説明文。 */
+  help?: ComponentChildren;
+  children: ComponentChildren;
+}
+
+/** 見出しつきの区画。level 2 はカード枠つき（h2）、level 3 は枠なしの小見出し（h3）。 */
+export function Section({ title, level = 2, aside, help, children }: SectionProps) {
+  const head =
+    title || aside ? (
+      <header class="card-head">
+        {level === 2 ? <h2>{title}</h2> : <h3>{title}</h3>}
+        {help && <Help>{help}</Help>}
+        <div class="card-aside">{aside}</div>
+      </header>
+    ) : null;
   return (
-    <section class="card">
-      {(title || aside) && (
-        <header class="card-head">
-          <h2>{title}</h2>
-          <div>{aside}</div>
-        </header>
-      )}
+    <section class={level === 2 ? "card" : "sec"}>
+      {head}
       {children}
     </section>
   );
+}
+
+/** Section（level 2）の別名。既存の呼び出し用。 */
+export function Card(props: Omit<SectionProps, "level">) {
+  return <Section {...props} level={2} />;
 }
 
 /** 未保存の変更があるまま移動しようとしたときの確認（`window.confirm` の代わりのアプリ内 UI）。 */
@@ -73,9 +94,18 @@ export function LeaveConfirm() {
   );
 }
 
-export function Empty({ children }: { children: ComponentChildren }) {
-  return <p class="empty">{children}</p>;
+/** 空のときの案内。短い 1 文と、任意の操作ボタン。 */
+export function EmptyState({ children, action }: { children: ComponentChildren; action?: ComponentChildren }) {
+  return (
+    <div class="empty">
+      <p>{children}</p>
+      {action && <div class="row">{action}</div>}
+    </div>
+  );
 }
+
+/** EmptyState の別名。既存の呼び出し用。 */
+export const Empty = EmptyState;
 
 export function Field({ label, children }: { label: string; children: ComponentChildren }) {
   return (

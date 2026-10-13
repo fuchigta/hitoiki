@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "preact/hooks";
 import { api, type AnswerDetail, type Question, type Reflection } from "./api";
 import { ErrorBox, Field } from "./components";
 import { useAction } from "./lib";
+import { Help, Scale } from "./ui/parts";
 import { Markdown } from "./markdown";
 import {
   askedScales,
@@ -22,28 +23,6 @@ const KIND_LABELS: Record<Question["kind"], string> = {
   free: "自由記述",
 };
 
-/** 1〜5 のボタン。もう一度押すと選択を外す。 */
-function Scale({ value, onChange, label }: { value?: number; onChange: (n: number | undefined) => void; label: string }) {
-  return (
-    <div class="field">
-      <span>{label}</span>
-      <div class="scale" role="group" aria-label={label}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            type="button"
-            key={n}
-            class={value === n ? "chip on" : "chip"}
-            aria-pressed={value === n}
-            onClick={() => onChange(value === n ? undefined : n)}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** 保存した ABC 記録について、B を掘り下げる AI の問い（既存の `abc dispute`）を続けて聞く。 */
 function AbcFollowUp({ recordId }: { recordId: string }) {
   const act = useAction();
@@ -53,7 +32,6 @@ function AbcFollowUp({ recordId }: { recordId: string }) {
       <div class="row">
         <button
           type="button"
-          class="ghost"
           disabled={act.busy}
           onClick={async () => {
             const r = await act.run(() => api.abcDispute(recordId));
@@ -128,7 +106,7 @@ export function StructuredAnswer({
         const done = answered.items.find((a) => a.index === i);
         return (
           <fieldset key={i} class="stack reflect-q" aria-label={`問い ${i + 1}`}>
-            <legend class="muted">
+            <legend class="meta">
               {i + 1}. {KIND_LABELS[q.kind]}
               {done && " ・回答済み"}
             </legend>
@@ -143,7 +121,7 @@ export function StructuredAnswer({
                     ))}
                   </ul>
                 )}
-                {detailOf(i)?.missing && <p class="muted">この回答の記録は削除されています。</p>}
+                {detailOf(i)?.missing && <p class="hint">この回答の記録は削除されています。</p>}
                 {q.kind === "abc" && done.record_id && !detailOf(i)?.missing && <AbcFollowUp recordId={done.record_id} />}
               </>
             ) : (
@@ -161,7 +139,7 @@ export function StructuredAnswer({
                   )}
                   {q.kind === "hassle" && (
                     <>
-                      {(q.examples?.length ?? 0) > 0 && <p class="muted">例: {q.examples!.join(" / ")}</p>}
+                      {(q.examples?.length ?? 0) > 0 && <p class="hint">例: {q.examples!.join(" / ")}</p>}
                       <Field label="気になったこと">
                         <textarea rows={3} value={f.text} onInput={(e) => patch(i, { text: e.currentTarget.value })} />
                       </Field>
@@ -170,7 +148,7 @@ export function StructuredAnswer({
                   )}
                   {q.kind === "abc" && (
                     <>
-                      {(q.examples?.length ?? 0) > 0 && <p class="muted">例: {q.examples!.join(" / ")}</p>}
+                      {(q.examples?.length ?? 0) > 0 && <p class="hint">例: {q.examples!.join(" / ")}</p>}
                       <Field label="A: 出来事（AI の候補です。自由に書き換えられます）">
                         <textarea
                           rows={2}
@@ -206,11 +184,11 @@ export function StructuredAnswer({
           <button class="primary" disabled={save.busy || !hasAnswers(out.questions, forms, answeredIdx)}>
             回答を保存
           </button>
-          <span class="muted">答えた問いだけが保存されます。残りは後から答えられます。</span>
+          <Help>答えた問いだけが保存されます。残りは後から答えられます。</Help>
         </div>
       )}
       {saved && (
-        <span class="muted" role="status">
+        <span class="meta" role="status">
           {saved}
         </span>
       )}

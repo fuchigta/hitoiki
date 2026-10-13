@@ -100,7 +100,7 @@ export function Reflect() {
             </button>
           ))}
         </div>
-        <p class="muted">
+        <p class="hint">
           {info.hint}
           {info.id === "day_start" && (
             <>
@@ -113,12 +113,12 @@ export function Reflect() {
           <Field label={kind === "weekly" ? "基準日（その週）" : "基準日"}>
             <input type="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />
           </Field>
-          <button class="primary" disabled={gen.busy || !date} onClick={generate}>
+          <button class={current ? "" : "primary"} disabled={gen.busy || !date} onClick={generate}>
             {gen.busy ? "生成中…" : "問いを生成"}
           </button>
         </div>
         {gen.busy && (
-          <p class="muted" role="status">
+          <p class="hint" role="status">
             AI が問いを考えています。数十秒かかることがあります。他の画面を使っていても大丈夫です。
           </p>
         )}
@@ -170,7 +170,7 @@ export function Reflect() {
                 回答を保存
               </button>
               {saved && (
-                <span class="muted" role="status">
+                <span class="meta" role="status">
                   {saved}
                 </span>
               )}
@@ -189,7 +189,7 @@ export function Reflect() {
               <button class={`link${current?.id === r.id ? " on" : ""}`} onClick={() => setCurrent(r)}>
                 {fmtFull(r.at)}
               </button>
-              {r.answers_md || r.answers_json ? <span class="muted"> ・回答済み</span> : <span class="muted"> ・未回答</span>}
+              {r.answers_md || r.answers_json ? <span class="meta"> ・回答済み</span> : <span class="meta"> ・未回答</span>}
             </li>
           ))}
         </ul>

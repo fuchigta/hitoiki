@@ -105,8 +105,8 @@ export function BlockForm(p: Props) {
         集中の時間（この間は通知を控えます）
       </label>
       <ErrorBox error={creating.error} />
-      {invalid && <p class="muted">終了は開始より後にしてください。</p>}
-      {hits.length > 0 && <p class="muted">重なり: {describeConflicts(hits)}（重ねても保存できます）</p>}
+      {invalid && <p class="hint" role="alert">終了は開始より後にしてください。</p>}
+      {hits.length > 0 && <p class="hint">重なり: {describeConflicts(hits)}（重ねても保存できます）</p>}
       <div class="row">
         {p.onDelete && (
           <button type="button" onClick={p.onDelete} disabled={p.busy}>

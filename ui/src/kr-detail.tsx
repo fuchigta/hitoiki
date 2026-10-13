@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrSummary } from "./api";
 import { ErrorBox } from "./components";
+import { Help, OverflowMenu } from "./ui/parts";
 import { KrHistory } from "./kr-history";
 import { SkillPicker } from "./skill-picker";
 import {
@@ -32,49 +33,63 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
   return (
     <div class="kr-detail">
       <ErrorBox error={sum.error} />
-      {s && <Summary s={s} />}
-      <KrHistory k={k} onChanged={onChanged} />
-      {wantsSuggestion(s) && <KrSuggest k={k} onChanged={reload} />}
-      {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
-      {k.measure === "done" ? (
-        <>
-          {tasks}
-          {skills}
-        </>
-      ) : (
-        <>
-          {skills}
-          {tasks}
-        </>
-      )}
+      {s && <SummaryHead s={s} />}
+      {/* 要点（主軸の値）だけ常時表示し、週別・履歴・提案・スキル・タスクは開いたときに出す。 */}
+      <details class="kr-more">
+        <summary>詳細を開く</summary>
+        <div class="stack kr-more-body">
+          {s && <SummaryBody s={s} />}
+          <KrHistory k={k} onChanged={onChanged} />
+          {wantsSuggestion(s) && <KrSuggest k={k} onChanged={reload} />}
+          {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
+          {k.measure === "done" ? (
+            <>
+              {tasks}
+              {skills}
+            </>
+          ) : (
+            <>
+              {skills}
+              {tasks}
+            </>
+          )}
+        </div>
+      </details>
     </div>
   );
 }
 
-function Summary({ s }: { s: KrSummary }) {
+/** 常時表示する要点: 選んだ軸の値と、補助の値。 */
+function SummaryHead({ s }: { s: KrSummary }) {
   const { main, aux } = splitMeasures(s);
-  const heights = barHeights(s.weekly);
-  const hasTime = s.time_ms > 0;
   const breakdown = breakdownText(s);
   return (
-    <div class="stack">
-      <div class="kr-main-row">
-        <div>
-          <div class="kr-main" aria-label={main.label}>
-            {main.text}
-          </div>
-          <div class="muted kr-main-label">{main.label}</div>
-          {breakdown && main.measure !== "done" && <div class="muted kr-indirect">{breakdown}</div>}
+    <div class="kr-main-row">
+      <div>
+        <div class="kr-main num" aria-label={main.label}>
+          {main.text}
         </div>
-        <div class="kr-aux muted">
-          {aux.map((a) => (
-            <span key={a.measure}>
-              {a.label}: {a.text}
-            </span>
-          ))}
-        </div>
+        <div class="meta kr-main-label">{main.label}</div>
+        {breakdown && main.measure !== "done" && <div class="meta kr-indirect">{breakdown}</div>}
       </div>
-      <p class="muted kr-range">
+      <div class="kr-aux meta">
+        {aux.map((a) => (
+          <span key={a.measure}>
+            {a.label}: {a.text}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 開いたときに出す内訳: 期間、週ごとの時間、スキル別、見積と実績。 */
+function SummaryBody({ s }: { s: KrSummary }) {
+  const heights = barHeights(s.weekly);
+  const hasTime = s.time_ms > 0;
+  return (
+    <div class="stack">
+      <p class="meta kr-range">
         期間: {s.range.start.slice(0, 10)} 〜 {s.range.end.slice(0, 10)}（{rangeSourceLabel(s.range_source)}）
       </p>
       {hasTime && (
@@ -90,7 +105,7 @@ function Summary({ s }: { s: KrSummary }) {
             ))}
           </div>
           {s.skills.length > 0 && (
-            <p class="muted kr-skills">
+            <p class="meta kr-skills">
               スキル別:{" "}
               {s.skills.map((sk, i) => (
                 <span key={sk.name}>
@@ -104,7 +119,7 @@ function Summary({ s }: { s: KrSummary }) {
         </>
       )}
       {s.estimate.estimated_tasks > 0 && (
-        <p class="muted">
+        <p class="meta">
           見積の合計 {fmtDur(s.estimate.estimate_min_total * 60_000)}（{s.estimate.estimated_tasks} 件）・
           そのタスクの期間内の実績 {fmtDur(s.estimate.actual_ms_of_estimated)}
         </p>
@@ -140,10 +155,11 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   if (r && !r.eligible) return null;
   return (
     <div class="stack kr-suggest">
-      <span class="muted">
-        紐づけの候補（名前の近いタスク・スキルです。自動では紐付けません。「付けない」を選ぶと、以後この候補は出しません）
-      </span>
-      {r && shown.length === 0 && <p class="muted">候補は見つかりませんでした。</p>}
+      <h3>
+        紐づけの候補{" "}
+        <Help>名前の近いタスク・スキルです。自動では紐付けません。「付けない」を選ぶと、以後この候補は出しません。</Help>
+      </h3>
+      {r && shown.length === 0 && <p class="hint">候補は見つかりませんでした。</p>}
       <ul class="plain">
         {shown.map((c) => {
           const ref = candidateRef(c);
@@ -152,14 +168,13 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
               <span class="row">
                 <span class="grow">
                   {c.name}
-                  <span class="muted">
+                  <span class="meta">
                     {" "}
                     （{kindLabel(c.kind)}・{sourceLabel(c.source)}）
                   </span>
                 </span>
                 <button
                   type="button"
-                  class="primary"
                   disabled={act.busy}
                   aria-label={`${kindLabel(c.kind)}「${c.name}」を KR に付ける`}
                   onClick={() => accept(ref)}
@@ -181,7 +196,7 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
         })}
       </ul>
       <div class="row">
-        {r && aiNote(r, askAi) && <span class="muted note">{aiNote(r, askAi)}</span>}
+        {r && aiNote(r, askAi) && <span class="meta note">{aiNote(r, askAi)}</span>}
         <span class="spacer" />
         {!askAi && (
           <button type="button" class="ghost" onClick={() => setAskAi(true)}>
@@ -207,11 +222,14 @@ function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onCh
   };
   return (
     <div class="field kr-skill-field">
-      <span class="muted">
-        {k.measure === "done"
-          ? "KR のスキル（完了数の対象は紐付けたタスクです。スキルは時間・日数に使います）"
-          : "KR のスキル（このスキルが付いたタスク・活動の時間をこの KR の時間として数えます）"}
-      </span>
+      <h3>
+        KR のスキル{" "}
+        <Help>
+          {k.measure === "done"
+            ? "完了数の対象は紐付けたタスクです。スキルは時間・日数に使います。"
+            : "このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。"}
+        </Help>
+      </h3>
       <SkillPicker
         value={names}
         skills={known.data?.skills ?? []}
@@ -256,11 +274,14 @@ function KrTasks({
 
   return (
     <div class="stack kr-tasks">
-      <span class="muted">
-        {k.measure === "done"
-          ? "紐付けたタスク（完了数の対象です）"
-          : "紐付けたタスク（補助: スキルが付いていなくても、この KR の時間に含めます）"}
-      </span>
+      <h3>
+        紐付けたタスク{" "}
+        <Help>
+          {k.measure === "done"
+            ? "完了数の対象です。"
+            : "補助です。スキルが付いていなくても、この KR の時間に含めます。"}
+        </Help>
+      </h3>
       {tasks.length > 0 && (
         <ul class="plain">
           {tasks.map((t) => (
@@ -268,27 +289,22 @@ function KrTasks({
               <span class="row">
                 <span class="grow">
                   {t.title}
-                  <span class="muted">
+                  <span class="meta">
                     {" "}
                     （{STATUS_LABEL[t.status] ?? t.status}
                     {t.tracked_ms > 0 ? `・${fmtDur(t.tracked_ms)}` : ""}）
                   </span>
                 </span>
-                <button
-                  type="button"
-                  class="ghost"
-                  disabled={act.busy}
-                  aria-label={`タスク「${t.title}」を KR から外す`}
-                  onClick={() => unlink(t.id)}
-                >
-                  外す
-                </button>
+                <OverflowMenu
+                  label={`タスク「${t.title}」の操作`}
+                  items={[{ label: "KR から外す", onSelect: () => unlink(t.id), disabled: act.busy }]}
+                />
               </span>
             </li>
           ))}
         </ul>
       )}
-      {summary && tasks.length === 0 && <p class="muted">紐付いたタスクはまだありません。</p>}
+      {summary && tasks.length === 0 && <p class="hint">紐付いたタスクはまだありません。</p>}
       <form class="row" onSubmit={add}>
         <input
           class="grow"
@@ -347,20 +363,20 @@ function LinkPicker({ k, onDone, onCancel }: { k: KeyResult; onDone: () => void;
         placeholder="タスクを絞り込む"
         aria-label="紐付けるタスクを絞り込む"
       />
-      {cands.length === 0 && <p class="muted">紐付けられる未完了のタスクがありません。</p>}
+      {cands.length === 0 && <p class="hint">紐付けられる未完了のタスクがありません。</p>}
       <ul class="plain kr-cands">
         {cands.map((c) => (
           <li key={c.task.id}>
             <label class="check">
               <input type="checkbox" checked={sel.has(c.task.id)} onChange={() => toggle(c.task.id)} />
               {c.task.title}
-              {c.fromKr && <span class="muted">（KR「{c.fromKr}」に紐付いています。選ぶと付け替えます）</span>}
+              {c.fromKr && <span class="meta">（KR「{c.fromKr}」に紐付いています。選ぶと付け替えます）</span>}
             </label>
           </li>
         ))}
       </ul>
       <div class="row">
-        {relinks > 0 && <span class="muted note">{relinks} 件は別の KR からの付け替えになります。</span>}
+        {relinks > 0 && <span class="meta note">{relinks} 件は別の KR からの付け替えになります。</span>}
         <span class="spacer" />
         <button type="button" class="ghost" onClick={onCancel}>
           キャンセル

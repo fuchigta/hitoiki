@@ -1,4 +1,4 @@
-// タスク: 新規作成 → 一覧に出る → 選んで詳細を編集・保存 → 状態を「始める」。
+// タスク: 新規作成 → 一覧に出る → 選んで詳細を編集・保存 → 状態を「始める」→ 「…」メニューから削除。
 import { mockState, until } from "../lib/flow.mjs";
 
 export default {
@@ -31,5 +31,19 @@ export default {
       "タスクが進行中になりません",
     );
     await page.getByRole("button", { name: /進行中 操作シナリオ用のタスク（編集後）/ }).waitFor();
+
+    // 「…」メニュー（キーボードで開く）から削除 → 確認ダイアログで「削除する」。
+    const menuBtn = page.getByRole("button", { name: "タスクの操作" });
+    await menuBtn.focus();
+    await menuBtn.press("Enter");
+    await page.getByRole("menuitem", { name: "削除…" }).waitFor();
+    // 開いたら先頭の項目にフォーカスが移る（それを待ってから Enter で選ぶ）。
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    await page.keyboard.press("Enter");
+    await page.getByRole("alertdialog").getByRole("button", { name: "削除する", exact: true }).click();
+    await until(
+      () => mockState(page, (s) => !s.tasks.some((t) => t.title === "操作シナリオ用のタスク（編集後）")),
+      "タスクが削除されません",
+    );
   },
 };

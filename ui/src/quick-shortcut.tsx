@@ -40,12 +40,11 @@ export function QuickShortcutCard() {
   };
 
   return (
-    <Card title="クイック入力">
+    <Card
+      title="クイック入力"
+      help="割り込みなどのとき、どの画面からでもショートカットで小さな入力窓を開き、タスクを選ぶか新しく作ってすぐ開始できます。トレイのメニューからも開けます。空にすると無効になります。"
+    >
       <div class="stack">
-        <p class="muted">
-          割り込みなどのとき、どの画面からでもショートカットで小さな入力窓を開き、タスクを選ぶか新しく作ってすぐ開始できます。
-          トレイのメニューからも開けます。空にすると無効になります。
-        </p>
         <div class="row">
           <input
             aria-label="クイック入力のショートカット"
@@ -59,16 +58,16 @@ export function QuickShortcutCard() {
           <button type="button" onClick={() => setRecording(true)} disabled={act.busy}>
             キーを押して記録
           </button>
-          <button type="button" class="primary" onClick={() => save(value)} disabled={act.busy || text === null}>
+          <button type="button" onClick={() => save(value)} disabled={act.busy || text === null}>
             保存
           </button>
         </div>
-        <p class="muted">
+        <p class="meta">
           いまの登録: {st.data?.registered ?? "なし"}。修飾キー（Ctrl / Alt / Shift / Super）を 1 つ以上含めてください。
         </p>
         {st.data?.error && !act.error && <div class="error" role="alert">{st.data.error}</div>}
         <ErrorBox error={act.error ?? st.error} />
-        {msg && <p class="muted">{msg}</p>}
+        {msg && <p class="meta" role="status">{msg}</p>}
       </div>
     </Card>
   );

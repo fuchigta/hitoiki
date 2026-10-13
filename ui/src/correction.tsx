@@ -143,7 +143,7 @@ export function CorrectionPanel(p: Props) {
           <p role="status">
             <strong>付け替えました。</strong> {applied.preview.summary}
           </p>
-          <p class="muted">取り消しは、ここか、タスクの詳細の「補正した時間帯」から行えます。</p>
+          <p class="hint">取り消しは、ここか、タスクの詳細の「補正した時間帯」から行えます。</p>
           <div class="row">
             <button type="button" disabled={act.busy} onClick={undo}>
               取り消す
@@ -233,7 +233,7 @@ export function CorrectionPanel(p: Props) {
                     <span class="tag">{CATEGORY_LABEL[c.category]}</span>
                     {c.becomes_offline && <span class="tag">PC 外</span>}
                     {c.full_duration_ms > c.duration_ms && (
-                      <span class="muted">（範囲の内側 {fmtDur(c.duration_ms)} / 全体 {fmtDur(c.full_duration_ms)}）</span>
+                      <span class="meta">（範囲の内側 {fmtDur(c.duration_ms)} / 全体 {fmtDur(c.full_duration_ms)}）</span>
                     )}
                   </span>
                 </li>
@@ -279,7 +279,7 @@ export function CorrectionPanel(p: Props) {
                           元に戻す
                         </button>
                       ) : (
-                        <span class="muted">無視リストのアプリ（設定で外せます）</span>
+                        <span class="meta">無視リストのアプリ（設定で外せます）</span>
                       )}
                     </li>
                   ))}

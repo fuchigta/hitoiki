@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
 import { useAction, useAsync } from "../lib";
+import { Help } from "../ui/parts";
 import { ONBOARDING_STEPS, clampStep, isLastStep } from "../onboarding-util";
 
 export function Onboarding() {
@@ -69,7 +70,7 @@ function Welcome() {
           <li>Claude Code / Codex のログから、AI に任せていた時間も拾います。</li>
           <li>記録はもう始まっています。いまは何もしなくて大丈夫です。</li>
         </ul>
-        <p class="muted">
+        <p class="hint">
           データはこの PC にだけ保存します。ネットワークポートは開かず、キー入力は記録しません。
         </p>
       </div>
@@ -124,7 +125,7 @@ function TaskStep() {
           </Field>
           <button disabled={act.busy || !title.trim()}>作って開始</button>
         </form>
-        {started && <p class="muted">「{started}」を開始しました。終わったら「今日」画面から完了にできます。</p>}
+        {started && <p class="hint" role="status">「{started}」を開始しました。終わったら「今日」画面から完了にできます。</p>}
       </div>
     </Card>
   );
@@ -157,7 +158,10 @@ function StartupStep() {
           ログイン時に自動で起動する
         </label>
         <fieldset class="stack">
-          <legend>新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）</legend>
+          <legend>
+            新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）{" "}
+            <Help>選ばずに進むと確認しません。あとから「設定」画面で変えられます。自動でダウンロードやインストールはしません。</Help>
+          </legend>
           <label class="check">
             <input
               type="radio"
@@ -182,7 +186,6 @@ function StartupStep() {
             />
             いいえ
           </label>
-          <p class="muted">選ばずに進むと確認しません。あとから「設定」画面で変えられます。自動でダウンロードやインストールはしません。</p>
         </fieldset>
         <p>Hitoiki は、ときどき通知で「いま何してた？」と聞きます。1 タップで答えられます。</p>
         <div class="row">
@@ -194,7 +197,7 @@ function StartupStep() {
             テスト通知を出す
           </button>
         </div>
-        {sent && <p class="muted">通知が出ましたか？ 出ないときは Windows の通知設定（集中モードなど）を確認してください。</p>}
+        {sent && <p class="hint" role="status">通知が出ましたか？ 出ないときは Windows の通知設定（集中モードなど）を確認してください。</p>}
       </div>
     </Card>
   );
@@ -205,7 +208,7 @@ function CalendarStep() {
     <Card title="カレンダー（任意）">
       <div class="stack">
         <p>カレンダーの ICS URL を登録すると、会議の時間を自動で判定できます。</p>
-        <p class="muted">
+        <p class="hint">
           「設定」画面の「設定ファイル」で、キー <code>calendar.sources</code> に
           <code>{`[{ name = "仕事", type = "ics", url = "https://…/basic.ics" }]`}</code>
           の形で登録します。URL は秘密情報なので、他の人に見せないでください。あとからでも設定できます。
@@ -233,7 +236,7 @@ function DailyStep() {
           終業時に<a href="#/reflect">振り返り</a>をすると、一日を軽く締められます。
         </li>
       </ul>
-      <p class="muted">
+      <p class="hint">
         コマンドラインでも同じことができます。たとえば <code>hitoiki status</code> で状況を見られます。
       </p>
     </Card>

@@ -134,7 +134,7 @@ export function KrPicker(p: Props) {
               onMouseMove={() => setActive(i)}
             >
               {o.title}
-              <span class="muted"> （{o.objective_title}）</span>
+              <span class="meta"> （{o.objective_title}）</span>
             </li>
           ))}
         </ul>

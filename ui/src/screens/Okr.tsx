@@ -3,6 +3,7 @@ import { api } from "../api";
 import { Card, Empty, ErrorBox } from "../components";
 import { useAction, useAsync } from "../lib";
 import { SkillPicker } from "../skill-picker";
+import { Help } from "../ui/parts";
 import { KrItem, ObjectiveItem, SkillItem } from "../okr-edit";
 
 export function Okr() {
@@ -112,7 +113,10 @@ function KrForm({ objective, onAdded }: { objective: string; onAdded: () => void
         <button disabled={act.busy || !title.trim()}>追加</button>
       </div>
       <div class="field">
-        <span class="muted">スキル（このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。タスクの紐付けは作成後に補助として足せます）</span>
+        <span>
+          スキル{" "}
+          <Help>このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。タスクの紐付けは作成後に補助として足せます。</Help>
+        </span>
         <SkillPicker
           value={skillNames}
           skills={known.data?.skills ?? []}

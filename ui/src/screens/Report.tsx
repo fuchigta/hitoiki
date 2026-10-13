@@ -2,6 +2,7 @@ import { useState } from "preact/hooks";
 import { api, type ReportBy } from "../api";
 import { Bars, Card, ErrorBox } from "../components";
 import { HeatmapCard } from "../heatmap";
+import { PeriodSelect } from "../ui/parts";
 import { fmtDur, useAsync, useLiveTick } from "../lib";
 
 const BYS: { id: ReportBy; label: string }[] = [
@@ -12,13 +13,6 @@ const BYS: { id: ReportBy; label: string }[] = [
   { id: "okr", label: "OKR" },
   { id: "skill", label: "スキル" },
   { id: "agent", label: "エージェント" },
-];
-
-const PERIODS = [
-  { id: "today", label: "今日" },
-  { id: "yesterday", label: "昨日" },
-  { id: "this-week", label: "今週" },
-  { id: "last-week", label: "先週" },
 ];
 
 export function Report() {
@@ -39,13 +33,7 @@ export function Report() {
           ))}
         </div>
         <span class="spacer" />
-        <select value={period} onChange={(e) => setPeriod(e.currentTarget.value)} aria-label="期間">
-          {PERIODS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
+        <PeriodSelect value={period} onChange={setPeriod} />
         <label class="check">
           <input type="checkbox" checked={idle} onChange={(e) => setIdle(e.currentTarget.checked)} />
           無操作・休憩も含める
@@ -57,17 +45,17 @@ export function Report() {
         <Card title={`合計 ${fmtDur(r.data.total_ms)}`}>
           <Bars rows={r.data.rows} total={r.data.total_ms} />
           {r.data.multi_attribution && (
-            <p class="muted">複数のスキルが付いた時間は、それぞれに全時間を数えています。</p>
+            <p class="meta">複数のスキルが付いた時間は、それぞれに全時間を数えています。</p>
           )}
           {!r.data.include_idle && (r.data.excluded.idle_ms > 0 || r.data.excluded.break_ms > 0) && (
-            <p class="muted">
+            <p class="meta">
               別枠: 無操作 {fmtDur(r.data.excluded.idle_ms)} ・ 休憩 {fmtDur(r.data.excluded.break_ms)}
             </p>
           )}
           {r.data.excluded.ignored_ms > 0 && (
-            <p class="muted">無視した区間: {fmtDur(r.data.excluded.ignored_ms)}（合計には含めません）</p>
+            <p class="meta">無視した区間: {fmtDur(r.data.excluded.ignored_ms)}（合計には含めません）</p>
           )}
-          {r.data.note && <p class="muted">{r.data.note}</p>}
+          {r.data.note && <p class="hint">{r.data.note}</p>}
         </Card>
       )}
     </div>

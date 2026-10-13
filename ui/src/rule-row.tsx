@@ -1,8 +1,9 @@
 import { useState } from "preact/hooks";
 import { api, type ActivityRule, type DeleteOutcome, type MatchField, type PatternType, type TaskMatchRule } from "./api";
 import { ErrorBox } from "./components";
-import { ConfirmDelete } from "./confirm-delete";
+import { useConfirmDelete } from "./confirm-delete";
 import { useAction } from "./lib";
+import { OverflowMenu } from "./ui/parts";
 
 export const FIELDS: MatchField[] = ["exe", "title", "cwd", "repo", "url", "git_branch"];
 export const PTYPES: PatternType[] = ["glob", "regex", "contains"];
@@ -72,6 +73,12 @@ export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Draft>(mk);
   const act = useAction();
+  const del = useConfirmDelete({
+    what: "帰属ルール",
+    preview: async () => noImpact(r.id, `${r.field} ${r.pattern}`),
+    commit: () => api.ruleDelete(r.id),
+    onDeleted: onChanged,
+  });
   const save = async () => {
     const x = await act.run(() =>
       api.ruleEdit(r.id, { field: d.field, pattern_type: d.type, pattern: d.pattern.trim(), priority: priorityOf(d.priority) }),
@@ -112,26 +119,24 @@ export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
               aria-label="有効"
             />
           </label>
-          <code class={r.enabled ? "grow" : "grow muted"}>
+          <code class={r.enabled ? "grow" : "grow meta"}>
             {r.field} {r.pattern_type} {r.pattern}
             {r.priority !== 0 && ` （優先度 ${r.priority}）`}
           </code>
-          <button
-            type="button"
-            class="ghost"
-            onClick={() => {
-              setD(mk());
-              setEditing(true);
-            }}
-          >
-            編集
-          </button>
-          <ConfirmDelete
-            what="帰属ルール"
-            preview={async () => noImpact(r.id, `${r.field} ${r.pattern}`)}
-            commit={() => api.ruleDelete(r.id)}
-            onDeleted={onChanged}
+          <OverflowMenu
+            label="ルールの操作"
+            items={[
+              {
+                label: "編集",
+                onSelect: () => {
+                  setD(mk());
+                  setEditing(true);
+                },
+              },
+              { label: "削除…", onSelect: del.start, disabled: act.busy || del.busy },
+            ]}
           />
+          {del.dialog}
         </span>
       )}
       <ErrorBox error={act.error} />
@@ -151,6 +156,12 @@ export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) 
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Draft>(mk);
   const act = useAction();
+  const del = useConfirmDelete({
+    what: "活動ルール",
+    preview: async () => noImpact(r.id, `${r.field} ${r.pattern}`),
+    commit: () => api.activityRuleDelete(r.id),
+    onDeleted: onChanged,
+  });
   const save = async () => {
     const x = await act.run(() =>
       api.activityRuleEdit(r.id, {
@@ -197,26 +208,24 @@ export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) 
               aria-label="有効"
             />
           </label>
-          <code class={r.enabled ? "grow" : "grow muted"}>
+          <code class={r.enabled ? "grow" : "grow meta"}>
             {r.field} {r.pattern_type} {r.pattern} → {r.activity_label}
             {r.priority !== 0 && ` （優先度 ${r.priority}）`}
           </code>
-          <button
-            type="button"
-            class="ghost"
-            onClick={() => {
-              setD(mk());
-              setEditing(true);
-            }}
-          >
-            編集
-          </button>
-          <ConfirmDelete
-            what="活動ルール"
-            preview={async () => noImpact(r.id, `${r.field} ${r.pattern}`)}
-            commit={() => api.activityRuleDelete(r.id)}
-            onDeleted={onChanged}
+          <OverflowMenu
+            label="ルールの操作"
+            items={[
+              {
+                label: "編集",
+                onSelect: () => {
+                  setD(mk());
+                  setEditing(true);
+                },
+              },
+              { label: "削除…", onSelect: del.start, disabled: act.busy || del.busy },
+            ]}
           />
+          {del.dialog}
         </span>
       )}
       <ErrorBox error={act.error} />

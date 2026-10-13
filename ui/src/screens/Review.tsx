@@ -1,15 +1,9 @@
 import { useState } from "preact/hooks";
 import { api, type IdlePreset, type IgnoreSuggestion, type RuleSuggestion, type SegmentKind, type SegmentView } from "../api";
 import { Card, Empty, ErrorBox } from "../components";
+import { OverflowMenu, PeriodSelect } from "../ui/parts";
 import { suggestionLine } from "../ignore-util";
 import { KIND_LABEL, KIND_ORDER, fmtDateTime, fmtDur, useAction, useAsync, useLiveTick } from "../lib";
-
-const PERIODS = [
-  { id: "today", label: "今日" },
-  { id: "yesterday", label: "昨日" },
-  { id: "this-week", label: "今週" },
-  { id: "last-week", label: "先週" },
-];
 
 /** 短い区間のしきい値の表記（「1分」「90秒」）。 */
 function fmtShortLimit(sec: number): string {
@@ -40,16 +34,10 @@ export function Review() {
   return (
     <div class="stack">
       <div class="row">
-        <select value={period} onChange={(e) => setPeriod(e.currentTarget.value)} aria-label="期間">
-          {PERIODS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        <span class="muted">{list.data ? `${list.data.count}件` : ""}</span>
+        <PeriodSelect value={period} onChange={setPeriod} />
+        <span class="meta">{list.data ? `${list.data.count}件` : ""}</span>
         {list.data && (list.data.hidden_short > 0 || showShort) && (
-          <label class="row muted">
+          <label class="row hint">
             <input
               type="checkbox"
               checked={showShort}
@@ -124,13 +112,13 @@ function SuggestionCard({ sg, onDone }: { sg: RuleSuggestion; onDone: () => void
       <div class="row">
         <span>
           <strong>{sg.target}</strong> はいつも「{sg.task_title ?? "このタスク"}」にしますか？
-          <span class="muted"> （最近 {sg.count} 回、同じ割り当てを確定しました）</span>
+          <span class="meta"> （最近 {sg.count} 回、同じ割り当てを確定しました）</span>
         </span>
         <span class="spacer" />
         <button class="ghost" disabled={act.busy} onClick={dismiss}>
           今はしない
         </button>
-        <button class="primary" disabled={act.busy} onClick={accept}>
+        <button disabled={act.busy} onClick={accept}>
           ルールにする
         </button>
       </div>
@@ -157,13 +145,13 @@ function IgnoreSuggestionCard({ sg, onDone }: { sg: IgnoreSuggestion; onDone: ()
       <div class="row">
         <span>
           {suggestionLine(sg)}無視しますか？
-          <span class="muted"> （{sg.reasons.map((r) => r.text).join("、")}。無視しても記録は消えず、いつでも戻せます）</span>
+          <span class="meta"> （{sg.reasons.map((r) => r.text).join("、")}。無視しても記録は消えず、いつでも戻せます）</span>
         </span>
         <span class="spacer" />
         <button class="ghost" disabled={act.busy} onClick={dismiss}>
           今回はしない
         </button>
-        <button class="primary" disabled={act.busy} onClick={accept}>
+        <button disabled={act.busy} onClick={accept}>
           無視する
         </button>
       </div>
@@ -226,7 +214,7 @@ function BatchBar({
           />
           すべて選ぶ
         </label>
-        <span class="muted">{ids.length > 0 ? `${ids.length}件を選択中` : "まとめて仕分けるには、区間を選んでください"}</span>
+        <span class="meta">{ids.length > 0 ? `${ids.length}件を選択中` : "まとめて仕分けるには、区間を選んでください"}</span>
       </div>
       {ids.length > 0 && (
         <>
@@ -343,8 +331,8 @@ function ReviewItem({
           <input type="checkbox" checked={selected} onChange={onToggle} aria-label="この区間を選ぶ" />
         </label>
         <div>
-          <strong>{seg.title || seg.exe_name || "（タイトルなし）"}</strong>
-          <div class="muted">
+          <h3 class="review-title">{seg.title || seg.exe_name || "（タイトルなし）"}</h3>
+          <div class="meta">
             {fmtDateTime(seg.start_at)} – {fmtDur(seg.duration_ms)} ・ {KIND_LABEL[seg.kind]}
             {seg.exe_name ? ` ・ ${seg.exe_name}` : ""}
             {seg.confidence != null ? ` ・ 確信度 ${Math.round(seg.confidence * 100)}%` : ""}
@@ -353,7 +341,7 @@ function ReviewItem({
       </div>
       {seg.kind === "idle" && (
         <div class="row" role="group" aria-label="この無操作の時間は">
-          <span class="muted">この時間は</span>
+          <span class="meta">この時間は</span>
           {IDLE_PRESETS.map((p) => (
             <button key={p.id} class="chip" disabled={act.busy} onClick={() => asIdle(p.id)}>
               {p.label}
@@ -395,23 +383,17 @@ function ReviewItem({
           この条件を常にこのタスクに
         </label>
         <span class="spacer" />
-        <button class="ghost" disabled={act.busy} onClick={ignoreThis} title="この区間を数えない時間にします">
-          この区間を無視
-        </button>
-        {seg.exe_name && (
-          <button
-            class="ghost"
-            disabled={act.busy}
-            onClick={ignoreApp}
-            title="無視リスト（collect.ignore_exes）に追加し、直近 7 日を再計算します"
-          >
-            {seg.exe_name} を今後も無視
-          </button>
-        )}
-        <button class="ghost" disabled={act.busy} onClick={asInterrupt} title="この区間をタイトルから新しい割り込みタスクにして割り当てます">
-          割り込みとしてタスク化
-        </button>
-        <button class="primary" disabled={act.busy || (!task && !kind && !activity.trim())} onClick={submit}>
+        <OverflowMenu
+          label="この区間の操作"
+          items={[
+            { label: "この区間を無視", onSelect: ignoreThis, disabled: act.busy },
+            ...(seg.exe_name
+              ? [{ label: `${seg.exe_name} を今後も無視`, onSelect: ignoreApp, disabled: act.busy }]
+              : []),
+            { label: "割り込みとしてタスク化", onSelect: asInterrupt, disabled: act.busy },
+          ]}
+        />
+        <button disabled={act.busy || (!task && !kind && !activity.trim())} onClick={submit}>
           確定
         </button>
       </div>

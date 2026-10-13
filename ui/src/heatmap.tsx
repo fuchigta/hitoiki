@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type SegmentKind } from "./api";
-import { Card, ErrorBox } from "./components";
+import { Card, Empty, ErrorBox } from "./components";
+import { Help } from "./ui/parts";
 import { buildBy, buildWeeks, cellTitle, fmtHeatValue, monthLabels, WEEKDAY_LABELS, type HeatBy } from "./heatmap-util";
 import { krLabel, krOptions } from "./kr-util";
 import { KIND_LABEL, KIND_ORDER, useAsync, useLiveTick } from "./lib";
@@ -109,7 +110,7 @@ export function HeatmapCard() {
         )}
       </div>
       <ErrorBox error={hm.error} />
-      {!query && <p class="muted">{by === "task" ? "タスク" : by === "kr" ? "KR" : "スキル"}を選ぶと表示します。</p>}
+      {!query && <Empty>{by === "task" ? "タスク" : by === "kr" ? "KR" : "スキル"}を選ぶと表示します。</Empty>}
       {data && query && (
         <>
           <div class="heatmap-scroll">
@@ -150,14 +151,14 @@ export function HeatmapCard() {
             </div>
           </div>
           <div class="hm-legend">
-            <span class="muted">少</span>
+            <span class="meta">少</span>
             {[0, 1, 2, 3, 4].map((l) => (
               <span key={l} class={`hm-cell hm-l${l}`} />
             ))}
-            <span class="muted">多</span>
-            <span class="muted hm-note">濃さは、値のある日の分布に対する相対的な段階です。</span>
+            <span class="meta">多</span>
+            <Help>濃さは、値のある日の分布に対する相対的な段階です。</Help>
           </div>
-          <p class="muted">
+          <p class="meta">
             {data.label}: 合計 {fmtHeatValue(data.unit, data.total)} ・ 値のあった日 {data.active_days} 日
             {selected && <> ・ 選択: {cellTitle(selected, data.unit)}</>}
           </p>
