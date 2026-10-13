@@ -132,7 +132,7 @@ export function SkillPicker(p: Props) {
               onMouseMove={() => setActive(i)}
             >
               {s.name}
-              {s.parent_name && <span class="muted"> （{s.parent_name}）</span>}
+              {s.parent_name && <span class="meta"> （{s.parent_name}）</span>}
             </li>
           ))}
         </ul>

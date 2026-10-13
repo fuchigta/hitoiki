@@ -2,11 +2,12 @@ import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrMeasure, type ObjectiveView, type SkillView } from "./api";
 import { ErrorBox, Field } from "./components";
-import { ConfirmDelete } from "./confirm-delete";
+import { useConfirmDelete } from "./confirm-delete";
 import { KrDetail } from "./kr-detail";
 import { MEASURE_OPTION, MEASURES, parseDayMin } from "./kr-util";
 import { useAction } from "./lib";
 import { periodEdit, periodInputs } from "./manage-util";
+import { OverflowMenu } from "./ui/parts";
 
 const STATUS_LABEL: Record<string, string> = { active: "進行中", done: "達成", dropped: "やめた" };
 const STATUSES = ["active", "done", "dropped"];
@@ -41,6 +42,12 @@ export function ObjectiveItem({
   const [to, setTo] = useState(init.to);
   const [status, setStatus] = useState(o.status);
   const act = useAction();
+  const del = useConfirmDelete({
+    what: "Objective",
+    preview: () => api.okrDeleteObjective(o.id, { dry_run: true }),
+    commit: () => api.okrDeleteObjective(o.id, { force: true }),
+    onDeleted: onChanged,
+  });
 
   const open = () => {
     const p = periodInputs(o);
@@ -104,22 +111,21 @@ export function ObjectiveItem({
       ) : (
         <>
           <div class="row">
-            <strong class="grow">{o.title}</strong>
-            {o.status !== "active" && <span class="muted">{STATUS_LABEL[o.status] ?? o.status}</span>}
-            <button type="button" class="ghost" onClick={open}>
-              編集
-            </button>
-            <ConfirmDelete
-              what="Objective"
-              preview={() => api.okrDeleteObjective(o.id, { dry_run: true })}
-              commit={() => api.okrDeleteObjective(o.id, { force: true })}
-              onDeleted={onChanged}
+            <h3 class="grow obj-title">{o.title}</h3>
+            {o.status !== "active" && <span class="tag">{STATUS_LABEL[o.status] ?? o.status}</span>}
+            <OverflowMenu
+              label="Objective の操作"
+              items={[
+                { label: "編集", onSelect: open },
+                { label: "削除…", onSelect: del.start, disabled: del.busy },
+              ]}
             />
+            {del.dialog}
           </div>
           {(o.period_start != null || o.period_end != null) && (
-            <p class="muted">{`${init.from || "…"} 〜 ${init.to || "…"}`}</p>
+            <p class="meta">{`${init.from || "…"} 〜 ${init.to || "…"}`}</p>
           )}
-          {o.description_md && <p class="muted">{o.description_md}</p>}
+          {o.description_md && <p class="hint">{o.description_md}</p>}
         </>
       )}
       {children}
@@ -146,6 +152,12 @@ export function KrItem({
   const [measure, setMeasure] = useState<KrMeasure>(k.measure);
   const [dayMin, setDayMin] = useState(String(k.day_min));
   const act = useAction();
+  const del = useConfirmDelete({
+    what: "KR",
+    preview: () => api.okrDeleteKr(k.id, { dry_run: true }),
+    commit: () => api.okrDeleteKr(k.id, { force: true }),
+    onDeleted: onChanged,
+  });
 
   if (!editing) {
     return (
@@ -154,37 +166,35 @@ export function KrItem({
           <span class="grow">
             {k.title}
             {(k.target || k.current) && (
-              <span class="muted">
+              <span class="meta">
                 {" / "}
                 {k.current ? `現在 ${k.current}` : ""}
                 {k.current && k.target ? "、" : ""}
                 {k.target ? `目標 ${k.target}` : ""}
               </span>
             )}
-            {k.status !== "active" && <span class="muted"> （{STATUS_LABEL[k.status] ?? k.status}）</span>}
+            {k.status !== "active" && <span class="tag">{STATUS_LABEL[k.status] ?? k.status}</span>}
           </span>
-          <button
-            type="button"
-            class="ghost"
-            onClick={() => {
-              setTitle(k.title);
-              setTarget(k.target ?? "");
-              setCurrent(k.current ?? "");
-              setStatus(k.status);
-              setObjective(k.objective_id);
-              setMeasure(k.measure);
-              setDayMin(String(k.day_min));
-              setEditing(true);
-            }}
-          >
-            編集
-          </button>
-          <ConfirmDelete
-            what="KR"
-            preview={() => api.okrDeleteKr(k.id, { dry_run: true })}
-            commit={() => api.okrDeleteKr(k.id, { force: true })}
-            onDeleted={onChanged}
+          <OverflowMenu
+            label="KR の操作"
+            items={[
+              {
+                label: "編集",
+                onSelect: () => {
+                  setTitle(k.title);
+                  setTarget(k.target ?? "");
+                  setCurrent(k.current ?? "");
+                  setStatus(k.status);
+                  setObjective(k.objective_id);
+                  setMeasure(k.measure);
+                  setDayMin(String(k.day_min));
+                  setEditing(true);
+                },
+              },
+              { label: "削除…", onSelect: del.start, disabled: del.busy },
+            ]}
           />
+          {del.dialog}
         </span>
         <KrDetail k={k} onChanged={() => {}} />
       </li>
@@ -280,47 +290,49 @@ export function SkillItem({ s, all, onChanged }: { s: SkillView; all: SkillView[
   const [desc, setDesc] = useState(s.description ?? "");
   const act = useAction();
   const hasChildren = all.some((x) => x.parent_id === s.id);
+  const del = useConfirmDelete({
+    what: "スキル",
+    preview: (c) => api.skillDelete(s.id, c === "delete" ? "delete" : "reparent", { dry_run: true }),
+    commit: (c) => api.skillDelete(s.id, c === "delete" ? "delete" : "reparent", { force: true }),
+    onDeleted: onChanged,
+    choice: hasChildren
+      ? {
+          label: "子スキルの扱い",
+          initial: "reparent",
+          options: [
+            { value: "reparent", label: "子スキルは残す（親を付け替える）" },
+            { value: "delete", label: "子スキルも一緒に削除する" },
+          ],
+        }
+      : undefined,
+  });
 
   if (!editing) {
     return (
       <li>
         <span class="row">
           <span class="grow">
-            {s.parent_name && <span class="muted">{s.parent_name} › </span>}
+            {s.parent_name && <span class="meta">{s.parent_name} › </span>}
             {s.name}
-            {s.preset && <span class="muted"> （プリセット）</span>}
-            {s.description && <span class="muted"> / {s.description}</span>}
+            {s.preset && <span class="tag">プリセット</span>}
+            {s.description && <span class="meta"> / {s.description}</span>}
           </span>
-          <button
-            type="button"
-            class="ghost"
-            onClick={() => {
-              setName(s.name);
-              setParent(s.parent_id ?? "");
-              setDesc(s.description ?? "");
-              setEditing(true);
-            }}
-          >
-            編集
-          </button>
-          <ConfirmDelete
-            what="スキル"
-            preview={(c) => api.skillDelete(s.id, c === "delete" ? "delete" : "reparent", { dry_run: true })}
-            commit={(c) => api.skillDelete(s.id, c === "delete" ? "delete" : "reparent", { force: true })}
-            onDeleted={onChanged}
-            choice={
-              hasChildren
-                ? {
-                    label: "子スキルの扱い",
-                    initial: "reparent",
-                    options: [
-                      { value: "reparent", label: "子スキルは残す（親を付け替える）" },
-                      { value: "delete", label: "子スキルも一緒に削除する" },
-                    ],
-                  }
-                : undefined
-            }
+          <OverflowMenu
+            label="スキルの操作"
+            items={[
+              {
+                label: "編集",
+                onSelect: () => {
+                  setName(s.name);
+                  setParent(s.parent_id ?? "");
+                  setDesc(s.description ?? "");
+                  setEditing(true);
+                },
+              },
+              { label: "削除…", onSelect: del.start, disabled: del.busy },
+            ]}
           />
+          {del.dialog}
         </span>
       </li>
     );

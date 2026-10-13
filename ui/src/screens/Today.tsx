@@ -197,63 +197,61 @@ export function Today() {
       {nothing && <Empty>状況を取得できませんでした。</Empty>}
 
       {s && (
-        <div class="grid3">
-          <Card title="いま">
+        <div class="stat-band">
+          <div class="stat stat-now">
+            <h2 class="stat-label">いま</h2>
             {cur && (
-              <p>
-                <strong>{blockTitle(cur)}</strong>
+              <span class="stat-title">
+                {blockTitle(cur)}
                 {cur.focus && <span class="tag">集中</span>}
-                <span class="muted">
+                <span class="meta">
                   {" "}
                   {fmtTime(cur.start_at)}–{fmtTime(cur.end_at)} の枠
                 </span>
-              </p>
+              </span>
             )}
             {s.doing.length === 0 ? (
-              <Empty>進行中のタスクはありません。</Empty>
+              <span class="stat-sub">進行中のタスクはありません。</span>
             ) : (
-              <ul class="plain">
-                {s.doing.map((d) => (
-                  <li key={d.task.id}>
-                    <strong>{d.task.title}</strong>
-                    {d.since && (
-                      <div class="muted">
-                        {fmtTime(d.since)} から（{fmtDur(s.now - d.since)}）
-                      </div>
-                    )}
-                    <div class="row">
-                      <button disabled={act.busy} onClick={() => act.run(() => api.taskDone(d.task.id)).then(st.reload)}>
-                        完了にする
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              s.doing.map((d) => (
+                <span key={d.task.id} class="stat-doing">
+                  <span class="stat-title">{d.task.title}</span>
+                  {d.since && (
+                    <span class="meta">
+                      {fmtTime(d.since)} から（{fmtDur(s.now - d.since)}）
+                    </span>
+                  )}
+                  <button disabled={act.busy} onClick={() => act.run(() => api.taskDone(d.task.id)).then(st.reload)}>
+                    完了にする
+                  </button>
+                </span>
+              ))
             )}
-          </Card>
-          <Card title="今日の合計">
-            <p class="big">{fmtDur(s.today.total_ms)}</p>
-            <p class="muted">
-              エージェント対話 {fmtDur(digest.agentMs)}
-              <br />
-              無操作 {fmtDur(s.today.idle_ms)} ・ 休憩 {fmtDur(s.today.break_ms)}
-              {s.today.ignored_ms > 0 ? ` ・ 無視 ${fmtDur(s.today.ignored_ms)}` : ""}（合計には含めません）
-            </p>
-          </Card>
-          <Card title="確認待ち">
-            <p class="big">要確認 {s.needs_review_count}件</p>
-            <p class="muted">
+          </div>
+          <div class="stat">
+            <h2 class="stat-label">今日の合計</h2>
+            <span class="stat-num">{fmtDur(s.today.total_ms)}</span>
+            <span class="stat-sub">
+              エージェント対話 {fmtDur(digest.agentMs)} ・ 無操作 {fmtDur(s.today.idle_ms)} ・ 休憩 {fmtDur(s.today.break_ms)}
+              {s.today.ignored_ms > 0 ? ` ・ 無視 ${fmtDur(s.today.ignored_ms)}` : ""}
+            </span>
+            <span class="stat-sub">無操作・休憩・無視は合計に含みません</span>
+          </div>
+          <div class="stat">
+            <h2 class="stat-label">確認待ち</h2>
+            <span class="stat-num">{s.needs_review_count}件</span>
+            <span class="stat-sub">
               {s.needs_review_count > 0 ? (
                 <>
-                  {digest.reviewMs > 0 && `今日の分は約 ${Math.max(1, Math.round(digest.reviewMs / 60000))} 分。`}{" "}
+                  {digest.reviewMs > 0 && `今日の分は約 ${Math.max(1, Math.round(digest.reviewMs / 60000))} 分 ・ `}
                   <a href="#/review">仕分けを開く</a>
                 </>
               ) : (
-                "仕分けが必要な区間はありません。"
+                "仕分けが必要な区間はありません"
               )}
-              {s.needs_review_short_count > 0 && ` 短い区間 ${s.needs_review_short_count} 件は仕分けで表示できます。`}
-            </p>
-          </Card>
+              {s.needs_review_short_count > 0 && ` ・ 短い区間 ${s.needs_review_short_count} 件は仕分けで表示できます`}
+            </span>
+          </div>
         </div>
       )}
 
@@ -292,6 +290,14 @@ export function Today() {
       <div class={designing ? "design" : ""}>
         <Card
           title={designing ? "今日のデザイン" : "タイムライン"}
+          help={
+            <>
+              {designing
+                ? "空いている時間をドラッグ（クリックなら 1 時間）して、ブロックを置きます。置いたブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集できます。"
+                : "「計画」の列をドラッグすると、その場でブロックを作れます。"}{" "}
+              「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。
+            </>
+          }
           aside={
             <div class="row">
               <label class="check">
@@ -303,28 +309,21 @@ export function Today() {
                   完了
                 </button>
               ) : (
-                <button onClick={() => setMode("on")}>今日のデザイン</button>
+                <button class="ghost" onClick={() => setMode("on")}>今日のデザイン</button>
               )}
             </div>
           }
         >
           {range && view && log.data && blocks.data ? (
             <>
-              <p class="muted">
-                {designing
-                  ? "空いている時間をドラッグ（クリックなら 1 時間）して、ブロックを置きます。置いたブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集できます。"
-                  : "「計画」の列をドラッグすると、その場でブロックを作れます。"}{" "}
-                「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。
-                {armed && (
-                  <strong>
-                    {" "}
-                    「{armed.title}」を置く場所をタイムラインでクリックしてください。
-                    <button type="button" class="link" onClick={() => setArmed(null)}>
-                      やめる
-                    </button>
-                  </strong>
-                )}
-              </p>
+              {armed && (
+                <p class="hint" role="status">
+                  「{armed.title}」を置く場所をタイムラインでクリックしてください。
+                  <button type="button" class="link" onClick={() => setArmed(null)}>
+                    やめる
+                  </button>
+                </p>
+              )}
               <DayDesigner
                 date={date}
                 dayStart={range.start_at}
@@ -364,9 +363,7 @@ export function Today() {
           <div class="stack design-side">
             <Card title="テンプレート">
               {suggested.length > 0 && suggest.data && (
-                <p>
-                  <strong>{suggestionText(suggested.map((t) => t.name), suggest.data.weekday || weekdayOf(date))}</strong>
-                </p>
+                <p class="hint">{suggestionText(suggested.map((t) => t.name), suggest.data.weekday || weekdayOf(date))}</p>
               )}
               <ApplyTemplate date={date} suggested={suggested.map((t) => t.name)} onChanged={blocks.reload} />
               <SaveAsTemplate date={date} />
@@ -378,15 +375,14 @@ export function Today() {
                 <ul class="plain">
                   {events.map((c) => (
                     <li key={c.id}>
-                      <span class="muted">{c.all_day ? "終日" : `${fmtTime(c.start_at)}–${fmtTime(c.end_at)}`}</span> {c.title}
-                      {!c.is_busy && <span class="muted">（空き）</span>}
+                      <span class="meta">{c.all_day ? "終日" : `${fmtTime(c.start_at)}–${fmtTime(c.end_at)}`}</span> {c.title}
+                      {!c.is_busy && <span class="meta">（空き）</span>}
                     </li>
                   ))}
                 </ul>
               )}
             </Card>
-            <Card title="未完了のタスク">
-              <p class="muted">タイムラインへドラッグするか、選んでからタイムラインをクリックするとブロックにできます。</p>
+            <Card title="未完了のタスク" help="タイムラインへドラッグするか、選んでからタイムラインをクリックするとブロックにできます。">
               {candidates.length === 0 ? (
                 <Empty>ブロックにしていない未完了のタスクはありません。</Empty>
               ) : (
@@ -406,15 +402,15 @@ export function Today() {
                         aria-pressed={armed?.id === t.id}
                       >
                         {t.title}
-                        {t.estimate_min ? <span class="muted"> {t.estimate_min}分</span> : null}
+                        {t.estimate_min ? <span class="meta"> {t.estimate_min}分</span> : null}
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
-              {taskDrag && <div class="muted">「{taskDrag.task.title}」をタイムラインの置きたい位置で離してください。</div>}
+              {taskDrag && <div class="hint">「{taskDrag.task.title}」をタイムラインの置きたい位置で離してください。</div>}
             </Card>
-            <p class="muted">
+            <p class="hint">
               始業の振り返りは<a href="#/reflect/day_start">振り返り</a>から。
             </p>
           </div>
@@ -446,20 +442,19 @@ export function Today() {
       )}
 
       {s && s.unanswered_pushes.length > 0 && (
-        <Card title="未回答の問いかけ">
+        <Card title="未回答の問いかけ" help="答えなくても大丈夫です。「答えない」で一覧から外せます。">
           <ul class="plain push-list">
             {s.unanswered_pushes.map((p) => (
               <li key={p.id}>
                 <div>
-                  {fmtTime(p.at)} <span class="muted">{p.trigger_label}</span> <strong>{p.title}</strong>
+                  <span class="meta">{fmtTime(p.at)} {p.trigger_label}</span> <strong>{p.title}</strong>
                 </div>
-                {p.body && <p class="muted">{p.body}</p>}
-                {periodLabel(p.payload, fmtTime) && <p class="muted">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
+                {p.body && <p class="hint">{p.body}</p>}
+                {periodLabel(p.payload, fmtTime) && <p class="meta">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
                 {p.payload && <PushAnswer pushId={p.id} payload={p.payload} onDone={st.reload} />}
               </li>
             ))}
           </ul>
-          <p class="muted">答えなくても大丈夫です。「答えない」で一覧から外せます。</p>
         </Card>
       )}
     </div>

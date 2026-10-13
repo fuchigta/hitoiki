@@ -174,15 +174,9 @@ a {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-3);
 }
-.split {
-  display: grid;
-  grid-template-columns: minmax(260px, 2fr) minmax(300px, 3fr);
-  gap: var(--sp-4);
-}
 @media (max-width: 860px) {
   .grid2,
-  .grid3,
-  .split {
+  .grid3 {
     grid-template-columns: 1fr;
   }
 }
@@ -220,6 +214,7 @@ a {
 
 /* 文字の役割: .meta = 付随情報（時刻・件数・exe 名）、.hint = 補足説明、.num = 数字 */
 .meta {
+  margin: 0;
   color: var(--muted);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
@@ -247,11 +242,6 @@ a {
 }
 .empty .row {
   margin-top: var(--sp-2);
-}
-.big {
-  font-size: var(--fs-num);
-  font-weight: 600;
-  margin: 0;
 }
 .plain {
   list-style: none;
@@ -377,32 +367,6 @@ button.ghost:hover:not(:disabled) {
 }
 
 /* タスク */
-.tasklist {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-}
-.task-row {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  text-align: left;
-  background: var(--surface);
-}
-.tasklist li.sel .task-row {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.task-row .title {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .status {
   font-size: var(--fs-xs);
   padding: var(--sp-1) var(--sp-2);
@@ -1425,7 +1389,8 @@ button.help-btn {
 button.menu-btn {
   min-width: 28px;
   padding: var(--sp-1) var(--sp-2);
-  color: var(--muted);
+  color: var(--text);
+  font-size: var(--fs-l);
   line-height: 1;
 }
 .menu {
@@ -1518,7 +1483,7 @@ button.object-main {
 .stat-band {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--sp-2) var(--sp-6);
   padding: var(--sp-2) 0 var(--sp-3);
   border-bottom: 1px solid var(--border);
@@ -1542,4 +1507,45 @@ button.object-main {
 .stat .stat-sub {
   color: var(--muted);
   font-size: var(--fs-xs);
+}
+.stat h2.stat-label {
+  margin: 0;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--muted);
+}
+.stat .stat-title {
+  font-weight: 600;
+}
+.stat-doing {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+}
+
+/* KR の詳細: 要点だけ常時表示し、残りは <details> に閉じる */
+.kr-more > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: var(--fs-s);
+}
+.kr-more[open] > summary {
+  margin-bottom: var(--sp-2);
+}
+.kr-more-body {
+  gap: var(--sp-3);
+}
+.obj-title {
+  margin: 0;
+}
+.review-title {
+  margin: 0;
+}
+
+/* 表示専用のラベル（押せない）。押せる選択肢は .chip */
+.tag.on {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--text);
 }

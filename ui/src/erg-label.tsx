@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type ErgChoice, type ErgDistribution, type ErgLabel, type ErgRecordKind } from "./api";
 import { ErrorBox } from "./components";
+import { Help } from "./ui/parts";
 import {
   classifyMessage,
   distributionRows,
@@ -53,34 +54,34 @@ export function ErgLine({
       )}
       {st === "user" && label && (
         <span>
-          <span class="muted">ERG: </span>
-          <span class="chip on" title={ERG_HINTS[label.tag]}>
+          <span class="meta">ERG: </span>
+          <span class="tag on" title={ERG_HINTS[label.tag]}>
             {name}
           </span>
         </span>
       )}
       {st === "ai" && label && (
         <span>
-          <span class="muted">ERG: </span>
-          <span class="chip" title={ERG_HINTS[label.tag]}>
+          <span class="meta">ERG: </span>
+          <span class="tag" title={ERG_HINTS[label.tag]}>
             {name}
           </span>
           <small class="badge-ai" title={`AI が記録の内容から判定しました${conf ? `（確信度 ${conf}）` : ""}`}>
             {" "}
             AI
           </small>
-          {label.reason && <span class="muted"> {label.reason}</span>}
+          {label.reason && <span class="meta"> {label.reason}</span>}
         </span>
       )}
       {st === "pending" && label && (
         <span>
-          <span class="muted">ERG の提案: </span>
-          <span class="chip" title={ERG_HINTS[label.tag]}>
+          <span class="meta">ERG の提案: </span>
+          <span class="tag" title={ERG_HINTS[label.tag]}>
             {name}
           </span>
           <small class="badge-ai" title="AI の提案です。まだ確定していません"> AI</small>
-          {label.reason && <span class="muted"> {label.reason}</span>}
-          {conf && <span class="muted">（確信度 {conf}）</span>}{" "}
+          {label.reason && <span class="meta"> {label.reason}</span>}
+          {conf && <span class="meta">（確信度 {conf}）</span>}{" "}
           {!changing && (
             <button type="button" class="ghost" disabled={act.busy} onClick={confirm}>
               これでよい
@@ -152,22 +153,22 @@ export function ErgSummary({
       <ul class="plain erg-dist">
         {rows.map((r) => (
           <li key={r.key}>
-            <strong>{r.name}</strong> {r.count} 件 <span class="muted">（{r.hint}）</span>
+            <strong>{r.name}</strong> <span class="num">{r.count} 件</span> <span class="meta">（{r.hint}）</span>
           </li>
         ))}
       </ul>
-      <p class="muted">{distributionSummary(distribution)}</p>
-      <p class="muted">
-        ERG は「{ERG_LEGEND}」の 3 つの観点です。記録の内容から AI が判定し、AI の判定は小さく「AI」と表示されます。
-        確信が持てないものは確認待ちになり、あなたが確定するまで集計に入りません。
-      </p>
-      {pendingTotal > 0 && <p class="muted">確認待ちの提案が全期間で {pendingTotal} 件あります（記録画面で確定できます）。</p>}
+      <p class="meta">{distributionSummary(distribution)}</p>
+      {pendingTotal > 0 && <p class="hint">確認待ちの提案が全期間で {pendingTotal} 件あります（記録画面で確定できます）。</p>}
       <div class="row">
-        <button type="button" class="ghost" disabled={act.busy || !canClassify} onClick={classify}>
+        <button type="button" disabled={act.busy || !canClassify} onClick={classify}>
           {act.busy ? "AI が判定しています…" : "未判定の記録を AI で判定する"}
         </button>
+        <Help>
+          ERG は「{ERG_LEGEND}」の 3 つの観点です。記録の内容から AI が判定し、AI の判定は小さく「AI」と表示されます。
+          確信が持てないものは確認待ちになり、あなたが確定するまで集計に入りません。
+        </Help>
         {msg && (
-          <span class="muted" role="status">
+          <span class="meta" role="status">
             {msg}
           </span>
         )}

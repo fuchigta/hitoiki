@@ -6,6 +6,7 @@ import { Card, Empty, ErrorBox } from "../components";
 import { DayDesigner } from "../day-designer";
 import { dateInput, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
 import { TemplateManager } from "../templates";
+import { OverflowMenu } from "../ui/parts";
 
 /** 計画（タイムブロッキング）。ブロックの作成・編集はタイムライン上で直接行う（今日の画面と同じ部品）。 */
 export function Plan() {
@@ -28,7 +29,7 @@ export function Plan() {
     <div class="stack">
       <div class="row">
         <input type="date" value={date} onChange={(e) => setDate(e.currentTarget.value)} aria-label="日付" />
-        <span class="muted">
+        <span class="hint">
           {date === dateInput() && (
             <>
               今日のブロックは<a href="#/today">今日の画面</a>でも作れます。
@@ -37,12 +38,12 @@ export function Plan() {
         </span>
       </div>
       <ErrorBox error={blocks.error ?? log.error ?? act.error} />
-      <Card title="計画と実績">
+      <Card
+        title="計画と実績"
+        help="「計画」の列を上下にドラッグすると、15 分刻みで時間を選んでブロックを作れます（クリックだけなら 1 時間）。ブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集します。"
+      >
         {range && log.data && blocks.data ? (
           <>
-            <p class="muted">
-              「計画」の列を上下にドラッグすると、15 分刻みで時間を選んでブロックを作れます（クリックだけなら 1 時間）。ブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集します。
-            </p>
             <DayDesigner
               date={date}
               dayStart={range.start_at}
@@ -70,17 +71,18 @@ export function Plan() {
                 {b.focus && <span class="tag">集中</span>}
               </span>
               <span class="spacer" />
-              <button type="button" onClick={() => remove(b.id)} disabled={act.busy}>
-                削除
-              </button>
+              <OverflowMenu
+                label={`ブロック「${blockTitle(b)}」の操作`}
+                items={[{ label: "削除", onSelect: () => remove(b.id), disabled: act.busy }]}
+              />
             </li>
           ))}
         </ul>
       </Card>
-      <Card title="テンプレート（働き方のパターン）">
-        <p class="muted">
-          よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。
-        </p>
+      <Card
+        title="テンプレート（働き方のパターン）"
+        help="よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。"
+      >
         <TemplateManager date={date} tasks={tasks.data?.tasks ?? []} />
       </Card>
     </div>

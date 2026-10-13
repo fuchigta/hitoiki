@@ -1,37 +1,12 @@
 import { useState } from "preact/hooks";
 import { api, type AbcRecord, type ErgRecordKind } from "../api";
 import { Card, Empty, ErrorBox, Field } from "../components";
+import { PeriodSelect, Scale } from "../ui/parts";
 import { ErgLine, ErgSummary } from "../erg-label";
 import { ergKey, labelMap } from "../erg-util";
 import { Markdown } from "../markdown";
 import { fmtDateTime, useAction, useAsync } from "../lib";
 import { AbcItem, CheckinItem, HassleItem } from "../record-edit";
-
-const PERIODS = [
-  { id: "today", label: "今日" },
-  { id: "this-week", label: "今週" },
-  { id: "last-week", label: "先週" },
-];
-
-function Scale({ value, onChange, label }: { value?: number; onChange: (n: number | undefined) => void; label: string }) {
-  return (
-    <div class="field">
-      <span>{label}</span>
-      <div class="scale" role="group" aria-label={label}>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <button
-            type="button"
-            key={n}
-            class={value === n ? "chip on" : "chip"}
-            onClick={() => onChange(value === n ? undefined : n)}
-          >
-            {n}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export function Records() {
   const [period, setPeriod] = useState("today");
@@ -56,14 +31,8 @@ export function Records() {
   return (
     <div class="stack">
       <div class="row">
-        <select value={period} onChange={(e) => setPeriod(e.currentTarget.value)} aria-label="期間">
-          {PERIODS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
-        </select>
-        <span class="muted">一覧の期間</span>
+        <PeriodSelect value={period} onChange={setPeriod} only={["today", "this-week", "last-week"]} />
+        <span class="meta">一覧の期間</span>
       </div>
       <div class="grid2">
         <CheckinCard onAdded={checkins.reload} />
@@ -81,14 +50,14 @@ export function Records() {
         )}
       </Card>
       {(pending.data?.items.length ?? 0) > 0 && (
-        <Card title="ERG の確認待ち">
-          <p class="muted">
-            AI が確信を持てなかったものです。「これでよい」で提案のまま確定、「変える」で選び直せます。確定するまで集計には入りません。
-          </p>
+        <Card
+          title="ERG の確認待ち"
+          help="AI が確信を持てなかったものです。「これでよい」で提案のまま確定、「変える」で選び直せます。確定するまで集計には入りません。"
+        >
           <ul class="plain">
             {pending.data!.items.map((i) => (
               <li key={`${i.record_kind}:${i.record_id}`}>
-                <span class="muted">{fmtDateTime(i.record_at)}</span> {i.excerpt}
+                <span class="meta">{fmtDateTime(i.record_at)}</span> {i.excerpt}
                 <ErgLine kind={i.record_kind} id={i.record_id} label={i} onChanged={reloadErg} />
               </li>
             ))}
@@ -164,7 +133,6 @@ function AbcDialog({ abc, onChanged }: { abc: AbcRecord; onChanged: () => void }
       {abc.ai_dialog_md && <Markdown text={abc.ai_dialog_md} />}
       <div class="row">
         <button
-          class="ghost"
           disabled={act.busy}
           onClick={async () => {
             if (await act.run(() => api.abcDispute(abc.id))) onChanged();
@@ -262,10 +230,12 @@ function AbcCard({ onAdded }: { onAdded: () => void }) {
         <Field label="B: 受け止め方">
           <textarea rows={3} value={b} onInput={(e) => setB(e.currentTarget.value)} />
         </Field>
-        <Field label="C: 感情">
-          <input value={c} onInput={(e) => setC(e.currentTarget.value)} />
+        <div class="stack">
+          <Field label="C: 感情">
+            <input value={c} onInput={(e) => setC(e.currentTarget.value)} />
+          </Field>
           <Scale label="強さ" value={ci} onChange={setCi} />
-        </Field>
+        </div>
       </div>
       <div class="row">
         <span class="spacer" />

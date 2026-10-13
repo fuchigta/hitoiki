@@ -3,6 +3,7 @@ import { api } from "./api";
 import type { AppError, Overlap, TaskView, TemplateInput, TemplateView } from "./api";
 import { Empty, ErrorBox, Field } from "./components";
 import { fmtTime, useAction, useAsync } from "./lib";
+import { OverflowMenu } from "./ui/parts";
 import {
   WEEKDAY_LABELS,
   emptyItem,
@@ -71,7 +72,7 @@ export function TemplateEditor(p: EditorProps) {
         ))}
       </fieldset>
       <div class="stack">
-        {t.items.length === 0 && <p class="muted">ブロックはまだありません。</p>}
+        {t.items.length === 0 && <p class="hint">ブロックはまだありません。</p>}
         {t.items.map((it, i) => (
           <div key={i} class="form-row tpl-item">
             <Field label="開始">
@@ -97,9 +98,10 @@ export function TemplateEditor(p: EditorProps) {
               <input type="checkbox" checked={!!it.focus} onChange={(e) => setItem(i, { focus: e.currentTarget.checked })} />
               集中
             </label>
-            <button type="button" aria-label="このブロックを外す" onClick={() => setT({ ...t, items: t.items.filter((_, j) => j !== i) })}>
-              外す
-            </button>
+            <OverflowMenu
+              label={`ブロック ${i + 1} の操作`}
+              items={[{ label: "このブロックを外す", onSelect: () => setT({ ...t, items: t.items.filter((_, j) => j !== i) }) }]}
+            />
           </div>
         ))}
         <div class="row">
@@ -130,10 +132,12 @@ export function TemplateEditor(p: EditorProps) {
 function TemplateSummary({ t }: { t: TemplateView }) {
   return (
     <div>
-      <strong>{t.name}</strong>
-      {t.weekdays.length > 0 && <span class="tag">{weekdaysLabel(t.weekdays)}</span>}
-      {t.description && <div class="muted">{t.description}</div>}
-      <ul class="plain muted">
+      <h3 class="obj-title">
+        {t.name}
+        {t.weekdays.length > 0 && <span class="tag">{weekdaysLabel(t.weekdays)}</span>}
+      </h3>
+      {t.description && <div class="hint">{t.description}</div>}
+      <ul class="plain meta">
         {t.blocks.map((b) => (
           <li key={b.id}>
             {b.start}–{b.end} {b.task_title ?? b.label ?? ""}
@@ -188,10 +192,13 @@ export function TemplateManager({ date, tasks }: { date: string; tasks: TaskView
               <li key={t.id} class="row tpl-row">
                 <TemplateSummary t={t} />
                 <span class="spacer" />
-                <button onClick={() => setEditing({ id: t.id, input: toInput(t) })}>編集</button>
-                <button onClick={() => remove(t)} disabled={act.busy}>
-                  削除
-                </button>
+                <OverflowMenu
+                  label={`テンプレート「${t.name}」の操作`}
+                  items={[
+                    { label: "編集", onSelect: () => setEditing({ id: t.id, input: toInput(t) }) },
+                    { label: "削除", onSelect: () => remove(t), disabled: act.busy },
+                  ]}
+                />
               </li>
             ))}
           </ul>
@@ -243,7 +250,7 @@ export function SaveAsTemplate({ date, onSaved }: { date: string; onSaved?: (t: 
         >
           この日の配置をテンプレートとして保存
         </button>
-        {done && <span class="muted" role="status">{done}</span>}
+        {done && <span class="meta" role="status">{done}</span>}
       </>
     );
   }
@@ -269,7 +276,7 @@ export function SaveAsTemplate({ date, onSaved }: { date: string; onSaved?: (t: 
       </fieldset>
       <ErrorBox error={act.error} />
       <div class="row">
-        <button class="primary" disabled={act.busy || !name.trim()}>
+        <button disabled={act.busy || !name.trim()}>
           保存
         </button>
         <button type="button" onClick={() => setOpen(false)}>
@@ -366,7 +373,7 @@ export function ApplyTemplate({ date, suggested = [], onChanged }: ApplyProps) {
               {fmtTime(b.start_at)}–{fmtTime(b.end_at)} {b.task_title ?? b.label ?? ""}
               {b.focus && <span class="tag">集中</span>}
               {b.conflicts.length > 0 && (
-                <span class="muted">
+                <span class="meta">
                   {" "}
                   重なり: {b.conflicts.map((c) => `${c.kind === "calendar" ? "予定" : "ブロック"}「${c.title || "（無題）"}」`).join("、")}
                   {overlap === "skip" && "（作りません）"}
@@ -374,7 +381,7 @@ export function ApplyTemplate({ date, suggested = [], onChanged }: ApplyProps) {
               )}
             </li>
           ))}
-          {p.blocks.length === 0 && <li class="muted">作られるブロックはありません。</li>}
+          {p.blocks.length === 0 && <li class="meta">作られるブロックはありません。</li>}
         </ul>
       )}
       <ErrorBox error={act.error} />
@@ -388,7 +395,7 @@ export function ApplyTemplate({ date, suggested = [], onChanged }: ApplyProps) {
           </button>
         )}
         {result && (
-          <span class="muted" role="status">
+          <span class="meta" role="status">
             {result}
           </span>
         )}

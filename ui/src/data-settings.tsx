@@ -2,9 +2,10 @@
 import { useState } from "preact/hooks";
 import { api, type MatchField, type PatternType } from "./api";
 import { Card, Empty, ErrorBox, Field } from "./components";
-import { ConfirmDelete } from "./confirm-delete";
+import { useConfirmDelete } from "./confirm-delete";
 import { useAction, useAsync } from "./lib";
 import { ActivityRuleRow, FIELDS, PTYPES } from "./rule-row";
+import { OverflowMenu } from "./ui/parts";
 
 export function DataSettings() {
   return (
@@ -24,8 +25,10 @@ function ActivityRulesCard() {
   const [label, setLabel] = useState("");
   const act = useAction();
   return (
-    <Card title="活動ルール">
-      <p class="muted">アプリ名やタイトルなどのパターンに当てはまる時間へ、活動のラベルを付けます。無効にするとルールを残したまま判定に使いません。</p>
+    <Card
+      title="活動ルール"
+      help="アプリ名やタイトルなどのパターンに当てはまる時間へ、活動のラベルを付けます。無効にするとルールを残したまま判定に使いません。"
+    >
       <ErrorBox error={rules.error} />
       {rules.data?.rules.length === 0 && <Empty>活動ルールはありません。</Empty>}
       <ul class="plain">
@@ -75,8 +78,7 @@ function ActivityLabelsCard() {
     if ((await act.run(fn)) !== undefined) labels.reload();
   };
   return (
-    <Card title="活動ラベル">
-      <p class="muted">判定器に渡す活動の候補です。外しても、過去の時間や活動ルールに付いたラベルは残ります。</p>
+    <Card title="活動ラベル" help="判定器に渡す活動の候補です。外しても、過去の時間や活動ルールに付いたラベルは残ります。">
       <ErrorBox error={labels.error} />
       <ul class="plain">
         {labels.data?.labels.map((l) => (
@@ -101,19 +103,19 @@ function ActivityLabelsCard() {
             ) : (
               <span class="row">
                 <span class="grow">{l}</span>
-                <button
-                  type="button"
-                  class="ghost"
-                  onClick={() => {
-                    setRenaming(l);
-                    setTo(l);
-                  }}
-                >
-                  名前を変える
-                </button>
-                <button type="button" class="ghost" disabled={act.busy} onClick={() => after(() => api.activityLabelRemove(l))}>
-                  外す
-                </button>
+                <OverflowMenu
+                  label={`ラベル「${l}」の操作`}
+                  items={[
+                    {
+                      label: "名前を変える",
+                      onSelect: () => {
+                        setRenaming(l);
+                        setTo(l);
+                      },
+                    },
+                    { label: "外す", onSelect: () => after(() => api.activityLabelRemove(l)), disabled: act.busy },
+                  ]}
+                />
               </span>
             )}
           </li>
@@ -144,8 +146,10 @@ function CalendarSourcesCard() {
   const [newUrl, setNewUrl] = useState("");
   const act = useAction();
   return (
-    <Card title="カレンダー（ICS）">
-      <p class="muted">ICS の URL は秘密情報なので、ここにはホスト名だけを表示します。URL を変えるときは新しい URL を入れてください。</p>
+    <Card
+      title="カレンダー（ICS）"
+      help="ICS の URL は秘密情報なので、ここにはホスト名だけを表示します。URL を変えるときは新しい URL を入れてください。"
+    >
       <ErrorBox error={sources.error} />
       {sources.data?.sources.length === 0 && <Empty>カレンダーのソースはありません。</Empty>}
       <ul class="plain">
@@ -182,28 +186,16 @@ function CalendarSourcesCard() {
                 </div>
               </form>
             ) : (
-              <span class="row">
-                <span class="grow">
-                  {s.name} <span class="muted">（{s.host}）</span>
-                </span>
-                <button
-                  type="button"
-                  class="ghost"
-                  onClick={() => {
-                    setEditing(s.name);
-                    setNewName(s.name);
-                    setNewUrl("");
-                  }}
-                >
-                  編集
-                </button>
-                <ConfirmDelete
-                  what="カレンダーのソース"
-                  preview={() => api.calendarSourceDelete(s.name, { dry_run: true })}
-                  commit={() => api.calendarSourceDelete(s.name, { force: true })}
-                  onDeleted={sources.reload}
-                />
-              </span>
+              <SourceRow
+                name={s.name}
+                host={s.host}
+                onEdit={() => {
+                  setEditing(s.name);
+                  setNewName(s.name);
+                  setNewUrl("");
+                }}
+                onDeleted={sources.reload}
+              />
             )}
           </li>
         ))}
@@ -226,5 +218,30 @@ function CalendarSourcesCard() {
       </form>
       <ErrorBox error={act.error} />
     </Card>
+  );
+}
+
+/** カレンダーのソース 1 行。編集・削除は「…」メニュー。 */
+function SourceRow({ name, host, onEdit, onDeleted }: { name: string; host: string; onEdit: () => void; onDeleted: () => void }) {
+  const del = useConfirmDelete({
+    what: "カレンダーのソース",
+    preview: () => api.calendarSourceDelete(name, { dry_run: true }),
+    commit: () => api.calendarSourceDelete(name, { force: true }),
+    onDeleted,
+  });
+  return (
+    <span class="row">
+      <span class="grow">
+        {name} <span class="meta">（{host}）</span>
+      </span>
+      <OverflowMenu
+        label={`「${name}」の操作`}
+        items={[
+          { label: "編集", onSelect: onEdit },
+          { label: "削除…", onSelect: del.start, disabled: del.busy },
+        ]}
+      />
+      {del.dialog}
+    </span>
   );
 }

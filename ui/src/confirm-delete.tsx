@@ -10,9 +10,7 @@ export interface DeleteChoice {
   options: { value: string; label: string }[];
 }
 
-interface Props {
-  /** ボタンの文言。 */
-  label?: string;
+interface HookProps {
   /** 何を消すか（ダイアログの見出しに入れる）。例: 「KR」。 */
   what: string;
   /** dry_run で影響を数える。`choice` があれば選択値を渡す。 */
@@ -22,11 +20,20 @@ interface Props {
   onDeleted: () => void;
   /** 削除の扱いの選択肢（スキルの子の扱いなど）。 */
   choice?: DeleteChoice;
+}
+
+interface Props extends HookProps {
+  /** ボタンの文言。 */
+  label?: string;
   disabled?: boolean;
 }
 
-/** 削除ボタン。押すと影響を確認するダイアログ（アプリ内。`window.confirm` は使わない）を出し、了承されたら削除する。 */
-export function ConfirmDelete({ label = "削除", what, preview, commit, onDeleted, choice, disabled }: Props) {
+/**
+ * 削除の確認ダイアログ（アプリ内。`window.confirm` は使わない）を出す部品の本体。
+ * `start()` で影響を数えて確認を開き、了承されたら削除する。ボタンの代わりに「…」メニューの項目から
+ * 呼びたいときに使う（`dialog` を行の中のどこかに置く）。
+ */
+export function useConfirmDelete({ what, preview, commit, onDeleted, choice }: HookProps) {
   const [open, setOpen] = useState<DeleteOutcome | null>(null);
   const [pick, setPick] = useState(choice?.initial ?? "");
   const act = useAction();
@@ -45,19 +52,13 @@ export function ConfirmDelete({ label = "削除", what, preview, commit, onDelet
     return () => window.removeEventListener("keydown", h);
   }, [open]);
 
-  return (
+  const start = () => {
+    setPick(choice?.initial ?? "");
+    void load(choice?.initial ?? "");
+  };
+
+  const dialog = (
     <>
-      <button
-        type="button"
-        class="ghost"
-        disabled={disabled || act.busy}
-        onClick={() => {
-          setPick(choice?.initial ?? "");
-          void load(choice?.initial ?? "");
-        }}
-      >
-        {label}
-      </button>
       {!open && <ErrorBox error={act.error} />}
       {open && (
         <div class="modal-back">
@@ -85,7 +86,7 @@ export function ConfirmDelete({ label = "削除", what, preview, commit, onDelet
             )}
             {hasImpact(open.impact) ? (
               <>
-                <p class="muted">次のものに影響します。</p>
+                <p class="hint">次のものに影響します。</p>
                 <ul class="plain">
                   {impactLines(open.impact).map((l) => (
                     <li key={l}>{l}</li>
@@ -93,9 +94,9 @@ export function ConfirmDelete({ label = "削除", what, preview, commit, onDelet
                 </ul>
               </>
             ) : (
-              <p class="muted">ほかのデータへの影響はありません。</p>
+              <p class="hint">ほかのデータへの影響はありません。</p>
             )}
-            {open.impact.note && <p class="muted">{open.impact.note}</p>}
+            {open.impact.note && <p class="hint">{open.impact.note}</p>}
             <ErrorBox error={act.error} />
             <div class="row">
               <span class="spacer" />
@@ -120,6 +121,20 @@ export function ConfirmDelete({ label = "削除", what, preview, commit, onDelet
           </div>
         </div>
       )}
+    </>
+  );
+  return { start, busy: act.busy, dialog };
+}
+
+/** 削除ボタン。押すと影響を確認するダイアログを出し、了承されたら削除する。 */
+export function ConfirmDelete({ label = "削除", disabled, ...rest }: Props) {
+  const d = useConfirmDelete(rest);
+  return (
+    <>
+      <button type="button" class="ghost" disabled={disabled || d.busy} onClick={d.start}>
+        {label}
+      </button>
+      {d.dialog}
     </>
   );
 }

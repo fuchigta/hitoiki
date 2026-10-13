@@ -37,7 +37,7 @@ export function KrHistory({ k, onChanged }: { k: KeyResult; onChanged: () => voi
 
 function HistoryChart({ h }: { h: KrHistoryData }) {
   if (isEmptyHistory(h.weeks)) {
-    return <p class="muted">値の記録も、紐付いたタスクの時間も、この期間にはまだありません。</p>;
+    return <p class="hint">値の記録も、紐付いたタスクの時間も、この期間にはまだありません。</p>;
   }
   const heights = barHeights(h.weeks);
   const segs = valueSegments(valueLevels(h.weeks), COL_W, CHART_H);
@@ -95,7 +95,7 @@ function HistoryChart({ h }: { h: KrHistoryData }) {
           ))}
         </tbody>
       </table>
-      <p class="muted kr-range">
+      <p class="meta kr-range">
         棒は週ごとの時間、線は各週の終わり時点の現在値（数として読める値だけ。最小〜最大を縦に伸ばして表示）。
       </p>
     </div>
@@ -140,13 +140,13 @@ function ProgressForm({ k, onDone }: { k: KeyResult; onDone: () => void }) {
 }
 
 function EntryList({ h }: { h: KrHistoryData }) {
-  if (h.entries.length === 0) return <p class="muted">値の記録はまだありません。</p>;
+  if (h.entries.length === 0) return <p class="hint">値の記録はまだありません。</p>;
   return (
     <ul class="plain kr-history-entries">
       {[...h.entries].reverse().map((e) => (
         <li key={e.id}>
-          <span class="muted">{fmtDateTime(e.at)}</span> {e.text ?? "（消した）"}
-          {e.note && <span class="muted">　{e.note}</span>}
+          <span class="meta">{fmtDateTime(e.at)}</span> {e.text ?? "（消した）"}
+          {e.note && <span class="meta">　{e.note}</span>}
         </li>
       ))}
     </ul>
