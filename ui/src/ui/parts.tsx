@@ -236,12 +236,15 @@ export function Tabs({
   onChange,
   idBase,
   label,
+  panels = true,
 }: {
   tabs: TabDef[];
   active: string;
   onChange: (id: string) => void;
   idBase: string;
   label?: string;
+  /** 中身を `TabPanel` で並べるか。false なら、タブは一覧の切り替えだけに使う（aria-controls を付けない）。 */
+  panels?: boolean;
 }) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const ids = tabs.map((t) => t.id);
@@ -258,7 +261,7 @@ export function Tabs({
           id={`${idBase}-tab-${t.id}`}
           class="tab"
           aria-selected={active === t.id}
-          aria-controls={`${idBase}-panel-${t.id}`}
+          aria-controls={panels ? `${idBase}-panel-${t.id}` : undefined}
           tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           onKeyDown={(e) => {

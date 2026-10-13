@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrSummary } from "./api";
-import { ErrorBox } from "./components";
-import { Help, OverflowMenu } from "./ui/parts";
+import { ErrorBox, Section } from "./components";
+import { OverflowMenu } from "./ui/parts";
 import { KrHistory } from "./kr-history";
 import { SkillPicker } from "./skill-picker";
 import {
@@ -14,7 +14,7 @@ import {
   weekLabel,
 } from "./kr-util";
 import { aiNote, candidateRef, kindLabel, sourceLabel, wantsSuggestion } from "./kr-suggest-util";
-import { STATUS_LABEL, fmtDur, useAction, useAsync, useLiveTick } from "./lib";
+import { STATUS_LABEL, fmtDur, hrefOf, useAction, useAsync, useLiveTick } from "./lib";
 
 /**
  * KR のカードの中身: 選んだ軸の値（大きく）と補助の値、週ごとの時間、スキル別、見積と実績、紐付いたタスク。
@@ -31,69 +31,68 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
   const skills = <KrSkills k={k} names={s?.kr_skills ?? []} onChanged={reload} />;
   const tasks = <KrTasks k={k} summary={s ?? null} onChanged={reload} />;
   return (
-    <div class="kr-detail">
+    <div class="stack kr-detail">
       <ErrorBox error={sum.error} />
-      {s && <SummaryHead s={s} />}
-      {/* 要点（主軸の値）だけ常時表示し、週別・履歴・提案・スキル・タスクは開いたときに出す。 */}
-      <details class="kr-more">
-        <summary>詳細を開く</summary>
-        <div class="stack kr-more-body">
-          {s && <SummaryBody s={s} />}
-          <KrHistory k={k} onChanged={onChanged} />
-          {wantsSuggestion(s) && <KrSuggest k={k} onChanged={reload} />}
-          {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
-          {k.measure === "done" ? (
-            <>
-              {tasks}
-              {skills}
-            </>
-          ) : (
-            <>
-              {skills}
-              {tasks}
-            </>
-          )}
-        </div>
-      </details>
+      {/* 集計 → 週別 → スキル別 → 値の履歴 → スキル → タスク → 提案。区画ごとに Section で区切る。 */}
+      {s && <SummarySections s={s} />}
+      <KrHistory k={k} onChanged={onChanged} />
+      {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
+      {k.measure === "done" ? (
+        <>
+          {tasks}
+          {skills}
+        </>
+      ) : (
+        <>
+          {skills}
+          {tasks}
+        </>
+      )}
+      {wantsSuggestion(s) && <KrSuggest k={k} onChanged={reload} />}
     </div>
   );
 }
 
-/** 常時表示する要点: 選んだ軸の値と、補助の値。 */
+/** 集計: 選んだ軸の値（大きく）と、補助の値。期間も添える。 */
 function SummaryHead({ s }: { s: KrSummary }) {
   const { main, aux } = splitMeasures(s);
   const breakdown = breakdownText(s);
   return (
-    <div class="kr-main-row">
-      <div>
-        <div class="kr-main num" aria-label={main.label}>
-          {main.text}
+    <div class="stack">
+      <div class="kr-main-row">
+        <div>
+          <div class="kr-main num" aria-label={main.label}>
+            {main.text}
+          </div>
+          <div class="meta kr-main-label">{main.label}</div>
+          {breakdown && main.measure !== "done" && <div class="meta kr-indirect">{breakdown}</div>}
         </div>
-        <div class="meta kr-main-label">{main.label}</div>
-        {breakdown && main.measure !== "done" && <div class="meta kr-indirect">{breakdown}</div>}
+        <div class="kr-aux meta">
+          {aux.map((a) => (
+            <span key={a.measure}>
+              {a.label}: {a.text}
+            </span>
+          ))}
+        </div>
       </div>
-      <div class="kr-aux meta">
-        {aux.map((a) => (
-          <span key={a.measure}>
-            {a.label}: {a.text}
-          </span>
-        ))}
-      </div>
+      <p class="meta kr-range">
+        期間: {s.range.start.slice(0, 10)} 〜 {s.range.end.slice(0, 10)}（{rangeSourceLabel(s.range_source)}）
+      </p>
     </div>
   );
 }
 
-/** 開いたときに出す内訳: 期間、週ごとの時間、スキル別、見積と実績。 */
-function SummaryBody({ s }: { s: KrSummary }) {
+/** 集計・週別の時間・スキル別・見積と実績の各区画。 */
+function SummarySections({ s }: { s: KrSummary }) {
   const heights = barHeights(s.weekly);
   const hasTime = s.time_ms > 0;
   return (
-    <div class="stack">
-      <p class="meta kr-range">
-        期間: {s.range.start.slice(0, 10)} 〜 {s.range.end.slice(0, 10)}（{rangeSourceLabel(s.range_source)}）
-      </p>
+    <>
+      <Section level={3} title="集計">
+        <SummaryHead s={s} />
+      </Section>
       {hasTime && (
-        <>
+        <Section level={3} title="週別の時間">
           <div class="kr-bars" role="img" aria-label="週ごとの時間">
             {s.weekly.map((w, i) => (
               <div class="kr-bar" key={w.week_start} title={`${w.week_start} の週: ${fmtDur(w.duration_ms)}`}>
@@ -104,27 +103,30 @@ function SummaryBody({ s }: { s: KrSummary }) {
               </div>
             ))}
           </div>
-          {s.skills.length > 0 && (
-            <p class="meta kr-skills">
-              スキル別:{" "}
-              {s.skills.map((sk, i) => (
-                <span key={sk.name}>
-                  {i > 0 && "、"}
-                  {sk.name} {fmtDur(sk.duration_ms)}
-                </span>
-              ))}
-              {s.skills.length > 1 && "（複数のスキルが付いたタスクは各スキルに全時間を計上）"}
-            </p>
-          )}
-        </>
+        </Section>
+      )}
+      {hasTime && s.skills.length > 0 && (
+        <Section level={3} title="スキル別">
+          <p class="meta kr-skills">
+            {s.skills.map((sk, i) => (
+              <span key={sk.name}>
+                {i > 0 && "、"}
+                {sk.name} {fmtDur(sk.duration_ms)}
+              </span>
+            ))}
+            {s.skills.length > 1 && "（複数のスキルが付いたタスクは各スキルに全時間を計上）"}
+          </p>
+        </Section>
       )}
       {s.estimate.estimated_tasks > 0 && (
-        <p class="meta">
-          見積の合計 {fmtDur(s.estimate.estimate_min_total * 60_000)}（{s.estimate.estimated_tasks} 件）・
-          そのタスクの期間内の実績 {fmtDur(s.estimate.actual_ms_of_estimated)}
-        </p>
+        <Section level={3} title="見積と実績">
+          <p class="meta">
+            見積の合計 {fmtDur(s.estimate.estimate_min_total * 60_000)}（{s.estimate.estimated_tasks} 件）・
+            そのタスクの期間内の実績 {fmtDur(s.estimate.actual_ms_of_estimated)}
+          </p>
+        </Section>
       )}
-    </div>
+    </>
   );
 }
 
@@ -154,11 +156,11 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   // 対象外（すでにスキルか紐付けたタスクがある）や、まだ読み込み中で何も無いときは何も出さない。
   if (r && !r.eligible) return null;
   return (
-    <div class="stack kr-suggest">
-      <h3>
-        紐づけの候補{" "}
-        <Help>名前の近いタスク・スキルです。自動では紐付けません。「付けない」を選ぶと、以後この候補は出しません。</Help>
-      </h3>
+    <Section
+      level={3}
+      title="紐づけの候補"
+      help="名前の近いタスク・スキルです。自動では紐付けません。「付けない」を選ぶと、以後この候補は出しません。"
+    >
       {r && shown.length === 0 && <p class="hint">候補は見つかりませんでした。</p>}
       <ul class="plain">
         {shown.map((c) => {
@@ -205,7 +207,7 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
         )}
       </div>
       <ErrorBox error={act.error ?? sug.error} />
-    </div>
+    </Section>
   );
 }
 
@@ -221,15 +223,15 @@ function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onCh
     if (r) onChanged();
   };
   return (
-    <div class="field kr-skill-field">
-      <h3>
-        KR のスキル{" "}
-        <Help>
-          {k.measure === "done"
-            ? "完了数の対象は紐付けたタスクです。スキルは時間・日数に使います。"
-            : "このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。"}
-        </Help>
-      </h3>
+    <Section
+      level={3}
+      title="スキル"
+      help={
+        k.measure === "done"
+          ? "完了数の対象は紐付けたタスクです。スキルは時間・日数に使います。"
+          : "このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。付け外しはここで行います。"
+      }
+    >
       <SkillPicker
         value={names}
         skills={known.data?.skills ?? []}
@@ -238,7 +240,7 @@ function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onCh
         disabled={act.busy}
       />
       <ErrorBox error={act.error ?? known.error} />
-    </div>
+    </Section>
   );
 }
 
@@ -273,22 +275,22 @@ function KrTasks({
   };
 
   return (
-    <div class="stack kr-tasks">
-      <h3>
-        紐付けたタスク{" "}
-        <Help>
-          {k.measure === "done"
-            ? "完了数の対象です。"
-            : "補助です。スキルが付いていなくても、この KR の時間に含めます。"}
-        </Help>
-      </h3>
+    <Section
+      level={3}
+      title="タスク"
+      help={
+        k.measure === "done"
+          ? "完了数の対象です。タイトルを押すとタスクの詳細を開きます。"
+          : "補助です。スキルが付いていなくても、この KR の時間に含めます。タイトルを押すとタスクの詳細を開きます。"
+      }
+    >
       {tasks.length > 0 && (
         <ul class="plain">
           {tasks.map((t) => (
             <li key={t.id}>
               <span class="row">
                 <span class="grow">
-                  {t.title}
+                  <a href={hrefOf("tasks", [t.id])}>{t.title}</a>
                   <span class="meta">
                     {" "}
                     （{STATUS_LABEL[t.status] ?? t.status}
@@ -329,7 +331,7 @@ function KrTasks({
         />
       )}
       <ErrorBox error={act.error} />
-    </div>
+    </Section>
   );
 }
 

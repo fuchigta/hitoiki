@@ -1233,10 +1233,6 @@ button.hm-cell {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  margin: var(--sp-2) 0 var(--sp-2);
-  padding: var(--sp-2) var(--sp-2);
-  background: var(--surface-2);
-  border-radius: var(--r-m);
 }
 .kr-main-row {
   display: flex;
@@ -1609,12 +1605,6 @@ button.tab[aria-selected="true"] {
 }
 .object-row.group .object-title {
   font-weight: 600;
-}
-.object-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-1);
-  margin-bottom: var(--sp-3);
 }
 /* 関係へのリンクのチップ（押すと相手の詳細へ移る） */
 a.link-chip {

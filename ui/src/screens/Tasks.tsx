@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type MatchField, type PatternType, type TaskStatus, type TaskView } from "../api";
-import { Card, Empty, EmptyState, ErrorBox, Field, Section } from "../components";
+import { Card, Empty, EmptyState, ErrorBox, Field, InlineNew, Section } from "../components";
 import { useConfirmDelete } from "../confirm-delete";
 import { ListDetail, ObjectList, ObjectRow, OverflowMenu, TabPanel, Tabs, type MenuItem } from "../ui/parts";
 import { tabFromParam } from "../ui/tabs-util";
@@ -71,10 +71,14 @@ export function Tasks() {
               </button>
             ))}
             <span class="spacer" />
-            <NewTask
-              onAdded={(t) => {
+            <InlineNew
+              label="＋ タスク"
+              inputLabel="新しいタスクのタイトル"
+              onCreate={async (title) => {
+                const t = await api.taskAdd({ title });
                 list.reload();
                 navigate(hrefOf("tasks", [t.id]));
+                return t;
               }}
             />
           </div>
@@ -129,56 +133,6 @@ function rowMarks(t: TaskView): string[] | undefined {
   if (t.urgent) marks.push("緊急");
   if (t.important) marks.push("重要");
   return marks.length > 0 ? marks : undefined;
-}
-
-/** 「＋ タスク」。押すとタイトルの入力欄が出て、Enter で作成する（Esc でやめる）。 */
-function NewTask({ onAdded }: { onAdded: (t: TaskView) => void }) {
-  const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const act = useAction();
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (open) input.current?.focus();
-  }, [open]);
-  const close = () => {
-    setOpen(false);
-    setTitle("");
-  };
-  const submit = async (e: Event) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const r = await act.run(() => api.taskAdd({ title: title.trim() }));
-    if (r) {
-      close();
-      onAdded(r);
-    }
-  };
-  if (!open) {
-    return (
-      <button type="button" onClick={() => setOpen(true)}>
-        ＋ タスク
-      </button>
-    );
-  }
-  return (
-    <form class="list-new grow" onSubmit={submit}>
-      <input
-        ref={input}
-        class="grow"
-        value={title}
-        aria-label="新しいタスクのタイトル"
-        placeholder="タイトル（Enter で作成）"
-        onInput={(e) => setTitle(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            close();
-          }
-        }}
-      />
-      <ErrorBox error={act.error} />
-    </form>
-  );
 }
 
 function TaskDetail({
