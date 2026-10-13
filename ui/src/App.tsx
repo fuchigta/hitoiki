@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on } from "./api";
 import { LeaveConfirm, RuntimeBanner } from "./components";
 import { leaveGuard } from "./edit-util";
-import { SCREENS, loadTimeZone, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
+import { SCREENS, hrefOf, loadTimeZone, navigate, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
 import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
 import { Plan } from "./screens/Plan";
@@ -32,9 +32,7 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
 
 /** 画面を切り替える。未保存の変更があれば確認してから。 */
 function goto(hash: string) {
-  leaveGuard.requestLeave(() => {
-    location.hash = hash;
-  });
+  navigate(hash);
 }
 
 function windowLabel(): string {
@@ -90,14 +88,14 @@ function Main() {
         {SCREENS.filter((s) => s.id !== "onboarding").map((s) => (
           <a
             key={s.id}
-            href={`#/${s.id}`}
+            href={hrefOf(s.id)}
             class={screen === s.id ? "on" : ""}
             aria-current={screen === s.id ? "page" : undefined}
             onClick={(e) => {
               // 未保存の変更があれば、確認を挟んでから移動する。
-              if (leaveGuard.isDirty() && screen !== s.id) {
+              if (leaveGuard.isDirty()) {
                 e.preventDefault();
-                goto(`#/${s.id}`);
+                goto(hrefOf(s.id));
               }
             }}
           >

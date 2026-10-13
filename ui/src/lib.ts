@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "preact/hooks";
+import { leaveGuard } from "./edit-util";
 import { api, on, toAppError, type AppError, type EventName, type Millis, type SegmentKind } from "./api";
 
 // ===== 表示用の整形 =====
@@ -157,27 +158,101 @@ export const SCREENS = [
   { id: "reflect", label: "振り返り" },
   { id: "report", label: "レポート" },
   { id: "records", label: "記録" },
-  { id: "okr", label: "OKR・スキル" },
+  { id: "okr", label: "目標" },
   { id: "settings", label: "設定" },
   { id: "onboarding", label: "はじめに" },
 ] as const;
 
 export type ScreenId = (typeof SCREENS)[number]["id"];
 
-/** `#/today` 形式のハッシュから画面を得る。 */
-export function screenFromHash(hash: string): ScreenId {
-  const id = hash.replace(/^#\/?/, "").split(/[/?]/)[0];
-  return SCREENS.some((s) => s.id === id) ? (id as ScreenId) : "today";
+export interface Route {
+  screen: ScreenId;
+  /** 画面より後ろのパス（`#/tasks/<ID>` なら `[ID]`）。 */
+  path: string[];
+  params: URLSearchParams;
 }
 
-export function useScreen(): ScreenId {
-  const [s, setS] = useState<ScreenId>(screenFromHash(location.hash));
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+/** `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。 */
+export function routeFromHash(hash: string): Route {
+  const body = hash.replace(/^#\/?/, "");
+  const q = body.indexOf("?");
+  const pathPart = q >= 0 ? body.slice(0, q) : body;
+  const params = new URLSearchParams(q >= 0 ? body.slice(q + 1) : "");
+  const segs = pathPart.split("/").filter((x) => x !== "");
+  if (!SCREENS.some((s) => s.id === segs[0])) return { screen: "today", path: [], params };
+  return { screen: segs[0] as ScreenId, path: segs.slice(1).map(safeDecode), params };
+}
+
+/** ルートからハッシュを作る。`params` は値が空のものを除く。 */
+export function hrefOf(
+  screen: string,
+  path: string[] = [],
+  params?: Record<string, string | undefined> | URLSearchParams,
+): string {
+  const sp = new URLSearchParams();
+  if (params instanceof URLSearchParams) params.forEach((v, k) => v && sp.set(k, v));
+  else for (const [k, v] of Object.entries(params ?? {})) if (v) sp.set(k, v);
+  const qs = sp.toString();
+  return `#/${[screen, ...path.map((x) => encodeURIComponent(x))].join("/")}${qs ? `?${qs}` : ""}`;
+}
+
+/**
+ * 旧い画面 ID のルートを、いまのルートへ写す（`hitoiki ui <画面>`・通知の `open_screen`・起動引数が旧名を使うため）。
+ * P2 の時点では写すものがない（恒等）。画面を統合する段階で、ここに足す（例: `review` → `log?status=review`）。
+ */
+export function legacyRoute(route: Route): Route {
+  return route;
+}
+
+/** `#/today` 形式のハッシュから画面を得る。 */
+export function screenFromHash(hash: string): ScreenId {
+  return legacyRoute(routeFromHash(hash)).screen;
+}
+
+/**
+ * ハッシュを移す。未保存の変更があれば確認してから。
+ * 同じハッシュなら何もしない。`replace` は履歴を増やさずに置き換える。
+ */
+export function navigate(href: string, opts: { replace?: boolean } = {}): void {
+  if (href === location.hash) return;
+  leaveGuard.requestLeave(() => {
+    if (opts.replace) location.replace(href);
+    else location.hash = href;
+  });
+}
+
+const hashOf = (r: Route) => hrefOf(r.screen, r.path, r.params);
+
+/** 現在のルート。ハッシュが変わると更新する。旧名のハッシュは、履歴を増やさず正規のルートに置き換える。 */
+export function useRoute(): Route {
+  const [r, setR] = useState<Route>(() => legacyRoute(routeFromHash(location.hash)));
   useEffect(() => {
-    const h = () => setS(screenFromHash(location.hash));
+    const h = () => {
+      const raw = routeFromHash(location.hash);
+      const next = legacyRoute(raw);
+      if (hashOf(next) !== hashOf(raw)) {
+        location.replace(hashOf(next));
+        return;
+      }
+      setR(next);
+    };
+    h();
     window.addEventListener("hashchange", h);
     return () => window.removeEventListener("hashchange", h);
   }, []);
-  return s;
+  return r;
+}
+
+export function useScreen(): ScreenId {
+  return useRoute().screen;
 }
 
 // ===== データ取得 =====
