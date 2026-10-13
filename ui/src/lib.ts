@@ -154,10 +154,9 @@ export const SCREENS = [
   { id: "today", label: "今日" },
   { id: "log", label: "実績" },
   { id: "tasks", label: "タスク" },
-  { id: "reflect", label: "振り返り" },
-  { id: "report", label: "レポート" },
-  { id: "records", label: "記録" },
   { id: "okr", label: "目標" },
+  { id: "records", label: "記録" },
+  { id: "report", label: "レポート" },
   { id: "settings", label: "設定" },
   { id: "onboarding", label: "はじめに" },
 ] as const;
@@ -180,7 +179,7 @@ function safeDecode(s: string): string {
 }
 
 /** 画面としては無くなったが、ハッシュとしては受け付ける旧い ID（`legacyRoute` で新しいルートに写す）。 */
-const LEGACY_IDS: string[] = ["review", "plan"];
+const LEGACY_IDS: string[] = ["review", "plan", "reflect"];
 
 /**
  * `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。
@@ -193,7 +192,7 @@ export function routeFromHash(hash: string): Route {
   const params = new URLSearchParams(q >= 0 ? body.slice(q + 1) : "");
   const segs = pathPart.split("/").filter((x) => x !== "");
   if (segs[0] === "checkin" || segs[0] === "hassle") return { screen: "records", path: ["new", segs[0]], params };
-  if (segs[0] === "reflection") return { screen: "reflect", path: segs.slice(1).map(safeDecode), params };
+  if (segs[0] === "reflection") return { screen: "reflect" as ScreenId, path: segs.slice(1).map(safeDecode), params };
   if (!SCREENS.some((s) => s.id === segs[0]) && !LEGACY_IDS.includes(segs[0])) return { screen: "today", path: [], params };
   return { screen: segs[0] as ScreenId, path: segs.slice(1).map(safeDecode), params };
 }
@@ -228,7 +227,7 @@ export function legacyRoute(route: Route): Route {
   if ((route.screen as string) === "plan") {
     return { screen: "today", path: route.path, params: route.params };
   }
-  if (route.screen === "reflect") {
+  if ((route.screen as string) === "reflect") {
     const kind = route.path[0];
     if (kind === "day_start" || kind === "day_end" || kind === "weekly") {
       return { screen: "records", path: ["new", kind], params: route.params };
