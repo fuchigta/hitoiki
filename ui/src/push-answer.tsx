@@ -1,13 +1,13 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import { api } from "./api";
-import type { PushPayload } from "./api";
+import type { PushPayload, PushView } from "./api";
 import { ErrorBox } from "./components";
-import { useAction } from "./lib";
-import { buildForm, dismissArgs, respondArgs } from "./push-answer-util";
+import { fmtTime, useAction } from "./lib";
+import { buildForm, dismissArgs, periodLabel, respondArgs } from "./push-answer-util";
 
 /**
- * 通知への回答 UI（選択肢のボタン・一言入力・開く・答えない）。今日画面の「未回答の問いかけ」と
+ * 通知への回答 UI（選択肢のボタン・一言入力・開く・答えない）。今日画面のサイドパネルと
  * ポップアップ窓で共有する。応答は core が処理する（`push_respond`）。
  * `pushId` が無い（テスト通知）ときは「答えない」を出さない。`children` は下段の行に並べる。
  */
@@ -69,5 +69,26 @@ export function PushAnswer({
         )}
       </div>
     </div>
+  );
+}
+
+/** 未回答の問いかけの一覧（今日の画面のサイドパネル）。 */
+export function PushList({ pushes, onDone }: { pushes: PushView[]; onDone: () => void }) {
+  return (
+    <ul class="plain push-list">
+      {pushes.map((p) => (
+        <li key={p.id}>
+          <div>
+            <span class="meta">
+              {fmtTime(p.at)} {p.trigger_label}
+            </span>{" "}
+            <strong>{p.title}</strong>
+          </div>
+          {p.body && <p class="hint">{p.body}</p>}
+          {periodLabel(p.payload, fmtTime) && <p class="meta">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
+          {p.payload && <PushAnswer pushId={p.id} payload={p.payload} onDone={onDone} />}
+        </li>
+      ))}
+    </ul>
   );
 }

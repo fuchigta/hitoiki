@@ -7,7 +7,6 @@ import { SCREENS, hrefOf, loadTimeZone, navigate, useAsync, useLiveTick, useScre
 import { Log } from "./screens/Log";
 import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
-import { Plan } from "./screens/Plan";
 import { Popup } from "./screens/Popup";
 import { Quick } from "./screens/Quick";
 import { Records } from "./screens/Records";
@@ -20,8 +19,6 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   today: Today,
   log: Log,
   tasks: Tasks,
-  plan: Plan,
-  reflect: Records, // 旧名。`legacyRoute` が `records` に写すので、ここは通らない
   report: Report,
   records: Records,
   okr: Okr,
@@ -88,7 +85,7 @@ function Main() {
     <div class="shell">
       <nav class="nav" aria-label="画面">
         <div class="brand">Hitoiki</div>
-        {SCREENS.filter((s) => s.id !== "onboarding" && s.id !== "reflect").map((s) => (
+        {SCREENS.filter((s) => s.id !== "onboarding").map((s) => (
           <a
             key={s.id}
             href={hrefOf(s.id)}

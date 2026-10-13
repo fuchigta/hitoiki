@@ -1,16 +1,13 @@
 import type { RefObject } from "preact";
-import { useState } from "preact/hooks";
 import { api } from "./api";
 import type { BlockInput, BlockView, CalendarEvent, GapView, Millis, SegmentView, TaskView } from "./api";
-import { BlockForm, blockTitle, type BlockDraft } from "./block-form";
+import type { BlockDraft } from "./block-form";
 import { ErrorBox } from "./components";
 import { DayGrid } from "./day-grid";
 import { useAction } from "./lib";
 import type { TimeSpan } from "./plan-util";
 
 interface Props {
-  /** 日付（YYYY-MM-DD）。 */
-  date: string;
   dayStart: Millis;
   dayEnd: Millis;
   view: TimeSpan;
@@ -18,10 +15,13 @@ interface Props {
   segments: SegmentView[];
   events: CalendarEvent[];
   gaps?: GapView[];
-  tasks: TaskView[];
   now?: Millis;
   /** ブロックを変えた後に呼ぶ（一覧の再取得）。 */
   reload: () => void;
+  /** サイドパネルで作成・編集中のブロック（タイムライン上で強調する）。 */
+  draft: BlockDraft | null;
+  /** ブロックの作成・編集を始める（サイドパネルに BlockForm を出す）。null で閉じる。 */
+  onDraft: (d: BlockDraft | null) => void;
   /** 「配置するタスク」を選んでいる間は、範囲を選ぶとそのタスクのブロックをすぐ作る。 */
   armedTask?: TaskView | null;
   /** 配置し終えた。 */
@@ -35,23 +35,17 @@ interface Props {
   actualSelection?: TimeSpan | null;
   /** 「実績」の列をクリックした（その位置の区間 ID）。 */
   onClickActual?: (segmentId: string) => void;
+  /** サイドパネルで開いている区間。 */
+  selectedSegmentId?: string | null;
   snapMs?: number;
 }
 
 /**
- * 1 日のタイムラインと、その上でのブロックの作成・編集・移動・伸縮・削除。
- * 計画画面と今日画面が同じ部品を使う（ロジックは plan-util に集めている）。
+ * 1 日のタイムラインと、その上でのブロックの作成・移動・伸縮・削除。
+ * ブロックの入力フォームはサイドパネル（`BlockPanel`）に出すので、ここでは下書きを親に渡すだけ。
  */
 export function DayDesigner(p: Props) {
-  const [draft, setDraft] = useState<BlockDraft | null>(null);
   const act = useAction();
-
-  const others = [
-    ...p.blocks.map((b) => ({ id: b.id, start_at: b.start_at, end_at: b.end_at, title: blockTitle(b) })),
-    ...p.events
-      .filter((c) => c.is_busy && !c.all_day)
-      .map((c) => ({ start_at: c.start_at, end_at: c.end_at, title: c.title })),
-  ];
 
   const blockInput = (b: BlockView, span: TimeSpan): BlockInput => ({
     start: span.start,
@@ -72,34 +66,26 @@ export function DayDesigner(p: Props) {
       return;
     }
     act.clear();
-    setDraft({ start: span.start, end: span.end, task: "", label: "", focus: false });
-  };
-
-  const submit = async (input: BlockInput, id?: string) => {
-    const r = await act.run(() => (id ? api.blockUpdate(id, input) : api.blockAdd(input)));
-    if (r) {
-      setDraft(null);
-      p.reload();
-    }
+    p.onDraft({ start: span.start, end: span.end, task: "", label: "", focus: false });
   };
 
   const remove = async (b: BlockView) => {
     const r = await act.run(() => api.blockDelete(b.id));
     if (r !== undefined) {
-      if (draft?.id === b.id) setDraft(null);
+      if (p.draft?.id === b.id) p.onDraft(null);
       p.reload();
     }
   };
 
   const change = async (b: BlockView, span: TimeSpan) => {
-    setDraft(null);
+    p.onDraft(null);
     const r = await act.run(() => api.blockUpdate(b.id, blockInput(b, span)));
     if (r) p.reload();
   };
 
   const edit = (b: BlockView) => {
     act.clear();
-    setDraft({
+    p.onDraft({
       id: b.id,
       start: b.start_at,
       end: b.end_at,
@@ -109,7 +95,7 @@ export function DayDesigner(p: Props) {
     });
   };
 
-  const selection = draft ? { start: draft.start, end: draft.end } : (p.ghost ?? null);
+  const selection = p.draft ? { start: p.draft.start, end: p.draft.end } : (p.ghost ?? null);
 
   return (
     <div class="stack">
@@ -123,37 +109,21 @@ export function DayDesigner(p: Props) {
         gaps={p.gaps}
         now={p.now}
         selection={selection}
-        editingId={draft?.id ?? null}
+        editingId={p.draft?.id ?? null}
         clickLenMin={p.clickLenMin ?? (p.armedTask?.estimate_min ?? 60)}
         laneRef={p.laneRef}
         onPickActual={p.onPickActual}
         onClickActual={p.onClickActual}
         actualSelection={p.actualSelection}
+        selectedSegmentId={p.selectedSegmentId}
         snapMs={p.snapMs}
         onSelect={create}
         onEditBlock={edit}
         onChangeBlock={change}
         onDeleteBlock={remove}
         disabled={act.busy}
-        popover={
-          draft && (
-            <BlockForm
-              key={`${draft.id ?? "new"}-${draft.start}-${draft.end}`}
-              draft={draft}
-              date={p.date}
-              dayEnd={p.dayEnd}
-              tasks={p.tasks}
-              others={others}
-              busy={act.busy}
-              error={act.error}
-              onSubmit={submit}
-              onCancel={() => setDraft(null)}
-              onDelete={draft.id ? () => remove(p.blocks.find((b) => b.id === draft.id)!) : undefined}
-            />
-          )
-        }
       />
-      {!draft && <ErrorBox error={act.error} />}
+      <ErrorBox error={act.error} />
     </div>
   );
 }

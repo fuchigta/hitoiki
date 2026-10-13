@@ -688,7 +688,7 @@ button.primary.attn {
   margin: 0;
 }
 
-/* 縦型タイムライン（計画画面のドラッグ操作） */
+/* 縦型タイムライン（今日の画面のドラッグ操作） */
 .vtl {
   position: relative;
   display: flex;
@@ -832,32 +832,70 @@ button.primary.attn {
   color: var(--accent-text);
   pointer-events: none;
 }
-.vtl-pop {
-  position: absolute;
-  left: 52px;
-  right: 8px;
-  z-index: 5;
-  padding: var(--sp-3);
-  background: var(--surface);
-  border: 1px solid var(--accent);
-  border-radius: var(--r-m);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
-}
 
-/* 今日のデザイン・テンプレート */
-.design {
+/* 今日: 日付の帯・本体（タイムライン + サイドパネル） */
+.date-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.date-strip .date-label {
+  font-weight: 600;
+  min-width: 9.5em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.date-strip input[type="date"] {
+  width: auto;
+}
+.date-strip .spacer {
+  flex: 1;
+}
+.today-body {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
-  gap: var(--sp-3);
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-4);
   align-items: start;
 }
+.today-body.has-side {
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+}
 @media (max-width: 860px) {
-  .design {
+  .today-body.has-side {
     grid-template-columns: minmax(0, 1fr);
   }
 }
-.design-side {
+.side-panel {
   min-width: 0;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+@media (max-width: 860px) {
+  .side-panel {
+    position: static;
+    max-height: none;
+  }
+}
+.vtl-item.seg.selected {
+  box-shadow: 0 0 0 2px var(--accent);
+  z-index: 1;
+}
+.stat button.link-like,
+.stat .stat-action {
+  align-self: flex-start;
+}
+.breakdown {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-5);
+}
+@media (max-width: 700px) {
+  .breakdown {
+    grid-template-columns: 1fr;
+  }
 }
 .task-chips {
   display: flex;
@@ -1539,6 +1577,9 @@ button.object-main {
 }
 .stat .stat-title {
   font-weight: 600;
+}
+.stat-now {
+  flex: 1 1 280px;
 }
 .stat-doing {
   display: flex;

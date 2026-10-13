@@ -38,7 +38,7 @@ interface Props {
   onDelete?: () => void;
 }
 
-/** ブロックの作成・編集フォーム（計画画面・今日画面のポップオーバーで共通）。 */
+/** ブロックの作成・編集フォーム（今日の画面のサイドパネルで使う）。 */
 export function BlockForm(p: Props) {
   const d = p.draft;
   const [start, setStart] = useState(fmtTime(d.start));

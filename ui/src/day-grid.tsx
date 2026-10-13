@@ -64,8 +64,8 @@ export interface DayGridProps {
   actualSelection?: TimeSpan | null;
   /** 範囲の端を区間の境目へ吸着させる幅（ミリ秒、`review.snap_sec`）。 */
   snapMs?: number;
-  /** 選択範囲の位置に重ねて出す内容（ポップオーバー）。 */
-  popover?: ComponentChildren;
+  /** サイドパネルで開いている区間（実績の列で強調する）。 */
+  selectedSegmentId?: string | null;
   disabled?: boolean;
 }
 
@@ -259,7 +259,7 @@ export function DayGrid(p: DayGridProps) {
         {p.segments.map((s) => (
           <div
             key={s.id}
-            class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}${s.offline ? " offline" : ""}`}
+            class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}${s.offline ? " offline" : ""}${p.selectedSegmentId === s.id ? " selected" : ""}`}
             style={pos(s.start_at, s.end_at)}
             title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.offline ? "（PC 外）" : ""}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}`}
           />
@@ -279,11 +279,6 @@ export function DayGrid(p: DayGridProps) {
         )}
         {now}
       </Lane>
-      {p.popover && sel && (
-        <div class="vtl-pop" style={{ top: `${Math.min(timeToPercent(sel.start, view.start, view.end), 55)}%` }} role="dialog" aria-label="ブロック">
-          {p.popover}
-        </div>
-      )}
     </div>
   );
 }

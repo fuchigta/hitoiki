@@ -63,6 +63,33 @@ describe("legacyRoute", () => {
   });
 });
 
+describe("legacyRoute: 計画（P4）", () => {
+  const map = (hash: string) => {
+    const r = legacyRoute(routeFromHash(hash));
+    return hrefOf(r.screen, r.path, r.params);
+  };
+  it("plan は today に写す（date は引き継ぐ）", () => {
+    expect(map("#/plan")).toBe("#/today");
+    expect(map("#/plan?date=2026-10-13")).toBe("#/today?date=2026-10-13");
+  });
+  it("today とそのサブルートはそのまま", () => {
+    expect(map("#/today")).toBe("#/today");
+    expect(map("#/today/design")).toBe("#/today/design");
+    expect(map("#/today?date=2026-10-13")).toBe("#/today?date=2026-10-13");
+  });
+});
+
+describe("画面の並び", () => {
+  it("ナビは 今日 / 実績 / タスク / 目標 / 記録 / レポート / 設定（はじめにはナビ外）。旧名は含まない", async () => {
+    const { SCREENS } = await import("./lib");
+    expect(SCREENS.map((s) => s.id)).toEqual(["today", "log", "tasks", "okr", "records", "report", "settings", "onboarding"]);
+  });
+  it("旧名（review・plan・reflect）も受け付けて、画面としては今日・実績・記録に写す", () => {
+    const screens = ["#/review", "#/plan", "#/reflect", "#/reflection/weekly"].map((h) => legacyRoute(routeFromHash(h)).screen);
+    expect(screens).toEqual(["log", "today", "records", "records"]);
+  });
+});
+
 describe("legacyRoute: 記録・振り返り（P5）", () => {
   const map = (hash: string) => {
     const r = legacyRoute(routeFromHash(hash));
