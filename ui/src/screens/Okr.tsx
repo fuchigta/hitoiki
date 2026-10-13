@@ -1,75 +1,67 @@
-import { useState } from "preact/hooks";
-import { api } from "../api";
-import { Card, Empty, ErrorBox } from "../components";
-import { useAction, useAsync } from "../lib";
-import { SkillPicker } from "../skill-picker";
-import { Help } from "../ui/parts";
-import { KrItem, ObjectiveItem, SkillItem } from "../okr-edit";
+import { Fragment } from "preact";
+import { api, type KeyResult, type ObjectiveView, type SkillView } from "../api";
+import { EmptyState, ErrorBox, InlineNew } from "../components";
+import { splitMeasures } from "../kr-util";
+import { hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "../lib";
+import { periodInputs } from "../manage-util";
+import { KrPanel, ObjectiveDetail, OKR_STATUS_LABEL, SkillDetail, useObjectiveDelete } from "../okr-edit";
+import { krMetaText, okrSelection, okrTab, skillTree, type OkrTab } from "../okr-util";
+import { ListDetail, ObjectList, ObjectRow, Tabs } from "../ui/parts";
+
+const TABS = [
+  { id: "okr", label: "OKR" },
+  { id: "skills", label: "スキル" },
+];
 
 export function Okr() {
+  const route = useRoute();
+  const sel = okrSelection(route.path);
+  const tab = okrTab(route.params.get("tab"), sel);
   const okr = useAsync(() => api.okrList(), []);
   const skills = useAsync(() => api.skillList(), []);
-  const [obj, setObj] = useState("");
-  const [skill, setSkill] = useState("");
   const act = useAction();
+  const objectives = okr.data?.objectives ?? [];
+  const skillList = skills.data?.skills ?? [];
 
-  return (
-    <div class="grid2">
-      <div class="stack">
-        <Card title="OKR">
-          <ErrorBox error={okr.error} />
-          {okr.data?.objectives.length === 0 && <Empty>Objective はまだありません。</Empty>}
-          {okr.data?.objectives.map((o) => (
-            <ObjectiveItem key={o.id} o={o} onChanged={okr.reload}>
-              <ul class="plain">
-                {o.key_results.map((k) => (
-                  <KrItem key={k.id} k={k} objectives={okr.data?.objectives ?? []} onChanged={okr.reload} />
-                ))}
-              </ul>
-              <KrForm objective={o.id} onAdded={okr.reload} />
-            </ObjectiveItem>
-          ))}
-          <form
-            class="row"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const r = await act.run(() => api.okrAddObjective(obj.trim()));
-              if (r) {
-                setObj("");
+  const goTab = (t: string) => navigate(hrefOf("okr", [], t === "skills" ? { tab: "skills" } : {}));
+  const home = (t: OkrTab) => hrefOf("okr", [], t === "skills" ? { tab: "skills" } : {});
+
+  const list = (
+    <div class="stack">
+      <Tabs tabs={TABS} active={tab} onChange={goTab} idBase="okr" label="目標の一覧" panels={false} />
+      {tab === "okr" ? (
+        <>
+          <div class="list-head">
+            <span class="spacer" />
+            <InlineNew
+              label="＋ Objective"
+              inputLabel="新しい Objective"
+              onCreate={async (title) => {
+                const o = await api.okrAddObjective(title);
                 okr.reload();
-              }
-            }}
-          >
-            <input class="grow" value={obj} onInput={(e) => setObj(e.currentTarget.value)} placeholder="新しい Objective" />
-            <button disabled={act.busy || !obj.trim()}>追加</button>
-          </form>
-        </Card>
-      </div>
-      <div class="stack">
-        <Card title="スキル">
-          <ErrorBox error={skills.error} />
-          {skills.data?.skills.length === 0 && <Empty>スキルはまだありません。</Empty>}
-          <ul class="plain">
-            {skills.data?.skills.map((s) => (
-              <SkillItem key={s.id} s={s} all={skills.data?.skills ?? []} onChanged={skills.reload} />
+                navigate(hrefOf("okr", ["o", o.id]));
+                return o;
+              }}
+            />
+          </div>
+          <ErrorBox error={okr.error} />
+          {okr.data && objectives.length === 0 && <EmptyState>Objective はまだありません。</EmptyState>}
+          <ObjectList label="Objective と KR">
+            {objectives.map((o) => (
+              <Fragment key={o.id}>
+                <ObjectiveRow o={o} selected={sel?.kind === "o" && sel.id === o.id} onDeleted={() => deleted(okr.reload, home("okr"))} />
+                {o.key_results.map((k) => (
+                  <KrRow key={k.id} k={k} selected={sel?.kind === "kr" && sel.id === k.id} />
+                ))}
+              </Fragment>
             ))}
-          </ul>
-          <form
-            class="row"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const r = await act.run(() => api.skillAdd(skill.trim()));
-              if (r) {
-                setSkill("");
-                skills.reload();
-              }
-            }}
-          >
-            <input class="grow" value={skill} onInput={(e) => setSkill(e.currentTarget.value)} placeholder="新しいスキル" />
-            <button disabled={act.busy || !skill.trim()}>追加</button>
-          </form>
-          <div class="row">
+          </ObjectList>
+        </>
+      ) : (
+        <>
+          <div class="list-head">
             <button
+              type="button"
               class="ghost"
               disabled={act.busy}
               onClick={async () => {
@@ -79,53 +71,158 @@ export function Okr() {
             >
               プリセットを取り込む
             </button>
+            <span class="spacer" />
+            <InlineNew
+              label="＋ スキル"
+              inputLabel="新しいスキル"
+              placeholder="名前（Enter で作成）"
+              onCreate={async (name) => {
+                const s = await api.skillAdd(name);
+                skills.reload();
+                navigate(hrefOf("okr", ["skill", s.id], { tab: "skills" }));
+                return s;
+              }}
+            />
           </div>
-        </Card>
-        <ErrorBox error={act.error} />
-      </div>
+          <ErrorBox error={skills.error ?? act.error} />
+          {skills.data && skillList.length === 0 && <EmptyState>スキルはまだありません。</EmptyState>}
+          <ObjectList label="スキル">
+            {skillTree(skillList).map(({ skill: s, depth }) => (
+              <ObjectRow
+                key={s.id}
+                indent={depth}
+                selected={sel?.kind === "skill" && sel.id === s.id}
+                title={s.name}
+                tags={s.preset ? ["プリセット"] : undefined}
+                onSelect={() => navigate(hrefOf("okr", ["skill", s.id], { tab: "skills" }))}
+              />
+            ))}
+          </ObjectList>
+        </>
+      )}
     </div>
+  );
+
+  return <ListDetail list={list} detail={<Detail sel={sel} tab={tab} route={route.params} objectives={objectives} skills={skillList} reloadOkr={okr.reload} reloadSkills={skills.reload} loaded={!!okr.data && !!skills.data} />} />;
+}
+
+/** 削除後は一覧を読み直し、選択を外す。 */
+function deleted(reload: () => void, home: string) {
+  reload();
+  navigate(home, { replace: true });
+}
+
+function Detail({
+  sel,
+  tab,
+  route,
+  objectives,
+  skills,
+  reloadOkr,
+  reloadSkills,
+  loaded,
+}: {
+  sel: ReturnType<typeof okrSelection>;
+  tab: OkrTab;
+  route: URLSearchParams;
+  objectives: ObjectiveView[];
+  skills: SkillView[];
+  reloadOkr: () => void;
+  reloadSkills: () => void;
+  loaded: boolean;
+}) {
+  const home = hrefOf("okr", [], tab === "skills" ? { tab: "skills" } : {});
+  if (!sel) {
+    return (
+      <EmptyState>
+        {tab === "skills"
+          ? "スキルを選ぶと詳細が出ます。"
+          : "Objective か KR を選ぶと詳細が出ます。"}
+      </EmptyState>
+    );
+  }
+  if (!loaded) return <EmptyState>読み込み中…</EmptyState>;
+  if (sel.kind === "o") {
+    const o = objectives.find((x) => x.id === sel.id);
+    if (!o) return <EmptyState>Objective が見つかりません。</EmptyState>;
+    return (
+      <ObjectiveDetail
+        key={`${o.id}?${route.toString()}`}
+        o={o}
+        initialEditing={route.get("edit") === "1"}
+        initialAdding={route.get("new") === "kr"}
+        onChanged={reloadOkr}
+        onDeleted={() => deleted(reloadOkr, home)}
+      />
+    );
+  }
+  if (sel.kind === "kr") {
+    const k = objectives.flatMap((o) => o.key_results).find((x) => x.id === sel.id);
+    if (!k) return <EmptyState>KR が見つかりません。</EmptyState>;
+    return <KrPanel key={k.id} k={k} objectives={objectives} onChanged={reloadOkr} onDeleted={() => deleted(reloadOkr, home)} />;
+  }
+  const s = skills.find((x) => x.id === sel.id);
+  if (!s) return <EmptyState>スキルが見つかりません。</EmptyState>;
+  return (
+    <SkillDetail
+      key={s.id}
+      s={s}
+      all={skills}
+      onChanged={() => {
+        reloadSkills();
+        reloadOkr();
+      }}
+      onDeleted={() => deleted(reloadSkills, home)}
+    />
   );
 }
 
-function KrForm({ objective, onAdded }: { objective: string; onAdded: () => void }) {
-  const [title, setTitle] = useState("");
-  const [target, setTarget] = useState("");
-  const [skillNames, setSkillNames] = useState<string[]>([]);
-  const known = useAsync(() => api.skillList(), []);
-  const act = useAction();
+/** Objective の見出し行。タイトル・期間・状態。「…」に KR の追加・編集・削除。 */
+function ObjectiveRow({ o, selected, onDeleted }: { o: ObjectiveView; selected: boolean; onDeleted: () => void }) {
+  const del = useObjectiveDelete(o.id, onDeleted);
+  const period = o.period_start != null || o.period_end != null ? periodText(o) : undefined;
   return (
-    <form
-      class="stack"
-      onSubmit={async (e) => {
-        e.preventDefault();
-        const r = await act.run(() => api.okrAddKr(objective, title.trim(), target.trim() || undefined, skillNames));
-        if (r) {
-          setTitle("");
-          setTarget("");
-          setSkillNames([]);
-          onAdded();
-        }
-      }}
-    >
-      <div class="row">
-        <input class="grow" value={title} onInput={(e) => setTitle(e.currentTarget.value)} placeholder="Key Result" />
-        <input class="narrow" value={target} onInput={(e) => setTarget(e.currentTarget.value)} placeholder="目標" />
-        <button disabled={act.busy || !title.trim()}>追加</button>
-      </div>
-      <div class="field">
-        <span>
-          スキル{" "}
-          <Help>このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。タスクの紐付けは作成後に補助として足せます。</Help>
-        </span>
-        <SkillPicker
-          value={skillNames}
-          skills={known.data?.skills ?? []}
-          onChange={setSkillNames}
-          ariaLabel="KR のスキルを追加"
-          disabled={act.busy}
-        />
-      </div>
-      <ErrorBox error={act.error ?? known.error} />
-    </form>
+    <ObjectRow
+      group
+      selected={selected}
+      title={o.title}
+      tags={o.status !== "active" ? [OKR_STATUS_LABEL[o.status] ?? o.status] : undefined}
+      meta={period}
+      onSelect={() => navigate(hrefOf("okr", ["o", o.id]))}
+      menuLabel={`Objective「${o.title}」の操作`}
+      menu={[
+        { label: "KR を追加", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { new: "kr" })) },
+        { label: "編集", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { edit: "1" })) },
+        { label: "削除…", onSelect: del.start, disabled: del.busy },
+      ]}
+      trailing={del.dialog}
+    />
   );
+}
+
+function periodText(o: ObjectiveView): string {
+  const p = periodInputs(o);
+  return `${p.from || "…"} 〜 ${p.to || "…"}`;
+}
+
+/** KR の行。主軸の値を 1 つ、書いてある目標と並べるだけ（達成率や評価は出さない）。 */
+function KrRow({ k, selected }: { k: KeyResult; selected: boolean }) {
+  return (
+    <ObjectRow
+      indent={1}
+      selected={selected}
+      title={k.title}
+      tags={k.status !== "active" ? [OKR_STATUS_LABEL[k.status] ?? k.status] : undefined}
+      meta={<KrMeta k={k} />}
+      onSelect={() => navigate(hrefOf("okr", ["kr", k.id]))}
+    />
+  );
+}
+
+function KrMeta({ k }: { k: KeyResult }) {
+  const tick = useLiveTick(["segments-updated"]);
+  const sum = useAsync(() => api.okrShow(k.id), [k.id, k.measure, k.day_min, tick]);
+  const main = sum.data ? splitMeasures(sum.data).main.text : undefined;
+  if (!main) return k.target ? `目標 ${k.target}` : null;
+  return krMetaText(main, k.target);
 }

@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type MatchField, type PatternType, type TaskStatus, type TaskView } from "../api";
-import { Card, Empty, ErrorBox, Field } from "../components";
+import { Card, Empty, EmptyState, ErrorBox, Field, InlineNew, Section } from "../components";
 import { useConfirmDelete } from "../confirm-delete";
-import { Help, ListDetail, ObjectList, ObjectRow, OverflowMenu } from "../ui/parts";
+import { ListDetail, ObjectList, ObjectRow, OverflowMenu, TabPanel, Tabs, type MenuItem } from "../ui/parts";
+import { tabFromParam } from "../ui/tabs-util";
 import { defaultBodyMode, isDirty, isSaveShortcut, krPatch, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
 import { KrPicker } from "../kr-picker";
-import { krOptions } from "../kr-util";
-import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
+import { krLabel, krOptions } from "../kr-util";
+import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "../lib";
 import { Markdown } from "../markdown";
 import { SkillPicker } from "../skill-picker";
 import { TaskRuleRow } from "../rule-row";
@@ -35,31 +36,56 @@ const FILTERS: { id: string; label: string; statuses: TaskStatus[] }[] = [
 const FIELDS: MatchField[] = ["exe", "title", "cwd", "repo", "url", "git_branch"];
 const PTYPES: PatternType[] = ["glob", "regex", "contains"];
 
+const TABS = [
+  { id: "overview", label: "概要" },
+  { id: "time", label: "時間" },
+  { id: "rules", label: "ルール" },
+];
+const TAB_IDS = TABS.map((t) => t.id);
+
 export function Tasks() {
+  const route = useRoute();
+  const selected = route.path[0] ?? null;
+  const tab = tabFromParam(route.params.get("tab"), TAB_IDS, "overview");
   const [filter, setFilter] = useState("open");
-  const [selected, setSelected] = useState<string | null>(null);
   const tick = useLiveTick(["doing-changed"]);
   const list = useAsync(
     () => api.taskList(FILTERS.find((f) => f.id === filter)!.statuses),
     [filter, tick],
   );
+  const tasks = list.data?.tasks ?? [];
 
   return (
     <ListDetail
       list={
         <div class="stack">
-          <NewTask onAdded={list.reload} />
-          <div class="row">
+          <div class="list-head">
             {FILTERS.map((f) => (
-              <button key={f.id} class={filter === f.id ? "chip on" : "chip"} onClick={() => setFilter(f.id)}>
+              <button
+                key={f.id}
+                class={filter === f.id ? "chip on" : "chip"}
+                aria-pressed={filter === f.id}
+                onClick={() => setFilter(f.id)}
+              >
                 {f.label}
               </button>
             ))}
+            <span class="spacer" />
+            <InlineNew
+              label="＋ タスク"
+              inputLabel="新しいタスクのタイトル"
+              onCreate={async (title) => {
+                const t = await api.taskAdd({ title });
+                list.reload();
+                navigate(hrefOf("tasks", [t.id]));
+                return t;
+              }}
+            />
           </div>
           <ErrorBox error={list.error} />
-          {list.data && list.data.tasks.length === 0 && <Empty>タスクはありません。</Empty>}
+          {list.data && tasks.length === 0 && <Empty>タスクはありません。</Empty>}
           <ObjectList label="タスク">
-            {list.data?.tasks.map((t) => (
+            {tasks.map((t) => (
               <ObjectRow
                 key={t.id}
                 selected={selected === t.id}
@@ -68,12 +94,10 @@ export function Tasks() {
                     <span class={`status s-${t.status}`}>{STATUS_LABEL[t.status]}</span> {t.title}
                   </>
                 }
-                tags={t.kind === "interrupt" ? ["割り込み"] : undefined}
+                tags={rowMarks(t)}
                 meta={t.estimate_min != null ? `${t.estimate_min}分` : undefined}
-                onSelect={() => {
-                  // 未保存の編集があれば、確認してから別のタスクへ切り替える。
-                  if (t.id !== selected) leaveGuard.requestLeave(() => setSelected(t.id));
-                }}
+                // 未保存の編集があれば、navigate が確認してから別のタスクへ切り替える。
+                onSelect={() => navigate(hrefOf("tasks", [t.id]))}
               />
             ))}
           </ObjectList>
@@ -84,49 +108,50 @@ export function Tasks() {
           <TaskDetail
             key={selected}
             id={selected}
+            tab={tab}
             onChanged={list.reload}
             onDeleted={() => {
-              setSelected(null);
               list.reload();
+              navigate(hrefOf("tasks"), { replace: true });
             }}
           />
         ) : (
-          <Empty>タスクを選ぶと詳細を編集できます。</Empty>
+          <EmptyState>
+            タスクを選ぶと詳細が出ます。
+            {list.data && tasks.length > 0 && <> いまの一覧は {tasks.length} 件です。</>}
+          </EmptyState>
         )
       }
     />
   );
 }
 
-function NewTask({ onAdded }: { onAdded: () => void }) {
-  const [title, setTitle] = useState("");
-  const act = useAction();
-  const submit = async (e: Event) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-    const r = await act.run(() => api.taskAdd({ title: title.trim() }));
-    if (r) {
-      setTitle("");
-      onAdded();
-    }
-  };
-  return (
-    <form class="row" onSubmit={submit}>
-      <input class="grow" value={title} onInput={(e) => setTitle(e.currentTarget.value)} placeholder="新しいタスク" />
-      <button class="primary" disabled={act.busy || !title.trim()}>
-        追加
-      </button>
-      <ErrorBox error={act.error} />
-    </form>
-  );
+/** 一覧の行に付ける小さな印（割り込み・緊急・重要）。 */
+function rowMarks(t: TaskView): string[] | undefined {
+  const marks: string[] = [];
+  if (t.kind === "interrupt") marks.push("割り込み");
+  if (t.urgent) marks.push("緊急");
+  if (t.important) marks.push("重要");
+  return marks.length > 0 ? marks : undefined;
 }
 
-function TaskDetail({ id, onChanged, onDeleted }: { id: string; onChanged: () => void; onDeleted: () => void }) {
+function TaskDetail({
+  id,
+  tab,
+  onChanged,
+  onDeleted,
+}: {
+  id: string;
+  tab: string;
+  onChanged: () => void;
+  onDeleted: () => void;
+}) {
   const show = useAsync(() => api.taskShow(id), [id]);
+  const skills = useAsync(() => api.skillList(), []);
   const act = useAction();
   if (show.error) return <ErrorBox error={show.error} />;
   if (!show.data) return <Empty>読み込み中…</Empty>;
-  const { task, rules, tracked_ms } = show.data;
+  const { task, rules, tracked_ms, tracked_segments } = show.data;
   const after = async (fn: () => Promise<unknown>) => {
     const r = await act.run(fn);
     if (r !== undefined) {
@@ -134,54 +159,103 @@ function TaskDetail({ id, onChanged, onDeleted }: { id: string; onChanged: () =>
       onChanged();
     }
   };
+  // タブは編集中のフォームを保ったまま切り替える（履歴は増やさない）。
+  const setTab = (t: string) => location.replace(hrefOf("tasks", [id], t === "overview" ? {} : { tab: t }));
+  const open = task.status === "todo" || task.status === "doing";
+  const skillId = (name: string) => skills.data?.skills.find((s) => s.name === name)?.id;
+
   return (
     <Card
       title={task.title}
       aside={
         <>
           <span class={`status s-${task.status}`}>{STATUS_LABEL[task.status]}</span>
-          <TaskMenu taskId={task.id} title={task.title} disabled={act.busy} onDeleted={onDeleted} />
+          {task.status === "todo" && (
+            <button class="primary" disabled={act.busy} onClick={() => after(() => api.taskStart(task.id))}>
+              始める
+            </button>
+          )}
+          {task.status === "doing" && (
+            <button class="primary" disabled={act.busy} onClick={() => after(() => api.taskDone(task.id))}>
+              完了にする
+            </button>
+          )}
+          <TaskMenu
+            taskId={task.id}
+            title={task.title}
+            disabled={act.busy}
+            extra={
+              open
+                ? [{ label: "やめる", onSelect: () => after(() => api.taskDrop(task.id)), disabled: act.busy }]
+                : []
+            }
+            onDeleted={onDeleted}
+          />
         </>
       }
     >
-      <p class="meta">これまでの時間: {fmtDur(tracked_ms)}</p>
-      <div class="row">
-        {task.status !== "doing" && task.status !== "done" && task.status !== "dropped" && (
-          <button disabled={act.busy} onClick={() => after(() => api.taskStart(task.id))}>
-            始める
-          </button>
-        )}
-        {task.status === "doing" && (
-          <button disabled={act.busy} onClick={() => after(() => api.taskDone(task.id))}>
-            完了
-          </button>
-        )}
-        {(task.status === "todo" || task.status === "doing") && (
-          <button class="ghost" disabled={act.busy} onClick={() => after(() => api.taskDrop(task.id))}>
-            やめる
-          </button>
-        )}
-      </div>
-      <EditForm
-        task={task}
-        busy={act.busy}
-        onSaved={() => {
-          show.reload();
-          onChanged();
-        }}
-      />
-      <h3>帰属ルール</h3>
-      {rules.length === 0 && <Empty>ルールはありません。</Empty>}
-      <ul class="plain">
-        {rules.map((r) => (
-          <TaskRuleRow key={r.id} rule={r} onChanged={show.reload} />
-        ))}
-      </ul>
-      <RuleForm taskId={task.id} onAdded={show.reload} />
-      <Corrections taskId={task.id} onUndone={() => {
-        show.reload();
-        onChanged();
-      }} />
+      {(task.key_result || task.skills.length > 0) && (
+        <div class="relations">
+          {task.key_result && (
+            <a class="link-chip" href={hrefOf("okr", ["kr", task.key_result.id])} title="この KR の詳細を開く">
+              {krLabel({ title: task.key_result.title, objective_title: task.key_result.objective_title })}
+            </a>
+          )}
+          {task.skills.map((name) => {
+            const sid = skillId(name);
+            return sid ? (
+              <a key={name} class="link-chip" href={hrefOf("okr", ["skill", sid])} title="このスキルの詳細を開く">
+                {name}
+              </a>
+            ) : (
+              <span key={name} class="tag">
+                {name}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <Tabs tabs={TABS} active={tab} onChange={setTab} idBase="task" label="タスクの詳細" />
+      <TabPanel id="overview" idBase="task" active={tab}>
+        <EditForm
+          task={task}
+          busy={act.busy}
+          onSaved={() => {
+            show.reload();
+            onChanged();
+          }}
+        />
+      </TabPanel>
+      <TabPanel id="time" idBase="task" active={tab}>
+        <Section level={3} title="これまでの時間">
+          <p class="num">
+            <strong>{fmtDur(tracked_ms)}</strong>
+            <span class="meta"> （{tracked_segments} 区間）</span>
+          </p>
+        </Section>
+        <Corrections
+          taskId={task.id}
+          onUndone={() => {
+            show.reload();
+            onChanged();
+          }}
+        />
+      </TabPanel>
+      <TabPanel id="rules" idBase="task" active={tab}>
+        <Section
+          level={3}
+          title="帰属ルール"
+          help="条件に当たる時間は、自動でこのタスクになります。変更すると今日の分が再計算されます。"
+        >
+          {rules.length === 0 && <Empty>ルールはありません。</Empty>}
+          <ul class="plain">
+            {rules.map((r) => (
+              <TaskRuleRow key={r.id} rule={r} onChanged={show.reload} />
+            ))}
+          </ul>
+          <RuleForm taskId={task.id} onAdded={show.reload} />
+        </Section>
+      </TabPanel>
       <ErrorBox error={act.error} />
     </Card>
   );
@@ -196,11 +270,14 @@ function TaskMenu({
   taskId,
   title,
   disabled,
+  extra,
   onDeleted,
 }: {
   taskId: string;
   title: string;
   disabled: boolean;
+  /** 削除の前に並べる項目（やめる など）。 */
+  extra: MenuItem[];
   onDeleted: () => void;
 }) {
   const del = useConfirmDelete({
@@ -227,7 +304,7 @@ function TaskMenu({
     <>
       <OverflowMenu
         label="タスクの操作"
-        items={[{ label: "削除…", onSelect: del.start, disabled: disabled || del.busy }]}
+        items={[...extra, { label: "削除…", onSelect: del.start, disabled: disabled || del.busy }]}
       />
       {del.dialog}
     </>
@@ -248,10 +325,11 @@ function Corrections({ taskId, onUndone }: { taskId: string; onUndone: () => voi
     }
   };
   return (
-    <>
-      <h3>
-        補正した時間帯 <Help>今日画面の「実績」の列をドラッグすると、その時間帯をタスクへ付け替えられます。</Help>
-      </h3>
+    <Section
+      level={3}
+      title="補正した時間帯"
+      help="今日画面の「実績」の列をドラッグすると、その時間帯をタスクへ付け替えられます。"
+    >
       <ErrorBox error={list.error ?? act.error} />
       {items.length === 0 ? (
         <Empty>このタスクへ付け替えた時間帯はありません。</Empty>
@@ -273,7 +351,7 @@ function Corrections({ taskId, onUndone }: { taskId: string; onUndone: () => voi
           ))}
         </ul>
       )}
-    </>
+    </Section>
   );
 }
 

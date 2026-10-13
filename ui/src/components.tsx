@@ -1,9 +1,9 @@
 import type { ComponentChildren } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { api, type AppError, type BlockView, type GapView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
 import { leaveGuard } from "./edit-util";
 import { Help } from "./ui/parts";
-import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime } from "./lib";
+import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime, useAction } from "./lib";
 
 export function ErrorBox({ error }: { error: AppError | null }) {
   if (!error) return null;
@@ -106,6 +106,68 @@ export function EmptyState({ children, action }: { children: ComponentChildren; 
 
 /** EmptyState の別名。既存の呼び出し用。 */
 export const Empty = EmptyState;
+
+/**
+ * 一覧の上の「＋ ○○」。押すとタイトルの入力欄が出て、Enter で作成する（Esc でやめる）。
+ * `onCreate` は作成に成功したら true 相当の値を返す（失敗は undefined で、エラーを出して欄を残す）。
+ */
+export function InlineNew({
+  label,
+  inputLabel,
+  placeholder = "タイトル（Enter で作成）",
+  onCreate,
+}: {
+  label: string;
+  inputLabel: string;
+  placeholder?: string;
+  onCreate: (title: string) => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState("");
+  const act = useAction();
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (open) input.current?.focus();
+  }, [open]);
+  const close = () => {
+    setOpen(false);
+    setTitle("");
+  };
+  if (!open) {
+    return (
+      <button type="button" onClick={() => setOpen(true)}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <form
+      class="list-new grow"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!title.trim()) return;
+        const r = await act.run(() => onCreate(title.trim()));
+        if (r !== undefined) close();
+      }}
+    >
+      <input
+        ref={input}
+        class="grow"
+        value={title}
+        aria-label={inputLabel}
+        placeholder={placeholder}
+        onInput={(e) => setTitle(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            close();
+          }
+        }}
+      />
+      <ErrorBox error={act.error} />
+    </form>
+  );
+}
 
 export function Field({ label, children }: { label: string; children: ComponentChildren }) {
   return (

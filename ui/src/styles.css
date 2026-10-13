@@ -1233,10 +1233,6 @@ button.hm-cell {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
-  margin: var(--sp-2) 0 var(--sp-2);
-  padding: var(--sp-2) var(--sp-2);
-  background: var(--surface-2);
-  border-radius: var(--r-m);
 }
 .kr-main-row {
   display: flex;
@@ -1547,5 +1543,102 @@ button.object-main {
 .tag.on {
   background: var(--accent-soft);
   border-color: var(--accent);
+  color: var(--text);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--border);
+  margin-top: var(--sp-2);
+}
+button.tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: var(--sp-2) var(--sp-3);
+  color: var(--muted);
+}
+button.tab:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+button.tab[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+.tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+}
+.tab-panel[hidden] {
+  display: none;
+}
+
+/* 一覧の上部（絞り込みと作成） */
+.list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.list-new {
+  display: flex;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-2);
+}
+.object-row.indent-1 {
+  margin-left: var(--sp-4);
+}
+.object-row.indent-2 {
+  margin-left: calc(var(--sp-4) * 2);
+}
+.object-row.indent-3 {
+  margin-left: calc(var(--sp-4) * 3);
+}
+.object-row.group {
+  background: var(--surface-2);
+}
+.object-row.group .object-title {
+  font-weight: 600;
+}
+/* 関係へのリンクのチップ（押すと相手の詳細へ移る） */
+a.link-chip {
+  display: inline-block;
+  font-size: var(--fs-s);
+  padding: 0 var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  color: var(--text);
+  text-decoration: none;
+}
+a.link-chip:hover {
+  background: var(--surface-2);
+  border-color: var(--accent);
+}
+.relations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1) var(--sp-2);
+}
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.link-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.link-list a {
   color: var(--text);
 }

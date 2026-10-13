@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { api, type KeyResult, type KrHistory as KrHistoryData } from "./api";
-import { ErrorBox } from "./components";
+import { ErrorBox, Section } from "./components";
 import { isEmptyHistory, valueLevels, valueSegments, weekValueText } from "./kr-history-util";
 import { barHeights, weekLabel } from "./kr-util";
 import { fmtDateTime, fmtDur, useAction, useAsync, useLiveTick } from "./lib";
@@ -17,8 +17,7 @@ export function KrHistory({ k, onChanged }: { k: KeyResult; onChanged: () => voi
   const hist = useAsync(() => api.okrHistory(k.id), [k.id, k.current, tick]);
   const h = hist.data;
   return (
-    <details class="kr-history">
-      <summary>値の履歴</summary>
+    <Section level={3} title="値の履歴">
       <div class="stack">
         <ErrorBox error={hist.error} />
         {h && <HistoryChart h={h} />}
@@ -31,7 +30,7 @@ export function KrHistory({ k, onChanged }: { k: KeyResult; onChanged: () => voi
         />
         {h && <EntryList h={h} />}
       </div>
-    </details>
+    </Section>
   );
 }
 

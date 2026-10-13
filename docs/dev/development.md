@@ -61,6 +61,8 @@ npm run shots -- --window popup --dark               # ダークテーマも撮�
 
 `ui/shots/<scenario>/<window>-<screen>.png`（popup と quick は `<window>.png`、ダークは末尾に `-dark`）に保存します（`ui/shots/` は git の管理外）。Vite をプログラムから起動し、Windows に入っている Edge（なければ Chrome）を Playwright で操作するので、ブラウザのダウンロードは要りません。ビューポートは main が 1280x800（本文が長い画面は高さを伸ばして全体を撮る）、popup が 360x320、quick が 520x380 です。各ページの console error・pageerror・`[mock] unhandled` を集め、1 件でもあれば最後に一覧を出して終了コード 1 になります。
 
+一覧で 1 つ選んだ状態（`#/tasks/<ID>`、`#/okr/kr/<ID>`、`#/okr/skill/<ID>`）は、`main-tasks-selected`、`main-okr-kr-selected`、`main-okr-skill-selected` として別に撮ります（`ui/scripts/shots.mjs` の `SELECTED`。ID はモックの状態から引き、フィクスチャに無ければ飛ばします。`empty` では撮りません）。新しい一覧＋詳細の画面を足したら、ここにも指定を足します。
+
 撮影のたびに、ページの構造（`page.locator("body").ariaSnapshot()`）も `ui/shots/<scenario>/<名前>.aria.yml` に保存します（ライトテーマのときだけ）。見出しの階層やボタンの名前の崩れは、画像より差分で気づきやすくなります。
 
 ### 前回との差分（`--diff`）

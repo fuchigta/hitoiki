@@ -20,6 +20,37 @@ import { launchBrowser, openPage, root, SCENARIOS, startServer, WINDOWS } from "
 /** 伸ばす高さの上限（長すぎる画面で画像が巨大になるのを防ぐ）。 */
 const MAX_HEIGHT = 5000;
 
+/**
+ * 一覧で 1 つ選んだ状態（`#/tasks/<ID>` など）の撮影指定。ID はモックの状態から引く（フィクスチャに無ければ飛ばす）。
+ * ファイル名は `main-<name>`。`--screen` を指定したときは、その画面のものだけ撮る。
+ */
+const SELECTED = [
+  {
+    name: "tasks-selected",
+    screen: "tasks",
+    hash: (s) => {
+      const t = s.tasks.find((x) => x.title.includes("Rust 所有権の復習"));
+      return t && `#/tasks/${t.id}`;
+    },
+  },
+  {
+    name: "okr-kr-selected",
+    screen: "okr",
+    hash: (s) => {
+      const k = s.krs.find((x) => x.title.includes("Rust の学習に週 5 時間"));
+      return k && `#/okr/kr/${k.id}`;
+    },
+  },
+  {
+    name: "okr-skill-selected",
+    screen: "okr",
+    hash: (s) => {
+      const k = s.skills.find((x) => x.name === "Rust");
+      return k && `#/okr/skill/${k.id}?tab=skills`;
+    },
+  },
+];
+
 // 画面の一覧は src/lib.ts の SCREENS から拾う（追加漏れを防ぐ）。
 function readScreens() {
   const src = readFileSync(join(root, "src/lib.ts"), "utf-8");
@@ -106,6 +137,41 @@ async function main() {
             console.log(`  ${where}.png`);
             await close();
           }
+        }
+      }
+      // 一覧で 1 つ選んだ状態（main のみ）。
+      for (const sp of SELECTED) {
+        if (!windows.includes("main") || (opt.screen && opt.screen !== sp.screen) || scenario === "empty") continue;
+        for (const scheme of schemes) {
+          const name = `main-${sp.name}${scheme === "dark" ? "-dark" : ""}`;
+          const where = `${scenario}/${name}`;
+          const { page, close } = await openPage(browser, { base, scenario, win: "main", screen: sp.screen, scheme, problems, where });
+          const hash = await page.evaluate((src) => {
+            // eslint-disable-next-line no-new-func
+            return new Function("s", `return (${src})(s)`)(window.__mock.state) ?? null;
+          }, sp.hash.toString());
+          if (!hash) {
+            await close();
+            continue;
+          }
+          await page.evaluate((h) => (location.hash = h), hash);
+          await page.waitForFunction(() => !document.body.innerText.includes("読み込み中"), null, { timeout: 5_000 }).catch(() => {});
+          await page.waitForTimeout(600);
+          const full = await page.evaluate(() => document.querySelector(".content")?.scrollHeight ?? 0);
+          if (full > WINDOWS.main.height) {
+            await page.setViewportSize({ width: WINDOWS.main.width, height: Math.min(full, MAX_HEIGHT) });
+            await page.waitForTimeout(300);
+          }
+          await page.screenshot({ path: join(opt.out, scenario, `${name}.png`), fullPage: true });
+          written.push(`${scenario}/${name}.png`);
+          if (scheme === "light") {
+            const aria = await page.locator("body").ariaSnapshot();
+            writeFileSync(join(opt.out, scenario, `${name}.aria.yml`), `${aria}\n`);
+            written.push(`${scenario}/${name}.aria.yml`);
+          }
+          count += 1;
+          console.log(`  ${where}.png`);
+          await close();
         }
       }
     }
