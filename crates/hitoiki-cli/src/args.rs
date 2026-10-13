@@ -160,7 +160,7 @@ pub enum Cmd {
     Agent(AgentCmd),
     /// ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止）
     Daemon,
-    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|review|tasks|report|records|plan|reflection|okr|settings|onboarding
+    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|log|review|tasks|report|records|plan|reflection|okr|settings|onboarding
     Ui { screen: Option<String> },
     /// 補助コレクタ用の取り込み
     #[command(subcommand)]
