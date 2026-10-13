@@ -150,10 +150,10 @@ function TemplateSummary({ t }: { t: TemplateView }) {
   );
 }
 
-// ===== 管理（計画画面） =====
+// ===== 管理（設定のテンプレートタブ） =====
 
-/** テンプレートの一覧・作成・編集・削除と、指定日の配置からの保存。 */
-export function TemplateManager({ date, tasks }: { date: string; tasks: TaskView[] }) {
+/** テンプレートの一覧・作成・編集・削除。`date` を渡すと、その日の配置からの保存も出す（設定からは渡さず、今日のデザインから保存する）。 */
+export function TemplateManager({ date, tasks }: { date?: string; tasks: TaskView[] }) {
   const list = useAsync(() => api.templateList(), []);
   const [editing, setEditing] = useState<{ id?: string; input: TemplateInput } | null>(null);
   const act = useAction();
@@ -207,7 +207,7 @@ export function TemplateManager({ date, tasks }: { date: string; tasks: TaskView
             <button onClick={() => setEditing({ input: { name: "", description: "", weekdays: [], items: [emptyItem()] } })}>
               テンプレートを作る
             </button>
-            <SaveAsTemplate date={date} onSaved={list.reload} />
+            {date && <SaveAsTemplate date={date} onSaved={list.reload} />}
           </div>
         </>
       )}
@@ -338,7 +338,7 @@ export function ApplyTemplate({ date, suggested = [], onChanged }: ApplyProps) {
   if (list.data && templates.length === 0) {
     return (
       <Empty>
-        {TEMPLATE_EMPTY_TEXT} 計画画面で作るか、配置してから「この日の配置をテンプレートとして保存」を押してください。
+        {TEMPLATE_EMPTY_TEXT} 設定のテンプレートタブで作るか、今日のデザインで配置してから「この日の配置をテンプレートとして保存」を押してください。
       </Empty>
     );
   }

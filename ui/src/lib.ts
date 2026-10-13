@@ -154,7 +154,6 @@ export const SCREENS = [
   { id: "today", label: "今日" },
   { id: "log", label: "実績" },
   { id: "tasks", label: "タスク" },
-  { id: "plan", label: "計画" },
   { id: "reflect", label: "振り返り" },
   { id: "report", label: "レポート" },
   { id: "records", label: "記録" },
@@ -181,7 +180,7 @@ function safeDecode(s: string): string {
 }
 
 /** 画面としては無くなったが、ハッシュとしては受け付ける旧い ID（`legacyRoute` で新しいルートに写す）。 */
-const LEGACY_IDS: string[] = ["review"];
+const LEGACY_IDS: string[] = ["review", "plan"];
 
 /**
  * `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。
@@ -216,6 +215,7 @@ export function hrefOf(
  * 旧い画面 ID のルートを、いまのルートへ写す（`hitoiki ui <画面>`・通知の `open_screen`・起動引数が旧名を使うため）。
  * 画面を統合する段階で、ここに足す。
  * - `review` → `log?status=review`（ほかのクエリは残す）
+ * - `plan` → `today`（`date` などのクエリは残す。計画は今日の画面に統合された）
  * - `reflect` → `records?kind=reflection`
  * - `reflect/<kind>`（day_start・day_end・weekly）→ `records/new/<kind>`（振り返りの作成フォーム）
  */
@@ -224,6 +224,9 @@ export function legacyRoute(route: Route): Route {
     const params = new URLSearchParams(route.params);
     if (!params.has("status")) params.set("status", "review");
     return { screen: "log", path: route.path, params };
+  }
+  if ((route.screen as string) === "plan") {
+    return { screen: "today", path: route.path, params: route.params };
   }
   if (route.screen === "reflect") {
     const kind = route.path[0];

@@ -76,7 +76,7 @@ describe("その他の整形", () => {
   });
 
   it("screenFromHash", () => {
-    expect(screenFromHash("#/plan")).toBe("plan");
+    expect(screenFromHash("#/plan")).toBe("today");
     expect(screenFromHash("#/tasks?x=1")).toBe("tasks");
     expect(screenFromHash("#/unknown")).toBe("today");
     expect(screenFromHash("")).toBe("today");

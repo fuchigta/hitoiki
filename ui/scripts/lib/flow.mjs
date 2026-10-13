@@ -31,11 +31,16 @@ export async function gotoScreen(page, label) {
   await page.getByRole("navigation", { name: "画面" }).getByRole("link", { name: label, exact: true }).click();
 }
 
-/** 計画列（予定・計画・実績の 3 列のうち「計画」）の縦ドラッグ。frac は列の高さに対する割合（0〜1）。 */
-export async function dragPlanLane(page, fromFrac, toFrac) {
-  const lane = page.locator(".vtl-col").filter({ has: page.getByText("計画", { exact: true }) }).locator(".vtl-lane");
+/** 計画列の縦ドラッグ。 */
+export function dragPlanLane(page, fromFrac, toFrac) {
+  return dragLane(page, "計画", fromFrac, toFrac);
+}
+
+/** 1 日のタイムラインの列（予定・計画・実績）の縦ドラッグ。frac は列の高さに対する割合（0〜1）。 */
+export async function dragLane(page, name, fromFrac, toFrac) {
+  const lane = page.locator(".vtl-col").filter({ has: page.getByText(name, { exact: true }) }).locator(".vtl-lane");
   const b = await lane.boundingBox();
-  if (!b) throw new Error("計画の列が見つかりません。");
+  if (!b) throw new Error(`${name}の列が見つかりません。`);
   const x = b.x + b.width / 2;
   await page.mouse.move(x, b.y + b.height * fromFrac);
   await page.mouse.down();

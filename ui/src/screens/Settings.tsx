@@ -3,7 +3,7 @@ import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
 import { ActivityLabelsCard, CalendarSourcesCard } from "../data-settings";
 import { QuickShortcutCard } from "../quick-shortcut";
-import { dateInput, hrefOf, navigate, useAction, useAsync, useRoute } from "../lib";
+import { hrefOf, navigate, useAction, useAsync, useRoute } from "../lib";
 import { AutostartToggle, NumberSetting, TrustDoingToggle, UpdateCheckToggle, useConfig, type ConfigHandle } from "../settings-parts";
 import { RulesTab } from "../settings-rules";
 import { SETTINGS_TABS, settingsTab } from "../settings-util";
@@ -174,9 +174,9 @@ function TemplatesTab() {
   return (
     <Card
       title="テンプレート（働き方のパターン）"
-      help="よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。今日の配置からの保存は、今日の画面でもできます。"
+      help="よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。今日の配置からの保存は、今日の画面の「デザイン」から行えます。"
     >
-      <TemplateManager date={dateInput()} tasks={tasks.data?.tasks ?? []} />
+      <TemplateManager tasks={tasks.data?.tasks ?? []} />
     </Card>
   );
 }

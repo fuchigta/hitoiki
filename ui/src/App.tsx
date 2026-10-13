@@ -7,7 +7,6 @@ import { SCREENS, hrefOf, loadTimeZone, navigate, useAsync, useLiveTick, useScre
 import { Log } from "./screens/Log";
 import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
-import { Plan } from "./screens/Plan";
 import { Popup } from "./screens/Popup";
 import { Quick } from "./screens/Quick";
 import { Records } from "./screens/Records";
@@ -20,7 +19,6 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   today: Today,
   log: Log,
   tasks: Tasks,
-  plan: Plan,
   reflect: Records, // 旧名。`legacyRoute` が `records` に写すので、ここは通らない
   report: Report,
   records: Records,

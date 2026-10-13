@@ -63,6 +63,22 @@ describe("legacyRoute", () => {
   });
 });
 
+describe("legacyRoute: 計画（P4）", () => {
+  const map = (hash: string) => {
+    const r = legacyRoute(routeFromHash(hash));
+    return hrefOf(r.screen, r.path, r.params);
+  };
+  it("plan は today に写す（date は引き継ぐ）", () => {
+    expect(map("#/plan")).toBe("#/today");
+    expect(map("#/plan?date=2026-10-13")).toBe("#/today?date=2026-10-13");
+  });
+  it("today とそのサブルートはそのまま", () => {
+    expect(map("#/today")).toBe("#/today");
+    expect(map("#/today/design")).toBe("#/today/design");
+    expect(map("#/today?date=2026-10-13")).toBe("#/today?date=2026-10-13");
+  });
+});
+
 describe("legacyRoute: 記録・振り返り（P5）", () => {
   const map = (hash: string) => {
     const r = legacyRoute(routeFromHash(hash));

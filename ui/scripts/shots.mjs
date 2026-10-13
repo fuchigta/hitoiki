@@ -25,6 +25,41 @@ const MAX_HEIGHT = 5000;
  * ファイル名は `main-<name>`。`--screen` を指定したときは、その画面のものだけ撮る。
  */
 const SELECTED = [
+  // 今日: デザインのパネル・前日・ブロックを選んだ状態・実績の区間を選んだ状態（サイドパネル）。
+  { name: "today-design", screen: "today", all: true, fixed: "#/today/design" },
+  {
+    name: "today-prev",
+    screen: "today",
+    all: true,
+    // モックの基準日（JST）の前日。
+    hash: (s) => "#/today?date=" + new Date(s.now + 9 * 3600000 - 86400000).toISOString().slice(0, 10),
+  },
+  {
+    name: "today-block-selected",
+    screen: "today",
+    hash: (s) => (s.blocks.length > 0 ? "#/today" : null),
+    act: async (page) => {
+      await page.locator(".vtl-item.plan").first().click();
+      await page.getByRole("button", { name: "保存" }).waitFor({ timeout: 3000 });
+    },
+  },
+  {
+    name: "today-segment-selected",
+    screen: "today",
+    hash: (s) => (s.segments.length > 0 ? "#/today" : null),
+    act: async (page) => {
+      // 実績の列でいちばん高い区間をクリックする。
+      const items = page.locator(".vtl-col").filter({ has: page.getByText("実績", { exact: true }) }).locator(".vtl-item.seg");
+      let best = null;
+      for (let i = 0; i < (await items.count()); i++) {
+        const b = await items.nth(i).boundingBox();
+        if (b && (!best || b.height > best.b.height)) best = { i, b };
+      }
+      if (!best) return;
+      await page.mouse.click(best.b.x + best.b.width / 2, best.b.y + best.b.height / 2);
+      await page.getByRole("button", { name: /^確定/ }).waitFor({ timeout: 3000 });
+    },
+  },
   {
     name: "log-selected",
     screen: "log",

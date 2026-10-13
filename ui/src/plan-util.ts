@@ -51,7 +51,7 @@ export function timeToPercent(t: Millis, dayStart: Millis, dayEnd: Millis): numb
   return ((Math.min(dayEnd, Math.max(dayStart, t)) - dayStart) / (dayEnd - dayStart)) * 100;
 }
 
-// ===== 1 日のタイムラインの操作（計画画面・今日画面で共通） =====
+// ===== 1 日のタイムラインの操作（今日の画面で使う） =====
 
 export interface TimeSpan {
   start: Millis;

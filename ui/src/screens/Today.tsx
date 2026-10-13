@@ -1,12 +1,24 @@
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useReducer, useRef, useState } from "preact/hooks";
 import { api } from "../api";
-import type { CalendarEvent, TaskView } from "../api";
+import type { CalendarEvent, ReportRow, TaskView } from "../api";
+import { BlockPanel } from "../block-panel";
 import { blockTitle } from "../block-form";
-import { Bars, Card, Empty, ErrorBox } from "../components";
+import { Bars, Card, Empty, ErrorBox, Section } from "../components";
 import { CorrectionPanel } from "../correction";
 import { DayDesigner } from "../day-designer";
 import { showStartGuide } from "../onboarding-util";
-import { KIND_LABEL, dateInput, fmtDur, fmtTime, hrefOf, navigate, useAction, useAsync, useLiveTick } from "../lib";
+import {
+  KIND_LABEL,
+  dateInput,
+  fmtDur,
+  fmtTime,
+  hrefOf,
+  navigate,
+  useAction,
+  useAsync,
+  useLiveTick,
+  useRoute,
+} from "../lib";
 import {
   currentBlock,
   digestSegments,
@@ -15,10 +27,22 @@ import {
   visibleWindow,
   type TimeSpan,
 } from "../plan-util";
-import { PushAnswer } from "../push-answer";
-import { periodLabel } from "../push-answer-util";
+import { PushList } from "../push-answer";
+import { SegmentPanel } from "../segment-panel";
 import { ApplyTemplate, SaveAsTemplate } from "../templates";
 import { suggestionText, weekdayOf } from "../template-util";
+import {
+  SIDE_INITIAL,
+  dateFromParam,
+  dateParams,
+  daySum,
+  logPeriodFor,
+  mergedDoingIds,
+  shiftDate,
+  sideReducer,
+  visiblePanel,
+  weekdayLabel,
+} from "../today-util";
 
 const DONE_KEY = "hitoiki.design.done";
 
@@ -38,20 +62,6 @@ function markDesignDone(date: string) {
   }
 }
 
-/** `#/today/design` で開かれたか（始業の通知・振り返りからの導線）。 */
-function designRequested(): boolean {
-  return /^#\/?today\/design/.test(location.hash);
-}
-function useDesignRequested(): boolean {
-  const [r, setR] = useState(designRequested());
-  useEffect(() => {
-    const h = () => setR(designRequested());
-    window.addEventListener("hashchange", h);
-    return () => window.removeEventListener("hashchange", h);
-  }, []);
-  return r;
-}
-
 /** 30 秒ごとに更新する現在時刻（現在時刻の線用）。 */
 function useClock(): number {
   const [t, setT] = useState(Date.now());
@@ -68,15 +78,24 @@ interface TaskDrag {
   over: TimeSpan | null;
 }
 
+/** 今日（と、日付を移して見る前後の日）。予定・計画・実績のタイムラインと、右のサイドパネル 1 つ。 */
 export function Today() {
+  const route = useRoute();
   const tick = useLiveTick();
-  const date = dateInput();
+  const today = dateInput();
+  const date = dateFromParam(route.params.get("date"), today);
+  const isToday = date === today;
+  const designRequested = route.path[0] === "design";
+
   const st = useAsync(() => api.status(), [tick]);
-  const log = useAsync(() => api.log({ date: "today" }), [tick]);
-  const blocks = useAsync(() => api.blockList({ date: "today" }), [tick]);
+  const log = useAsync(() => api.log({ date }), [date, tick]);
+  const blocks = useAsync(() => api.blockList({ date }), [date, tick]);
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), [tick]);
-  const cal = useAsync(() => api.calendarList({ date: "today" }).catch(() => [] as CalendarEvent[]), [tick]);
-  const suggest = useAsync(() => api.templateSuggest("today").catch(() => null), [tick]);
+  const cal = useAsync(() => api.calendarList({ date }).catch(() => [] as CalendarEvent[]), [date, tick]);
+  const suggest = useAsync(() => api.templateSuggest(date).catch(() => null), [date, tick]);
+  // 今日以外の内訳は、レポートと同じ集計から引く（今日は status の集計）。
+  const otherKinds = useAsync(() => (isToday ? Promise.resolve(null) : api.report("kind", { date })), [date, isToday, tick]);
+  const otherTasks = useAsync(() => (isToday ? Promise.resolve(null) : api.report("task", { date })), [date, isToday, tick]);
   const calHint = useAsync(async () => {
     const [dismissed, src] = await Promise.all([
       api.hintDismissed("calendar").catch(() => true),
@@ -97,24 +116,36 @@ export function Today() {
     [],
   );
   const act = useAction();
-  const requested = useDesignRequested();
   const clock = useClock();
 
-  // 今日のデザインモード: ブロックが 0 件、または通知・振り返りから開いたときに入り、「完了」まで保つ。
-  const [mode, setMode] = useState<"auto" | "on" | "off">("auto");
+  // サイドパネル（同時に 1 つ）。今日のデザインは「完了」まで保つ。
+  const [side, dispatch] = useReducer(sideReducer, SIDE_INITIAL);
+  const panel = visiblePanel(side);
+
+  // 通知・振り返りから `#/today/design` で開かれたら、デザインのパネルを出す。
+  useEffect(() => {
+    if (designRequested) dispatch({ type: "open", panel: { kind: "design" } });
+  }, [designRequested]);
+
+  // 今日のブロックが 0 件で、まだデザインを済ませていなければ、最初に 1 度だけ自動で開く。
+  const autoChecked = useRef(false);
   const blocksLoaded = !!blocks.data;
   const blockCount = blocks.data?.blocks.length ?? 0;
   useEffect(() => {
-    if (requested) setMode("on");
-    else if (mode === "auto" && blocksLoaded && shouldDesign(blockCount, false, designDoneDate() === date)) setMode("on");
-  }, [requested, blocksLoaded]);
-  const designing = mode === "on";
+    if (autoChecked.current || !blocksLoaded) return;
+    autoChecked.current = true;
+    if (isToday && shouldDesign(blockCount, false, designDoneDate() === date)) dispatch({ type: "open", panel: { kind: "design" } });
+  }, [blocksLoaded]);
 
-  const [showAllDay, setShowAllDay] = useState(false);
+  // 日付を移したら、その日に紐づくパネル（ブロック・補正・区間）は閉じる。
   const [armed, setArmed] = useState<TaskView | null>(null);
+  const [showAllDay, setShowAllDay] = useState(false);
+  useEffect(() => {
+    dispatch({ type: "dateChanged" });
+    setArmed(null);
+  }, [date]);
+
   const [taskDrag, setTaskDrag] = useState<TaskDrag | null>(null);
-  /** 「実績」の列で選んだ、補正する範囲。 */
-  const [corr, setCorr] = useState<TimeSpan | null>(null);
   const laneRef = useRef<HTMLDivElement>(null);
 
   const s = st.data;
@@ -125,13 +156,16 @@ export function Today() {
   const nothing = !st.loading && !s;
   const digest = digestSegments(segs);
   const now = s ? Math.max(s.now, clock) : clock;
-  const cur = currentBlock(blockList, now);
+  const cur = isToday ? currentBlock(blockList, now) : undefined;
+  const merged = mergedDoingIds(cur, s?.doing ?? []);
+
+  const go = (d: string) => navigate(hrefOf("today", route.path, { ...dateParams(d, today) }));
 
   const finish = () => {
     markDesignDone(date);
     setArmed(null);
-    setMode("off");
-    if (designRequested()) location.hash = "#/today";
+    dispatch({ type: "finishDesign" });
+    if (designRequested) navigate(hrefOf("today", [], dateParams(date, today)), { replace: true });
   };
 
   const view: TimeSpan | null = range
@@ -139,7 +173,7 @@ export function Today() {
         range.start_at,
         range.end_at,
         [
-          now,
+          ...(isToday ? [now] : []),
           ...blockList.flatMap((b) => [b.start_at, b.end_at]),
           ...segs.flatMap((x) => [x.start_at, x.end_at]),
           ...events.filter((c) => !c.all_day).flatMap((c) => [c.start_at, c.end_at]),
@@ -190,17 +224,206 @@ export function Today() {
   };
 
   const suggested = suggest.data?.templates ?? [];
+  const dayName = isToday ? "今日" : date;
+  const unanswered = s?.unanswered_pushes ?? [];
+
+  // 内訳。今日は status の集計、それ以外はレポートの集計。
+  const kindRows: ReportRow[] | null = isToday ? (s?.today.by_kind ?? null) : (otherKinds.data?.rows ?? null);
+  const taskRows: ReportRow[] | null = isToday ? (s?.today.top_tasks ?? null) : (otherTasks.data?.rows.slice(0, 8) ?? null);
+  const breakdownTotal = isToday ? (s?.today.total_ms ?? 0) : (otherKinds.data?.total_ms ?? 0);
+
+  const segPanelId = panel?.kind === "segment" ? panel.id : null;
+  const openedSeg = segPanelId ? segs.find((x) => x.id === segPanelId) : undefined;
+
+  const sidePanel = (() => {
+    if (!panel) return null;
+    switch (panel.kind) {
+      case "block":
+        return range ? (
+          <BlockPanel
+            draft={panel.draft}
+            date={date}
+            dayEnd={range.end_at}
+            tasks={tasks.data?.tasks ?? []}
+            blocks={blockList}
+            events={events}
+            onChanged={blocks.reload}
+            onClose={() => dispatch({ type: "close" })}
+          />
+        ) : null;
+      case "correct":
+        return (
+          <CorrectionPanel
+            span={panel.span}
+            tasks={tasks.data?.tasks ?? []}
+            labels={labels.data}
+            onClose={() => dispatch({ type: "close" })}
+            onChanged={() => {
+              log.reload();
+              st.reload();
+            }}
+          />
+        );
+      case "segment":
+        return openedSeg ? (
+          <div class="stack">
+            <SegmentPanel
+              key={openedSeg.id}
+              segs={[openedSeg]}
+              tasks={tasks.data?.tasks ?? []}
+              onDone={() => {
+                dispatch({ type: "close" });
+                log.reload();
+                st.reload();
+              }}
+              onTasksChanged={tasks.reload}
+            />
+            <p class="row hint">
+              <a href={hrefOf("log", [openedSeg.id], { period: logPeriodFor(date, today), status: "all" })}>実績で開く</a>
+              <span class="spacer" />
+              <button type="button" class="ghost" onClick={() => dispatch({ type: "close" })}>
+                閉じる
+              </button>
+            </p>
+          </div>
+        ) : (
+          <Empty>この区間は見つかりませんでした。</Empty>
+        );
+      case "push":
+        return (
+          <Section
+            title="未回答の問いかけ"
+            help="答えなくても大丈夫です。「答えない」で一覧から外せます。"
+            aside={
+              <button type="button" class="ghost" onClick={() => dispatch({ type: "close" })}>
+                閉じる
+              </button>
+            }
+          >
+            {unanswered.length === 0 ? <Empty>未回答の問いかけはありません。</Empty> : <PushList pushes={unanswered} onDone={st.reload} />}
+          </Section>
+        );
+      case "design":
+        return (
+          <Section
+            title={`${dayName}のデザイン`}
+            help="空いている時間をドラッグ（クリックなら 1 時間）して、ブロックを置きます。置いたブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集できます。"
+            aside={
+              <button class="primary" onClick={finish}>
+                完了
+              </button>
+            }
+          >
+            <div class="stack">
+              <Section title="テンプレート" level={3}>
+                <div class="stack">
+                  {suggested.length > 0 && suggest.data && (
+                    <p class="hint">{suggestionText(suggested.map((t) => t.name), suggest.data.weekday || weekdayOf(date))}</p>
+                  )}
+                  <ApplyTemplate date={date} suggested={suggested.map((t) => t.name)} onChanged={blocks.reload} />
+                  <SaveAsTemplate date={date} />
+                  <p class="hint">
+                    <a href="#/settings/templates">テンプレートを管理</a>
+                  </p>
+                </div>
+              </Section>
+              <Section title={`${isToday ? "今日" : "この日"}の予定`} level={3}>
+                {events.length === 0 ? (
+                  <Empty>{isToday ? "今日" : "この日"}のカレンダー予定はありません。</Empty>
+                ) : (
+                  <ul class="plain">
+                    {events.map((c) => (
+                      <li key={c.id}>
+                        <span class="meta">{c.all_day ? "終日" : `${fmtTime(c.start_at)}–${fmtTime(c.end_at)}`}</span> {c.title}
+                        {!c.is_busy && <span class="meta">（空き）</span>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Section>
+              <Section title="未完了のタスク" level={3}>
+                <p class="hint">タイムラインへドラッグするか、選んでからタイムラインをクリックするとブロックにできます。</p>
+                {candidates.length === 0 ? (
+                  <Empty>ブロックにしていない未完了のタスクはありません。</Empty>
+                ) : (
+                  <ul class="plain task-chips">
+                    {candidates.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          class={`chip task-chip${armed?.id === t.id ? " on" : ""}`}
+                          onPointerDown={(e) => startTaskDrag(e, t)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              setArmed(armed?.id === t.id ? null : t);
+                            }
+                          }}
+                          aria-pressed={armed?.id === t.id}
+                        >
+                          {t.title}
+                          {t.estimate_min ? <span class="meta"> {t.estimate_min}分</span> : null}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {taskDrag && <div class="hint">「{taskDrag.task.title}」をタイムラインの置きたい位置で離してください。</div>}
+              </Section>
+              <p class="hint">
+                始業の振り返りは<a href="#/records/new/day_start">記録</a>から。
+              </p>
+            </div>
+          </Section>
+        );
+    }
+  })();
 
   return (
     <div class="stack">
+      <div class="date-strip" role="group" aria-label="日付">
+        <button type="button" aria-label="前の日" onClick={() => go(shiftDate(date, -1))}>
+          ‹
+        </button>
+        <button type="button" disabled={isToday} onClick={() => go(today)}>
+          今日
+        </button>
+        <button type="button" aria-label="次の日" onClick={() => go(shiftDate(date, 1))}>
+          ›
+        </button>
+        <input
+          type="date"
+          value={date}
+          aria-label="日付"
+          onChange={(e) => {
+            const v = e.currentTarget.value;
+            if (v) go(dateFromParam(v, today));
+          }}
+        />
+        <span class="meta">{weekdayLabel(date)}</span>
+        <span class="spacer" />
+        <button
+          type="button"
+          class={panel?.kind === "design" || side.design ? "chip on" : "chip"}
+          aria-pressed={side.design}
+          onClick={() => dispatch({ type: "toggleDesign" })}
+        >
+          デザイン
+        </button>
+        <label class="check">
+          <input type="checkbox" checked={showAllDay} onChange={(e) => setShowAllDay(e.currentTarget.checked)} />
+          0〜24 時を表示
+        </label>
+      </div>
+
       <ErrorBox error={st.error ?? log.error ?? blocks.error ?? act.error} />
       {nothing && <Empty>状況を取得できませんでした。</Empty>}
 
-      {s && (
+      {isToday && s && (
         <div class="stat-band">
           <div class="stat stat-now">
             <h2 class="stat-label">いま</h2>
-            {cur && (
+            {cur && merged.size === 0 && (
               <span class="stat-title">
                 {blockTitle(cur)}
                 {cur.focus && <span class="tag">集中</span>}
@@ -216,6 +439,14 @@ export function Today() {
               s.doing.map((d) => (
                 <span key={d.task.id} class="stat-doing">
                   <span class="stat-title">{d.task.title}</span>
+                  {cur && merged.has(d.task.id) && (
+                    <>
+                      {cur.focus && <span class="tag">集中</span>}
+                      <span class="meta">
+                        {fmtTime(cur.start_at)}–{fmtTime(cur.end_at)} の枠
+                      </span>
+                    </>
+                  )}
                   {d.since && (
                     <span class="meta">
                       {fmtTime(d.since)} から（{fmtDur(s.now - d.since)}）
@@ -238,7 +469,7 @@ export function Today() {
             <span class="stat-sub">無操作・休憩・無視は合計に含みません</span>
           </div>
           <div class="stat">
-            <h2 class="stat-label">確認待ち</h2>
+            <h2 class="stat-label">要確認</h2>
             <span class="stat-num">{s.needs_review_count}件</span>
             <span class="stat-sub">
               {s.needs_review_count > 0 ? (
@@ -252,10 +483,32 @@ export function Today() {
               {s.needs_review_short_count > 0 && ` ・ 短い区間 ${s.needs_review_short_count} 件は実績で表示できます`}
             </span>
           </div>
+          <div class="stat">
+            <h2 class="stat-label">未回答の問いかけ</h2>
+            <span class="stat-num">{unanswered.length}件</span>
+            <span class="stat-sub">
+              {unanswered.length > 0 ? (
+                <button type="button" class="link" onClick={() => dispatch({ type: "open", panel: { kind: "push" } })}>
+                  答える
+                </button>
+              ) : (
+                "答えていない問いかけはありません"
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+      {!isToday && log.data && (
+        <div class="stat-band">
+          <div class="stat">
+            <h2 class="stat-label">{date} の合計</h2>
+            <span class="stat-num">{fmtDur(daySum(segs))}</span>
+            <span class="stat-sub">エージェント対話 {fmtDur(digest.agentMs)} ・ 無操作・休憩・無視は含みません</span>
+          </div>
         </div>
       )}
 
-      {calHint.data && (
+      {isToday && calHint.data && (
         <p class="hint-note" role="note">
           カレンダーをつなぐと会議を自動判定できます（<a href="#/settings">設定</a>）。
           <button
@@ -269,7 +522,7 @@ export function Today() {
         </p>
       )}
 
-      {s && log.data && !designing && showStartGuide(s.doing.length, log.data.segments.length) && (
+      {isToday && s && log.data && !side.design && showStartGuide(s.doing.length, log.data.segments.length) && (
         <Card title="次にやること">
           <ul>
             {s.doing.length === 0 && (
@@ -287,31 +540,14 @@ export function Today() {
         </Card>
       )}
 
-      <div class={designing ? "design" : ""}>
+      <div class={`today-body${sidePanel ? " has-side" : ""}`}>
         <Card
-          title={designing ? "今日のデザイン" : "タイムライン"}
+          title="タイムライン"
           help={
             <>
-              {designing
-                ? "空いている時間をドラッグ（クリックなら 1 時間）して、ブロックを置きます。置いたブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集できます。"
-                : "「計画」の列をドラッグすると、その場でブロックを作れます。"}{" "}
-              「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。クリックすると、その区間を実績の画面で開きます。
+              「計画」の列をドラッグすると、右のパネルでブロックを作れます（クリックなら 1 時間）。ブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集します。
+              「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。クリックすると、その区間を右のパネルで開きます。
             </>
-          }
-          aside={
-            <div class="row">
-              <label class="check">
-                <input type="checkbox" checked={showAllDay} onChange={(e) => setShowAllDay(e.currentTarget.checked)} />
-                0〜24 時を表示
-              </label>
-              {designing ? (
-                <button class="primary" onClick={finish}>
-                  完了
-                </button>
-              ) : (
-                <button class="ghost" onClick={() => setMode("on")}>今日のデザイン</button>
-              )}
-            </div>
           }
         >
           {range && view && log.data && blocks.data ? (
@@ -325,7 +561,6 @@ export function Today() {
                 </p>
               )}
               <DayDesigner
-                date={date}
                 dayStart={range.start_at}
                 dayEnd={range.end_at}
                 view={view}
@@ -333,16 +568,18 @@ export function Today() {
                 segments={log.data.segments}
                 events={events}
                 gaps={log.data.gaps}
-                tasks={tasks.data?.tasks ?? []}
-                now={now}
+                now={isToday ? now : undefined}
                 reload={blocks.reload}
+                draft={panel?.kind === "block" ? panel.draft : null}
+                onDraft={(d) => dispatch(d ? { type: "open", panel: { kind: "block", draft: d } } : { type: "close" })}
                 armedTask={armed}
                 onPlaced={() => setArmed(null)}
                 ghost={taskDrag?.over ?? null}
                 laneRef={laneRef}
-                onPickActual={setCorr}
-                onClickActual={(id) => navigate(hrefOf("log", [id], { period: "today", status: "all" }))}
-                actualSelection={corr}
+                onPickActual={(span) => dispatch({ type: "open", panel: { kind: "correct", span } })}
+                onClickActual={(id) => dispatch({ type: "open", panel: { kind: "segment", id } })}
+                actualSelection={panel?.kind === "correct" ? panel.span : null}
+                selectedSegmentId={segPanelId}
                 snapMs={(snap.data ?? 120) * 1000}
               />
               <ul class="legend">
@@ -354,109 +591,33 @@ export function Today() {
                 ))}
                 {(log.data.gaps ?? []).length > 0 && (<li><i class="dot gap" />記録なし</li>)}
               </ul>
+              {!isToday && blockList.length === 0 && segs.length === 0 && <Empty>この日の記録はありません。</Empty>}
             </>
           ) : (
             <Empty>読み込み中…</Empty>
           )}
         </Card>
 
-        {designing && (
-          <div class="stack design-side">
-            <Card title="テンプレート">
-              {suggested.length > 0 && suggest.data && (
-                <p class="hint">{suggestionText(suggested.map((t) => t.name), suggest.data.weekday || weekdayOf(date))}</p>
-              )}
-              <ApplyTemplate date={date} suggested={suggested.map((t) => t.name)} onChanged={blocks.reload} />
-              <SaveAsTemplate date={date} />
-            </Card>
-            <Card title="今日の予定">
-              {events.length === 0 ? (
-                <Empty>今日のカレンダー予定はありません。</Empty>
-              ) : (
-                <ul class="plain">
-                  {events.map((c) => (
-                    <li key={c.id}>
-                      <span class="meta">{c.all_day ? "終日" : `${fmtTime(c.start_at)}–${fmtTime(c.end_at)}`}</span> {c.title}
-                      {!c.is_busy && <span class="meta">（空き）</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </Card>
-            <Card title="未完了のタスク" help="タイムラインへドラッグするか、選んでからタイムラインをクリックするとブロックにできます。">
-              {candidates.length === 0 ? (
-                <Empty>ブロックにしていない未完了のタスクはありません。</Empty>
-              ) : (
-                <ul class="plain task-chips">
-                  {candidates.map((t) => (
-                    <li key={t.id}>
-                      <button
-                        type="button"
-                        class={`chip task-chip${armed?.id === t.id ? " on" : ""}`}
-                        onPointerDown={(e) => startTaskDrag(e, t)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            setArmed(armed?.id === t.id ? null : t);
-                          }
-                        }}
-                        aria-pressed={armed?.id === t.id}
-                      >
-                        {t.title}
-                        {t.estimate_min ? <span class="meta"> {t.estimate_min}分</span> : null}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {taskDrag && <div class="hint">「{taskDrag.task.title}」をタイムラインの置きたい位置で離してください。</div>}
-            </Card>
-            <p class="hint">
-              始業の振り返りは<a href="#/records/new/day_start">記録</a>から。
-            </p>
-          </div>
+        {sidePanel && (
+          <aside class="side-panel" aria-label="詳細">
+            {sidePanel}
+          </aside>
         )}
       </div>
 
-      {corr && (
-        <CorrectionPanel
-          span={corr}
-          tasks={tasks.data?.tasks ?? []}
-          labels={labels.data}
-          onClose={() => setCorr(null)}
-          onChanged={() => {
-            log.reload();
-            st.reload();
-          }}
-        />
-      )}
-
-      {s && (
-        <div class="grid2">
-          <Card title="種別ごと">
-            <Bars rows={s.today.by_kind.map((r) => ({ ...r, label: KIND_LABEL[r.key as keyof typeof KIND_LABEL] ?? r.label }))} total={s.today.total_ms} />
-          </Card>
-          <Card title="タスクごと（上位）">
-            <Bars rows={s.today.top_tasks} total={s.today.total_ms} />
-          </Card>
-        </div>
-      )}
-
-      {s && s.unanswered_pushes.length > 0 && (
-        <Card title="未回答の問いかけ" help="答えなくても大丈夫です。「答えない」で一覧から外せます。">
-          <ul class="plain push-list">
-            {s.unanswered_pushes.map((p) => (
-              <li key={p.id}>
-                <div>
-                  <span class="meta">{fmtTime(p.at)} {p.trigger_label}</span> <strong>{p.title}</strong>
-                </div>
-                {p.body && <p class="hint">{p.body}</p>}
-                {periodLabel(p.payload, fmtTime) && <p class="meta">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
-                {p.payload && <PushAnswer pushId={p.id} payload={p.payload} onDone={st.reload} />}
-              </li>
-            ))}
-          </ul>
-        </Card>
+      {kindRows && taskRows && (
+        <Section title={`${dayName}の内訳`} aside={<a href="#/report">レポートで見る</a>}>
+          <div class="breakdown">
+            <div class="stack">
+              <h3>種別ごと</h3>
+              <Bars rows={kindRows.map((r) => ({ ...r, label: KIND_LABEL[r.key as keyof typeof KIND_LABEL] ?? r.label }))} total={breakdownTotal} />
+            </div>
+            <div class="stack">
+              <h3>タスクごと（上位）</h3>
+              <Bars rows={taskRows} total={breakdownTotal} />
+            </div>
+          </div>
+        </Section>
       )}
     </div>
   );
