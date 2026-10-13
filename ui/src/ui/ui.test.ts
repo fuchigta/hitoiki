@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { HELP_CLOSED, helpEscape, helpOpen, helpToggle } from "./help-util";
 import { firstEnabled, lastEnabled, menuKey, stepMenu } from "./menu-util";
 import { PERIOD_LABELS, periodOptions } from "./period-util";
+import { stepTab, tabFromParam } from "./tabs-util";
 import { scaleFromString, scaleToString, stepScale, toggleScale } from "./scale-util";
 
 const items = [{ disabled: true }, {}, { disabled: true }, {}];
@@ -77,5 +78,24 @@ describe("期間の選択肢", () => {
     expect(periodOptions().map((p) => p.id)).toEqual(["today", "yesterday", "this-week", "last-week"]);
     expect(periodOptions(["today", "this-week", "last-week"]).map((p) => p.label)).toEqual(["今日", "今週", "先週"]);
     expect(PERIOD_LABELS["yesterday"]).toBe("昨日");
+  });
+});
+
+describe("タブ", () => {
+  const ids = ["overview", "time", "rules"];
+  it("?tab= の値は使えるものだけ。それ以外は既定", () => {
+    expect(tabFromParam("time", ids, "overview")).toBe("time");
+    expect(tabFromParam("nope", ids, "overview")).toBe("overview");
+    expect(tabFromParam(null, ids, "overview")).toBe("overview");
+    expect(tabFromParam("", ids, "overview")).toBe("overview");
+  });
+  it("←→ Home End で動く（端で回り込む）", () => {
+    expect(stepTab(ids, "overview", "ArrowRight")).toBe("time");
+    expect(stepTab(ids, "rules", "ArrowRight")).toBe("overview");
+    expect(stepTab(ids, "overview", "ArrowLeft")).toBe("rules");
+    expect(stepTab(ids, "time", "Home")).toBe("overview");
+    expect(stepTab(ids, "time", "End")).toBe("rules");
+    expect(stepTab(ids, "time", "a")).toBeUndefined();
+    expect(stepTab([], "x", "Home")).toBeUndefined();
   });
 });

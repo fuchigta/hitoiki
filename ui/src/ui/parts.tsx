@@ -4,6 +4,7 @@ import { HELP_CLOSED, helpEscape, helpOpen, helpToggle, type HelpState } from ".
 import { firstEnabled, menuKey } from "./menu-util";
 import { periodOptions, type PeriodId } from "./period-util";
 import { SCALE_VALUES, stepScale, toggleScale } from "./scale-util";
+import { stepTab } from "./tabs-util";
 
 // 画面をまたいで使う小さな部品。見た目のトークンは styles.css の `:root` にある。
 
@@ -190,12 +191,19 @@ export interface ObjectRowProps {
   menuLabel?: string;
   /** 行末に置く追加の要素（メニューの手前）。 */
   trailing?: ComponentChildren;
+  /** 階層のインデント（0〜3）。 */
+  indent?: number;
+  /** 見出し行（Objective など、配下の行をまとめるもの）。 */
+  group?: boolean;
 }
 
 /** 一覧の 1 行。行全体のクリックで選択し、行末に OverflowMenu を置く。 */
-export function ObjectRow({ title, meta, tags, selected, onSelect, menu, menuLabel, trailing }: ObjectRowProps) {
+export function ObjectRow({ title, meta, tags, selected, onSelect, menu, menuLabel, trailing, indent, group }: ObjectRowProps) {
+  const cls = ["object-row", selected ? "sel" : "", indent ? `indent-${Math.min(indent, 3)}` : "", group ? "group" : ""]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <li class={`object-row${selected ? " sel" : ""}`}>
+    <li class={cls}>
       <button type="button" class="object-main" aria-pressed={!!selected} onClick={onSelect}>
         <span class="object-title">{title}</span>
         {tags?.map((t) => (
@@ -208,6 +216,88 @@ export function ObjectRow({ title, meta, tags, selected, onSelect, menu, menuLab
       {trailing}
       {menu && menu.length > 0 && <OverflowMenu items={menu} label={menuLabel} />}
     </li>
+  );
+}
+
+// ===== Tabs =====
+
+export interface TabDef {
+  id: string;
+  label: string;
+}
+
+/**
+ * タブの見出し（role="tablist"）。←→ Home End で動く。中身は `TabPanel` を並べて渡す。
+ * `idBase` はタブと中身を結ぶ ID の接頭辞（画面内で一意に）。
+ */
+export function Tabs({
+  tabs,
+  active,
+  onChange,
+  idBase,
+  label,
+}: {
+  tabs: TabDef[];
+  active: string;
+  onChange: (id: string) => void;
+  idBase: string;
+  label?: string;
+}) {
+  const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const ids = tabs.map((t) => t.id);
+  return (
+    <div class="tabs" role="tablist" aria-label={label}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          ref={(el) => {
+            refs.current[t.id] = el;
+          }}
+          type="button"
+          role="tab"
+          id={`${idBase}-tab-${t.id}`}
+          class="tab"
+          aria-selected={active === t.id}
+          aria-controls={`${idBase}-panel-${t.id}`}
+          tabIndex={active === t.id ? 0 : -1}
+          onClick={() => onChange(t.id)}
+          onKeyDown={(e) => {
+            const next = stepTab(ids, active, e.key);
+            if (next === undefined) return;
+            e.preventDefault();
+            onChange(next);
+            refs.current[next]?.focus();
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** タブの中身。選ばれていないものは隠すだけで、アンマウントしない（編集中のフォームを保つ）。 */
+export function TabPanel({
+  id,
+  idBase,
+  active,
+  children,
+}: {
+  id: string;
+  idBase: string;
+  active: string;
+  children: ComponentChildren;
+}) {
+  return (
+    <div
+      class="tab-panel"
+      role="tabpanel"
+      id={`${idBase}-panel-${id}`}
+      aria-labelledby={`${idBase}-tab-${id}`}
+      hidden={active !== id}
+    >
+      {children}
+    </div>
   );
 }
 
