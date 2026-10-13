@@ -51,6 +51,18 @@ const SELECTED = [
   },
 ];
 
+// 設定の各タブ（src/settings-util.ts の SETTINGS_TABS から拾う）。general は main-settings と同じなので除く。
+// ファイル名は `main-settings-<tab>`。empty シナリオも撮る。
+function settingsTabs() {
+  const src = readFileSync(join(root, "src/settings-util.ts"), "utf-8");
+  const block = /export const SETTINGS_TABS = \[([\s\S]*?)\] as const;/.exec(src);
+  if (!block) throw new Error("src/settings-util.ts の SETTINGS_TABS を読めませんでした。");
+  return [...block[1].matchAll(/id:\s*"([a-z]+)"/g)].map((m) => m[1]).filter((t) => t !== "general");
+}
+for (const tab of settingsTabs()) {
+  SELECTED.push({ name: `settings-${tab}`, screen: "settings", all: true, fixed: `#/settings/${tab}` });
+}
+
 // 画面の一覧は src/lib.ts の SCREENS から拾う（追加漏れを防ぐ）。
 function readScreens() {
   const src = readFileSync(join(root, "src/lib.ts"), "utf-8");
@@ -141,15 +153,17 @@ async function main() {
       }
       // 一覧で 1 つ選んだ状態（main のみ）。
       for (const sp of SELECTED) {
-        if (!windows.includes("main") || (opt.screen && opt.screen !== sp.screen) || scenario === "empty") continue;
+        if (!windows.includes("main") || (opt.screen && opt.screen !== sp.screen) || (scenario === "empty" && !sp.all)) continue;
         for (const scheme of schemes) {
           const name = `main-${sp.name}${scheme === "dark" ? "-dark" : ""}`;
           const where = `${scenario}/${name}`;
           const { page, close } = await openPage(browser, { base, scenario, win: "main", screen: sp.screen, scheme, problems, where });
-          const hash = await page.evaluate((src) => {
-            // eslint-disable-next-line no-new-func
-            return new Function("s", `return (${src})(s)`)(window.__mock.state) ?? null;
-          }, sp.hash.toString());
+          const hash =
+            sp.fixed ??
+            (await page.evaluate((src) => {
+              // eslint-disable-next-line no-new-func
+              return new Function("s", `return (${src})(s)`)(window.__mock.state) ?? null;
+            }, sp.hash.toString()));
           if (!hash) {
             await close();
             continue;

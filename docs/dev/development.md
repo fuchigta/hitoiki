@@ -63,6 +63,8 @@ npm run shots -- --window popup --dark               # ダークテーマも撮�
 
 一覧で 1 つ選んだ状態（`#/tasks/<ID>`、`#/okr/kr/<ID>`、`#/okr/skill/<ID>`）は、`main-tasks-selected`、`main-okr-kr-selected`、`main-okr-skill-selected` として別に撮ります（`ui/scripts/shots.mjs` の `SELECTED`。ID はモックの状態から引き、フィクスチャに無ければ飛ばします。`empty` では撮りません）。新しい一覧＋詳細の画面を足したら、ここにも指定を足します。
 
+設定の各タブ（`#/settings/<tab>`。`general` は `main-settings` と同じなので除く）は `main-settings-<tab>` として、`empty` も含めて撮ります。タブの一覧は `ui/src/settings-util.ts` の `SETTINGS_TABS` から拾うので、タブを足せば自動で撮影の対象になります。
+
 撮影のたびに、ページの構造（`page.locator("body").ariaSnapshot()`）も `ui/shots/<scenario>/<名前>.aria.yml` に保存します（ライトテーマのときだけ）。見出しの階層やボタンの名前の崩れは、画像より差分で気づきやすくなります。
 
 ### 前回との差分（`--diff`）
@@ -80,7 +82,7 @@ npm run flows                  # ui/scripts/flows/*.mjs を全部実行
 npm run flows -- --flow tasks  # 1 本だけ実行
 ```
 
-主要な操作の流れ（仕分け・タスク・今日・記録・OKR）を、モックの UI で実際に操作して確かめます。1 本ごとに新しいブラウザコンテキスト（モックの状態は初期化済み）で実行し、時刻は撮影と同じく固定します。成功なら `OK`、失敗なら `NG` と理由を出し、`ui/shots/flows/<名前>.png` に失敗時の画面を保存して終了コード 1 になります。console error・pageerror・`[mock] unhandled` も失敗です。
+主要な操作の流れ（仕分け・タスク・今日・記録・OKR・設定）を、モックの UI で実際に操作して確かめます。1 本ごとに新しいブラウザコンテキスト（モックの状態は初期化済み）で実行し、時刻は撮影と同じく固定します。成功なら `OK`、失敗なら `NG` と理由を出し、`ui/shots/flows/<名前>.png` に失敗時の画面を保存して終了コード 1 になります。console error・pageerror・`[mock] unhandled` も失敗です。
 
 シナリオは画面ごとに 1 ファイルで、`{ name, scenario, screen, run({ page }) }` を default export します。要素は `getByRole` と accessible name で選び（スタイルのクラス名に頼らない）、結果は `window.__mock.state`（`scripts/lib/flow.mjs` の `mockState`）か画面で確かめます。画面の構成を変えて壊れたら、該当の 1 ファイルだけを直します。Vite の起動やブラウザの起動などの共通部分は `ui/scripts/lib/harness.mjs` にあり、`npm run shots` と共有しています。
 
