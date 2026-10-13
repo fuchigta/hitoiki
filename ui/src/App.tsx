@@ -3,7 +3,8 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, on } from "./api";
 import { LeaveConfirm, RuntimeBanner } from "./components";
 import { leaveGuard } from "./edit-util";
-import { SCREENS, hrefOf, loadTimeZone, navigate, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
+import { SCREENS, hrefOf, loadTimeZone, navigate, useAsync, useLiveTick, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
+import { Log } from "./screens/Log";
 import { Onboarding } from "./screens/Onboarding";
 import { Okr } from "./screens/Okr";
 import { Plan } from "./screens/Plan";
@@ -12,14 +13,13 @@ import { Quick } from "./screens/Quick";
 import { Records } from "./screens/Records";
 import { Reflect } from "./screens/Reflect";
 import { Report } from "./screens/Report";
-import { Review } from "./screens/Review";
 import { Settings } from "./screens/Settings";
 import { Tasks } from "./screens/Tasks";
 import { Today } from "./screens/Today";
 
 const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   today: Today,
-  review: Review,
+  log: Log,
   tasks: Tasks,
   plan: Plan,
   reflect: Reflect,
@@ -53,6 +53,10 @@ export function App() {
 function Main() {
   const screen = useScreen();
   const tzVersion = useTimeZoneVersion();
+  // 実績の要確認の件数（ナビのバッジ）。
+  const tick = useLiveTick();
+  const status = useAsync(() => api.status().catch(() => null), [tick]);
+  const reviewCount = status.data?.needs_review_count ?? 0;
   // 時刻表示は設定のタイムゾーンに従う。読み込めるまで描画を待つ（ずれた時刻を一瞬出さない）。
   const [tzReady, setTzReady] = useState(false);
   useEffect(() => {
@@ -100,6 +104,11 @@ function Main() {
             }}
           >
             {s.label}
+            {s.id === "log" && reviewCount > 0 && (
+              <span class="nav-badge" role="status" aria-label={`要確認 ${reviewCount} 件`}>
+                {reviewCount}
+              </span>
+            )}
           </a>
         ))}
       </nav>

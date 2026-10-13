@@ -29,6 +29,8 @@ describe("routeFromHash", () => {
 
   it("通知の open_screen のような入口もそのまま画面を得る", () => {
     expect(routeFromHash("#/today/design")).toMatchObject({ screen: "today", path: ["design"] });
+    expect(routeFromHash("#/log/01ABC").screen).toBe("log");
+    // 旧名も受け付ける（legacyRoute が写す）。
     expect(routeFromHash("#/review").screen).toBe("review");
   });
 });
@@ -46,8 +48,17 @@ describe("hrefOf", () => {
 });
 
 describe("legacyRoute", () => {
-  it("P2 では恒等（旧名の写像は統合する段階で足す）", () => {
-    const r = routeFromHash("#/review?x=1");
-    expect(legacyRoute(r)).toEqual(r);
+  it("review は log の要確認へ（他のクエリは残す）", () => {
+    const r = legacyRoute(routeFromHash("#/review"));
+    expect(r.screen).toBe("log");
+    expect(hrefOf(r.screen, r.path, r.params)).toBe("#/log?status=review");
+    const q = legacyRoute(routeFromHash("#/review?period=today"));
+    expect(hrefOf(q.screen, q.path, q.params)).toBe("#/log?period=today&status=review");
+  });
+  it("status 指定があれば変えない・他の画面は恒等", () => {
+    const r = legacyRoute(routeFromHash("#/review?status=all"));
+    expect(r.params.get("status")).toBe("all");
+    const t = routeFromHash("#/tasks/01ABC?tab=time");
+    expect(legacyRoute(t)).toEqual(t);
   });
 });

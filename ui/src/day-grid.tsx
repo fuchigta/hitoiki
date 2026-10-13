@@ -2,7 +2,7 @@ import type { ComponentChildren, RefObject } from "preact";
 import { useRef, useState } from "preact/hooks";
 import type { BlockView, CalendarEvent, GapView, Millis, SegmentView } from "./api";
 import { KIND_LABEL, fmtTime } from "./lib";
-import { boundaryTimes, pickRange } from "./correct-util";
+import { boundaryTimes, pickRange, yToMinute } from "./correct-util";
 import { clickRange, currentBlock, dragRange, moveRange, nowPercent, resizeRange, timeToPercent, type TimeSpan } from "./plan-util";
 
 const HOUR = 3_600_000;
@@ -58,6 +58,8 @@ export interface DayGridProps {
   laneRef?: RefObject<HTMLDivElement>;
   /** 「実績」の列で範囲を選んだ（ドラッグ。実績の補正を開く）。渡さなければ実績の列は選択できない。 */
   onPickActual?: (span: TimeSpan) => void;
+  /** 「実績」の列をクリックした（ドラッグでない）。その位置にある区間の ID を渡す。 */
+  onClickActual?: (segmentId: string) => void;
   /** 実績の補正で選択中の範囲。 */
   actualSelection?: TimeSpan | null;
   /** 範囲の端を区間の境目へ吸着させる幅（ミリ秒、`review.snap_sec`）。 */
@@ -135,7 +137,7 @@ export function DayGrid(p: DayGridProps) {
   const actualY = (e: PointerEvent) => e.clientY - actualRef.current!.getBoundingClientRect().top;
   const pickActual = (a: ActualDrag): TimeSpan | null =>
     pickRange(a.y1, a.y2, actualHeight(), view.start, view.end, boundaries, p.snapMs ?? 0);
-  const actualHandlers: Handlers | undefined = p.onPickActual
+  const actualHandlers: Handlers | undefined = p.onPickActual || p.onClickActual
     ? {
         onDown: (e) => {
           if (e.button > 0 || !e.isPrimary) return;
@@ -150,14 +152,20 @@ export function DayGrid(p: DayGridProps) {
           if (!adrag || e.pointerId !== adrag.pointerId) return;
           const d = { ...adrag, y2: actualY(e) };
           setAdrag(null);
-          if (Math.abs(d.y2 - d.y1) < CLICK_SLOP) return;
+          if (Math.abs(d.y2 - d.y1) < CLICK_SLOP) {
+            const at = yToMinute(d.y2, actualHeight(), view.start, view.end);
+            const hit = p.segments.find((x) => x.start_at <= at && at < x.end_at);
+            if (hit) p.onClickActual?.(hit.id);
+            return;
+          }
+          if (!p.onPickActual) return;
           const span = pickActual(d);
           if (span) p.onPickActual?.(span);
         },
         onCancel: () => setAdrag(null),
       }
     : undefined;
-  const actualSel = adrag && Math.abs(adrag.y2 - adrag.y1) >= CLICK_SLOP ? pickActual(adrag) : (p.actualSelection ?? null);
+  const actualSel = p.onPickActual && adrag && Math.abs(adrag.y2 - adrag.y1) >= CLICK_SLOP ? pickActual(adrag) : (p.actualSelection ?? null);
 
   const liveSpan = drag && (drag.mode === "create" ? Math.abs(drag.y2 - drag.y1) >= CLICK_SLOP : true) ? live(drag) : null;
   const sel = drag?.mode === "create" ? liveSpan : (p.selection ?? null);

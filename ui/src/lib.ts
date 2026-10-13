@@ -152,7 +152,7 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export const SCREENS = [
   { id: "today", label: "今日" },
-  { id: "review", label: "仕分け" },
+  { id: "log", label: "実績" },
   { id: "tasks", label: "タスク" },
   { id: "plan", label: "計画" },
   { id: "reflect", label: "振り返り" },
@@ -180,6 +180,9 @@ function safeDecode(s: string): string {
   }
 }
 
+/** 画面としては無くなったが、ハッシュとしては受け付ける旧い ID（`legacyRoute` で新しいルートに写す）。 */
+const LEGACY_IDS: string[] = ["review"];
+
 /** `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。 */
 export function routeFromHash(hash: string): Route {
   const body = hash.replace(/^#\/?/, "");
@@ -187,7 +190,7 @@ export function routeFromHash(hash: string): Route {
   const pathPart = q >= 0 ? body.slice(0, q) : body;
   const params = new URLSearchParams(q >= 0 ? body.slice(q + 1) : "");
   const segs = pathPart.split("/").filter((x) => x !== "");
-  if (!SCREENS.some((s) => s.id === segs[0])) return { screen: "today", path: [], params };
+  if (!SCREENS.some((s) => s.id === segs[0]) && !LEGACY_IDS.includes(segs[0])) return { screen: "today", path: [], params };
   return { screen: segs[0] as ScreenId, path: segs.slice(1).map(safeDecode), params };
 }
 
@@ -206,9 +209,14 @@ export function hrefOf(
 
 /**
  * 旧い画面 ID のルートを、いまのルートへ写す（`hitoiki ui <画面>`・通知の `open_screen`・起動引数が旧名を使うため）。
- * P2 の時点では写すものがない（恒等）。画面を統合する段階で、ここに足す（例: `review` → `log?status=review`）。
+ * 画面を統合する段階で、ここに足す。いまは `review` → `log?status=review`（ほかのクエリは残す）。
  */
 export function legacyRoute(route: Route): Route {
+  if ((route.screen as string) === "review") {
+    const params = new URLSearchParams(route.params);
+    if (!params.has("status")) params.set("status", "review");
+    return { screen: "log", path: route.path, params };
+  }
   return route;
 }
 
