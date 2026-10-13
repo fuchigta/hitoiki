@@ -92,7 +92,7 @@ export function StructuredAnswer({
     e.preventDefault();
     const r = await save.run(() => api.reflectAnswerStructured(reflection.id, buildAnswers(out.questions, forms, answeredIdx)));
     if (r) {
-      setSaved("回答を保存しました。チェックイン・ハッスル・ABC は「記録」画面にも出ます。");
+      setSaved("回答を保存しました。チェックイン・ハッスル・ABC は「記録」の一覧にも出ます。");
       onSaved(r);
     }
   };

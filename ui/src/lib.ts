@@ -183,13 +183,18 @@ function safeDecode(s: string): string {
 /** 画面としては無くなったが、ハッシュとしては受け付ける旧い ID（`legacyRoute` で新しいルートに写す）。 */
 const LEGACY_IDS: string[] = ["review"];
 
-/** `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。 */
+/**
+ * `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。
+ * 記録の旧名（`checkin` / `hassle` / `reflection/<kind>`）は、ここで受け付けて記録・振り返りに寄せる（`legacyRoute` が仕上げる）。
+ */
 export function routeFromHash(hash: string): Route {
   const body = hash.replace(/^#\/?/, "");
   const q = body.indexOf("?");
   const pathPart = q >= 0 ? body.slice(0, q) : body;
   const params = new URLSearchParams(q >= 0 ? body.slice(q + 1) : "");
   const segs = pathPart.split("/").filter((x) => x !== "");
+  if (segs[0] === "checkin" || segs[0] === "hassle") return { screen: "records", path: ["new", segs[0]], params };
+  if (segs[0] === "reflection") return { screen: "reflect", path: segs.slice(1).map(safeDecode), params };
   if (!SCREENS.some((s) => s.id === segs[0]) && !LEGACY_IDS.includes(segs[0])) return { screen: "today", path: [], params };
   return { screen: segs[0] as ScreenId, path: segs.slice(1).map(safeDecode), params };
 }
@@ -209,13 +214,25 @@ export function hrefOf(
 
 /**
  * 旧い画面 ID のルートを、いまのルートへ写す（`hitoiki ui <画面>`・通知の `open_screen`・起動引数が旧名を使うため）。
- * 画面を統合する段階で、ここに足す。いまは `review` → `log?status=review`（ほかのクエリは残す）。
+ * 画面を統合する段階で、ここに足す。
+ * - `review` → `log?status=review`（ほかのクエリは残す）
+ * - `reflect` → `records?kind=reflection`
+ * - `reflect/<kind>`（day_start・day_end・weekly）→ `records/new/<kind>`（振り返りの作成フォーム）
  */
 export function legacyRoute(route: Route): Route {
   if ((route.screen as string) === "review") {
     const params = new URLSearchParams(route.params);
     if (!params.has("status")) params.set("status", "review");
     return { screen: "log", path: route.path, params };
+  }
+  if (route.screen === "reflect") {
+    const kind = route.path[0];
+    if (kind === "day_start" || kind === "day_end" || kind === "weekly") {
+      return { screen: "records", path: ["new", kind], params: route.params };
+    }
+    const params = new URLSearchParams(route.params);
+    params.set("kind", "reflection");
+    return { screen: "records", path: [], params };
   }
   return route;
 }

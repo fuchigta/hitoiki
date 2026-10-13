@@ -1,0 +1,169 @@
+import { useState } from "preact/hooks";
+import { api } from "./api";
+import { ErrorBox, Field, Section } from "./components";
+import { dateInput, useAction } from "./lib";
+import { REFLECTION_KIND_LABEL, isReflectionKind, type NewKind, type RecordSource } from "./records-util";
+import { Scale } from "./ui/parts";
+
+// 記録の作成フォーム（`#/records/new/<種類>`）。保存したら `onCreated` で作った記録を渡し、画面がその記録を選択する。
+
+export function NewRecord({ kind, onCreated }: { kind: NewKind; onCreated: (s: RecordSource) => void }) {
+  if (kind === "checkin") return <NewCheckin onCreated={onCreated} />;
+  if (kind === "hassle") return <NewHassle onCreated={onCreated} />;
+  if (kind === "abc") return <NewAbc onCreated={onCreated} />;
+  if (isReflectionKind(kind)) return <NewReflection kind={kind} onCreated={onCreated} />;
+  return null;
+}
+
+function SaveRow({ busy, ok, label = "記録" }: { busy: boolean; ok: boolean; label?: string }) {
+  return (
+    <div class="row">
+      <span class="spacer" />
+      <button class="primary" disabled={busy || !ok}>
+        {label}
+      </button>
+    </div>
+  );
+}
+
+function NewCheckin({ onCreated }: { onCreated: (s: RecordSource) => void }) {
+  const [energy, setEnergy] = useState<number>();
+  const [mood, setMood] = useState<number>();
+  const [stress, setStress] = useState<number>();
+  const [note, setNote] = useState("");
+  const act = useAction();
+  return (
+    <Section title="チェックインを記録">
+      <form
+        class="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await act.run(() => api.checkinAdd({ energy, mood, stress, note: note.trim() || undefined }));
+          if (r) onCreated({ kind: "checkin", rec: r });
+        }}
+      >
+        <Scale label="エネルギー" value={energy} onChange={setEnergy} />
+        <Scale label="気分" value={mood} onChange={setMood} />
+        <Scale label="ストレス" value={stress} onChange={setStress} />
+        <Field label="一言メモ">
+          <input value={note} onInput={(e) => setNote(e.currentTarget.value)} />
+        </Field>
+        <SaveRow busy={act.busy} ok={energy != null || mood != null || stress != null || !!note.trim()} />
+        <ErrorBox error={act.error} />
+      </form>
+    </Section>
+  );
+}
+
+function NewHassle({ onCreated }: { onCreated: (s: RecordSource) => void }) {
+  const [text, setText] = useState("");
+  const [intensity, setIntensity] = useState<number | undefined>(3);
+  const act = useAction();
+  return (
+    <Section title="ハッスルを記録">
+      <form
+        class="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await act.run(() => api.hassleAdd(text.trim(), intensity));
+          if (r) onCreated({ kind: "hassle", rec: r });
+        }}
+      >
+        <Field label="気になったこと">
+          <textarea rows={3} value={text} onInput={(e) => setText(e.currentTarget.value)} />
+        </Field>
+        <Scale label="強さ" value={intensity} onChange={setIntensity} />
+        <SaveRow busy={act.busy} ok={!!text.trim()} />
+        <ErrorBox error={act.error} />
+      </form>
+    </Section>
+  );
+}
+
+function NewAbc({ onCreated }: { onCreated: (s: RecordSource) => void }) {
+  const [a, setA] = useState("");
+  const [b, setB] = useState("");
+  const [c, setC] = useState("");
+  const [ci, setCi] = useState<number>();
+  const act = useAction();
+  return (
+    <Section title="ABC を書く">
+      <form
+        class="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await act.run(() =>
+            api.abcAdd({
+              activating_event: a.trim(),
+              belief: b.trim() || undefined,
+              consequence_emotion: c.trim() || undefined,
+              consequence_intensity: ci,
+            }),
+          );
+          if (r) onCreated({ kind: "abc", rec: r });
+        }}
+      >
+        <Field label="A: 出来事">
+          <textarea rows={3} value={a} onInput={(e) => setA(e.currentTarget.value)} />
+        </Field>
+        <Field label="B: 受け止め方">
+          <textarea rows={3} value={b} onInput={(e) => setB(e.currentTarget.value)} />
+        </Field>
+        <Field label="C: 感情">
+          <input value={c} onInput={(e) => setC(e.currentTarget.value)} />
+        </Field>
+        <Scale label="強さ" value={ci} onChange={setCi} />
+        <SaveRow busy={act.busy} ok={!!a.trim()} />
+        <ErrorBox error={act.error} />
+      </form>
+    </Section>
+  );
+}
+
+const REFLECT_HINTS = {
+  day_start: "昨日までを材料に、今日のはじまりを考えます。",
+  day_end: "今日を一緒にふりかえります。",
+  weekly: "今週の時間の使い方をふりかえります。",
+} as const;
+
+/** 振り返りの作成。基準日を選んで問いを生成すると、その振り返りが選択され、詳細で答えられる。 */
+function NewReflection({ kind, onCreated }: { kind: keyof typeof REFLECT_HINTS; onCreated: (s: RecordSource) => void }) {
+  const [date, setDate] = useState(dateInput());
+  const gen = useAction();
+  return (
+    <Section title={`${REFLECTION_KIND_LABEL[kind]}の振り返りを始める`}>
+      <p class="hint">
+        {REFLECT_HINTS[kind]}
+        {kind === "day_start" && (
+          <>
+            {" "}
+            <a href="#/today/design">今日のデザイン</a>でブロックを並べることもできます。
+          </>
+        )}
+      </p>
+      <form
+        class="stack"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const r = await gen.run(() => api.reflectGenerate(kind, date));
+          if (r) onCreated({ kind: "reflection", rec: r });
+        }}
+      >
+        <div class="row">
+          <Field label={kind === "weekly" ? "基準日（その週）" : "基準日"}>
+            <input type="date" value={date} onInput={(e) => setDate(e.currentTarget.value)} />
+          </Field>
+          <button class="primary" disabled={gen.busy || !date}>
+            {gen.busy ? "生成中…" : "問いを生成"}
+          </button>
+        </div>
+        {gen.busy && (
+          <p class="hint" role="status">
+            AI が問いを考えています。数十秒かかることがあります。他の画面を使っていても大丈夫です。
+          </p>
+        )}
+        <ErrorBox error={gen.error} />
+      </form>
+    </Section>
+  );
+}

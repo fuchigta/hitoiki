@@ -32,8 +32,9 @@ const REFLECT_KINDS: &[&str] = &["day_start", "day_end", "weekly"];
 
 /// 画面指定を UI のハッシュ（`today`、`reflect/day_end` など）に正規化する。
 ///
-/// - `reflection/<kind>`（プッシュの `open_screen`）と `reflect/<kind>` は振り返り画面の該当種別。
-/// - `checkin` / `hassle`（プッシュの `open_screen`）は記録画面。
+/// - `reflection/<kind>`（プッシュの `open_screen`）と `reflect/<kind>` は `reflect/<kind>` にそろえる。
+///   `reflect` は旧名で、UI が記録画面（`records/new/<kind>`、種類なしは `records?kind=reflection`）に写す。
+/// - `checkin` / `hassle`（プッシュの `open_screen`）は記録画面の作成フォーム（`records/new/<種類>`）。
 /// - 未知の画面名は `today`。
 pub fn normalize_screen(screen: &str) -> String {
     let (base, rest) = match screen.split_once('/') {
@@ -45,7 +46,7 @@ pub fn normalize_screen(screen: &str) -> String {
             Some(k) if REFLECT_KINDS.contains(&k) => format!("reflect/{k}"),
             _ => "reflect".to_string(),
         },
-        "checkin" | "hassle" => "records".to_string(),
+        "checkin" | "hassle" => format!("records/new/{base}"),
         // 今日のデザインモード（始業の通知から）。
         "today" if rest == Some("design") => "today/design".to_string(),
         b if SCREENS.contains(&b) => b.to_string(),
@@ -99,8 +100,9 @@ mod tests {
         assert_eq!(normalize_screen("reflection/xx"), "reflect");
         assert_eq!(normalize_screen("today/design"), "today/design");
         assert_eq!(normalize_screen("today/xx"), "today");
-        assert_eq!(normalize_screen("checkin"), "records");
-        assert_eq!(normalize_screen("hassle"), "records");
+        assert_eq!(normalize_screen("checkin"), "records/new/checkin");
+        assert_eq!(normalize_screen("hassle"), "records/new/hassle");
+        assert_eq!(normalize_screen("records"), "records");
         assert_eq!(normalize_screen("log"), "log");
         assert_eq!(normalize_screen("review"), "review");
         assert_eq!(normalize_screen("onboarding"), "onboarding");

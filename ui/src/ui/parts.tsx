@@ -52,8 +52,19 @@ export interface MenuItem {
   disabled?: boolean;
 }
 
-/** 「…」ボタンから開くメニュー。↑↓ で移動、Enter で選択、Esc と外側クリックで閉じる。 */
-export function OverflowMenu({ items, label = "操作" }: { items: MenuItem[]; label?: string }) {
+/**
+ * 「…」ボタンから開くメニュー。↑↓ で移動、Enter で選択、Esc と外側クリックで閉じる。
+ * `trigger` を渡すと、「…」の代わりに文言つきのボタン（`primary` なら主操作の見た目）で開く（例: 「＋ 記録」）。
+ */
+export function OverflowMenu({
+  items,
+  label = "操作",
+  trigger,
+}: {
+  items: MenuItem[];
+  label?: string;
+  trigger?: { text: string; primary?: boolean };
+}) {
   const [open, setOpen] = useState(false);
   const [cur, setCur] = useState(-1);
   const wrap = useRef<HTMLSpanElement>(null);
@@ -95,8 +106,8 @@ export function OverflowMenu({ items, label = "操作" }: { items: MenuItem[]; l
       <button
         ref={btn}
         type="button"
-        class="ghost menu-btn"
-        aria-label={label}
+        class={trigger ? (trigger.primary ? "primary" : "") : "ghost menu-btn"}
+        aria-label={trigger ? undefined : label}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
@@ -111,7 +122,7 @@ export function OverflowMenu({ items, label = "操作" }: { items: MenuItem[]; l
           }
         }}
       >
-        …
+        {trigger ? trigger.text : "…"}
       </button>
       {open && (
         <div

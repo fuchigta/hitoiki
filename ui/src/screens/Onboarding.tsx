@@ -233,7 +233,7 @@ function DailyStep() {
         </li>
         <li>通知に 1 タップで答えると、記録の精度が上がります。</li>
         <li>
-          終業時に<a href="#/reflect">振り返り</a>をすると、一日を軽く締められます。
+          終業時に<a href="#/records/new/day_end">振り返り</a>をすると、一日を軽く締められます。
         </li>
       </ul>
       <p class="hint">
