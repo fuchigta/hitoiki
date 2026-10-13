@@ -10,7 +10,6 @@ import { Plan } from "./screens/Plan";
 import { Popup } from "./screens/Popup";
 import { Quick } from "./screens/Quick";
 import { Records } from "./screens/Records";
-import { Reflect } from "./screens/Reflect";
 import { Report } from "./screens/Report";
 import { Review } from "./screens/Review";
 import { Settings } from "./screens/Settings";
@@ -22,7 +21,7 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   review: Review,
   tasks: Tasks,
   plan: Plan,
-  reflect: Reflect,
+  reflect: Records, // 旧名。`legacyRoute` が `records` に写すので、ここは通らない
   report: Report,
   records: Records,
   okr: Okr,
@@ -85,7 +84,7 @@ function Main() {
     <div class="shell">
       <nav class="nav" aria-label="画面">
         <div class="brand">Hitoiki</div>
-        {SCREENS.filter((s) => s.id !== "onboarding").map((s) => (
+        {SCREENS.filter((s) => s.id !== "onboarding" && s.id !== "reflect").map((s) => (
           <a
             key={s.id}
             href={hrefOf(s.id)}

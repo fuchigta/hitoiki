@@ -49,6 +49,27 @@ const SELECTED = [
       return k && `#/okr/skill/${k.id}?tab=skills`;
     },
   },
+  {
+    name: "records-checkin-selected",
+    screen: "records",
+    hash: (s) => {
+      const c = s.checkins.find((x) => x.at <= s.now);
+      return c && `#/records/checkin/${c.id}`;
+    },
+  },
+  {
+    name: "records-reflection-selected",
+    screen: "records",
+    hash: (s) => {
+      const r = s.reflections[0];
+      return r && `#/records/reflection/${r.id}`;
+    },
+  },
+  {
+    name: "records-new-abc",
+    screen: "records",
+    hash: () => "#/records/new/abc",
+  },
 ];
 
 // 画面の一覧は src/lib.ts の SCREENS から拾う（追加漏れを防ぐ）。

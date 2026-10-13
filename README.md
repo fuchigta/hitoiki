@@ -35,7 +35,7 @@ hitoiki ui                                        # 画面を開く
 
 - [インストール](./docs/user/install.md): インストーラー、zip、SmartScreen、更新、アンインストール
 - [はじめに](./docs/user/getting-started.md): 初回起動とオンボーディング、最初にやること
-- [日々の使い方](./docs/user/daily-use.md): 今日・仕分け・通知・振り返り・タスク・計画・記録・OKR・レポート、トレイ
+- [日々の使い方](./docs/user/daily-use.md): 今日・仕分け・通知・タスク・計画・記録（振り返りを含む）・OKR・レポート、トレイ
 - [CLI リファレンス](./docs/user/cli.md): コマンド一覧、`--json`、終了コード、エージェントからの利用
 - [設定](./docs/user/configuration.md): 設定ファイルの場所と主なキー
 - [プライバシー](./docs/user/privacy.md): 記録するもの・しないもの、通信が起きる場面

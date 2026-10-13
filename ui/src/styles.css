@@ -1129,6 +1129,32 @@ button.primary.attn {
   padding: var(--sp-1) var(--sp-2);
   font-size: var(--fs-xs);
 }
+/* 記録画面: 上部の絞り込み、ERG の分布の行、未回答の問いかけの帯 */
+.records-bar {
+  flex-wrap: wrap;
+  margin-bottom: 0;
+}
+.erg-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.push-band {
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  padding: var(--sp-2) var(--sp-3);
+}
+.push-band > summary {
+  cursor: pointer;
+}
+.push-band[open] > summary {
+  margin-bottom: var(--sp-2);
+}
+.record-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .badge-ai {
   color: var(--muted);
   border: 1px solid var(--border);

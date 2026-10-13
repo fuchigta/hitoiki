@@ -411,7 +411,7 @@ export function Today() {
               {taskDrag && <div class="hint">「{taskDrag.task.title}」をタイムラインの置きたい位置で離してください。</div>}
             </Card>
             <p class="hint">
-              始業の振り返りは<a href="#/reflect/day_start">振り返り</a>から。
+              始業の振り返りは<a href="#/records/new/day_start">記録</a>から。
             </p>
           </div>
         )}
