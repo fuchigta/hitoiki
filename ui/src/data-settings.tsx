@@ -1,74 +1,12 @@
-// 設定画面の「自分で作った一覧」（活動ルール・カレンダーソース・活動ラベル）。
+// 設定画面の「自分で作った一覧」（活動ラベル・カレンダーソース）。ルールは settings-rules.tsx。
 import { useState } from "preact/hooks";
-import { api, type MatchField, type PatternType } from "./api";
+import { api } from "./api";
 import { Card, Empty, ErrorBox, Field } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
 import { useAction, useAsync } from "./lib";
-import { ActivityRuleRow, FIELDS, PTYPES } from "./rule-row";
-import { OverflowMenu } from "./ui/parts";
+import { ObjectList, ObjectRow, OverflowMenu } from "./ui/parts";
 
-export function DataSettings() {
-  return (
-    <>
-      <ActivityRulesCard />
-      <ActivityLabelsCard />
-      <CalendarSourcesCard />
-    </>
-  );
-}
-
-function ActivityRulesCard() {
-  const rules = useAsync(() => api.activityRuleList(), []);
-  const [field, setField] = useState<MatchField>("exe");
-  const [ptype, setPtype] = useState<PatternType>("glob");
-  const [pattern, setPattern] = useState("");
-  const [label, setLabel] = useState("");
-  const act = useAction();
-  return (
-    <Card
-      title="活動ルール"
-      help="アプリ名やタイトルなどのパターンに当てはまる時間へ、活動のラベルを付けます。無効にするとルールを残したまま判定に使いません。"
-    >
-      <ErrorBox error={rules.error} />
-      {rules.data?.rules.length === 0 && <Empty>活動ルールはありません。</Empty>}
-      <ul class="plain">
-        {rules.data?.rules.map((r) => (
-          <ActivityRuleRow key={r.id} rule={r} onChanged={rules.reload} />
-        ))}
-      </ul>
-      <form
-        class="row"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          const r = await act.run(() =>
-            api.activityRuleAdd({ field, pattern: pattern.trim(), pattern_type: ptype, activity_label: label.trim() }),
-          );
-          if (r) {
-            setPattern("");
-            rules.reload();
-          }
-        }}
-      >
-        <select value={field} onChange={(e) => setField(e.currentTarget.value as MatchField)} aria-label="対象">
-          {FIELDS.map((f) => (
-            <option key={f}>{f}</option>
-          ))}
-        </select>
-        <select value={ptype} onChange={(e) => setPtype(e.currentTarget.value as PatternType)} aria-label="種類">
-          {PTYPES.map((f) => (
-            <option key={f}>{f}</option>
-          ))}
-        </select>
-        <input class="grow" value={pattern} onInput={(e) => setPattern(e.currentTarget.value)} placeholder="パターン（例: slack*）" />
-        <input class="narrow" value={label} onInput={(e) => setLabel(e.currentTarget.value)} placeholder="活動" />
-        <button disabled={act.busy || !pattern.trim() || !label.trim()}>追加</button>
-      </form>
-      <ErrorBox error={act.error} />
-    </Card>
-  );
-}
-
-function ActivityLabelsCard() {
+export function ActivityLabelsCard() {
   const labels = useAsync(() => api.activityLabelList(), []);
   const [add, setAdd] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
@@ -80,10 +18,11 @@ function ActivityLabelsCard() {
   return (
     <Card title="活動ラベル" help="判定器に渡す活動の候補です。外しても、過去の時間や活動ルールに付いたラベルは残ります。">
       <ErrorBox error={labels.error} />
-      <ul class="plain">
-        {labels.data?.labels.map((l) => (
-          <li key={l}>
-            {renaming === l ? (
+      {labels.data?.labels.length === 0 && <Empty>活動ラベルはありません。</Empty>}
+      <ObjectList label="活動ラベル">
+        {labels.data?.labels.map((l) =>
+          renaming === l ? (
+            <li key={l}>
               <form
                 class="row"
                 onSubmit={async (e) => {
@@ -100,27 +39,30 @@ function ActivityLabelsCard() {
                   キャンセル
                 </button>
               </form>
-            ) : (
-              <span class="row">
-                <span class="grow">{l}</span>
-                <OverflowMenu
-                  label={`ラベル「${l}」の操作`}
-                  items={[
-                    {
-                      label: "名前を変える",
-                      onSelect: () => {
-                        setRenaming(l);
-                        setTo(l);
-                      },
-                    },
-                    { label: "外す", onSelect: () => after(() => api.activityLabelRemove(l)), disabled: act.busy },
-                  ]}
-                />
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+            </li>
+          ) : (
+            <ObjectRow
+              key={l}
+              title={l}
+              onSelect={() => {
+                setRenaming(l);
+                setTo(l);
+              }}
+              menuLabel={`ラベル「${l}」の操作`}
+              menu={[
+                {
+                  label: "名前を変える",
+                  onSelect: () => {
+                    setRenaming(l);
+                    setTo(l);
+                  },
+                },
+                { label: "外す", onSelect: () => after(() => api.activityLabelRemove(l)), disabled: act.busy },
+              ]}
+            />
+          ),
+        )}
+      </ObjectList>
       <form
         class="row"
         onSubmit={async (e) => {
@@ -137,7 +79,7 @@ function ActivityLabelsCard() {
   );
 }
 
-function CalendarSourcesCard() {
+export function CalendarSourcesCard() {
   const sources = useAsync(() => api.calendarSourceList(), []);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");

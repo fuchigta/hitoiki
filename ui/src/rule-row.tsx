@@ -1,6 +1,6 @@
 import { useState } from "preact/hooks";
 import { api, type ActivityRule, type DeleteOutcome, type MatchField, type PatternType, type TaskMatchRule } from "./api";
-import { ErrorBox } from "./components";
+import { ErrorBox, Field } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
 import { useAction } from "./lib";
 import { OverflowMenu } from "./ui/parts";
@@ -12,7 +12,7 @@ const RULE_NOTE =
   "このルールで決まっていた区間は、再計算で変わります（確定済みの区間は変わりません）。過去の日へ反映するには再計算を実行してください。";
 
 /** ルールの削除には依存先がないので、確認ダイアログ用に影響なし（補足つき）の結果を作る。 */
-function noImpact(id: string, name: string): DeleteOutcome {
+export function noImpact(id: string, name: string): DeleteOutcome {
   return {
     dry_run: true,
     deleted: false,
@@ -20,12 +20,45 @@ function noImpact(id: string, name: string): DeleteOutcome {
   };
 }
 
-interface Draft {
+export interface Draft {
   field: MatchField;
   type: PatternType;
   pattern: string;
   priority: string;
   label: string;
+}
+
+/**
+ * 設定の「ルール」タブの編集フォームが使う、対象・種類・パターン・優先度の欄（ラベルつき）。
+ * 帰属・活動のどちらも同じ形。行き先（タスク・活動ラベル）の欄は呼び出し側が足す。
+ */
+export function RuleFields({ d, set }: { d: Draft; set: (d: Draft) => void }) {
+  return (
+    <>
+      <div class="form-row">
+        <Field label="対象">
+          <select value={d.field} onChange={(e) => set({ ...d, field: e.currentTarget.value as MatchField })}>
+            {FIELDS.map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="種類">
+          <select value={d.type} onChange={(e) => set({ ...d, type: e.currentTarget.value as PatternType })}>
+            {PTYPES.map((f) => (
+              <option key={f}>{f}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <Field label="パターン">
+        <input value={d.pattern} onInput={(e) => set({ ...d, pattern: e.currentTarget.value })} placeholder="例: slack*" />
+      </Field>
+      <Field label="優先度（大きいほど先に評価）">
+        <input inputMode="numeric" value={d.priority} onInput={(e) => set({ ...d, priority: e.currentTarget.value })} />
+      </Field>
+    </>
+  );
 }
 
 function EditFields({ d, set, withLabel }: { d: Draft; set: (d: Draft) => void; withLabel: boolean }) {
@@ -57,7 +90,7 @@ function EditFields({ d, set, withLabel }: { d: Draft; set: (d: Draft) => void; 
   );
 }
 
-function priorityOf(s: string): number | undefined {
+export function priorityOf(s: string): number | undefined {
   const n = Number(s.trim());
   return s.trim() !== "" && Number.isInteger(n) ? n : undefined;
 }

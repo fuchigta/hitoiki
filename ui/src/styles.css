@@ -1642,3 +1642,90 @@ a.link-chip:hover {
 .link-list a {
   color: var(--text);
 }
+
+/* 設定: 左にサブナビ、右に内容。狭いときは上に横並び */
+.settings {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+.settings-body {
+  min-width: 0;
+}
+.tabs.vertical {
+  flex-direction: column;
+  border-bottom: 0;
+  border-right: 1px solid var(--border);
+  margin-top: 0;
+  position: sticky;
+  top: 0;
+}
+.tabs.vertical button.tab {
+  text-align: left;
+  border-bottom: 0;
+  border-right: 2px solid transparent;
+  margin-right: -1px;
+}
+.tabs.vertical button.tab[aria-selected="true"] {
+  border-right-color: var(--accent);
+}
+@media (max-width: 860px) {
+  .settings {
+    grid-template-columns: 1fr;
+    gap: var(--sp-3);
+  }
+  .tabs.vertical {
+    flex-direction: row;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    position: static;
+  }
+  .tabs.vertical button.tab {
+    border-right: 0;
+    border-bottom: 2px solid transparent;
+    margin-right: 0;
+  }
+  .tabs.vertical button.tab[aria-selected="true"] {
+    border-bottom-color: var(--accent);
+  }
+}
+
+/* 数値の設定 1 行: ラベル + ? + 入力 + 単位 */
+.setting-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.setting-label {
+  min-width: 15em;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.setting-input {
+  width: 5.5em;
+}
+.setting-off {
+  font-size: 0.85em;
+}
+
+/* 設定のルール一覧: 狭い列でも、種類の chip・tag を折り返さない */
+.settings .list-detail {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.settings .list-head {
+  flex-wrap: wrap;
+}
+.settings .chip,
+.object-row .tag {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+@media (max-width: 860px) {
+  .settings .list-detail {
+    grid-template-columns: 1fr;
+  }
+}

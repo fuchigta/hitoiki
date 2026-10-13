@@ -1,8 +1,8 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
-import { useAction, useAsync } from "../lib";
-import { Help } from "../ui/parts";
+import { useAction } from "../lib";
+import { AutostartToggle, TrustDoingToggle, UpdateCheckToggle, useConfig } from "../settings-parts";
 import { ONBOARDING_STEPS, clampStep, isLastStep } from "../onboarding-util";
 
 export function Onboarding() {
@@ -79,8 +79,7 @@ function Welcome() {
 }
 
 function TaskStep() {
-  const cfg = useAsync(() => api.configAll(), []);
-  const trustDoing = ((cfg.data ?? {}) as { review?: { trust_doing?: boolean } }).review?.trust_doing === true;
+  const cfg = useConfig();
   const [title, setTitle] = useState("");
   const [started, setStarted] = useState<string | null>(null);
   const act = useAction();
@@ -106,19 +105,8 @@ function TaskStep() {
         <p>
           進行中（doing）のタスクがあると、ルールに当たらない時間はそのタスクの候補になります。
         </p>
-        <label class="check">
-          <input
-            type="checkbox"
-            checked={trustDoing}
-            disabled={act.busy}
-            onChange={async (e) => {
-              const v = e.currentTarget.checked;
-              if (await act.run(() => api.configSet("review.trust_doing", String(v)))) cfg.reload();
-            }}
-          />
-          始めたタスクを信頼する（進行中のタスクに仮で当てた時間を、確認待ちにしない）
-        </label>
-        <ErrorBox error={act.error} />
+        <TrustDoingToggle cfg={cfg} label="始めたタスクを信頼する（進行中のタスクに仮で当てた時間を、確認待ちにしない）" />
+        <ErrorBox error={cfg.error ?? act.error} />
         <form class="form-row" onSubmit={submit}>
           <Field label="タスク名">
             <input value={title} onInput={(e) => setTitle(e.currentTarget.value)} placeholder="例: 企画書を書く" />
@@ -132,61 +120,22 @@ function TaskStep() {
 }
 
 function StartupStep() {
-  const cfg = useAsync(() => api.configAll(), []);
+  const cfg = useConfig();
   const act = useAction();
   const [sent, setSent] = useState(false);
-  const general = ((cfg.data ?? {}) as { general?: { autostart?: boolean; update_check?: boolean | null } }).general;
-  const on = general?.autostart === true;
-  // 未設定（null / 欠落）はまだ選んでいない状態。選ばずに進むと確認しない。
-  const updateCheck = general?.update_check ?? null;
 
   return (
     <Card title="自動起動と通知">
       <div class="stack">
         <ErrorBox error={cfg.error ?? act.error} />
         <p>PC を使っている間ずっと記録するには、ログイン時に自動で起動しておくと便利です。</p>
-        <label class="check">
-          <input
-            type="checkbox"
-            checked={on}
-            disabled={act.busy}
-            onChange={async (e) => {
-              const v = e.currentTarget.checked;
-              if (await act.run(() => api.configSet("general.autostart", String(v)))) cfg.reload();
-            }}
-          />
-          ログイン時に自動で起動する
-        </label>
-        <fieldset class="stack">
-          <legend>
-            新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）{" "}
-            <Help>選ばずに進むと確認しません。あとから「設定」画面で変えられます。自動でダウンロードやインストールはしません。</Help>
-          </legend>
-          <label class="check">
-            <input
-              type="radio"
-              name="update-check"
-              checked={updateCheck === true}
-              disabled={act.busy}
-              onChange={async () => {
-                if (await act.run(() => api.configSet("general.update_check", "true"))) cfg.reload();
-              }}
-            />
-            はい
-          </label>
-          <label class="check">
-            <input
-              type="radio"
-              name="update-check"
-              checked={updateCheck === false}
-              disabled={act.busy}
-              onChange={async () => {
-                if (await act.run(() => api.configSet("general.update_check", "false"))) cfg.reload();
-              }}
-            />
-            いいえ
-          </label>
-        </fieldset>
+        <AutostartToggle cfg={cfg} />
+        {/* 未設定（null）はまだ選んでいない状態。選ばずに進むと確認しない。 */}
+        <UpdateCheckToggle
+          cfg={cfg}
+          variant="radio"
+          help="選ばずに進むと確認しません。あとから「設定」画面で変えられます。自動でダウンロードやインストールはしません。"
+        />
         <p>Hitoiki は、ときどき通知で「いま何してた？」と聞きます。1 タップで答えられます。</p>
         <div class="row">
           <button
@@ -209,12 +158,10 @@ function CalendarStep() {
       <div class="stack">
         <p>カレンダーの ICS URL を登録すると、会議の時間を自動で判定できます。</p>
         <p class="hint">
-          「設定」画面の「設定ファイル」で、キー <code>calendar.sources</code> に
-          <code>{`[{ name = "仕事", type = "ics", url = "https://…/basic.ics" }]`}</code>
-          の形で登録します。URL は秘密情報なので、他の人に見せないでください。あとからでも設定できます。
+          「設定」の「カレンダー」で、名前と ICS の URL を登録します。URL は秘密情報なので、他の人に見せないでください。あとからでも設定できます。
         </p>
         <div class="row">
-          <a href="#/settings">設定を開く</a>
+          <a href="#/settings/calendar">カレンダーの設定を開く</a>
         </div>
       </div>
     </Card>

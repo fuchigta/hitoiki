@@ -5,7 +5,6 @@ import { blockTitle } from "../block-form";
 import { Card, Empty, ErrorBox } from "../components";
 import { DayDesigner } from "../day-designer";
 import { dateInput, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
-import { TemplateManager } from "../templates";
 import { OverflowMenu } from "../ui/parts";
 
 /** 計画（タイムブロッキング）。ブロックの作成・編集はタイムライン上で直接行う（今日の画面と同じ部品）。 */
@@ -79,12 +78,9 @@ export function Plan() {
           ))}
         </ul>
       </Card>
-      <Card
-        title="テンプレート（働き方のパターン）"
-        help="よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。"
-      >
-        <TemplateManager date={date} tasks={tasks.data?.tasks ?? []} />
-      </Card>
+      <p class="hint">
+        テンプレート（働き方のパターン）は<a href="#/settings/templates">設定のテンプレート</a>で管理します。
+      </p>
     </div>
   );
 }

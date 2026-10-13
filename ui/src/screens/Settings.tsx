@@ -1,155 +1,196 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
+import { ActivityLabelsCard, CalendarSourcesCard } from "../data-settings";
 import { QuickShortcutCard } from "../quick-shortcut";
-import { hasExe, normalizeExe } from "../ignore-util";
-import { DataSettings } from "../data-settings";
-import { loadTimeZone, useAction, useAsync } from "../lib";
-import { OverflowMenu } from "../ui/parts";
+import { dateInput, hrefOf, navigate, useAction, useAsync, useRoute } from "../lib";
+import { AutostartToggle, NumberSetting, TrustDoingToggle, UpdateCheckToggle, useConfig, type ConfigHandle } from "../settings-parts";
+import { RulesTab } from "../settings-rules";
+import { SETTINGS_TABS, settingsTab } from "../settings-util";
+import { TemplateManager } from "../templates";
+import { Tabs } from "../ui/parts";
 
-type Cfg = {
-  general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null }; push?: { enabled?: boolean; idle_return_min?: number; urgent_task_interval_min?: number; important_stale_days?: number; kr_idle_weekday?: number };
-  review?: { trust_doing?: boolean; auto_break_locked_min?: number };
-};
-
+/** 設定。左のサブナビ（狭いときは上）でタブを切り替える。タブは URL（`#/settings/<tab>`）に載る。 */
 export function Settings() {
-  const cfg = useAsync(() => api.configAll(), []);
+  const route = useRoute();
+  const tab = settingsTab(route.path[0]);
+  return (
+    <div class="settings">
+      <Tabs
+        tabs={[...SETTINGS_TABS]}
+        active={tab}
+        idBase="settings"
+        label="設定の項目"
+        orientation="vertical"
+        panels={false}
+        onChange={(id) => navigate(hrefOf("settings", [id]))}
+      />
+      <div class="settings-body stack" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
+        {tab === "general" && <GeneralTab />}
+        {tab === "notify" && <NotifyTab />}
+        {tab === "review" && <ReviewTab />}
+        {tab === "rules" && <RulesTab />}
+        {tab === "labels" && <ActivityLabelsCard />}
+        {tab === "calendar" && <CalendarSourcesCard />}
+        {tab === "templates" && <TemplatesTab />}
+        {tab === "data" && <DataTab />}
+      </div>
+    </div>
+  );
+}
+
+function GeneralTab() {
+  const cfg = useConfig();
+  const act = useAction();
+  return (
+    <>
+      <ErrorBox error={cfg.error} />
+      <Card title="全般">
+        <div class="stack">
+          <AutostartToggle cfg={cfg} />
+          <UpdateCheckToggle cfg={cfg} />
+          <p class="meta">タイムゾーン（表示）: {cfg.c.general?.timezone ?? "-"}</p>
+        </div>
+      </Card>
+      <QuickShortcutCard />
+      <Card title="はじめに">
+        <div class="stack">
+          <ErrorBox error={act.error} />
+          <div class="row">
+            <button
+              class="ghost"
+              onClick={async () => {
+                if (await act.run(() => api.onboardingReset())) navigate("#/onboarding");
+              }}
+            >
+              オンボーディングをもう一度見る
+            </button>
+          </div>
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function NotifyTab() {
+  const cfg = useConfig();
+  const act = useAction();
+  const p = cfg.c.push;
+  return (
+    <>
+      <ErrorBox error={cfg.error ?? act.error} />
+      <Card title="通知">
+        <div class="stack">
+          <label class="check">
+            <input
+              type="checkbox"
+              checked={p?.enabled !== false}
+              disabled={cfg.busy}
+              onChange={(e) => cfg.set("push.enabled", String(e.currentTarget.checked))}
+            />
+            問いかけの通知を受け取る
+          </label>
+          <div class="row">
+            <button onClick={() => act.run(() => api.notifyTest())}>テスト通知を出す</button>
+            <button class="ghost" onClick={() => act.run(() => api.snooze(60))}>
+              1 時間止める
+            </button>
+            <button class="ghost" onClick={() => act.run(() => api.snooze(0))}>
+              止めるのをやめる
+            </button>
+          </div>
+        </div>
+      </Card>
+      <Card title="通知のタイミング">
+        <div class="stack">
+          <NumberSetting
+            cfg={cfg}
+            k="push.idle_return_min"
+            label="戻ったときの確認"
+            help="無操作がこの分数以上続いて戻ったら「さっきは？」と尋ねます。"
+            value={p?.idle_return_min ?? 15}
+            unit="分"
+            zeroOff
+          />
+          <NumberSetting
+            cfg={cfg}
+            k="push.urgent_task_interval_min"
+            label="緊急タスクの間隔"
+            help="緊急のしるしが付いたタスクを、この分数おきに知らせます。"
+            value={p?.urgent_task_interval_min ?? 120}
+            unit="分おき"
+            zeroOff
+          />
+          <NumberSetting
+            cfg={cfg}
+            k="push.important_stale_days"
+            label="重要タスクの日数"
+            help="重要なタスクに、この日数以上時間が入っていなければ知らせます。"
+            value={p?.important_stale_days ?? 3}
+            unit="日"
+            zeroOff
+          />
+          <NumberSetting
+            cfg={cfg}
+            k="push.kr_idle_weekday"
+            label="KR を知らせる曜日"
+            help="今週まだ時間が入っていない KR を知らせる曜日です。1=月 2=火 3=水 4=木 5=金 6=土 7=日。"
+            value={p?.kr_idle_weekday ?? 3}
+            unit="（1〜7）"
+            zeroOff
+            max={7}
+          />
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function ReviewTab() {
+  const cfg = useConfig();
+  return (
+    <>
+      <ErrorBox error={cfg.error} />
+      <Card title="判定" help="時間をどのタスク・活動に当てるかの扱いです。確信が持てないものは、捨てずに確認待ちになります。">
+        <div class="stack">
+          <TrustDoingToggle cfg={cfg} />
+          <NumberSetting
+            cfg={cfg}
+            k="review.auto_break_locked_min"
+            label="ロック・スリープで自動休憩"
+            help="ロック・スリープがこの分数以上なら、その時間を自動で休憩にします。"
+            value={cfg.c.review?.auto_break_locked_min ?? 10}
+            unit="分以上"
+            zeroOff
+          />
+        </div>
+      </Card>
+    </>
+  );
+}
+
+function TemplatesTab() {
+  const tasks = useAsync(() => api.taskList(["todo", "doing"]), []);
+  return (
+    <Card
+      title="テンプレート（働き方のパターン）"
+      help="よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。今日の配置からの保存は、今日の画面でもできます。"
+    >
+      <TemplateManager date={dateInput()} tasks={tasks.data?.tasks ?? []} />
+    </Card>
+  );
+}
+
+function DataTab() {
+  const cfg: ConfigHandle = useConfig();
   const path = useAsync(() => api.configPath(), []);
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
   const [msg, setMsg] = useState("");
-  const act = useAction();
-  const c = (cfg.data ?? {}) as Cfg;
-
-  const set = async (k: string, v: string) => {
-    const r = await act.run(() => api.configSet(k, v));
-    if (r) {
-      setMsg(`${k} を保存しました。`);
-      if (k === "general.timezone") void loadTimeZone();
-      cfg.reload();
-    }
-  };
-
   return (
-    <div class="stack">
-      <ErrorBox error={cfg.error ?? act.error} />
-      <Card title="全般">
-        <div class="stack">
-          <label class="check">
-            <input
-              type="checkbox"
-              checked={!!c.general?.autostart}
-              onChange={(e) => set("general.autostart", String(e.currentTarget.checked))}
-            />
-            ログイン時に自動で起動する
-          </label>
-          <label class="check">
-            <input
-              type="checkbox"
-              checked={c.push?.enabled !== false}
-              onChange={(e) => set("push.enabled", String(e.currentTarget.checked))}
-            />
-            問いかけの通知を受け取る
-          </label>
-          <label class="check">
-            <input
-              type="checkbox"
-              checked={c.general?.update_check === true}
-              onChange={(e) => set("general.update_check", String(e.currentTarget.checked))}
-            />
-            新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）
-          </label>
-          <p class="meta">タイムゾーン: {c.general?.timezone ?? "-"}</p>
-        </div>
-      </Card>
-      <QuickShortcutCard />
-      <Card title="通知">
-        <div class="row">
-          <button onClick={() => act.run(() => api.notifyTest())}>テスト通知を出す</button>
-          <button class="ghost" onClick={() => act.run(() => api.snooze(60))}>
-            1 時間止める
-          </button>
-          <button class="ghost" onClick={() => act.run(() => api.snooze(0))}>
-            止めるのをやめる
-          </button>
-        </div>
-      </Card>
-      <Card title="仕分け">
-        <div class="stack">
-          <label class="check">
-            <input
-              type="checkbox"
-              checked={c.review?.trust_doing === true}
-              onChange={(e) => set("review.trust_doing", String(e.currentTarget.checked))}
-            />
-            始めたタスクを信頼する（進行中のタスクに仮で当てた時間も、確認待ちにしない）
-          </label>
-          <div class="form-row">
-            <Field label="ロック・スリープがこの分数以上なら自動で休憩にする（0 で無効）">
-              <input
-                type="number"
-                min="0"
-                value={c.review?.auto_break_locked_min ?? 10}
-                onChange={(e) => set("review.auto_break_locked_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
-              />
-            </Field>
-            <Field label="無操作がこの分数以上続いて戻ったら「さっきは？」と尋ねる（0 で無効）">
-              <input
-                type="number"
-                min="0"
-                value={c.push?.idle_return_min ?? 15}
-                onChange={(e) => set("push.idle_return_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
-              />
-            </Field>
-          </div>
-          <div class="form-row">
-            <Field label="緊急のしるしが付いたタスクを、この分数おきに知らせる（0 で無効）">
-              <input
-                type="number"
-                min="0"
-                value={c.push?.urgent_task_interval_min ?? 120}
-                onChange={(e) => set("push.urgent_task_interval_min", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
-              />
-            </Field>
-            <Field label="重要なタスクに、この日数以上時間が入っていなければ知らせる（0 で無効）">
-              <input
-                type="number"
-                min="0"
-                value={c.push?.important_stale_days ?? 3}
-                onChange={(e) => set("push.important_stale_days", String(Math.max(0, Number(e.currentTarget.value) || 0)))}
-              />
-            </Field>
-          </div>
-          <div class="form-row">
-            <Field label="今週まだ時間が入っていない KR を知らせる曜日（1=月 2=火 3=水 4=木 5=金 6=土 7=日、0 で無効）">
-              <input
-                type="number"
-                min="0"
-                max="7"
-                value={c.push?.kr_idle_weekday ?? 3}
-                onChange={(e) =>
-                  set("push.kr_idle_weekday", String(Math.min(7, Math.max(0, Number(e.currentTarget.value) || 0))))
-                }
-              />
-            </Field>
-          </div>
-        </div>
-      </Card>
-      <IgnoreCard />
-      <DataSettings />
-      <Card title="はじめに">
-        <div class="row">
-          <button
-            class="ghost"
-            onClick={async () => {
-              if (await act.run(() => api.onboardingReset())) location.hash = "#/onboarding";
-            }}
-          >
-            オンボーディングをもう一度見る
-          </button>
-        </div>
-      </Card>
-      <Card title="設定ファイル">
+    <Card title="設定ファイル">
+      <div class="stack">
+        <ErrorBox error={cfg.error} />
         <p class="meta">
           {path.data?.path}
           <br />
@@ -157,9 +198,10 @@ export function Settings() {
         </p>
         <form
           class="form-row"
-          onSubmit={(e) => {
+          onSubmit={async (e) => {
             e.preventDefault();
-            set(key.trim(), value.trim());
+            const k = key.trim();
+            if (await cfg.set(k, value.trim())) setMsg(`${k} を保存しました。`);
           }}
         >
           <Field label="キー">
@@ -168,62 +210,13 @@ export function Settings() {
           <Field label="値（TOML）">
             <input value={value} onInput={(e) => setValue(e.currentTarget.value)} placeholder='6 / true / "08:00"' />
           </Field>
-          <button disabled={act.busy || !key.trim()}>保存</button>
+          <button disabled={cfg.busy || !key.trim()}>保存</button>
         </form>
         {msg && <p class="meta" role="status">{msg}</p>}
         <details>
           <summary>現在の設定</summary>
-          <pre>{JSON.stringify(cfg.data, null, 2)}</pre>
+          <pre>{JSON.stringify(cfg.raw, null, 2)}</pre>
         </details>
-      </Card>
-    </div>
-  );
-}
-
-/** 無視するアプリ（collect.ignore_exes）の一覧・追加・削除。変更すると直近 7 日を再計算する。 */
-function IgnoreCard() {
-  const list = useAsync(() => api.ignoreList(), []);
-  const [exe, setExe] = useState("");
-  const act = useAction();
-  const exes = list.data?.exes ?? [];
-  const name = normalizeExe(exe);
-  const add = async () => {
-    if (await act.run(() => api.ignoreAdd(name))) {
-      setExe("");
-      list.reload();
-    }
-  };
-  const remove = async (e: string) => {
-    if (await act.run(() => api.ignoreRemove(e))) list.reload();
-  };
-  return (
-    <Card
-      title="無視するアプリ"
-      help="ここのアプリが前面の時間は、短いものは前後の作業に含め、続いたものは集計・仕分け・レポートに数えません。記録は消えず、外せば元に戻ります。追加・削除すると直近 7 日を再計算します。"
-    >
-      <div class="stack">
-        <ErrorBox error={list.error ?? act.error} />
-        <ul class="plain">
-          {exes.map((e) => (
-            <li key={e} class="row">
-              <span>{e}</span>
-              <span class="spacer" />
-              <OverflowMenu label={`${e} の操作`} items={[{ label: "外す", onSelect: () => remove(e), disabled: act.busy }]} />
-            </li>
-          ))}
-        </ul>
-        <form
-          class="form-row"
-          onSubmit={(ev) => {
-            ev.preventDefault();
-            void add();
-          }}
-        >
-          <Field label="追加する exe 名">
-            <input value={exe} onInput={(e) => setExe(e.currentTarget.value)} placeholder="explorer.exe" />
-          </Field>
-          <button disabled={act.busy || !name || hasExe(exes, name)}>追加</button>
-        </form>
       </div>
     </Card>
   );
