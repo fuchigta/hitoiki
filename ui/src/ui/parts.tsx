@@ -251,6 +251,7 @@ export function Tabs({
   idBase,
   label,
   panels = true,
+  orientation = "horizontal",
 }: {
   tabs: TabDef[];
   active: string;
@@ -259,11 +260,13 @@ export function Tabs({
   label?: string;
   /** 中身を `TabPanel` で並べるか。false なら、タブは一覧の切り替えだけに使う（aria-controls を付けない）。 */
   panels?: boolean;
+  /** 縦に並べるとき（設定のサブナビ）は ↑↓ でも動かす。 */
+  orientation?: "horizontal" | "vertical";
 }) {
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
   const ids = tabs.map((t) => t.id);
   return (
-    <div class="tabs" role="tablist" aria-label={label}>
+    <div class={orientation === "vertical" ? "tabs vertical" : "tabs"} role="tablist" aria-label={label} aria-orientation={orientation}>
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -279,7 +282,8 @@ export function Tabs({
           tabIndex={active === t.id ? 0 : -1}
           onClick={() => onChange(t.id)}
           onKeyDown={(e) => {
-            const next = stepTab(ids, active, e.key);
+            const key = orientation === "vertical" ? ({ ArrowDown: "ArrowRight", ArrowUp: "ArrowLeft" } as Record<string, string>)[e.key] ?? e.key : e.key;
+            const next = stepTab(ids, active, key);
             if (next === undefined) return;
             e.preventDefault();
             onChange(next);
