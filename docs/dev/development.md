@@ -61,6 +61,27 @@ npm run shots -- --window popup --dark               # ダークテーマも撮�
 
 `ui/shots/<scenario>/<window>-<screen>.png`（popup と quick は `<window>.png`、ダークは末尾に `-dark`）に保存します（`ui/shots/` は git の管理外）。Vite をプログラムから起動し、Windows に入っている Edge（なければ Chrome）を Playwright で操作するので、ブラウザのダウンロードは要りません。ビューポートは main が 1280x800（本文が長い画面は高さを伸ばして全体を撮る）、popup が 360x320、quick が 520x380 です。各ページの console error・pageerror・`[mock] unhandled` を集め、1 件でもあれば最後に一覧を出して終了コード 1 になります。
 
+撮影のたびに、ページの構造（`page.locator("body").ariaSnapshot()`）も `ui/shots/<scenario>/<名前>.aria.yml` に保存します（ライトテーマのときだけ）。見出しの階層やボタンの名前の崩れは、画像より差分で気づきやすくなります。
+
+### 前回との差分（`--diff`）
+
+```powershell
+npm run shots -- --diff
+```
+
+撮影の開始時に、前回の `ui/shots/` を `ui/shots-prev/` へ退避します（どちらも git の管理外）。`--diff` を付けると、今回撮った画像と aria を前回のものと比べ、変化したファイルを一覧にします。画像は `pixelmatch` で比べ、変わった画素数と割合を出し、差分画像を `ui/shots/diff/<scenario>/<名前>.png` に保存します。aria は行単位のテキスト差分（`-` が前回、`+` が今回）を表示します。画像の大きさが変わったときは、その旨だけを出します。比べるのは今回撮ったファイルだけです（絞り込んだ撮影で、撮っていない画面は比べません）。基準画像はリポジトリに入れません。変更の前に一度撮り、変更の後に `--diff` 付きで撮る、という使い方を想定しています。
+
+### 操作シナリオ（flows）
+
+```powershell
+npm run flows                  # ui/scripts/flows/*.mjs を全部実行
+npm run flows -- --flow tasks  # 1 本だけ実行
+```
+
+主要な操作の流れ（仕分け・タスク・今日・記録・OKR）を、モックの UI で実際に操作して確かめます。1 本ごとに新しいブラウザコンテキスト（モックの状態は初期化済み）で実行し、時刻は撮影と同じく固定します。成功なら `OK`、失敗なら `NG` と理由を出し、`ui/shots/flows/<名前>.png` に失敗時の画面を保存して終了コード 1 になります。console error・pageerror・`[mock] unhandled` も失敗です。
+
+シナリオは画面ごとに 1 ファイルで、`{ name, scenario, screen, run({ page }) }` を default export します。要素は `getByRole` と accessible name で選び（スタイルのクラス名に頼らない）、結果は `window.__mock.state`（`scripts/lib/flow.mjs` の `mockState`）か画面で確かめます。画面の構成を変えて壊れたら、該当の 1 ファイルだけを直します。Vite の起動やブラウザの起動などの共通部分は `ui/scripts/lib/harness.mjs` にあり、`npm run shots` と共有しています。
+
 ### AI エージェントが画面を確認する手順
 
 1. UI を変えたら `npm run shots -- --scenario <シナリオ> --screen <画面>` で該当の画面だけを撮る。

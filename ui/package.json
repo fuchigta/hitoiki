@@ -10,7 +10,8 @@
     "test": "vitest run",
     "tauri": "tauri",
     "dev:mock": "vite --mode mock",
-    "shots": "node scripts/shots.mjs"
+    "shots": "node scripts/shots.mjs",
+    "flows": "node scripts/flows.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -18,7 +19,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "pixelmatch": "^8.0.0",
     "playwright": "^1.64.0",
+    "pngjs": "^7.0.0",
     "typescript": "^5",
     "vite": "^7",
     "vitest": "^4.1.11"
