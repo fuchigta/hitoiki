@@ -189,6 +189,8 @@ export interface ObjectRowProps {
   /** 行末の「…」メニュー。 */
   menu?: MenuItem[];
   menuLabel?: string;
+  /** 行頭に置く要素（選択のチェックなど。押しても行は選ばれない）。 */
+  leading?: ComponentChildren;
   /** 行末に置く追加の要素（メニューの手前）。 */
   trailing?: ComponentChildren;
   /** 階層のインデント（0〜3）。 */
@@ -198,12 +200,13 @@ export interface ObjectRowProps {
 }
 
 /** 一覧の 1 行。行全体のクリックで選択し、行末に OverflowMenu を置く。 */
-export function ObjectRow({ title, meta, tags, selected, onSelect, menu, menuLabel, trailing, indent, group }: ObjectRowProps) {
+export function ObjectRow({ title, meta, tags, selected, onSelect, menu, menuLabel, leading, trailing, indent, group }: ObjectRowProps) {
   const cls = ["object-row", selected ? "sel" : "", indent ? `indent-${Math.min(indent, 3)}` : "", group ? "group" : ""]
     .filter(Boolean)
     .join(" ");
   return (
     <li class={cls}>
+      {leading && <span class="object-lead">{leading}</span>}
       <button type="button" class="object-main" aria-pressed={!!selected} onClick={onSelect}>
         <span class="object-title">{title}</span>
         {tags?.map((t) => (

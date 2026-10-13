@@ -26,6 +26,26 @@ const MAX_HEIGHT = 5000;
  */
 const SELECTED = [
   {
+    name: "log-selected",
+    screen: "log",
+    hash: (s) => {
+      // 一覧に出る（短い区間でない）要確認のうち、いちばん新しいもの。
+      const x = s.segments.filter((y) => y.status === "needs_review" && y.end_at - y.start_at >= 120000).sort((a, b) => b.start_at - a.start_at)[0];
+      return x && `#/log/${x.id}`;
+    },
+  },
+  {
+    name: "log-multi",
+    screen: "log",
+    hash: (s) => (s.segments.filter((y) => y.status === "needs_review").length >= 2 ? "#/log" : null),
+    // 先頭の 2 件にチェックを付けた状態にする。
+    act: async (page) => {
+      const boxes = page.getByRole("checkbox", { name: "この区間を選ぶ" });
+      await boxes.nth(0).check();
+      await boxes.nth(1).check();
+    },
+  },
+  {
     name: "tasks-selected",
     screen: "tasks",
     hash: (s) => {
@@ -157,6 +177,10 @@ async function main() {
           await page.evaluate((h) => (location.hash = h), hash);
           await page.waitForFunction(() => !document.body.innerText.includes("読み込み中"), null, { timeout: 5_000 }).catch(() => {});
           await page.waitForTimeout(600);
+          if (sp.act) {
+            await sp.act(page);
+            await page.waitForTimeout(300);
+          }
           const full = await page.evaluate(() => document.querySelector(".content")?.scrollHeight ?? 0);
           if (full > WINDOWS.main.height) {
             await page.setViewportSize({ width: WINDOWS.main.width, height: Math.min(full, MAX_HEIGHT) });

@@ -6,6 +6,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 /// 画面名として受け付ける値（`#/<screen>` に対応）。
 pub const SCREENS: &[&str] = &[
     "today",
+    "log",
     "review",
     "tasks",
     "plan",
@@ -100,6 +101,8 @@ mod tests {
         assert_eq!(normalize_screen("today/xx"), "today");
         assert_eq!(normalize_screen("checkin"), "records");
         assert_eq!(normalize_screen("hassle"), "records");
+        assert_eq!(normalize_screen("log"), "log");
+        assert_eq!(normalize_screen("review"), "review");
         assert_eq!(normalize_screen("onboarding"), "onboarding");
         assert_eq!(normalize_screen("nope"), "today");
     }

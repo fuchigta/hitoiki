@@ -33,6 +33,8 @@ interface Props {
   /** 「実績」の列で範囲を選んだ（実績の補正）。 */
   onPickActual?: (span: TimeSpan) => void;
   actualSelection?: TimeSpan | null;
+  /** 「実績」の列をクリックした（その位置の区間 ID）。 */
+  onClickActual?: (segmentId: string) => void;
   snapMs?: number;
 }
 
@@ -125,6 +127,7 @@ export function DayDesigner(p: Props) {
         clickLenMin={p.clickLenMin ?? (p.armedTask?.estimate_min ?? 60)}
         laneRef={p.laneRef}
         onPickActual={p.onPickActual}
+        onClickActual={p.onClickActual}
         actualSelection={p.actualSelection}
         snapMs={p.snapMs}
         onSelect={create}

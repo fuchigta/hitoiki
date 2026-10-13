@@ -232,6 +232,9 @@ function TaskDetail({
             <strong>{fmtDur(tracked_ms)}</strong>
             <span class="meta"> （{tracked_segments} 区間）</span>
           </p>
+          <p>
+            <a href={hrefOf("log", [], { status: "all", task: task.id })}>このタスクの区間を実績で見る</a>
+          </p>
         </Section>
         <Corrections
           taskId={task.id}

@@ -6,7 +6,7 @@ import { Bars, Card, Empty, ErrorBox } from "../components";
 import { CorrectionPanel } from "../correction";
 import { DayDesigner } from "../day-designer";
 import { showStartGuide } from "../onboarding-util";
-import { KIND_LABEL, dateInput, fmtDur, fmtTime, useAction, useAsync, useLiveTick } from "../lib";
+import { KIND_LABEL, dateInput, fmtDur, fmtTime, hrefOf, navigate, useAction, useAsync, useLiveTick } from "../lib";
 import {
   currentBlock,
   digestSegments,
@@ -244,12 +244,12 @@ export function Today() {
               {s.needs_review_count > 0 ? (
                 <>
                   {digest.reviewMs > 0 && `今日の分は約 ${Math.max(1, Math.round(digest.reviewMs / 60000))} 分 ・ `}
-                  <a href="#/review">仕分けを開く</a>
+                  <a href={hrefOf("log", [], { status: "review", period: "today" })}>実績で確認する</a>
                 </>
               ) : (
-                "仕分けが必要な区間はありません"
+                "確認が必要な区間はありません"
               )}
-              {s.needs_review_short_count > 0 && ` ・ 短い区間 ${s.needs_review_short_count} 件は仕分けで表示できます`}
+              {s.needs_review_short_count > 0 && ` ・ 短い区間 ${s.needs_review_short_count} 件は実績で表示できます`}
             </span>
           </div>
         </div>
@@ -295,7 +295,7 @@ export function Today() {
               {designing
                 ? "空いている時間をドラッグ（クリックなら 1 時間）して、ブロックを置きます。置いたブロックはドラッグで動かし、上端・下端で長さを変え、クリックで編集できます。"
                 : "「計画」の列をドラッグすると、その場でブロックを作れます。"}{" "}
-              「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。
+              「実績」の列をドラッグすると、その時間帯の実績をタスクへ付け替えられます。クリックすると、その区間を実績の画面で開きます。
             </>
           }
           aside={
@@ -341,6 +341,7 @@ export function Today() {
                 ghost={taskDrag?.over ?? null}
                 laneRef={laneRef}
                 onPickActual={setCorr}
+                onClickActual={(id) => navigate(hrefOf("log", [id], { period: "today", status: "all" }))}
                 actualSelection={corr}
                 snapMs={(snap.data ?? 120) * 1000}
               />

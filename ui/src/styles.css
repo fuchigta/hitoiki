@@ -394,11 +394,6 @@ button.ghost:hover:not(:disabled) {
   flex-direction: column;
   gap: var(--sp-2);
 }
-.review-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--sp-2);
-}
 
 /* 棒グラフ */
 .bars {
@@ -1470,6 +1465,12 @@ button.object-main {
 }
 .object-meta {
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.object-lead {
+  display: inline-flex;
+  align-items: center;
+  padding-left: var(--sp-2);
 }
 .object-row .menu-wrap {
   margin-right: var(--sp-1);
@@ -1533,9 +1534,6 @@ button.object-main {
   gap: var(--sp-3);
 }
 .obj-title {
-  margin: 0;
-}
-.review-title {
   margin: 0;
 }
 
@@ -1641,4 +1639,41 @@ a.link-chip:hover {
 }
 .link-list a {
   color: var(--text);
+}
+
+/* 実績: 提案の帯・ナビの件数バッジ */
+.suggest-band {
+  border: 1px solid var(--border);
+  border-radius: var(--r-m);
+  background: var(--surface);
+  padding: var(--sp-2) var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.suggest-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.suggest-head h2 {
+  margin: 0;
+  font-size: var(--fs-s);
+}
+.suggest-band .plain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.nav-badge {
+  margin-left: var(--sp-2);
+  padding: 0 var(--sp-2);
+  border-radius: 999px;
+  background: var(--warn);
+  color: var(--bg);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.seg-meta .tag {
+  margin-left: var(--sp-1);
 }
