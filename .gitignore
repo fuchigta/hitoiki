@@ -7,3 +7,4 @@ node_modules/
 /.claude/worktrees/
 /crates/hitoiki-app/gen/
 /crates/hitoiki-app/binaries/
+/ui/shots
