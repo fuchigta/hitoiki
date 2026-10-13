@@ -189,7 +189,7 @@ ERG は、記録の内容から AI が判定します（存在 = 体や生活の
 
 ## `hitoiki ui` の画面名
 
-`today`、`review`、`tasks`、`plan`、`reflect`、`report`、`records`、`okr`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「仕分け」「タスク」「計画」「振り返り」「レポート」「記録」「目標」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。`reflection` も `reflect` として受け付け、`reflect/day_start` のように種別まで指定できます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
+`today`、`review`、`tasks`、`plan`、`reflect`、`report`、`records`、`okr`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「仕分け」「タスク」「計画」「振り返り」「レポート」「記録」「目標」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。`reflect` は、記録画面に統合される前の「振り返り」の呼び名で、いまは記録画面で振り返りだけに絞った一覧（`reflect/day_start` のように種別まで指定すると、その種別の振り返りの作成フォーム）を開きます。`reflection`（通知が使う名前）も同じです。`checkin` / `hassle` は記録画面のチェックイン・ハッスルの作成フォームを開きます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
 
 ## エージェントからの利用
 
