@@ -1,4 +1,4 @@
-//! 編集・削除系コマンド（OKR・スキル・ルール・記録・カレンダーソース・活動ラベル）。
+//! 編集・削除系コマンド（目標・スキル・ルール・記録・カレンダーソース・活動ラベル）。
 //! ロジックは core の service 層にあり、ここは引数の解釈と出力整形だけを行う。
 
 use crate::args::*;
@@ -253,12 +253,12 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                 },
             )?;
             emit(json, &o, || {
-                format!("Objective を更新しました: {} {}", render::short(&o.id), o.title)
+                format!("目標を更新しました: {} {}", render::short(&o.id), o.title)
             })
         }
         OkrCmd::DeleteObjective { id, opts } => {
             let o = okr::delete_objective(ctx, &id, mode(&opts))?;
-            delete_report(json, "Objective", &o)
+            delete_report(json, "目標", &o)
         }
         OkrCmd::EditKr {
             id,
@@ -290,12 +290,12 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                 },
             )?;
             emit(json, &k, || {
-                format!("KR を更新しました: {} {}", render::short(&k.id), k.title)
+                format!("成果の指標を更新しました: {} {}", render::short(&k.id), k.title)
             })
         }
         OkrCmd::DeleteKr { id, opts } => {
             let o = okr::delete_kr(ctx, &id, mode(&opts))?;
-            delete_report(json, "KR", &o)
+            delete_report(json, "成果の指標", &o)
         }
         OkrCmd::Link { kr, tasks } => {
             let r = okr::link_tasks(ctx, &kr, &tasks)?;

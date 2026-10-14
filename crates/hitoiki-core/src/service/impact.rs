@@ -66,7 +66,7 @@ impl Impact {
         self.lines.iter().map(|l| l.count).sum::<i64>() + self.warnings.len() as i64
     }
 
-    /// 「紐付いたタスク 3 件、配下の KR 2 件」のような 1 行の説明。
+    /// 「紐付いたタスク 3 件、配下の成果の指標 2 件」のような 1 行の説明。
     pub fn summary(&self) -> String {
         self.lines
             .iter()

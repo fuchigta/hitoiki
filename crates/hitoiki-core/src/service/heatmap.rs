@@ -26,7 +26,7 @@ pub const DEFAULT_WEEKS: i64 = 53;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct HeatmapInput {
-    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `kr:<ID・タイトル>`（`okr show` と同じ KR の時間: KR のスキルが付いた作業と紐付けたタスク）/ `records[:checkin|hassle|abc|reflection]`。
+    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `kr:<ID・タイトル>`（`okr show` と同じ成果の指標の時間: 成果の指標のスキルが付いた作業と紐付けたタスク）/ `records[:checkin|hassle|abc|reflection]`。
     pub by: Option<String>,
     /// 開始日（`YYYY-MM-DD` / `today` / `yesterday`）。既定は 53 週前の週の月曜。
     pub from: Option<String>,
@@ -75,7 +75,7 @@ enum Metric {
     Skill {
         ids: HashSet<String>,
     },
-    /// KR の集計（`okr show` と同じ区間の選び方）。
+    /// 成果の指標の集計（`okr show` と同じ区間の選び方）。
     Kr(KrSelector),
     Records(Option<&'static str>),
 }
@@ -115,7 +115,7 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
     };
     let bad = || {
         Error::InvalidArgument(format!(
-            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, kr:<KR>, records[:checkin|hassle|abc|reflection])"
+            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, kr:<成果の指標>, records[:checkin|hassle|abc|reflection])"
         ))
     };
     Ok(match (head, arg) {
@@ -158,7 +158,7 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
             (
                 Metric::Kr(KrSelector::new(ctx, &kr.id)?),
                 format!("kr:{}", kr.id),
-                format!("KR: {}", kr.title),
+                format!("成果の指標: {}", kr.title),
                 "ms",
             )
         }

@@ -80,7 +80,7 @@ pub fn get_kr(conn: &Connection, id: &str) -> Result<KeyResult> {
         kr_from_row,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("KR {id}")))
+    .ok_or_else(|| Error::NotFound(format!("成果の指標 {id}")))
 }
 
 pub fn resolve_kr(conn: &Connection, prefix: &str) -> Result<KeyResult> {

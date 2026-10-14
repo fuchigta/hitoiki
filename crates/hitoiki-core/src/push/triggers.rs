@@ -481,7 +481,7 @@ fn urgent_task(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Opti
     Some(payload::urgent_task(&first.id, &first.title, cands.len() - 1))
 }
 
-/// kr_idle の材料（今週まだ時間が入っていない KR）を読む必要があるか。無効でなく、設定の曜日に達していて、
+/// kr_idle の材料（今週まだ時間が入っていない成果の指標）を読む必要があるか。無効でなく、設定の曜日に達していて、
 /// 今週（月曜始まり）まだ配信していないとき true。毎回の評価で集計し直さないための絞り込みにも使う。
 pub fn kr_idle_due(cfg: &Push, tz: chrono_tz::Tz, now: Millis, push_log: &[crate::model::PushLog]) -> bool {
     if !(1..=7).contains(&cfg.kr_idle_weekday) || cfg.disabled_triggers.iter().any(|d| d == "kr_idle") {
@@ -498,8 +498,8 @@ pub fn kr_idle_due(cfg: &Push, tz: chrono_tz::Tz, now: Millis, push_log: &[crate
 }
 
 /// kr_idle: 設定の曜日（`push.kr_idle_weekday`。1=月〜7=日、0 で無効）以降の勤務時間内に、今週まだ時間が入っていない
-/// KR（`ctx.kr_idle`）があれば 1 回だけ事実を伝える。週は月曜始まりで、今週すでに配信していれば出さない。
-/// 対象の KR の選び方（軸・Objective の期間・スキルまたは紐付けタスクの有無）は `store::load_kr_idle`。
+/// 成果の指標（`ctx.kr_idle`）があれば 1 回だけ事実を伝える。週は月曜始まりで、今週すでに配信していれば出さない。
+/// 対象の成果の指標の選び方（軸・目標の期間・スキルまたは紐付けタスクの有無）は `store::load_kr_idle`。
 fn kr_idle(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
     if ctx.kr_idle.is_empty() || !in_work_hours(ctx, cfg) || !kr_idle_due(cfg, ctx.tz, ctx.now, &ctx.push_log)
     {

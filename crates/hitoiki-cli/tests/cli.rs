@@ -1627,7 +1627,7 @@ fn push_list_and_answer() {
 fn push_kr_idle_の見送りに答える() {
     use hitoiki_core::push::{store, PushDecision, PushPayload};
     let p: PushPayload = serde_json::from_value(serde_json::json!({
-        "trigger": "kr_idle", "title": "今週、時間が入っていない KR があります",
+        "trigger": "kr_idle", "title": "今週、時間が入っていない成果の指標 があります",
         "body": "「成果」に、今週はまだ時間が入っていません。",
         "actions": [{"id": "open", "label": "今日の予定に入れる", "value": null},
                     {"id": "kr_skip_week", "label": "今週は見送る", "value": null}],
@@ -1644,7 +1644,10 @@ fn push_kr_idle_の見送りに答える() {
         .unwrap();
     drop(conn);
     let l = run(h, &["--json", "push", "list", "--unanswered"]);
-    assert_eq!(l.json()["pushes"][0]["trigger_label"], "時間が入っていない KR");
+    assert_eq!(
+        l.json()["pushes"][0]["trigger_label"],
+        "時間が入っていない成果の指標"
+    );
     let a = run(h, &["--json", "push", "answer", &id, "--task", "kr_skip_week"]);
     assert_eq!(a.code, 0, "{}", a.stderr);
     assert_eq!(a.json()["state"], "answered");

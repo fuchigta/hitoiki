@@ -11,7 +11,7 @@ export interface DeleteChoice {
 }
 
 interface HookProps {
-  /** 何を消すか（ダイアログの見出しに入れる）。例: 「KR」。 */
+  /** 何を消すか（ダイアログの見出しに入れる）。例: 「成果の指標」。 */
   what: string;
   /** dry_run で影響を数える。`choice` があれば選択値を渡す。 */
   preview: (choice: string) => Promise<DeleteOutcome>;

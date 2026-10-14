@@ -206,7 +206,7 @@ export interface ObjectRowProps {
   trailing?: ComponentChildren;
   /** 階層のインデント（0〜3）。 */
   indent?: number;
-  /** 見出し行（Objective など、配下の行をまとめるもの）。 */
+  /** 見出し行（目標など、配下の行をまとめるもの）。 */
   group?: boolean;
 }
 

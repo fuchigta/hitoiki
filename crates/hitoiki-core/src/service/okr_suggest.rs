@@ -1,14 +1,14 @@
-//! KR への紐づけの提案（docs/dev/architecture.md「KR への紐づけの提案」）。
+//! 成果の指標への紐づけの提案（docs/dev/architecture.md「成果の指標への紐づけの提案」）。
 //!
-//! スキルも紐付けタスクも無い KR について、紐付けるとよさそうなタスクとスキルの候補を出す。自動では紐付けない。
-//! ユーザーが「付ける」を選んだときだけタスクの紐付け・KR のスキルの追加をし、「付けない」を選んだ候補は
+//! スキルも紐付けタスクも無い成果の指標について、紐付けるとよさそうなタスクとスキルの候補を出す。自動では紐付けない。
+//! ユーザーが「付ける」を選んだときだけタスクの紐付け・成果の指標のスキルの追加をし、「付けない」を選んだ候補は
 //! `kr_suggest_reject` に残して二度と出さない。
 //!
-//! - 手元の候補: Objective と KR の名前（タイトル・説明・目標）と、タスク名・スキル名の近さ。ASCII の語の一致と、
+//! - 名前の近い候補: 目標と成果の指標の名前（タイトル・説明・目標）と、タスク名・スキル名の近さ。ASCII の語の一致と、
 //!   日本語は文字 2 つ組（助詞を含むものを除く）の重なりで見る。外部には何も送らない。
-//! - AI の候補: `ai.command` が設定されているときだけ聞いて合わせる。**送るのは KR / Objective のタイトルと、
+//! - AI の候補: `ai.command` が設定されているときだけ聞いて合わせる。**送るのは成果の指標 / 目標のタイトルと、
 //!   タスク名・スキル名だけ**（本文・説明・時間の記録は送らない。ID は `t1` / `s1` の連番に置き換える）。
-//!   失敗しても手元の候補は出す。
+//!   失敗しても名前の近い候補は出す。
 
 use super::erg::ai_configured;
 use super::okr::{find_kr, KrBrief};
@@ -54,9 +54,9 @@ pub struct Candidate {
     pub kind: CandidateKind,
     pub id: String,
     pub name: String,
-    /// 0〜1。手元の候補は名前の近さ、AI の候補は AI が答えた確信度（無ければ 0.5）。
+    /// 0〜1。名前の近い候補は名前の近さ、AI の候補は AI が答えた確信度（無ければ 0.5）。
     pub score: f64,
-    /// `local`（手元）/ `ai` / `both`（両方）。
+    /// `local`（名前の近さ）/ `ai` / `both`（両方）。
     pub source: &'static str,
 }
 
@@ -72,7 +72,7 @@ pub struct AiOutcome {
 #[derive(Debug, Clone, Serialize)]
 pub struct Suggestions {
     pub key_result: KrBrief,
-    /// 提案の対象か。スキルか紐付けタスクが既にある KR は対象外（候補は空）。
+    /// 提案の対象か。スキルか紐付けタスクが既にある成果の指標は対象外（候補は空）。
     pub eligible: bool,
     pub candidates: Vec<Candidate>,
     pub ai: AiOutcome,
@@ -110,9 +110,9 @@ impl std::str::FromStr for CandidateRef {
     }
 }
 
-/// 手元の候補の下限（名前の近さ。0〜1）。
+/// 名前の近い候補の下限（名前の近さ。0〜1）。
 const LOCAL_MIN_SCORE: f64 = 0.3;
-/// 種類ごとの手元の候補の上限。
+/// 種類ごとの名前の近い候補の上限。
 const LOCAL_PER_KIND: usize = 5;
 /// 提案の総数の上限。
 const MAX_CANDIDATES: usize = 8;
@@ -209,7 +209,7 @@ fn rejected(ctx: &Ctx, kr_id: &str) -> Result<HashSet<(String, String)>> {
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 提案の対象になる KR か（スキルも紐付けタスク（やめたものを除く）も無い）。
+/// 提案の対象になる成果の指標か（スキルも紐付けタスク（やめたものを除く）も無い）。
 fn eligible(ctx: &Ctx, kr_id: &str) -> Result<bool> {
     let no_skill = repo::skill::kr_skills(ctx.conn, kr_id)?.is_empty();
     let no_task = repo::task::list_of_kr(ctx.conn, kr_id)?
@@ -218,7 +218,7 @@ fn eligible(ctx: &Ctx, kr_id: &str) -> Result<bool> {
     Ok(no_skill && no_task)
 }
 
-/// 候補にできるタスク（どの KR にも紐付いていない未完了のもの）とスキル。「付けない」にしたものは除く。
+/// 候補にできるタスク（どの成果の指標にも紐付いていない未完了のもの）とスキル。「付けない」にしたものは除く。
 fn pool(ctx: &Ctx, kr_id: &str) -> Result<Pool> {
     let rej = rejected(ctx, kr_id)?;
     let tasks = repo::task::list(ctx.conn, &[TaskStatus::Todo, TaskStatus::Doing], None)?
@@ -232,8 +232,8 @@ fn pool(ctx: &Ctx, kr_id: &str) -> Result<Pool> {
     Ok(Pool { tasks, skills })
 }
 
-/// 手元の候補。KR の文章（タイトル・目標）と Objective の文章（タイトル・説明）のそれぞれとの近さのうち、
-/// 大きい方（Objective との近さは 0.8 倍）をスコアにする。
+/// 名前の近い候補。成果の指標の文章（タイトル・目標値）と目標の文章（タイトル・説明）のそれぞれとの近さのうち、
+/// 大きい方（目標との近さは 0.8 倍）をスコアにする。
 fn local_candidates(kr_text: &str, obj_text: &str, pool: &Pool) -> Vec<Candidate> {
     let score = |name: &str| closeness(name, kr_text).max(0.8 * closeness(name, obj_text));
     let top = |kind: CandidateKind, items: Vec<(&str, &str)>| {
@@ -352,7 +352,7 @@ fn parse_response(stdout: &str) -> Result<Vec<(String, f64)>> {
 
 // ===== 提案 =====
 
-/// KR（ID の前方一致またはタイトル）への紐づけの候補。`use_ai` が true で `ai.command` が設定されていれば AI にも聞く。
+/// 成果の指標（ID の前方一致またはタイトル）への紐づけの候補。`use_ai` が true で `ai.command` が設定されていれば AI にも聞く。
 pub fn suggest(ctx: &Ctx, kr: &str, use_ai: bool) -> Result<Suggestions> {
     if use_ai && ai_configured(ctx) {
         let ai = &ctx.cfg.ai;
@@ -364,7 +364,7 @@ pub fn suggest(ctx: &Ctx, kr: &str, use_ai: bool) -> Result<Suggestions> {
     }
 }
 
-/// [`suggest`] の AI を呼ぶ関数を差し替えられる版。`None` なら手元の候補だけ。
+/// [`suggest`] の AI を呼ぶ関数を差し替えられる版。`None` なら名前の近い候補だけ。
 pub fn suggest_with(ctx: &Ctx, kr: &str, run: Option<Runner>) -> Result<Suggestions> {
     let k = find_kr(ctx, kr)?;
     let brief = KrBrief {
@@ -418,7 +418,7 @@ pub fn suggest_with(ctx: &Ctx, kr: &str, run: Option<Runner>) -> Result<Suggesti
             Err(e) => {
                 // 文章や応答の中身はログに出さない。
                 tracing::warn!(error = %e, "KR の紐づけの提案: AI に問い合わせられませんでした");
-                ai.note = Some("AI に問い合わせられなかったため、手元の候補だけを表示します".into());
+                ai.note = Some("AI に問い合わせられなかったため、名前の近い候補だけを表示します".into());
             }
         }
     }
@@ -500,7 +500,7 @@ fn items_of(r: Vec<Resolved>) -> Vec<DecisionItem> {
         .collect()
 }
 
-/// 「付ける」: タスクは KR に紐付け（`okr link` と同じ）、スキルは KR のスキルに加える（今のスキルは残す）。
+/// 「付ける」: タスクは成果の指標に紐付け（`okr link` と同じ）、スキルは成果の指標のスキルに加える（今のスキルは残す）。
 /// すべての候補を先に解決し、1 つでも見つからなければ何も変えない。
 pub fn accept(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResult> {
     let k = find_kr(ctx, kr)?;
@@ -539,7 +539,7 @@ pub fn accept(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResu
     })
 }
 
-/// 「付けない」: 候補を記録し、以後この KR には提案しない。
+/// 「付けない」: 候補を記録し、以後この成果の指標には提案しない。
 pub fn reject(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResult> {
     let k = find_kr(ctx, kr)?;
     let resolved = resolve_refs(ctx, refs)?;
@@ -630,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn 手元の候補を近さの順に出し_無関係なものは出さない() {
+    fn 名前の近い候補を近さの順に出し_無関係なものは出さない() {
         let env = Env::new();
         let ctx = env.ctx();
         let kr = setup(&ctx, "英語力を上げる", "英語の勉強を続ける");
@@ -749,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn ai_が失敗しても手元の候補は出る() {
+    fn ai_が失敗しても名前の近い候補は出る() {
         let env = Env::new();
         let ctx = env.ctx();
         let kr = setup(&ctx, "英語力", "英語の勉強");

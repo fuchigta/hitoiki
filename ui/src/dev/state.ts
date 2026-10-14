@@ -531,7 +531,7 @@ function seedBusy(s: State, ctx: ReturnType<typeof seedCommon>) {
     "リリースノートの下書き",
     "経費精算",
     "SQL のスロークエリ調査",
-    "KR の中間確認の資料づくり",
+    "成果の指標の中間確認の資料づくり",
   ];
   names.forEach((title, i) => {
     mkTask(s, {

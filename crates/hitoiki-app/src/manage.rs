@@ -1,4 +1,4 @@
-//! 編集・削除系の Tauri コマンド（OKR・スキル・ルール・記録・カレンダーソース・活動ラベル）。
+//! 編集・削除系の Tauri コマンド（目標・スキル・ルール・記録・カレンダーソース・活動ラベル）。
 //! core の service 層を呼ぶだけの薄いラッパで、ロジックは持たない。
 //! 削除は `mode` で dry_run（影響の確認）と force（確認後の削除）を指定する。
 
@@ -23,7 +23,7 @@ use tauri::State;
 
 type S<'a> = State<'a, AppState>;
 
-// ===== OKR =====
+// ===== 目標 =====
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_edit_objective(state: S, id: String, input: ObjectiveEdit) -> AppResult<Objective> {
@@ -43,13 +43,13 @@ pub fn okr_edit_kr(state: S, id: String, input: KrEdit) -> AppResult<KeyResult> 
     state.with_ctx(|c| okr::edit_kr(c, &id, &input))
 }
 
-/// KR にタスクを紐付ける（別の KR に紐付いていたものは付け替える）。
+/// 成果の指標にタスクを紐付ける（別の成果の指標に紐付いていたものは付け替える）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_link(state: S, kr: String, tasks: Vec<String>) -> AppResult<okr::LinkResult> {
     state.with_ctx(|c| okr::link_tasks(c, &kr, &tasks))
 }
 
-/// タスクの KR との紐付けを外す。
+/// タスクの成果の指標との紐付けを外す。
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_unlink(state: S, tasks: Vec<String>) -> AppResult<Vec<okr::LinkedTask>> {
     state.with_ctx(|c| okr::unlink_tasks(c, &tasks))
@@ -66,7 +66,7 @@ pub fn okr_suggest_accept(
     state.with_ctx(|c| okr_suggest::accept(c, &kr, &refs))
 }
 
-/// 提案の候補を「付けない」（以後この KR には提案しない）。
+/// 提案の候補を「付けない」（以後この成果の指標には提案しない）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_suggest_reject(
     state: S,
@@ -81,13 +81,13 @@ fn parse_candidates(items: &[String]) -> hitoiki_core::Result<Vec<okr_suggest::C
     items.iter().map(|s| s.parse()).collect()
 }
 
-/// KR の集計（期間は Objective の期間、無ければ直近 8 週）。
+/// 成果の指標の集計（期間は目標の期間、無ければ直近 8 週）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_show(state: S, kr: String) -> AppResult<okr::KrSummary> {
     state.with_ctx(|c| okr::kr_summary(c, &kr, None))
 }
 
-/// KR の現在値を記録する（現在値を更新し、履歴に 1 行残す）。
+/// 成果の指標の現在値を記録する（現在値を更新し、履歴に 1 行残す）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_progress(
     state: S,
@@ -98,7 +98,7 @@ pub fn okr_progress(
     state.with_ctx(|c| okr_progress::record(c, &kr, &value, note.as_deref()))
 }
 
-/// KR の現在値の履歴と、週ごとの時間（期間は Objective の期間、無ければ直近 8 週）。
+/// 成果の指標の現在値の履歴と、週ごとの時間（期間は目標の期間、無ければ直近 8 週）。
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_history(state: S, kr: String) -> AppResult<okr_progress::KrHistory> {
     state.with_ctx(|c| okr_progress::kr_history(c, &kr, None))

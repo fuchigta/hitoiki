@@ -255,7 +255,7 @@ pub fn impact(ctx: &Ctx, key: &str, children: ChildPolicy) -> Result<Impact> {
     }
     im = im
         .line("スキルが付いたタスク（付与だけ外れる）", ts)
-        .line("スキルを付けた KR（付与だけ外れる）", krs)
+        .line("スキルを付けた成果の指標（付与だけ外れる）", krs)
         .line("活動からスキルを推定するルール（一緒に削除）", rules);
     if s.preset {
         im = im.note("同梱プリセットのスキルです。もう一度取り込むと復活します。");

@@ -85,7 +85,7 @@ pub fn update(conn: &Connection, t: &Task) -> Result<()> {
     Ok(())
 }
 
-/// KR との紐付けだけを変える（`None` で外す）。
+/// 成果の指標との紐付けだけを変える（`None` で外す）。
 pub fn set_key_result(conn: &Connection, id: &str, kr_id: Option<&str>, now: Millis) -> Result<()> {
     let n = conn.execute(
         "UPDATE task SET key_result_id = ?2, updated_at = ?3 WHERE id = ?1",
@@ -97,7 +97,7 @@ pub fn set_key_result(conn: &Connection, id: &str, kr_id: Option<&str>, now: Mil
     Ok(())
 }
 
-/// KR に紐付いたタスク（状態を問わない）。作成順。
+/// 成果の指標に紐付いたタスク（状態を問わない）。作成順。
 pub fn list_of_kr(conn: &Connection, kr_id: &str) -> Result<Vec<Task>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {COLS} FROM task WHERE key_result_id = ?1 ORDER BY created_at, id"

@@ -1,4 +1,4 @@
-// KR とタスクのつながり（選択欄・集計表示・紐付け候補）の純粋ロジック。画面に依存しない。
+// 成果の指標とタスクのつながり（選択欄・集計表示・紐付け候補）の純粋ロジック。画面に依存しない。
 // 達成率の計算や評価はしない。選んだ軸の値を大きく、残りを補助として並べるだけ。
 import type { KeyResult, KrMeasure, KrSummary, KrWeekBar, ObjectiveView, TaskView } from "./api";
 import { fmtDur } from "./lib";
@@ -15,7 +15,7 @@ export interface KrOption {
   status: string;
 }
 
-/** Objective 配下の KR を選択欄の候補に平らにする（やめた KR は除く。`keepId` は残す）。 */
+/** 目標配下の成果の指標を選択欄の候補に平らにする（やめた成果の指標は除く。`keepId` は残す）。 */
 export function krOptions(objectives: ObjectiveView[], keepId?: string): KrOption[] {
   const out: KrOption[] = [];
   for (const o of objectives) {
@@ -27,7 +27,7 @@ export function krOptions(objectives: ObjectiveView[], keepId?: string): KrOptio
   return out;
 }
 
-/** KR のタイトル・Objective 名の部分一致で絞り込む。KR タイトルの前方一致を先に（それぞれ元の順）。空なら全て。 */
+/** 成果の指標のタイトル・目標名の部分一致で絞り込む。成果の指標タイトルの前方一致を先に（それぞれ元の順）。空なら全て。 */
 export function filterKrs(all: KrOption[], query: string): KrOption[] {
   const q = normKr(query);
   if (!q) return all;
@@ -41,7 +41,7 @@ export function filterKrs(all: KrOption[], query: string): KrOption[] {
   return [...prefix, ...partial];
 }
 
-/** 候補の表示名「Objective / KR」。 */
+/** 候補の表示名「目標 / 成果の指標」。 */
 export function krLabel(k: Pick<KrOption, "title" | "objective_title">): string {
   return `${k.objective_title} / ${k.title}`;
 }
@@ -54,7 +54,7 @@ export const MEASURE_LABEL: Record<KrMeasure, string> = {
 
 export const MEASURES: KrMeasure[] = ["time", "days", "done"];
 
-/** KR の編集で選ぶ軸の説明。 */
+/** 成果の指標の編集で選ぶ軸の説明。 */
 export const MEASURE_OPTION: Record<KrMeasure, string> = {
   time: "時間（量が要るもの）",
   days: "回数（「週 3 回」のような習慣）",
@@ -85,7 +85,7 @@ export function measureValues(
 }
 
 /**
- * 時間・日数の内訳（小さく添える）。KR にスキルが付いていない（かつスキルから数えた時間も無い）ときは null。
+ * 時間・日数の内訳（小さく添える）。成果の指標にスキルが付いていない（かつスキルから数えた時間も無い）ときは null。
  * 合算した値は主表示で、内訳は「スキルから」「紐付けたタスクから」の 2 つ（両方に当てはまる区間はスキルから）。
  */
 export function breakdownText(
@@ -115,13 +115,13 @@ export function weekLabel(weekStart: string): string {
 
 export interface LinkCandidate {
   task: TaskView;
-  /** 別の KR に紐付いているとき、その KR（付け替えになる）。 */
+  /** 別の成果の指標に紐付いているとき、その成果の指標（付け替えになる）。 */
   fromKr: string | null;
 }
 
 /**
- * 紐付けの候補。未完了（todo / doing）で、この KR に紐付いていないタスクをタイトルの部分一致で絞る。
- * 他の KR に紐付いていないもの（新規に紐付く）を先に、付け替えになるものを後に並べる。
+ * 紐付けの候補。未完了（todo / doing）で、この成果の指標に紐付いていないタスクをタイトルの部分一致で絞る。
+ * 他の成果の指標に紐付いていないもの（新規に紐付く）を先に、付け替えになるものを後に並べる。
  */
 export function linkCandidates(tasks: TaskView[], kr: Pick<KeyResult, "id">, query: string): LinkCandidate[] {
   const q = normKr(query);
@@ -141,7 +141,7 @@ export function relinkCount(cands: LinkCandidate[], selected: Set<string>): numb
 export function rangeSourceLabel(src: KrSummary["range_source"]): string {
   switch (src) {
     case "objective":
-      return "Objective の期間";
+      return "目標の期間";
     case "given":
       return "指定した期間";
     default:

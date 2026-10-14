@@ -149,9 +149,9 @@ pub struct ObjectiveView {
 #[derive(Debug, Clone, Serialize)]
 pub struct OkrProgress {
     pub objectives: Vec<ObjectiveView>,
-    /// 期間中の投下時間（OKR 別。どの KR にも紐付かない行は「(なし)」）。
+    /// 期間中の投下時間（目標別。どの成果の指標にも紐付かない行は「(なし)」）。
     pub invested: Vec<RowView>,
-    /// どの KR にも紐付かない時間の割合（0〜1）。
+    /// どの成果の指標にも紐付かない時間の割合（0〜1）。
     pub unlinked_ratio: f64,
 }
 
@@ -469,7 +469,7 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                     .collect(),
             });
 
-            // OKR: 目標と KR、期間中の投下時間。
+            // 目標: 目標と成果の指標、期間中の投下時間。
             let okr_report = run_report(ctx, week, tz, ReportBy::Okr)?;
             let unlinked_ms: i64 = okr_report
                 .rows

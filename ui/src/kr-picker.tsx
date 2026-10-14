@@ -3,9 +3,9 @@ import { filterKrs, krLabel, type KrOption } from "./kr-util";
 import { moveIndex } from "./task-picker-util";
 
 interface Props {
-  /** 選択中の KR の ID（無ければ空）。 */
+  /** 選択中の成果の指標の ID（無ければ空）。 */
   value: string;
-  /** 候補の KR（未取得のうちは空でよい）。 */
+  /** 候補の成果の指標（未取得のうちは空でよい）。 */
   options: KrOption[];
   onChange: (id: string) => void;
   ariaLabel: string;
@@ -13,8 +13,8 @@ interface Props {
 }
 
 /**
- * KR を 1 つ選ぶ入力欄。選んだ KR は「Objective / KR」のチップで見せ、× で外せる。
- * 入力で KR 名・Objective 名を部分一致で絞り込む。
+ * 成果の指標を 1 つ選ぶ入力欄。選んだ成果の指標は「目標 / 成果の指標」のチップで見せ、× で外せる。
+ * 入力で成果の指標名・目標名を部分一致で絞り込む。
  * キーボード: ↑↓ で移動、Enter / Tab で選択、Backspace（入力が空のとき）で外す、Esc で閉じる。
  */
 export function KrPicker(p: Props) {
@@ -81,7 +81,7 @@ export function KrPicker(p: Props) {
             <button
               type="button"
               class="ghost"
-              aria-label="KR との紐付けを外す"
+              aria-label="成果の指標との紐付けを外す"
               disabled={p.disabled}
               onClick={(e) => {
                 e.stopPropagation();
@@ -102,7 +102,7 @@ export function KrPicker(p: Props) {
           aria-activedescendant={listOpen && idx >= 0 ? `${listId}-${idx}` : undefined}
           autocomplete="off"
           value={query}
-          placeholder={p.value ? "別の KR に変える" : "KR 名を入力"}
+          placeholder={p.value ? "別の成果の指標に変える" : "成果の指標名を入力"}
           disabled={p.disabled}
           onInput={(e) => {
             setQuery(e.currentTarget.value);
@@ -142,8 +142,8 @@ export function KrPicker(p: Props) {
       {noMatch && (
         <p class="picker-hint">
           {p.options.length === 0
-            ? "KR がまだありません。OKR 画面で追加できます。"
-            : "該当する KR がありません。OKR 画面で追加できます。"}
+            ? "成果の指標がまだありません。目標画面で追加できます。"
+            : "該当する成果の指標がありません。目標画面で追加できます。"}
         </p>
       )}
     </div>

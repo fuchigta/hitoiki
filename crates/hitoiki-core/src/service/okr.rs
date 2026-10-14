@@ -1,4 +1,4 @@
-//! OKR（docs/dev/architecture.md「データモデル」）。
+//! 目標（docs/dev/architecture.md「データモデル」）。
 
 use super::impact::{DeleteMode, DeleteOutcome, Impact};
 use super::Ctx;
@@ -17,11 +17,11 @@ pub struct ObjectiveInput {
 
 #[derive(Debug, Clone)]
 pub struct KrInput {
-    /// Objective の ID（前方一致）。
+    /// 目標の ID（前方一致）。
     pub objective: String,
     pub title: String,
     pub target: Option<String>,
-    /// KR のスキル（既存のスキル名）。KR の時間はこのスキルが付いたタスク・活動の時間が主になる。
+    /// 成果の指標のスキル（既存のスキル名）。成果の指標の時間はこのスキルが付いたタスク・活動の時間が主になる。
     pub skills: Vec<String>,
 }
 
@@ -91,7 +91,7 @@ fn skill_ids(ctx: &Ctx, names: &[String]) -> Result<Vec<String>> {
         .collect()
 }
 
-/// KR の軸。`time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
+/// 成果の指標の軸。`time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
 pub const MEASURES: [&str; 3] = ["time", "days", "done"];
 pub const DEFAULT_MEASURE: &str = "time";
 /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数の既定。
@@ -108,7 +108,7 @@ fn check_measure(s: &str) -> Result<()> {
     }
 }
 
-/// ID（前方一致）、なければタイトルの完全一致で KR を探す。
+/// ID（前方一致）、なければタイトルの完全一致で成果の指標を探す。
 pub fn find_kr(ctx: &Ctx, key: &str) -> Result<KeyResult> {
     match okr::resolve_kr(ctx.conn, key) {
         Err(Error::NotFound(_)) => {}
@@ -119,7 +119,7 @@ pub fn find_kr(ctx: &Ctx, key: &str) -> Result<KeyResult> {
         .filter(|k| k.title == key)
         .collect();
     match hits.len() {
-        0 => Err(Error::NotFound(format!("KR {key}"))),
+        0 => Err(Error::NotFound(format!("成果の指標 {key}"))),
         1 => Ok(hits.into_iter().next().expect("one")),
         _ => Err(Error::Ambiguous(format!(
             "{key}: {}",
@@ -133,7 +133,7 @@ pub fn find_kr(ctx: &Ctx, key: &str) -> Result<KeyResult> {
 pub struct LinkedTask {
     pub id: String,
     pub title: String,
-    /// 付け替え前の KR（無かった・同じ KR のままなら null）。
+    /// 付け替え前の成果の指標（無かった・同じ成果の指標のままなら null）。
     pub previous_kr: Option<KrBrief>,
 }
 
@@ -163,7 +163,7 @@ fn resolve_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<crate::model::Task>>
     Ok(out)
 }
 
-/// タスクを KR に紐付ける。別の KR に紐付いていたものは付け替える。
+/// タスクを成果の指標に紐付ける。別の成果の指標に紐付いていたものは付け替える。
 /// 先にすべてのタスクを解決し、1 つでも見つからなければ何も変えない。
 pub fn link_tasks(ctx: &Ctx, kr: &str, tasks: &[String]) -> Result<LinkResult> {
     let k = find_kr(ctx, kr)?;
@@ -193,7 +193,7 @@ pub fn link_tasks(ctx: &Ctx, kr: &str, tasks: &[String]) -> Result<LinkResult> {
     })
 }
 
-/// タスクの KR との紐付けを外す（KR に紐付いていないタスクは何もしない）。外したタスクを返す。
+/// タスクの成果の指標との紐付けを外す（成果の指標に紐付いていないタスクは何もしない）。外したタスクを返す。
 pub fn unlink_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<LinkedTask>> {
     let found = resolve_tasks(ctx, tasks)?;
     let now = ctx.now();
@@ -237,7 +237,7 @@ pub fn list(ctx: &Ctx) -> Result<OkrList> {
 
 // ===== 編集・削除 =====
 
-/// Objective / KR の状態。
+/// 目標 / 成果の指標の状態。
 pub const STATUSES: [&str; 3] = ["active", "done", "dropped"];
 
 fn check_status(s: &str) -> Result<()> {
@@ -251,7 +251,7 @@ fn check_status(s: &str) -> Result<()> {
     }
 }
 
-/// Objective の編集。`None` は「変更しない」。
+/// 目標の編集。`None` は「変更しない」。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
 pub struct ObjectiveEdit {
@@ -265,7 +265,7 @@ pub struct ObjectiveEdit {
     pub status: Option<String>,
 }
 
-/// KR の編集。`None` は「変更しない」（`target` / `current` は空文字で消す）。
+/// 成果の指標の編集。`None` は「変更しない」（`target` / `current` は空文字で消す）。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
 pub struct KrEdit {
@@ -275,15 +275,15 @@ pub struct KrEdit {
     /// 現在値を変えたときに履歴（`kr_progress`）へ残すメモ。
     pub current_note: Option<String>,
     pub status: Option<String>,
-    /// 付け替え先の Objective（ID の前方一致）。
+    /// 付け替え先の目標（ID の前方一致）。
     pub objective: Option<String>,
     /// 軸（`time` / `days` / `done`）。
     pub measure: Option<String>,
     /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（1 以上）。
     pub day_min: Option<i64>,
-    /// KR のスキル（名前）。空でなければ今のスキルをこれで置き換える。
+    /// 成果の指標のスキル（名前）。空でなければ今のスキルをこれで置き換える。
     pub skills: Vec<String>,
-    /// KR のスキルを全て外す（`skills` が空でも置き換える）。
+    /// 成果の指標のスキルを全て外す（`skills` が空でも置き換える）。
     pub clear_skills: bool,
 }
 
@@ -377,14 +377,17 @@ pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
     Ok(k)
 }
 
-/// Objective の削除の影響。配下の KR は一緒に消え、KR に紐付いたタスクは残して参照だけ外す。
+/// 目標の削除の影響。配下の成果の指標は一緒に消え、成果の指標に紐付いたタスクは残して参照だけ外す。
 pub fn objective_impact(ctx: &Ctx, id: &str) -> Result<Impact> {
     let oid = okr::resolve_objective(ctx.conn, id)?;
     let o = edit::get_objective(ctx.conn, &oid)?;
     Ok(Impact::new("objective", &oid, &o.title)
-        .line("配下の KR（一緒に削除）", edit::count_krs_of(ctx.conn, &oid)?)
         .line(
-            "KR に紐付いたタスク（タスクは残り、KR との紐付けだけ外れる）",
+            "配下の成果の指標（一緒に削除）",
+            edit::count_krs_of(ctx.conn, &oid)?,
+        )
+        .line(
+            "成果の指標に紐付いたタスク（タスクは残り、成果の指標との紐付けだけ外れる）",
             edit::count_tasks_of_objective(ctx.conn, &oid)?,
         ))
 }
@@ -400,11 +403,11 @@ pub fn delete_objective(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteO
     Ok(DeleteOutcome::new(mode, impact, go))
 }
 
-/// KR の削除の影響。紐付いたタスクは残して参照だけ外す。
+/// 成果の指標の削除の影響。紐付いたタスクは残して参照だけ外す。
 pub fn kr_impact(ctx: &Ctx, id: &str) -> Result<Impact> {
     let k = okr::resolve_kr(ctx.conn, id)?;
     Ok(Impact::new("key_result", &k.id, &k.title).line(
-        "紐付いたタスク（タスクは残り、KR との紐付けだけ外れる）",
+        "紐付いたタスク（タスクは残り、成果の指標との紐付けだけ外れる）",
         edit::count_tasks_of_kr(ctx.conn, &k.id)?,
     ))
 }
@@ -593,7 +596,7 @@ mod edit_tests {
         delete_objective(&ctx, &o.id, DeleteMode::FORCE).unwrap();
         assert!(list(&ctx).unwrap().objectives.is_empty());
         assert!(task::show(&ctx, &tid).unwrap().task.task.key_result_id.is_none());
-        // 影響のない Objective は force なしで消える
+        // 影響のない目標は force なしで消える
         let o2 = add_objective(
             &ctx,
             &ObjectiveInput {

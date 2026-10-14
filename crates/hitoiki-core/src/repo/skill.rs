@@ -86,7 +86,7 @@ pub fn set_task_skills(conn: &Connection, task_id: &str, skill_ids: &[String]) -
     Ok(())
 }
 
-/// KR のスキルを置き換える。
+/// 成果の指標のスキルを置き換える。
 pub fn set_kr_skills(conn: &Connection, kr_id: &str, skill_ids: &[String]) -> Result<()> {
     conn.execute("DELETE FROM kr_skill WHERE kr_id = ?1", [kr_id])?;
     for s in skill_ids {
@@ -114,7 +114,7 @@ pub fn list_activity_skill_rules(conn: &Connection) -> Result<Vec<crate::model::
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// KR のスキル（名前順）。
+/// 成果の指標のスキル（名前順）。
 pub fn kr_skills(conn: &Connection, kr_id: &str) -> Result<Vec<Skill>> {
     let mut stmt = conn.prepare(
         "SELECT s.id, s.name, s.parent_id, s.description, s.preset FROM kr_skill ks          JOIN skill s ON s.id = ks.skill_id WHERE ks.kr_id = ?1 ORDER BY s.name",

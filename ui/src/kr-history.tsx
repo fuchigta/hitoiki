@@ -9,8 +9,8 @@ const COL_W = 24;
 const CHART_H = 72;
 
 /**
- * KR の現在値の履歴: 値の推移（折れ線）と週ごとの時間（棒）を同じ週の軸で並べ、値を記録するフォームを添える。
- * 目標との比較や評価はしない。並べるだけ。
+ * 成果の指標の現在値の履歴: 値の推移（折れ線）と週ごとの時間（棒）を同じ週の軸で並べ、値を記録するフォームを添える。
+ * 目標値との比較や評価はしない。並べるだけ。
  */
 export function KrHistory({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   const tick = useLiveTick(["segments-updated"]);

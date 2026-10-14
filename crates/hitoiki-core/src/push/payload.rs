@@ -280,7 +280,7 @@ fn task_button(id: &str, label: &str) -> PushAction {
 /// kr_idle の「今週は見送る」（記録だけ。kr_idle は週 1 回までなので、今週はもう出ない）。
 pub const KR_SKIP_WEEK: &str = "kr_skip_week";
 
-/// kr_idle: 今週まだ時間が入っていない KR を、事実だけ伝える（評価や促しはしない）。
+/// kr_idle: 今週まだ時間が入っていない成果の指標を、事実だけ伝える（評価や促しはしない）。
 pub(crate) fn kr_idle(titles: &[&str]) -> PushPayload {
     const SHOWN: usize = 3;
     let names: String = titles.iter().take(SHOWN).map(|t| format!("「{t}」")).collect();
@@ -291,7 +291,7 @@ pub(crate) fn kr_idle(titles: &[&str]) -> PushPayload {
     };
     PushPayload {
         trigger: PushTrigger::KrIdle,
-        title: "今週、時間が入っていない KR があります".into(),
+        title: "今週、時間が入っていない成果の指標があります".into(),
         body: format!("{names}{more}に、今週はまだ時間が入っていません。"),
         actions: vec![
             // 押すと今日のデザイン画面（open_screen）を開く。

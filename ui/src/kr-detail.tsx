@@ -17,8 +17,8 @@ import { aiNote, candidateRef, kindLabel, sourceLabel, wantsSuggestion } from ".
 import { STATUS_LABEL, fmtDur, hrefOf, useAction, useAsync, useLiveTick } from "./lib";
 
 /**
- * KR のカードの中身: 選んだ軸の値（大きく）と補助の値、週ごとの時間、スキル別、見積と実績、紐付いたタスク。
- * 目標・現在値は自由記述のまま KR の行に並べるだけで、達成率の計算や評価はしない。
+ * 成果の指標のカードの中身: 選んだ軸の値（大きく）と補助の値、週ごとの時間、スキル別、見積と実績、紐付いたタスク。
+ * 目標値・現在値は自由記述のまま成果の指標の行に並べるだけで、達成率の計算や評価はしない。
  */
 export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   const tick = useLiveTick(["segments-updated"]);
@@ -131,10 +131,10 @@ function SummarySections({ s }: { s: KrSummary }) {
 }
 
 /**
- * 紐づけの提案: スキルも紐付けたタスクも無い KR に、名前の近いタスク・スキルを候補として出す。
+ * 紐づけの提案: スキルも紐付けたタスクも無い成果の指標に、名前の近いタスク・スキルを候補として出す。
  * 自動では紐付けない。「付ける」を選んだものだけ紐付け、「付けない」を選んだものは以後出さない。
- * 最初は手元の候補だけを出し、「AI にも聞く」を押したときだけ AI に問い合わせる
- * （送るのは KR・Objective の名前とタスク・スキルの名前だけ。AI が設定されているときのみ）。
+ * 最初は名前の近い候補だけを出し、「AI にも聞く」を押したときだけ AI に問い合わせる
+ * （送るのは成果の指標・目標の名前とタスク・スキルの名前だけ。AI が設定されているときのみ）。
  */
 function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   const [askAi, setAskAi] = useState(false);
@@ -178,7 +178,7 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
                 <button
                   type="button"
                   disabled={act.busy}
-                  aria-label={`${kindLabel(c.kind)}「${c.name}」を KR に付ける`}
+                  aria-label={`${kindLabel(c.kind)}「${c.name}」を成果の指標に付ける`}
                   onClick={() => accept(ref)}
                 >
                   付ける
@@ -187,7 +187,7 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
                   type="button"
                   class="ghost"
                   disabled={act.busy}
-                  aria-label={`${kindLabel(c.kind)}「${c.name}」は KR に付けない`}
+                  aria-label={`${kindLabel(c.kind)}「${c.name}」は成果の指標に付けない`}
                   onClick={() => reject(ref)}
                 >
                   付けない
@@ -212,7 +212,7 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
 }
 
 /**
- * KR に付けるスキル（主）。このスキル（子スキルを含む）が付いたタスク・活動の時間が、この KR の時間になる。
+ * 成果の指標に付けるスキル（主）。このスキル（子スキルを含む）が付いたタスク・活動の時間が、この成果の指標の時間になる。
  * 変更はその場で保存する。
  */
 function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onChanged: () => void }) {
@@ -229,14 +229,14 @@ function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onCh
       help={
         k.measure === "done"
           ? "完了数の対象は紐付けたタスクです。スキルは時間・日数に使います。"
-          : "このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。付け外しはここで行います。"
+          : "このスキルが付いたタスク・活動の時間をこの成果の指標の時間として数えます。付け外しはここで行います。"
       }
     >
       <SkillPicker
         value={names}
         skills={known.data?.skills ?? []}
         onChange={change}
-        ariaLabel={`KR「${k.title}」のスキルを追加`}
+        ariaLabel={`成果の指標「${k.title}」のスキルを追加`}
         disabled={act.busy}
       />
       <ErrorBox error={act.error ?? known.error} />
@@ -281,7 +281,7 @@ function KrTasks({
       help={
         k.measure === "done"
           ? "完了数の対象です。タイトルを押すとタスクの詳細を開きます。"
-          : "補助です。スキルが付いていなくても、この KR の時間に含めます。タイトルを押すとタスクの詳細を開きます。"
+          : "補助です。スキルが付いていなくても、この成果の指標の時間に含めます。タイトルを押すとタスクの詳細を開きます。"
       }
     >
       {tasks.length > 0 && (
@@ -299,7 +299,7 @@ function KrTasks({
                 </span>
                 <OverflowMenu
                   label={`タスク「${t.title}」の操作`}
-                  items={[{ label: "KR から外す", onSelect: () => unlink(t.id), disabled: act.busy }]}
+                  items={[{ label: "成果の指標から外す", onSelect: () => unlink(t.id), disabled: act.busy }]}
                 />
               </span>
             </li>
@@ -312,8 +312,8 @@ function KrTasks({
           class="grow"
           value={title}
           onInput={(e) => setTitle(e.currentTarget.value)}
-          placeholder="この KR のタスクを追加（タイトル）"
-          aria-label="この KR のタスクを追加"
+          placeholder="この成果の指標のタスクを追加（タイトル）"
+          aria-label="この成果の指標のタスクを追加"
         />
         <button disabled={act.busy || !title.trim()}>追加</button>
         <button type="button" class="ghost" onClick={() => setPicking((v) => !v)} aria-expanded={picking}>
@@ -335,7 +335,7 @@ function KrTasks({
   );
 }
 
-/** 未完了のタスクから複数選んで紐付ける。他の KR に紐付いているものは、付け替えになることを示す。 */
+/** 未完了のタスクから複数選んで紐付ける。他の成果の指標に紐付いているものは、付け替えになることを示す。 */
 function LinkPicker({ k, onDone, onCancel }: { k: KeyResult; onDone: () => void; onCancel: () => void }) {
   const all = useAsync(() => api.taskList(["todo", "doing"]), []);
   const [query, setQuery] = useState("");
@@ -372,13 +372,13 @@ function LinkPicker({ k, onDone, onCancel }: { k: KeyResult; onDone: () => void;
             <label class="check">
               <input type="checkbox" checked={sel.has(c.task.id)} onChange={() => toggle(c.task.id)} />
               {c.task.title}
-              {c.fromKr && <span class="meta">（KR「{c.fromKr}」に紐付いています。選ぶと付け替えます）</span>}
+              {c.fromKr && <span class="meta">（成果の指標「{c.fromKr}」に紐付いています。選ぶと付け替えます）</span>}
             </label>
           </li>
         ))}
       </ul>
       <div class="row">
-        {relinks > 0 && <span class="meta note">{relinks} 件は別の KR からの付け替えになります。</span>}
+        {relinks > 0 && <span class="meta note">{relinks} 件は別の成果の指標からの付け替えになります。</span>}
         <span class="spacer" />
         <button type="button" class="ghost" onClick={onCancel}>
           キャンセル

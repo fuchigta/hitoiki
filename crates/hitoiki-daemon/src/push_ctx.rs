@@ -34,7 +34,7 @@ pub struct PushSnapshot {
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク。
     pub tasks: Vec<TaskNudge>,
-    /// 今週まだ時間が入っていない KR（kr_idle の材料。`push_tick` が曜日に達したときだけ読む）。
+    /// 今週まだ時間が入っていない成果の指標（kr_idle の材料。`push_tick` が曜日に達したときだけ読む）。
     pub kr_idle: Vec<KrIdleNudge>,
     /// 今日の time_block と直近の doing ログが指すタスク。
     pub task_refs: Vec<TaskRef>,

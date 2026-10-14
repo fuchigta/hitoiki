@@ -115,7 +115,7 @@ pub fn load_task_nudges(conn: &Connection) -> Result<Vec<super::TaskNudge>> {
         .collect())
 }
 
-/// 今週まだ時間が入っていない KR を、通知の判定用に読む。`PushContext::kr_idle` の材料。
+/// 今週まだ時間が入っていない成果の指標を、通知の判定用に読む。`PushContext::kr_idle` の材料。
 /// 対象の選び方は [`crate::service::okr::idle_krs_this_week`]。
 pub fn load_kr_idle(conn: &Connection, tz: Tz, now: Millis) -> Result<Vec<super::KrIdleNudge>> {
     Ok(crate::service::okr::idle_krs_this_week(conn, tz, now)?

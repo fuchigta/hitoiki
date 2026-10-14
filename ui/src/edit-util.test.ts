@@ -27,12 +27,12 @@ describe("isDirty", () => {
     expect(isDirty(base, { ...base, skills: ["ui", "rust"], est: " 30 " })).toBe(false);
     expect(isDirty(base, { ...base, skills: ["rust", "ui", "go"] })).toBe(true);
   });
-  it("KR の選択・解除は変更", () => {
+  it("成果の指標の選択・解除は変更", () => {
     expect(isDirty(base, { ...base, kr: "K1" })).toBe(true);
     expect(isDirty({ ...base, kr: "K1" }, base)).toBe(true);
     expect(isDirty({ ...base, kr: "K1" }, { ...base, kr: "K1" })).toBe(false);
   });
-  it("KR の保存時の指定: 選んでいれば紐付け、空にしたときだけ外す", () => {
+  it("成果の指標の保存時の指定: 選んでいれば紐付け、空にしたときだけ外す", () => {
     expect(krPatch("K1", null)).toEqual({ key_result: "K1" });
     expect(krPatch("K1", "K1")).toEqual({ key_result: "K1" });
     expect(krPatch("", "K1")).toEqual({ clear_key_result: true });

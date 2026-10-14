@@ -133,7 +133,7 @@ export const api = {
   ergConfirm: (record_kind: T.ErgRecordKind, record_id: string) =>
     call<T.ErgLabel>("erg_confirm", { record_kind, record_id }),
 
-  // OKR・スキル
+  // 目標・スキル
   okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
   okrAddObjective: (title: string) => call<T.Objective>("okr_add_objective", { input: { title } }),
   okrAddKr: (objective: string, title: string, target?: string, skills?: string[]) =>
@@ -142,22 +142,22 @@ export const api = {
   skillAdd: (name: string, parent?: string) => call<T.Skill>("skill_add", { input: { name, parent } }),
   skillImportPreset: (name?: string) => call<T.PresetImport>("skill_import_preset", { name }),
 
-  // OKR・スキルの編集と削除。削除は mode で dry_run（影響の確認）と force（削除）を指定する。
+  // 目標・スキルの編集と削除。削除は mode で dry_run（影響の確認）と force（削除）を指定する。
   okrEditObjective: (id: string, input: T.ObjectiveEdit) => call<T.Objective>("okr_edit_objective", { id, input }),
   okrDeleteObjective: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_objective", { id, mode }),
   okrEditKr: (id: string, input: T.KrEdit) => call<T.KeyResult>("okr_edit_kr", { id, input }),
   okrDeleteKr: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_kr", { id, mode }),
-  // KR とタスクのつながり。紐付けは別の KR に紐付いていたタスクを付け替える。
+  // 成果の指標とタスクのつながり。紐付けは別の成果の指標に紐付いていたタスクを付け替える。
   okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
   okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
   okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
-  // KR への紐づけの提案。自動では紐付けない。AI は設定されているときだけ（use_ai=false なら手元の候補だけ）。
+  // 成果の指標への紐づけの提案。自動では紐付けない。AI は設定されているときだけ（use_ai=false なら名前の近い候補だけ）。
   okrSuggest: (kr: string, useAi = false) => call<T.KrSuggestions>("okr_suggest", { kr, use_ai: useAi }),
   okrSuggestAccept: (kr: string, candidates: string[]) =>
     call<T.KrSuggestDecision>("okr_suggest_accept", { kr, candidates }),
   okrSuggestReject: (kr: string, candidates: string[]) =>
     call<T.KrSuggestDecision>("okr_suggest_reject", { kr, candidates }),
-  // KR の現在値の記録と履歴（値の推移と週ごとの時間）。
+  // 成果の指標の現在値の記録と履歴（値の推移と週ごとの時間）。
   okrProgress: (kr: string, value: string, note?: string) =>
     call<T.ProgressRecorded>("okr_progress", { kr, value, note }),
   okrHistory: (kr: string) => call<T.KrHistory>("okr_history", { kr }),

@@ -1,9 +1,9 @@
-//! KR の集計（紐付いたタスクの時間・取り組んだ日・完了数）。
+//! 成果の指標の集計（紐付いたタスクの時間・取り組んだ日・完了数）。
 //!
 //! 実績は常に `activity_segment`（`segment_override` 適用後の派生層）から算出する。
 //! 時間は「今日の合計」と同じ数え方で、無操作・休憩・無視は含めない。
 //!
-//! KR の時間はスキルが主: KR に付けたスキル（`kr_skill`。子スキルを含む）が付いたタスクの区間、または
+//! 成果の指標の時間はスキルが主: 成果の指標に付けたスキル（`kr_skill`。子スキルを含む）が付いたタスクの区間、または
 //! `activity_skill_rule` でそのスキルが付く活動（区間の exe・タイトルに一致）の区間を数える。
 //! タスクとの紐付け（`task.key_result_id`）は「このタスクも含める」補助で、紐付いたタスクの区間も数える。
 //! 時間と日数は両方を区間単位の和集合で 1 つの数字にする（同じ区間を二重に数えない）。
@@ -13,7 +13,7 @@
 //!
 //! `target` / `current` は自由記述のままで、達成率の計算や評価はしない（選んだ軸の値を出すだけ）。
 //!
-//! 期間: Objective に `period_start` / `period_end` があればそれ。無ければ直近 8 週
+//! 期間: 目標に `period_start` / `period_end` があればそれ。無ければ直近 8 週
 //! （今日を含む週の月曜から 7 週前の月曜〜今日の終わり）。片方だけのときは、開始のみなら今日まで、
 //! 終了のみなら 8 週前から。週は月曜始まり、日付はローカル日付。
 
@@ -78,18 +78,18 @@ pub struct KrSummary {
     pub key_result: KeyResult,
     pub objective: ObjectiveBrief,
     pub range: RangeView,
-    /// `given`（引数で指定）/ `objective`（Objective の期間）/ `recent_weeks`（直近 8 週）。
+    /// `given`（引数で指定）/ `objective`（目標の期間）/ `recent_weeks`（直近 8 週）。
     pub range_source: &'static str,
     /// 選んだ軸（`time` / `days` / `done`）。
     pub measure: String,
-    /// 時間: KR のスキルが付いた区間と、紐付いたタスクの区間の和集合（ミリ秒）。
+    /// 時間: 成果の指標のスキルが付いた区間と、紐付いたタスクの区間の和集合（ミリ秒）。
     pub time_ms: i64,
     /// 回数: 上の時間の合計が `day_min` 分以上あった日数。
     pub active_days: i64,
     pub day_min: i64,
-    /// KR に付けたスキルの名前（名前順）。
+    /// 成果の指標に付けたスキルの名前（名前順）。
     pub kr_skills: Vec<String>,
-    /// 内訳: KR のスキルの条件に合う区間の時間（ミリ秒。タスクにスキルが付いている区間と、活動ルールで付く区間）。
+    /// 内訳: 成果の指標のスキルの条件に合う区間の時間（ミリ秒。タスクにスキルが付いている区間と、活動ルールで付く区間）。
     pub from_skill_ms: i64,
     /// 内訳: 上に当てはまらない、紐付いたタスクの区間の時間（ミリ秒）。`from_skill_ms` との合計が `time_ms`。
     pub from_task_ms: i64,
@@ -132,8 +132,8 @@ fn resolve_range(
     }
 }
 
-/// KR の集計に入る区間を選ぶ判定（`okr show` とヒートマップの `kr:` で共有する）。
-/// KR のスキル（子スキルを含む）が付いたタスク・活動ルールでそのスキルが付く活動・紐付けたタスクの和集合。
+/// 成果の指標の集計に入る区間を選ぶ判定（`okr show` とヒートマップの `kr:` で共有する）。
+/// 成果の指標のスキル（子スキルを含む）が付いたタスク・活動ルールでそのスキルが付く活動・紐付けたタスクの和集合。
 pub(crate) struct KrSelector {
     linked: HashSet<String>,
     skill_set: HashSet<String>,
@@ -143,7 +143,7 @@ pub(crate) struct KrSelector {
 
 /// 選ばれた区間の内訳。
 pub(crate) struct KrPick {
-    /// KR のスキル経由で入る（紐付けたタスクだけで入るときは false）。
+    /// 成果の指標のスキル経由で入る（紐付けたタスクだけで入るときは false）。
     pub via_skill: bool,
     /// 紐付けたタスクの区間。
     pub linked: bool,
@@ -195,7 +195,7 @@ impl KrSelector {
         })
     }
 
-    /// 区間が KR の集計に入るなら内訳を返す（無操作・休憩・無視は入らない）。
+    /// 区間が成果の指標の集計に入るなら内訳を返す（無操作・休憩・無視は入らない）。
     pub(crate) fn pick(&self, s: &crate::model::ActivitySegment) -> Option<KrPick> {
         if matches!(
             s.kind,
@@ -227,10 +227,10 @@ impl KrSelector {
     }
 }
 
-/// 今週（月曜始まり、今日まで）まだ時間が入っていない KR（kr_idle 通知の対象）。
+/// 今週（月曜始まり、今日まで）まだ時間が入っていない成果の指標（kr_idle 通知の対象）。
 ///
-/// 対象は、KR が active で軸が time / days、Objective が active で今が期間内（期間が無ければ対象。
-/// 終わった・まだ始まっていない期間は対象外）、スキルか紐付けたタスク（やめたものを除く）のどちらかがある KR。
+/// 対象は、成果の指標が active で軸が time / days、目標が active で今が期間内（期間が無ければ対象。
+/// 終わった・まだ始まっていない期間は対象外）、スキルか紐付けたタスク（やめたものを除く）のどちらかがある成果の指標。
 /// 「時間が入っている」は、`okr show` と同じ選び方（スキル経由と紐付けタスクの和集合）の区間が今週 1 つでもあること。
 pub fn idle_krs_this_week(
     conn: &rusqlite::Connection,
@@ -277,7 +277,7 @@ pub fn idle_krs_this_week(
     Ok(out)
 }
 
-/// KR（ID の前方一致またはタイトル）の集計。`range` が `None` なら Objective の期間（無ければ直近 8 週）。
+/// 成果の指標（ID の前方一致またはタイトル）の集計。`range` が `None` なら目標の期間（無ければ直近 8 週）。
 pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary> {
     let k = super::okr::find_kr(ctx, kr)?;
     let tz = ctx.tz()?;
@@ -824,7 +824,7 @@ mod tests {
         );
         assert_eq!(kr_summary(&c, &f.kr, None).unwrap().time_ms, 0);
         assert_eq!(kr_summary(&c, &k2.id, None).unwrap().time_ms, 60 * MIN);
-        // 外す。KR に紐付いていないものは何もしない。
+        // 外す。成果の指標に紐付いていないものは何もしない。
         let out = okr_svc::unlink_tasks(&c, &[f.t1.clone(), f.t1.clone()]).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(kr_summary(&c, &k2.id, None).unwrap().time_ms, 0);
@@ -863,7 +863,7 @@ mod tests {
         assert_eq!((k.measure.as_str(), k.day_min), ("done", 15));
     }
 
-    /// 「Rust」（子: 「Rust 非同期」）を KR に付け、紐付けていないタスク `o1`（Rust）・`o2`（子）・`o3`（別スキル）を作る。
+    /// 「Rust」（子: 「Rust 非同期」）を成果の指標に付け、紐付けていないタスク `o1`（Rust）・`o2`（子）・`o3`（別スキル）を作る。
     fn setup_skill(c: &Ctx, f: &Fx) -> (String, String, String) {
         for (n, parent) in [("Rust", None), ("Rust 非同期", Some("Rust")), ("設計", None)] {
             skill::add(
@@ -1203,7 +1203,7 @@ mod tests {
                 .unwrap()
         };
         assert_eq!(count(&c), 0);
-        // KR を消しても kr_skill が残らない。
+        // 成果の指標を消しても kr_skill が残らない。
         okr_svc::edit_kr(
             &c,
             &f.kr,
@@ -1303,7 +1303,7 @@ mod tests {
         let f = setup(&c, None, None);
         let (skilled, _, _) = setup_skill(&c, &f);
         let d = env.day_start();
-        // スキル付きのタスクも紐付けタスクもある KR は対象。時間が無い間は拾う。
+        // スキル付きのタスクも紐付けタスクもある成果の指標は対象。時間が無い間は拾う。
         assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
         seg(
             &c,
@@ -1321,15 +1321,15 @@ mod tests {
         let env = Env::new();
         let c = env.ctx();
         let now = c.now();
-        // 期間が終わった Objective。
+        // 期間が終わった目標。
         let past = setup(&c, Some(now - 60 * DAY), Some(now - DAY));
-        // まだ始まっていない Objective。
+        // まだ始まっていない目標。
         let future = setup(&c, Some(now + DAY), Some(now + 30 * DAY));
         assert!(idle_ids(&env).is_empty());
-        // 期間内なら拾う（期間が無い Objective も同様）。
+        // 期間内なら拾う（期間が無い目標も同様）。
         let current = setup(&c, Some(now - DAY), Some(now + 30 * DAY));
         assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
-        // done の軸・完了した KR・やめた KR は対象外。
+        // done の軸・完了した成果の指標・やめた成果の指標は対象外。
         for (measure, status) in [
             (Some("done"), None),
             (None, Some("done")),
@@ -1348,7 +1348,7 @@ mod tests {
             .unwrap();
         }
         assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
-        // スキルも紐付けタスクも無い KR は対象外。
+        // スキルも紐付けタスクも無い成果の指標は対象外。
         let o = okr_svc::list(&c).unwrap().objectives[0].objective.id.clone();
         okr_svc::add_kr(
             &c,

@@ -680,7 +680,7 @@ export interface LinkResult {
 /** KR への紐づけの候補の種類。 */
 export type KrCandidateKind = "task" | "skill";
 
-/** 紐づけの候補 1 件。`source` は手元（local）/ AI（ai）/ 両方（both）。 */
+/** 紐づけの候補 1 件。`source` は名前の近さ（local）/ AI（ai）/ 両方（both）。 */
 export interface KrCandidate {
   kind: KrCandidateKind;
   id: string;

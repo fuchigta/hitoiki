@@ -133,8 +133,8 @@ function NotifyTab() {
           <NumberSetting
             cfg={cfg}
             k="push.kr_idle_weekday"
-            label="KR を知らせる曜日"
-            help="今週まだ時間が入っていない KR を知らせる曜日です。1=月 2=火 3=水 4=木 5=金 6=土 7=日。"
+            label="成果の指標を知らせる曜日"
+            help="今週まだ時間が入っていない成果の指標を知らせる曜日です。1=月 2=火 3=水 4=木 5=金 6=土 7=日。"
             value={p?.kr_idle_weekday ?? 3}
             unit="（1〜7）"
             zeroOff

@@ -1,5 +1,5 @@
-// 目標画面（Objective / KR / スキルの一覧＋詳細）の純粋ロジック。画面に依存しない。
-// 達成率の計算や評価はしない。値と目標を並べるだけ。
+// 目標画面（目標 / 成果の指標 / スキルの一覧＋詳細）の純粋ロジック。画面に依存しない。
+// 達成率の計算や評価はしない。値と目標値を並べるだけ。
 import type { SkillView, TaskView } from "./api";
 
 export type OkrKind = "o" | "kr" | "skill";
@@ -18,17 +18,17 @@ export function okrSelection(path: string[]): OkrSelection | null {
 
 export type OkrTab = "okr" | "skills";
 
-/** 一覧のタブ。`?tab=skills` か、スキルを選んでいるときはスキル。それ以外は OKR。 */
+/** 一覧のタブ。`?tab=skills` か、スキルを選んでいるときはスキル。それ以外は目標。 */
 export function okrTab(param: string | null | undefined, sel: OkrSelection | null): OkrTab {
   if (param === "skills") return "skills";
   if (param === "okr") return "okr";
   return sel?.kind === "skill" ? "skills" : "okr";
 }
 
-/** KR の行に出す値。主軸の値に、書いてある目標を並べるだけ（達成率は出さない）。 */
+/** 成果の指標の行に出す値。主軸の値に、書いてある目標値を並べるだけ（達成率は出さない）。 */
 export function krMetaText(mainText: string, target: string | null | undefined): string {
   const t = target?.trim();
-  return t ? `${mainText} / 目標 ${t}` : mainText;
+  return t ? `${mainText} / 目標値 ${t}` : mainText;
 }
 
 export interface SkillRow {

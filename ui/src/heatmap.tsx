@@ -11,7 +11,7 @@ const BYS: { id: HeatBy; label: string }[] = [
   { id: "kind", label: "種別" },
   { id: "task", label: "タスク" },
   { id: "skill", label: "スキル" },
-  { id: "kr", label: "KR" },
+  { id: "kr", label: "成果の指標" },
   { id: "records", label: "記録" },
 ];
 
@@ -90,8 +90,8 @@ export function HeatmapCard() {
           </select>
         )}
         {by === "kr" && (
-          <select value={arg} onChange={(e) => setArg(e.currentTarget.value)} aria-label="KR">
-            <option value="">KR を選ぶ</option>
+          <select value={arg} onChange={(e) => setArg(e.currentTarget.value)} aria-label="成果の指標">
+            <option value="">成果の指標を選ぶ</option>
             {krs.map((k) => (
               <option key={k.id} value={k.id}>
                 {krLabel(k)}
@@ -110,7 +110,7 @@ export function HeatmapCard() {
         )}
       </div>
       <ErrorBox error={hm.error} />
-      {!query && <Empty>{by === "task" ? "タスク" : by === "kr" ? "KR" : "スキル"}を選ぶと表示します。</Empty>}
+      {!query && <Empty>{by === "task" ? "タスク" : by === "kr" ? "成果の指標" : "スキル"}を選ぶと表示します。</Empty>}
       {data && query && (
         <>
           <div class="heatmap-scroll">

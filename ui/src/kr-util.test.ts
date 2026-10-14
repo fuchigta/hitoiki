@@ -21,20 +21,20 @@ const objectives = [
 ] as unknown as ObjectiveView[];
 
 describe("krOptions / filterKrs", () => {
-  it("やめた KR は除くが、選択中なら残す", () => {
+  it("やめた成果の指標は除くが、選択中なら残す", () => {
     expect(krOptions(objectives).map((k) => k.id)).toEqual(["k1", "k3"]);
     expect(krOptions(objectives, "k2").map((k) => k.id)).toEqual(["k1", "k2", "k3"]);
   });
-  it("空入力なら全て、Objective 名も対象、全角半角を吸収する", () => {
+  it("空入力なら全て、目標名も対象、全角半角を吸収する", () => {
     const all = krOptions(objectives);
     expect(filterKrs(all, "")).toHaveLength(2);
     expect(filterKrs(all, "rust").map((k) => k.id)).toEqual(["k3"]);
     expect(filterKrs(all, "読書").map((k) => k.id)).toEqual(["k1"]);
     expect(filterKrs(all, "zzz")).toEqual([]);
   });
-  it("KR タイトルの前方一致を先に出す", () => {
+  it("成果の指標タイトルの前方一致を先に出す", () => {
     const all = krOptions(objectives);
-    // 「写」は k3 のタイトル前方一致。「読」は k1 のタイトル中・Objective 名にも含まれる。
+    // 「写」は k3 のタイトル前方一致。「読」は k1 のタイトル中・目標名にも含まれる。
     expect(filterKrs(all, "写").map((k) => k.id)).toEqual(["k3"]);
     expect(krLabel(all[0])).toBe("読書習慣 / 週 3 回読書");
   });
@@ -123,7 +123,7 @@ describe("linkCandidates / relinkCount", () => {
     task("t5", "やめた", "dropped", null),
     task("t6", "要約を書く", "todo", null),
   ];
-  it("未完了で、この KR に紐付いていないものだけ。付け替えになるものは後ろ", () => {
+  it("未完了で、この成果の指標に紐付いていないものだけ。付け替えになるものは後ろ", () => {
     const c = linkCandidates(tasks, { id: "k1" }, "");
     expect(c.map((x) => x.task.id)).toEqual(["t1", "t6", "t2"]);
     expect(c.find((x) => x.task.id === "t2")?.fromKr).toBe("写経を進める");

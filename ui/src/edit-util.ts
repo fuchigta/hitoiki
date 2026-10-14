@@ -9,11 +9,11 @@ export interface TaskDraft {
   est: string;
   /** 付いているスキル名（既知のスキルだけ。選択欄で編集する）。 */
   skills: string[];
-  /** 紐付いている KR の ID（無ければ空）。 */
+  /** 紐付いている成果の指標の ID（無ければ空）。 */
   kr: string;
 }
 
-/** 保存時の KR の指定。選んでいれば紐付け、空にしたときだけ（元が紐付いていれば）外す指定を送る。 */
+/** 保存時の成果の指標の指定。選んでいれば紐付け、空にしたときだけ（元が紐付いていれば）外す指定を送る。 */
 export function krPatch(kr: string, original: string | null): { key_result?: string; clear_key_result?: boolean } {
   if (kr) return { key_result: kr };
   return original ? { clear_key_result: true } : {};

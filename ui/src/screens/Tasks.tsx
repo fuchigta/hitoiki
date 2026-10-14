@@ -196,7 +196,7 @@ function TaskDetail({
       {(task.key_result || task.skills.length > 0) && (
         <div class="relations">
           {task.key_result && (
-            <a class="link-chip" href={hrefOf("okr", ["kr", task.key_result.id])} title="この KR の詳細を開く">
+            <a class="link-chip" href={hrefOf("okr", ["kr", task.key_result.id])} title="この成果の指標の詳細を開く">
               {krLabel({ title: task.key_result.title, objective_title: task.key_result.objective_title })}
             </a>
           )}
@@ -410,7 +410,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         skills: list,
         // 空にして保存したら、付いていたスキルを全て外す。
         clear_skills: list.length === 0 && task.skills.length > 0,
-        // KR は選んでいれば紐付け、空にして保存したら外す。
+        // 成果の指標は選んでいれば紐付け、空にして保存したら外す。
         ...krPatch(sent.kr, task.key_result_id),
       }),
     );
@@ -488,8 +488,8 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         />
       </div>
       <div class="field">
-        <span>KR</span>
-        <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="KR を選ぶ" disabled={busy} />
+        <span>成果の指標</span>
+        <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="成果の指標を選ぶ" disabled={busy} />
       </div>
       <div class="row row-end">
         <label class="check">

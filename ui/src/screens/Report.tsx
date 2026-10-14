@@ -10,7 +10,7 @@ const BYS: { id: ReportBy; label: string }[] = [
   { id: "activity", label: "活動" },
   { id: "kind", label: "種別" },
   { id: "quadrant", label: "緊急・重要" },
-  { id: "okr", label: "OKR" },
+  { id: "okr", label: "目標" },
   { id: "skill", label: "スキル" },
   { id: "agent", label: "AI エージェント" },
 ];

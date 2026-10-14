@@ -14,7 +14,7 @@ export function hasImpact(impact: Impact): boolean {
 
 const DAY = 86_400_000;
 
-/** Objective の期間を `<input type="date">` の値に。終了は「その日の終わり（翌日 0 時）」を保存するので 1 ミリ秒戻して日付にする。 */
+/** 目標の期間を `<input type="date">` の値に。終了は「その日の終わり（翌日 0 時）」を保存するので 1 ミリ秒戻して日付にする。 */
 export function periodInputs(o: Pick<Objective, "period_start" | "period_end">): { from: string; to: string } {
   return {
     from: o.period_start != null ? dateInput(o.period_start) : "",

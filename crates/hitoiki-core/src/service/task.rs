@@ -19,9 +19,9 @@ pub struct TaskInput {
     pub urgent: Option<bool>,
     pub important: Option<bool>,
     pub estimate_min: Option<i64>,
-    /// KR の ID（前方一致）。
+    /// 成果の指標の ID（前方一致）。
     pub key_result: Option<String>,
-    /// edit で KR との紐付けを外す（`key_result` と同時に指定したときは外す方が優先）。
+    /// edit で成果の指標との紐付けを外す（`key_result` と同時に指定したときは外す方が優先）。
     pub clear_key_result: bool,
     /// スキル名。edit では 1 つ以上指定されたとき置き換える。
     pub skills: Vec<String>,

@@ -1329,7 +1329,7 @@ button.hm-cell {
   margin-left: var(--sp-3);
 }
 
-/* KR の集計（選んだ軸を大きく、補助は小さく。達成率や評価は出さない） */
+/* 成果の指標の集計（選んだ軸を大きく、補助は小さく。達成率や評価は出さない） */
 .kr-detail {
   display: flex;
   flex-direction: column;
@@ -1631,7 +1631,7 @@ button.object-main {
   gap: var(--sp-1) var(--sp-2);
 }
 
-/* KR の詳細: 要点だけ常時表示し、残りは <details> に閉じる */
+/* 成果の指標の詳細: 要点だけ常時表示し、残りは <details> に閉じる */
 .kr-more > summary {
   cursor: pointer;
   color: var(--muted);

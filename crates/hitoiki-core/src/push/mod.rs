@@ -92,7 +92,7 @@ impl PushTrigger {
             PushTrigger::SwitchSpike => "切り替えの増加",
             PushTrigger::LongFocus => "長めの作業",
             PushTrigger::ImportantTask => "重要なタスク",
-            PushTrigger::KrIdle => "時間が入っていない KR",
+            PushTrigger::KrIdle => "時間が入っていない成果の指標",
             PushTrigger::LateWork => "遅い時間の作業",
         }
     }
@@ -143,7 +143,7 @@ pub struct TaskNudge {
     pub created_at: Millis,
 }
 
-/// kr_idle の判定に使う KR の最小限の情報（今週まだ時間が入っていない KR だけ）。
+/// kr_idle の判定に使う成果の指標の最小限の情報（今週まだ時間が入っていない成果の指標だけ）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KrIdleNudge {
     pub id: String,
@@ -242,7 +242,7 @@ pub struct PushContext {
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク（urgent_task / important_task の材料）。
     pub tasks: Vec<TaskNudge>,
-    /// 今週まだ時間が入っていない KR（kr_idle の材料。`store::load_kr_idle` が返す内容。曜日に達する前は空でよい）。
+    /// 今週まだ時間が入っていない成果の指標（kr_idle の材料。`store::load_kr_idle` が返す内容。曜日に達する前は空でよい）。
     pub kr_idle: Vec<KrIdleNudge>,
     /// 今日の time_block と直近の doing ログが指すタスク（block_start の文言と idle_return の候補に使う）。
     pub task_refs: Vec<TaskRef>,

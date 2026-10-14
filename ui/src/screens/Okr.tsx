@@ -6,10 +6,10 @@ import { hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "..
 import { periodInputs } from "../manage-util";
 import { KrPanel, ObjectiveDetail, OKR_STATUS_LABEL, SkillDetail, useObjectiveDelete } from "../okr-edit";
 import { krMetaText, okrSelection, okrTab, skillTree, type OkrTab } from "../okr-util";
-import { ListDetail, ObjectList, ObjectRow, Tabs } from "../ui/parts";
+import { Help, ListDetail, ObjectList, ObjectRow, Tabs } from "../ui/parts";
 
 const TABS = [
-  { id: "okr", label: "OKR" },
+  { id: "okr", label: "目標" },
   { id: "skills", label: "スキル" },
 ];
 
@@ -32,10 +32,13 @@ export function Okr() {
       {tab === "okr" ? (
         <>
           <div class="list-head">
+            <Help>
+              目標と、その達成を測る成果の指標（時間・回数・完了数で数える）を書く場所です。OKR（Objectives and Key Results）という手法の形で、目標の下に成果の指標を並べます。
+            </Help>
             <span class="spacer" />
             <InlineNew
-              label="＋ Objective"
-              inputLabel="新しい Objective"
+              label="＋ 目標"
+              inputLabel="新しい目標"
               onCreate={async (title) => {
                 const o = await api.okrAddObjective(title);
                 okr.reload();
@@ -45,8 +48,8 @@ export function Okr() {
             />
           </div>
           <ErrorBox error={okr.error} />
-          {okr.data && objectives.length === 0 && <EmptyState>Objective はまだありません。</EmptyState>}
-          <ObjectList label="Objective と KR">
+          {okr.data && objectives.length === 0 && <EmptyState>目標はまだありません。</EmptyState>}
+          <ObjectList label="目標と成果の指標">
             {objectives.map((o) => (
               <Fragment key={o.id}>
                 <ObjectiveRow o={o} selected={sel?.kind === "o" && sel.id === o.id} onDeleted={() => deleted(okr.reload, home("okr"))} />
@@ -60,6 +63,9 @@ export function Okr() {
       ) : (
         <>
           <div class="list-head">
+            <Help>
+              タスクや成果の指標に付ける分類です。スキルが付いたタスク・活動の時間をまとめて見られます。
+            </Help>
             <button
               type="button"
               class="ghost"
@@ -137,14 +143,14 @@ function Detail({
       <EmptyState>
         {tab === "skills"
           ? "スキルを選ぶと詳細が出ます。"
-          : "Objective か KR を選ぶと詳細が出ます。"}
+          : "目標か成果の指標を選ぶと詳細が出ます。"}
       </EmptyState>
     );
   }
   if (!loaded) return <EmptyState>読み込み中…</EmptyState>;
   if (sel.kind === "o") {
     const o = objectives.find((x) => x.id === sel.id);
-    if (!o) return <EmptyState>Objective が見つかりません。</EmptyState>;
+    if (!o) return <EmptyState>目標が見つかりません。</EmptyState>;
     return (
       <ObjectiveDetail
         key={`${o.id}?${route.toString()}`}
@@ -158,7 +164,7 @@ function Detail({
   }
   if (sel.kind === "kr") {
     const k = objectives.flatMap((o) => o.key_results).find((x) => x.id === sel.id);
-    if (!k) return <EmptyState>KR が見つかりません。</EmptyState>;
+    if (!k) return <EmptyState>成果の指標が見つかりません。</EmptyState>;
     return <KrPanel key={k.id} k={k} objectives={objectives} onChanged={reloadOkr} onDeleted={() => deleted(reloadOkr, home)} />;
   }
   const s = skills.find((x) => x.id === sel.id);
@@ -177,7 +183,7 @@ function Detail({
   );
 }
 
-/** Objective の見出し行。タイトル・期間・状態。「…」に KR の追加・編集・削除。 */
+/** 目標の見出し行。タイトル・期間・状態。「…」に成果の指標の追加・編集・削除。 */
 function ObjectiveRow({ o, selected, onDeleted }: { o: ObjectiveView; selected: boolean; onDeleted: () => void }) {
   const del = useObjectiveDelete(o.id, onDeleted);
   const period = o.period_start != null || o.period_end != null ? periodText(o) : undefined;
@@ -189,9 +195,9 @@ function ObjectiveRow({ o, selected, onDeleted }: { o: ObjectiveView; selected: 
       tags={o.status !== "active" ? [OKR_STATUS_LABEL[o.status] ?? o.status] : undefined}
       meta={period}
       onSelect={() => navigate(hrefOf("okr", ["o", o.id]))}
-      menuLabel={`Objective「${o.title}」の操作`}
+      menuLabel={`目標「${o.title}」の操作`}
       menu={[
-        { label: "KR を追加", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { new: "kr" })) },
+        { label: "成果の指標を追加", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { new: "kr" })) },
         { label: "編集", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { edit: "1" })) },
         { label: "削除…", onSelect: del.start, disabled: del.busy },
       ]}
@@ -205,7 +211,7 @@ function periodText(o: ObjectiveView): string {
   return `${p.from || "…"} 〜 ${p.to || "…"}`;
 }
 
-/** KR の行。主軸の値を 1 つ、書いてある目標と並べるだけ（達成率や評価は出さない）。 */
+/** 成果の指標の行。主軸の値を 1 つ、書いてある目標値と並べるだけ（達成率や評価は出さない）。 */
 function KrRow({ k, selected }: { k: KeyResult; selected: boolean }) {
   return (
     <ObjectRow
@@ -223,6 +229,6 @@ function KrMeta({ k }: { k: KeyResult }) {
   const tick = useLiveTick(["segments-updated"]);
   const sum = useAsync(() => api.okrShow(k.id), [k.id, k.measure, k.day_min, tick]);
   const main = sum.data ? splitMeasures(sum.data).main.text : undefined;
-  if (!main) return k.target ? `目標 ${k.target}` : null;
+  if (!main) return k.target ? `目標値 ${k.target}` : null;
   return krMetaText(main, k.target);
 }

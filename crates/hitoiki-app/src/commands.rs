@@ -568,7 +568,7 @@ pub async fn erg_classify(
     .await
 }
 
-/// KR への紐づけの候補（手元の名前の近さ + AI が設定されていれば AI）。AI は時間がかかるので専用スレッドで実行する。
+/// 成果の指標への紐づけの候補（名前の近さ + AI が設定されていれば AI）。AI は時間がかかるので専用スレッドで実行する。
 #[tauri::command(rename_all = "snake_case")]
 pub async fn okr_suggest(
     app: AppHandle,
@@ -596,7 +596,7 @@ pub fn erg_confirm(state: S, record_kind: String, record_id: String) -> AppResul
     state.with_ctx(|c| erg::confirm_for(c, kind, &record_id))
 }
 
-// ===== OKR・スキル =====
+// ===== 目標・スキル =====
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn okr_list(state: S) -> AppResult<OkrList> {

@@ -25,19 +25,19 @@ function StatusSelect({ value, onChange }: { value: string; onChange: (v: string
   );
 }
 
-/** Objective の削除（確認ダイアログつき）。一覧の行のメニューと詳細のメニューで共有する。 */
+/** 目標の削除（確認ダイアログつき）。一覧の行のメニューと詳細のメニューで共有する。 */
 export function useObjectiveDelete(id: string, onDeleted: () => void) {
   return useConfirmDelete({
-    what: "Objective",
+    what: "目標",
     preview: () => api.okrDeleteObjective(id, { dry_run: true }),
     commit: () => api.okrDeleteObjective(id, { force: true }),
     onDeleted,
   });
 }
 
-// ===== Objective =====
+// ===== 目標 =====
 
-/** Objective の詳細。タイトル・説明・期間・状態の編集と、配下の KR の一覧（リンク）。 */
+/** 目標の詳細。タイトル・説明・期間・状態の編集と、配下の成果の指標の一覧（リンク）。 */
 export function ObjectiveDetail({
   o,
   onChanged,
@@ -79,10 +79,10 @@ export function ObjectiveDetail({
         <>
           {o.status !== "active" && <span class="tag">{OKR_STATUS_LABEL[o.status] ?? o.status}</span>}
           <OverflowMenu
-            label="Objective の操作"
+            label="目標の操作"
             items={[
               { label: "編集", onSelect: open },
-              { label: "KR を追加", onSelect: () => setAdding(true) },
+              { label: "成果の指標を追加", onSelect: () => setAdding(true) },
               { label: "削除…", onSelect: del.start, disabled: del.busy },
             ]}
           />
@@ -109,7 +109,7 @@ export function ObjectiveDetail({
             }
           }}
         >
-          <Field label="Objective">
+          <Field label="目標">
             <input value={title} onInput={(e) => setTitle(e.currentTarget.value)} />
           </Field>
           <Field label="説明">
@@ -147,21 +147,21 @@ export function ObjectiveDetail({
       )}
       <Section
         level={3}
-        title="Key Result"
+        title="成果の指標"
         aside={
           !adding && (
             <button type="button" class="ghost" onClick={() => setAdding(true)}>
-              ＋ KR
+              ＋ 成果の指標
             </button>
           )
         }
       >
-        {o.key_results.length === 0 && <Empty>KR はまだありません。</Empty>}
+        {o.key_results.length === 0 && <Empty>成果の指標はまだありません。</Empty>}
         <ul class="link-list">
           {o.key_results.map((k) => (
             <li key={k.id}>
               <a href={hrefOf("okr", ["kr", k.id])}>{k.title}</a>
-              {k.target && <span class="meta">目標 {k.target}</span>}
+              {k.target && <span class="meta">目標値 {k.target}</span>}
               {k.status !== "active" && <span class="tag">{OKR_STATUS_LABEL[k.status] ?? k.status}</span>}
             </li>
           ))}
@@ -182,7 +182,7 @@ export function ObjectiveDetail({
   );
 }
 
-/** KR を追加するフォーム（タイトル・目標・スキル）。 */
+/** 成果の指標を追加するフォーム（タイトル・目標値・スキル）。 */
 function KrForm({
   objective,
   onAdded,
@@ -211,15 +211,15 @@ function KrForm({
           class="grow"
           value={title}
           onInput={(e) => setTitle(e.currentTarget.value)}
-          placeholder="Key Result"
-          aria-label="Key Result"
+          placeholder="成果の指標"
+          aria-label="成果の指標"
         />
         <input
           class="narrow"
           value={target}
           onInput={(e) => setTarget(e.currentTarget.value)}
-          placeholder="目標"
-          aria-label="目標"
+          placeholder="目標値"
+          aria-label="目標値"
         />
         <button class="primary" disabled={act.busy || !title.trim()}>
           追加
@@ -231,13 +231,13 @@ function KrForm({
       <div class="field">
         <span>
           スキル{" "}
-          <Help>このスキルが付いたタスク・活動の時間をこの KR の時間として数えます。タスクの紐付けは作成後に補助として足せます。</Help>
+          <Help>このスキルが付いたタスク・活動の時間をこの成果の指標の時間として数えます。タスクの紐付けは作成後に補助として足せます。</Help>
         </span>
         <SkillPicker
           value={skillNames}
           skills={known.data?.skills ?? []}
           onChange={setSkillNames}
-          ariaLabel="KR のスキルを追加"
+          ariaLabel="成果の指標のスキルを追加"
           disabled={act.busy}
         />
       </div>
@@ -246,9 +246,9 @@ function KrForm({
   );
 }
 
-// ===== KR =====
+// ===== 成果の指標 =====
 
-/** KR の詳細。ヘッダーの「編集」で、タイトル・目標・現在値・軸・状態・Objective の編集に切り替える。 */
+/** 成果の指標の詳細。ヘッダーの「編集」で、タイトル・目標値・現在値・軸・状態・目標の編集に切り替える。 */
 export function KrPanel({
   k,
   objectives,
@@ -270,7 +270,7 @@ export function KrPanel({
   const [dayMin, setDayMin] = useState(String(k.day_min));
   const act = useAction();
   const del = useConfirmDelete({
-    what: "KR",
+    what: "成果の指標",
     preview: () => api.okrDeleteKr(k.id, { dry_run: true }),
     commit: () => api.okrDeleteKr(k.id, { force: true }),
     onDeleted,
@@ -299,7 +299,7 @@ export function KrPanel({
               編集
             </button>
           )}
-          <OverflowMenu label="KR の操作" items={[{ label: "削除…", onSelect: del.start, disabled: del.busy }]} />
+          <OverflowMenu label="成果の指標の操作" items={[{ label: "削除…", onSelect: del.start, disabled: del.busy }]} />
           {del.dialog}
         </>
       }
@@ -326,11 +326,11 @@ export function KrPanel({
             }
           }}
         >
-          <Field label="Key Result">
+          <Field label="成果の指標">
             <input value={title} onInput={(e) => setTitle(e.currentTarget.value)} />
           </Field>
           <div class="row">
-            <Field label="目標">
+            <Field label="目標値">
               <input class="narrow" value={target} onInput={(e) => setTarget(e.currentTarget.value)} />
             </Field>
             <Field label="現在値">
@@ -339,7 +339,7 @@ export function KrPanel({
             <Field label="状態">
               <StatusSelect value={status} onChange={setStatus} />
             </Field>
-            <Field label="Objective">
+            <Field label="目標">
               <select value={objective} onChange={(e) => setObjective(e.currentTarget.value)}>
                 {objectives.map((o) => (
                   <option key={o.id} value={o.id}>
@@ -385,7 +385,7 @@ export function KrPanel({
         <>
           <div class="relations">
             {parent && (
-              <a class="link-chip" href={hrefOf("okr", ["o", parent.id])} title="この Objective の詳細を開く">
+              <a class="link-chip" href={hrefOf("okr", ["o", parent.id])} title="この目標の詳細を開く">
                 {parent.title}
               </a>
             )}
@@ -393,7 +393,7 @@ export function KrPanel({
               <span class="meta">
                 {k.current ? `現在 ${k.current}` : ""}
                 {k.current && k.target ? "、" : ""}
-                {k.target ? `目標 ${k.target}` : ""}
+                {k.target ? `目標値 ${k.target}` : ""}
               </span>
             )}
           </div>
@@ -406,7 +406,7 @@ export function KrPanel({
 
 // ===== スキル =====
 
-/** スキルの詳細。名前・親・説明の編集と、このスキルが付いたタスク・KR（リンク。参照のみ）。削除は「…」から。 */
+/** スキルの詳細。名前・親・説明の編集と、このスキルが付いたタスク・成果の指標（リンク。参照のみ）。削除は「…」から。 */
 export function SkillDetail({
   s,
   all,
@@ -499,7 +499,7 @@ export function SkillDetail({
   );
 }
 
-/** このスキルが付いたタスクと KR。リンクで相手の詳細へ移る（付け外しは相手の側で行う）。 */
+/** このスキルが付いたタスクと成果の指標。リンクで相手の詳細へ移る（付け外しは相手の側で行う）。 */
 function SkillUsers({ name }: { name: string }) {
   const tasks = useAsync(() => api.taskList(["todo", "doing", "done", "dropped"]), []);
   const krs = useAsync(async () => {
@@ -522,9 +522,9 @@ function SkillUsers({ name }: { name: string }) {
           ))}
         </ul>
       </Section>
-      <Section level={3} title="このスキルが付いた KR" help="付け外しは、KR の詳細の「スキル」で行います。">
+      <Section level={3} title="このスキルが付いた成果の指標" help="付け外しは、成果の指標の詳細の「スキル」で行います。">
         <ErrorBox error={krs.error} />
-        {krs.data && krs.data.length === 0 && <Empty>付いている KR はありません。</Empty>}
+        {krs.data && krs.data.length === 0 && <Empty>付いている成果の指標はありません。</Empty>}
         <ul class="link-list">
           {krs.data?.map(({ k, o }) => (
             <li key={k.id}>

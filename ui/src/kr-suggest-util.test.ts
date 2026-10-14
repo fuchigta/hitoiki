@@ -27,16 +27,16 @@ describe("ラベル", () => {
   it("種類と出どころの日本語", () => {
     expect(kindLabel("task")).toBe("タスク");
     expect(kindLabel("skill")).toBe("スキル");
-    expect(sourceLabel("local")).toBe("手元");
+    expect(sourceLabel("local")).toBe("名前の近さ");
     expect(sourceLabel("ai")).toBe("AI");
-    expect(sourceLabel("both")).toBe("手元と AI");
+    expect(sourceLabel("both")).toBe("名前の近さと AI");
   });
 });
 
 describe("wantsSuggestion", () => {
   const sum = (kr_skills: string[], statuses: string[]) =>
     ({ kr_skills, tasks: statuses.map((status) => ({ status })) }) as unknown as KrSummary;
-  it("スキルも紐付けタスクも無い KR だけ", () => {
+  it("スキルも紐付けタスクも無い成果の指標だけ", () => {
     expect(wantsSuggestion(null)).toBe(false);
     expect(wantsSuggestion(sum([], []))).toBe(true);
     expect(wantsSuggestion(sum([], ["dropped"]))).toBe(true);

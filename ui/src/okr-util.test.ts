@@ -30,8 +30,8 @@ describe("okrSelection / okrTab", () => {
 });
 
 describe("krMetaText", () => {
-  it("値と目標を並べるだけ", () => {
-    expect(krMetaText("19時間23分", "週5時間")).toBe("19時間23分 / 目標 週5時間");
+  it("値と目標値を並べるだけ", () => {
+    expect(krMetaText("19時間23分", "週5時間")).toBe("19時間23分 / 目標値 週5時間");
     expect(krMetaText("3 日", null)).toBe("3 日");
     expect(krMetaText("3 日", "  ")).toBe("3 日");
   });

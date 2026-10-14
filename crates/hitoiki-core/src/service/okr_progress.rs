@@ -1,8 +1,8 @@
-//! KR の現在値の履歴と時系列（`kr_progress`。docs/dev/architecture.md「データモデル」）。
+//! 成果の指標の現在値の履歴と時系列（`kr_progress`。docs/dev/architecture.md「データモデル」）。
 //!
 //! 現在値（`key_result.current`）が変わるたびに 1 行残す。時系列は、週ごとに「その週の終わり時点の
-//! 現在値」と「その週に KR に紐付いたタスクへかけた時間」（`kr_summary` の週ごとの時間と同じ規則）を
-//! 並べるだけで、目標との比較や評価はしない。
+//! 現在値」と「その週に成果の指標に紐付いたタスクへかけた時間」（`kr_summary` の週ごとの時間と同じ規則）を
+//! 並べるだけで、目標値との比較や評価はしない。
 
 use super::okr_summary::kr_summary;
 use super::{Ctx, RangeView};
@@ -66,7 +66,7 @@ pub struct ProgressRecorded {
     pub entry: KrProgress,
 }
 
-/// 現在値を記録する。KR の現在値を更新し、同じ値でも履歴に 1 行残す（メモだけ足したいとき用）。
+/// 現在値を記録する。成果の指標の現在値を更新し、同じ値でも履歴に 1 行残す（メモだけ足したいとき用）。
 pub fn record(ctx: &Ctx, kr: &str, value: &str, note: Option<&str>) -> Result<ProgressRecorded> {
     let Some(text) = blank_to_none(value) else {
         return Err(Error::InvalidArgument("値が空です".into()));
@@ -87,7 +87,7 @@ mod tests;
 pub struct HistoryWeek {
     /// 週の月曜（`YYYY-MM-DD`）。
     pub week_start: String,
-    /// その週に KR に紐付いたタスクへかけた時間（ミリ秒）。
+    /// その週に成果の指標に紐付いたタスクへかけた時間（ミリ秒）。
     pub duration_ms: i64,
     /// その週の終わり（現在の週は今）時点の現在値の数値。記録がまだ無い・数として読めないときは null。
     pub value: Option<f64>,
@@ -108,7 +108,7 @@ pub struct KrHistory {
     pub entries: Vec<KrProgress>,
 }
 
-/// KR の時系列。`range` が `None` なら `kr_summary` と同じ期間。
+/// 成果の指標の時系列。`range` が `None` なら `kr_summary` と同じ期間。
 pub fn kr_history(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrHistory> {
     let s = kr_summary(ctx, kr, range)?;
     let tz = ctx.tz()?;

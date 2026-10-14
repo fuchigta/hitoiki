@@ -19,19 +19,19 @@
 |---|---|
 | `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ（時刻・種類・タイトル・ID）、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
 | `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
-| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|kr_skip_week\|skip] [--dismiss]` | 通知に答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない KR」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`kr_skip_week` は「時間が入っていない KR」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
+| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|kr_skip_week\|skip] [--dismiss]` | 通知に答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない成果の指標」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`kr_skip_week` は「時間が入っていない成果の指標」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `gaps`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
-| `hitoiki heatmap [--by 指標] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `kr:<ID またはタイトル>`（`okr show` と同じ KR の時間。KR のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
+| `hitoiki heatmap [--by 指標] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `kr:<ID またはタイトル>`（`okr show` と同じ成果の指標の時間。成果の指標のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `quadrant` / `okr` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
 ### タスク
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki task add <TITLE> [...]` | タスクを追加。`--body` / `--body-file`（本文。`--body -` で標準入力）、`--urgent` / `--not-urgent`、`--important` / `--not-important`、`--estimate`（`90m` / `1h30m` / 分）、`--kr`（KR の ID）、`--skill`、`--url`、`--plan-start` / `--plan-end`、`--interrupt`（割り込みタスク） |
+| `hitoiki task add <TITLE> [...]` | タスクを追加。`--body` / `--body-file`（本文。`--body -` で標準入力）、`--urgent` / `--not-urgent`、`--important` / `--not-important`、`--estimate`（`90m` / `1h30m` / 分）、`--kr`（成果の指標の ID）、`--skill`、`--url`、`--plan-start` / `--plan-end`、`--interrupt`（割り込みタスク） |
 | `hitoiki task list [--status S] [--kind K]` | 一覧。`--status` はカンマ区切りの `todo,doing,done,dropped,all`（既定 `todo,doing`） |
 | `hitoiki task show <ID>` | 詳細 |
-| `hitoiki task edit <ID> [...]` | 編集。`add` と同じオプションと `--title`。`--no-kr` で KR との紐付けを外す（`--kr` とは同時に指定できない） |
+| `hitoiki task edit <ID> [...]` | 編集。`add` と同じオプションと `--title`。`--no-kr` で成果の指標との紐付けを外す（`--kr` とは同時に指定できない） |
 | `hitoiki task start <ID>` | doing にする（`task.single_doing` が true なら他の doing を todo に戻す） |
 | `hitoiki task done <ID>` / `hitoiki task drop <ID>` | 完了にする / やめる |
 | `hitoiki task delete <ID> [--force] [--dry-run]` | 誤入力のタスクを削除する（やめる=記録として残す、削除=無かったことにする）。計上済みの時間・確定した割り当て・補正があるときは `--force` が無いと終了コード 2 で影響を表示して止まる。`--dry-run` は影響（区間数と時間、確定・補正・ルール・ブロックなどの件数）の表示だけで何も変えない。削除するとタスクの割り当てルール・スキルの紐付け・進行中の履歴・確定した割り当てと補正を消し、ブロックとテンプレート項目はタスクの指定だけを外し、影響した期間を再計算して未割り当てに戻す。`--json` で件数を取れる |
@@ -100,25 +100,27 @@
 - **`undo`**: 取り消していない直近の適用で作ったブロックだけを削除します（手で足したブロックや、すでに消したブロックは対象外）。
 - `--json` では、`list` が `templates`、`apply` が `created` / `skipped`（`skipped` は重なりを `conflicts` に持つ）、`apply --dry-run` が `blocks`、`undo` が `removed` を返します。
 
-### OKR・スキル
+### 目標・スキル
+
+目標（Objective）と、その達成を測る成果の指標（Key Result。以下の `<KR>` と、`--kr`・`kr:` の指定がこれにあたります）を扱います。コマンド名は `okr` のままです。
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki okr add-objective <TITLE> [--from F] [--to T]` | Objective を追加 |
-| `hitoiki okr add-kr <OBJECTIVE> <TITLE> [--target N]` | KR を追加 |
+| `hitoiki okr add-objective <TITLE> [--from F] [--to T]` | 目標を追加 |
+| `hitoiki okr add-kr <OBJECTIVE> <TITLE> [--target N]` | 成果の指標を追加 |
 | `hitoiki okr list` | 一覧 |
-| `hitoiki okr edit-objective <ID> [--title T] [--description D] [--from F] [--to T] [--clear-period] [--status active\|done\|dropped]` | Objective を編集（指定した項目だけ変える。`--description ""` で説明を消す） |
-| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N [--note M]] [--status S] [--objective O] [--measure time\|days\|done] [--day-min N] [--skill 名前,...] [--no-skill]` | KR を編集（`--objective` で別の Objective へ付け替え）。`--measure` は何を軸に見るか（時間 / 回数 / 完了数。既定 `time`）、`--day-min` は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15）。`--skill` は KR のスキル（既存のスキル名。複数可。指定すると今のスキルを置き換える）、`--no-skill` は全て外す。KR の時間はスキルが主で、このスキル（子スキルを含む）が付いたタスク、または活動ルールでそのスキルが付く活動の時間を数える。`okr link` で紐付けたタスクの時間も、重ならないように合算する（1 つの値）。内訳は `okr show` に小さく出る |
-| `hitoiki okr link <KR> <TASK>...` | タスクを KR に紐付ける（KR は ID の前方一致かタイトル、タスクは ID の前方一致）。別の KR に紐付いていたタスクは付け替える（JSON の `linked[].previous_kr` に元の KR）。1 つでも見つからなければ何も変えず終了コード 3 |
-| `hitoiki okr unlink <TASK>...` | タスクの KR との紐付けを外す。KR に紐付いていないタスクは何もしない（JSON は `unlinked`） |
-| `hitoiki okr suggest <KR> [--no-ai] [--json]` | スキルも紐付けたタスクも無い KR に、紐付けるとよさそうなタスク・スキルの候補を出す（**自動では紐付けない**）。まず Objective・KR の名前（タイトル・説明・目標）とタスク名・スキル名の近さで手元の候補を作り、`ai.command` が設定されていれば AI にも聞いて合わせる（AI に送るのは KR と Objective のタイトル、タスク名、スキル名だけ。失敗しても手元の候補は出る）。`--no-ai` で AI に聞かない。候補は `task:<ID>` / `skill:<ID>` の形で出る。どの KR にも紐付いていない未完了のタスクと、「付けない」を選んでいない候補だけが対象。すでにスキルか紐付けたタスクがある KR は `eligible: false` で候補なし。終了コード 3 は KR なし |
-| `hitoiki okr suggest-accept <KR> <候補>...` | 提案の候補を「付ける」。`task:<ID>` は `okr link` と同じ紐付け、`skill:<ID または名前>` は KR のスキルに加える（今のスキルは残る）。1 つでも見つからなければ何も変えず終了コード 3、書式が不正なら 2 |
-| `hitoiki okr suggest-reject <KR> <候補>...` | 提案の候補を「付けない」。以後この KR にはその候補を提案しない（KR を削除すると記録も消える） |
-| `hitoiki okr show <KR> [--date D] [--from F] [--to T] [--json]` | KR の集計。選んだ軸の値（時間 / 取り組んだ日 / 完了数）と補助の値、スキルから・紐付けたタスクからの内訳、週ごとの時間、スキル別の時間（複数のスキルが付いたタスクは各スキルに全時間）、見積の合計と実績、紐付いたタスクを出す。期間の既定は Objective の期間、無ければ直近 8 週。時間は無操作・休憩・無視を除く。目標・現在値は並べるだけで、達成率や評価は出さない |
-| `hitoiki okr progress <KR> <VALUE> [--note N]` | KR の現在値を記録する。現在値を更新し、履歴に 1 行残す（同じ値でも残るので、メモだけ足したいときにも使える）。`edit-kr --current` でも、値が変わったときは履歴が残る（`--note` でメモを添えられる） |
-| `hitoiki okr history <KR> [--date D] [--from F] [--to T] [--json]` | KR の現在値の履歴を、週ごとの時間と並べて出す。週ごとに「その週の終わり時点の現在値」と、紐付いたタスクにかけた時間（`okr show` の週ごとの時間と同じ数え方）、続けて値の履歴の全件（日時・値・メモ）。期間の既定は `okr show` と同じ。目標との比較や評価は出さない。JSON の `weeks[].value` は値の先頭の数値（数として読めなければ null）、`text` は入力した値そのもの |
-| `hitoiki okr delete-objective <ID> [--force] [--dry-run]` | Objective を削除。配下の KR も消え、KR に紐付いたタスクは残って紐付けだけ外れる |
-| `hitoiki okr delete-kr <ID> [--force] [--dry-run]` | KR を削除。紐付いたタスクは残って紐付けだけ外れる |
+| `hitoiki okr edit-objective <ID> [--title T] [--description D] [--from F] [--to T] [--clear-period] [--status active\|done\|dropped]` | 目標を編集（指定した項目だけ変える。`--description ""` で説明を消す） |
+| `hitoiki okr edit-kr <ID> [--title T] [--target N] [--current N [--note M]] [--status S] [--objective O] [--measure time\|days\|done] [--day-min N] [--skill 名前,...] [--no-skill]` | 成果の指標を編集（`--objective` で別の目標へ付け替え）。`--measure` は何を軸に見るか（時間 / 回数 / 完了数。既定 `time`）、`--day-min` は回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15）。`--skill` は成果の指標のスキル（既存のスキル名。複数可。指定すると今のスキルを置き換える）、`--no-skill` は全て外す。成果の指標の時間はスキルが主で、このスキル（子スキルを含む）が付いたタスク、または活動ルールでそのスキルが付く活動の時間を数える。`okr link` で紐付けたタスクの時間も、重ならないように合算する（1 つの値）。内訳は `okr show` に小さく出る |
+| `hitoiki okr link <KR> <TASK>...` | タスクを成果の指標に紐付ける（成果の指標は ID の前方一致かタイトル、タスクは ID の前方一致）。別の成果の指標に紐付いていたタスクは付け替える（JSON の `linked[].previous_kr` に元の成果の指標）。1 つでも見つからなければ何も変えず終了コード 3 |
+| `hitoiki okr unlink <TASK>...` | タスクの成果の指標との紐付けを外す。成果の指標に紐付いていないタスクは何もしない（JSON は `unlinked`） |
+| `hitoiki okr suggest <KR> [--no-ai] [--json]` | スキルも紐付けたタスクも無い成果の指標に、紐付けるとよさそうなタスク・スキルの候補を出す（**自動では紐付けない**）。まず目標・成果の指標の名前（タイトル・説明・目標）とタスク名・スキル名の近さで手元の候補を作り、`ai.command` が設定されていれば AI にも聞いて合わせる（AI に送るのは成果の指標と目標のタイトル、タスク名、スキル名だけ。失敗しても手元の候補は出る）。`--no-ai` で AI に聞かない。候補は `task:<ID>` / `skill:<ID>` の形で出る。どの成果の指標にも紐付いていない未完了のタスクと、「付けない」を選んでいない候補だけが対象。すでにスキルか紐付けたタスクがある成果の指標は `eligible: false` で候補なし。終了コード 3 は成果の指標なし |
+| `hitoiki okr suggest-accept <KR> <候補>...` | 提案の候補を「付ける」。`task:<ID>` は `okr link` と同じ紐付け、`skill:<ID または名前>` は成果の指標のスキルに加える（今のスキルは残る）。1 つでも見つからなければ何も変えず終了コード 3、書式が不正なら 2 |
+| `hitoiki okr suggest-reject <KR> <候補>...` | 提案の候補を「付けない」。以後この成果の指標にはその候補を提案しない（成果の指標を削除すると記録も消える） |
+| `hitoiki okr show <KR> [--date D] [--from F] [--to T] [--json]` | 成果の指標の集計。選んだ軸の値（時間 / 取り組んだ日 / 完了数）と補助の値、スキルから・紐付けたタスクからの内訳、週ごとの時間、スキル別の時間（複数のスキルが付いたタスクは各スキルに全時間）、見積の合計と実績、紐付いたタスクを出す。期間の既定は目標の期間、無ければ直近 8 週。時間は無操作・休憩・無視を除く。目標・現在値は並べるだけで、達成率や評価は出さない |
+| `hitoiki okr progress <KR> <VALUE> [--note N]` | 成果の指標の現在値を記録する。現在値を更新し、履歴に 1 行残す（同じ値でも残るので、メモだけ足したいときにも使える）。`edit-kr --current` でも、値が変わったときは履歴が残る（`--note` でメモを添えられる） |
+| `hitoiki okr history <KR> [--date D] [--from F] [--to T] [--json]` | 成果の指標の現在値の履歴を、週ごとの時間と並べて出す。週ごとに「その週の終わり時点の現在値」と、紐付いたタスクにかけた時間（`okr show` の週ごとの時間と同じ数え方）、続けて値の履歴の全件（日時・値・メモ）。期間の既定は `okr show` と同じ。目標との比較や評価は出さない。JSON の `weeks[].value` は値の先頭の数値（数として読めなければ null）、`text` は入力した値そのもの |
+| `hitoiki okr delete-objective <ID> [--force] [--dry-run]` | 目標を削除。配下の成果の指標も消え、成果の指標に紐付いたタスクは残って紐付けだけ外れる |
+| `hitoiki okr delete-kr <ID> [--force] [--dry-run]` | 成果の指標を削除。紐付いたタスクは残って紐付けだけ外れる |
 | `hitoiki skill add <NAME> [--parent P]` | スキルを追加（`--parent` は名前または ID） |
 | `hitoiki skill import-preset [NAME]` | 同梱プリセットを取り込む（省略で全部） |
 | `hitoiki skill list` | 一覧 |

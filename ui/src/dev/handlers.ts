@@ -52,7 +52,7 @@ function findKr(s: State, q: string | undefined | null): T.KeyResult | undefined
 
 function needKr(s: State, q: string): T.KeyResult {
   const k = findKr(s, q);
-  if (!k) fail("not_found", `KR が見つかりません: ${q}`);
+  if (!k) fail("not_found", `成果の指標が見つかりません: ${q}`);
   return k;
 }
 
@@ -156,7 +156,7 @@ function buildReport(s: State, by: T.ReportBy, a: T.RangeArgs | undefined, inclu
     case "okr":
       map = group(segs, from, to, (x) => {
         const k = s.krs.find((kr) => kr.id === task(x)?.key_result_id);
-        return [k ? [k.id, k.title] : [null, "（KR なし）"]];
+        return [k ? [k.id, k.title] : [null, "（成果の指標なし）"]];
       });
       break;
     case "skill":
@@ -233,7 +233,7 @@ function buildHeatmap(s: State, by: string | undefined, fromS?: string, toS?: st
     if (kind === "kind") label = `${KIND_LABELS[arg as T.SegmentKind] ?? arg}の時間`;
     if (kind === "task") label = `${s.tasks.find((t) => t.id === arg)?.title ?? "タスク"}の時間`;
     if (kind === "skill") label = `${arg} の時間`;
-    if (kind === "kr") label = `${s.krs.find((k) => k.id === arg)?.title ?? "KR"}の時間`;
+    if (kind === "kr") label = `${s.krs.find((k) => k.id === arg)?.title ?? "成果の指標"}の時間`;
     for (const x of s.segments) {
       const t = s.tasks.find((y) => y.id === x.task_id);
       let ok = COUNTED.includes(x.kind);
@@ -266,7 +266,7 @@ function buildHeatmap(s: State, by: string | undefined, fromS?: string, toS?: st
   };
 }
 
-// ===== OKR =====
+// ===== 目標 =====
 
 function krRange(s: State, k: T.KeyResult, given?: T.RangeArgs): { from: number; to: number; source: T.KrSummary["range_source"] } {
   if (given && (given.date || given.from || given.to)) {
@@ -1257,7 +1257,7 @@ const H: Record<string, Handler> = {
   erg_set: (s, a) => upsertErg(s, a.record_kind, a.record_id, { tag: a.tag, source: "user", confidence: null, reason: null }),
   erg_confirm: (s, a) => upsertErg(s, a.record_kind, a.record_id, { source: "user" }),
 
-  // OKR・スキル
+  // 目標・スキル
   okr_list: (s) => ({ objectives: s.objectives.map((o) => ({ ...o, key_results: s.krs.filter((k) => k.objective_id === o.id) })) }),
   okr_add_objective: (s, a) => {
     const o: T.Objective = { id: nid(s, "obj"), title: a.input.title, description_md: null, period_start: null, period_end: null, status: "active" };
@@ -1307,7 +1307,7 @@ const H: Record<string, Handler> = {
     const o = s.objectives.find((x) => x.id === a.id);
     if (!o) fail("not_found", "目標が見つかりません。");
     const krs = s.krs.filter((k) => k.objective_id === o.id);
-    return deleteOutcome("objective", o.id, o.title, [{ label: "KR", count: krs.length }, { label: "紐付けたタスク", count: s.tasks.filter((t) => krs.some((k) => k.id === t.key_result_id)).length }], a.mode, () => {
+    return deleteOutcome("objective", o.id, o.title, [{ label: "成果の指標", count: krs.length }, { label: "紐付けたタスク", count: s.tasks.filter((t) => krs.some((k) => k.id === t.key_result_id)).length }], a.mode, () => {
       s.tasks.forEach((t) => {
         if (krs.some((k) => k.id === t.key_result_id)) t.key_result_id = null;
       });
@@ -1369,7 +1369,7 @@ const H: Record<string, Handler> = {
           ...s.skills.slice(0, 2).map((x, n): T.KrCandidate => ({ kind: "skill", id: x.id, name: x.name, score: 0.7 - n * 0.1, source: "local" })),
         ]
       : [];
-    return { key_result: { id: k.id, title: k.title }, eligible, candidates, ai: { used: false, note: a.use_ai ? "AI は設定されていないため、手元の候補だけを出しました。" : null } } satisfies T.KrSuggestions;
+    return { key_result: { id: k.id, title: k.title }, eligible, candidates, ai: { used: false, note: a.use_ai ? "AI は設定されていないため、名前の近い候補だけを出しました。" : null } } satisfies T.KrSuggestions;
   },
   okr_suggest_accept: (s, a) => {
     const k = needKr(s, a.kr);

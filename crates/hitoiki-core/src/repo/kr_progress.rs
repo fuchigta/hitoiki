@@ -1,4 +1,4 @@
-//! `kr_progress`（KR の現在値の変更履歴）。
+//! `kr_progress`（成果の指標の現在値の変更履歴）。
 
 use crate::{Millis, Result};
 use rusqlite::{params, Connection};
@@ -24,7 +24,7 @@ pub fn insert(conn: &Connection, p: &KrProgress) -> Result<()> {
     Ok(())
 }
 
-/// KR の履歴を古い順に返す。
+/// 成果の指標の履歴を古い順に返す。
 pub fn list_of_kr(conn: &Connection, kr_id: &str) -> Result<Vec<KrProgress>> {
     let mut stmt = conn.prepare(
         "SELECT id, kr_id, value, text, note, at FROM kr_progress WHERE kr_id = ?1 ORDER BY at, rowid",

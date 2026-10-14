@@ -1,4 +1,4 @@
-//! 編集・削除系の DB アクセス（OKR・スキル・ルール・記録）。
+//! 編集・削除系の DB アクセス（目標・スキル・ルール・記録）。
 //!
 //! 外部キーが有効なので、参照されている行を消す前に参照側を外す（NULL 化または削除）。
 
@@ -10,7 +10,7 @@ fn count(conn: &Connection, sql: &str, id: &str) -> Result<i64> {
     Ok(conn.query_row(sql, [id], |r| r.get(0))?)
 }
 
-// ===== OKR =====
+// ===== 目標 =====
 
 pub fn get_objective(conn: &Connection, id: &str) -> Result<Objective> {
     conn.query_row(
@@ -28,7 +28,7 @@ pub fn get_objective(conn: &Connection, id: &str) -> Result<Objective> {
         },
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("Objective {id}")))
+    .ok_or_else(|| Error::NotFound(format!("目標 {id}")))
 }
 
 pub fn update_objective(conn: &Connection, o: &Objective) -> Result<()> {
@@ -67,7 +67,7 @@ pub fn count_tasks_of_kr(conn: &Connection, kr_id: &str) -> Result<i64> {
     count(conn, "SELECT COUNT(*) FROM task WHERE key_result_id = ?1", kr_id)
 }
 
-/// KR を消す。紐付いたタスクの `key_result_id` は NULL に戻す（タスクは残す）。
+/// 成果の指標を消す。紐付いたタスクの `key_result_id` は NULL に戻す（タスクは残す）。
 pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
     conn.execute(
         "UPDATE task SET key_result_id = NULL WHERE key_result_id = ?1",
@@ -80,7 +80,7 @@ pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Objective と配下の KR を消す。KR に紐付いたタスクの参照は NULL に戻す。
+/// 目標と配下の成果の指標を消す。成果の指標に紐付いたタスクの参照は NULL に戻す。
 pub fn delete_objective(conn: &Connection, objective_id: &str) -> Result<()> {
     conn.execute(
         "UPDATE task SET key_result_id = NULL WHERE key_result_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
@@ -132,7 +132,7 @@ pub fn count_activity_skill_rules(conn: &Connection, skill_id: &str) -> Result<i
     )
 }
 
-/// 指定スキルが付いた KR の数（`kr_skill` の行数）。
+/// 指定スキルが付いた成果の指標の数（`kr_skill` の行数）。
 pub fn count_kr_skill(conn: &Connection, skill_id: &str) -> Result<i64> {
     count(
         conn,

@@ -83,7 +83,7 @@ pub fn task_detail(tz: Tz, v: &TaskView) -> String {
     }
     if let Some(kr) = &v.key_result {
         s += &format!(
-            "KR:       {} / {} ({})\n",
+            "成果の指標:       {} / {} ({})\n",
             kr.objective_title,
             kr.title,
             short(&kr.id)
@@ -377,7 +377,7 @@ pub fn report(tz: Tz, r: &Report) -> String {
         ReportBy::Task => "タスク",
         ReportBy::Activity => "活動",
         ReportBy::Quadrant => "緊急・重要",
-        ReportBy::Okr => "OKR",
+        ReportBy::Okr => "目標",
         ReportBy::Skill => "スキル",
         ReportBy::Agent => "AI エージェント",
         ReportBy::Kind => "種別",
@@ -605,7 +605,7 @@ pub fn hassle(h: &Hassle) -> String {
 
 pub fn okr_list(l: &OkrList) -> String {
     if l.objectives.is_empty() {
-        return "Objective はありません。".into();
+        return "目標はありません。".into();
     }
     let mut s = String::new();
     for o in &l.objectives {
@@ -622,7 +622,7 @@ pub fn okr_list(l: &OkrList) -> String {
                 k.title,
                 k.target
                     .as_ref()
-                    .map(|t| format!(" (目標: {t})"))
+                    .map(|t| format!(" (目標値: {t})"))
                     .unwrap_or_default(),
                 measure_label(&k.measure)
             );
@@ -632,28 +632,30 @@ pub fn okr_list(l: &OkrList) -> String {
 }
 
 pub fn objective_added(o: &Objective) -> String {
-    format!("Objective を追加しました: {} {}", short(&o.id), o.title)
+    format!("目標を追加しました: {} {}", short(&o.id), o.title)
 }
 
 pub fn kr_added(k: &KeyResult) -> String {
-    format!("KR を追加しました: {} {}", short(&k.id), k.title)
+    format!("成果の指標を追加しました: {} {}", short(&k.id), k.title)
 }
 
 pub fn kr_suggestions(s: &Suggestions) -> String {
     let title = &s.key_result.title;
     if !s.eligible {
-        return format!("KR「{title}」にはすでにスキルか紐付けたタスクがあるため、提案はありません。");
+        return format!(
+            "成果の指標「{title}」にはすでにスキルか紐付けたタスクがあるため、提案はありません。"
+        );
     }
     let mut out = String::new();
     if s.candidates.is_empty() {
-        out += &format!("KR「{title}」に紐付ける候補は見つかりませんでした。");
+        out += &format!("成果の指標「{title}」に紐付ける候補は見つかりませんでした。");
     } else {
-        out += &format!("KR「{title}」に紐付けるとよさそうな候補です（自動では紐付けません）。");
+        out += &format!("成果の指標「{title}」に紐付けるとよさそうな候補です（自動では紐付けません）。");
         for c in &s.candidates {
             let src = match c.source {
-                "both" => "手元+AI",
+                "both" => "名前の近さ+AI",
                 "ai" => "AI",
-                _ => "手元",
+                _ => "名前の近さ",
             };
             out += &format!("\n  {}:{}  {}  [{}]", c.kind.as_str(), short(&c.id), c.name, src);
         }
@@ -669,10 +671,10 @@ pub fn kr_suggestions(s: &Suggestions) -> String {
 
 pub fn kr_suggest_decided(r: &DecisionResult, accepted: bool) -> String {
     let mut out = if accepted {
-        format!("KR「{}」に付けました。", r.key_result.title)
+        format!("成果の指標「{}」に付けました。", r.key_result.title)
     } else {
         format!(
-            "KR「{}」には付けないことにしました（以後提案しません）。",
+            "成果の指標「{}」には付けないことにしました（以後提案しません）。",
             r.key_result.title
         )
     };
@@ -692,14 +694,14 @@ fn measure_label(m: &str) -> &'static str {
 
 pub fn kr_linked(r: &LinkResult) -> String {
     let mut s = format!(
-        "{} 件のタスクを KR「{}」に紐付けました。",
+        "{} 件のタスクを成果の指標「{}」に紐付けました。",
         r.linked.len(),
         r.key_result.title
     );
     for t in &r.linked {
         s += &format!("\n  {} {}", short(&t.id), t.title);
         if let Some(p) = &t.previous_kr {
-            s += &format!("（KR「{}」から付け替え）", p.title);
+            s += &format!("（成果の指標「{}」から付け替え）", p.title);
         }
     }
     s
@@ -707,19 +709,19 @@ pub fn kr_linked(r: &LinkResult) -> String {
 
 pub fn kr_unlinked(l: &[LinkedTask]) -> String {
     if l.is_empty() {
-        return "外したタスクはありません（KR に紐付いていませんでした）。".into();
+        return "外したタスクはありません（成果の指標に紐付いていませんでした）。".into();
     }
-    let mut s = format!("{} 件のタスクの KR との紐付けを外しました。", l.len());
+    let mut s = format!("{} 件のタスクの成果の指標との紐付けを外しました。", l.len());
     for t in l {
         s += &format!("\n  {} {}", short(&t.id), t.title);
         if let Some(p) = &t.previous_kr {
-            s += &format!("（KR「{}」）", p.title);
+            s += &format!("（成果の指標「{}」）", p.title);
         }
     }
     s
 }
 
-/// KR の集計。選んだ軸の値を先頭に、残りは補助として並べる。評価や達成率は出さない。
+/// 成果の指標の集計。選んだ軸の値を先頭に、残りは補助として並べる。評価や達成率は出さない。
 pub fn kr_summary(s: &KrSummary) -> String {
     let k = &s.key_result;
     let mut out = format!(
@@ -730,14 +732,14 @@ pub fn kr_summary(s: &KrSummary) -> String {
         s.range.start,
         s.range.end,
         match s.range_source {
-            "objective" => "Objective の期間",
+            "objective" => "目標の期間",
             "given" => "指定",
             _ => "直近 8 週",
         }
     );
     if k.target.is_some() || k.current.is_some() {
         out += &format!(
-            "目標: {}  現在値: {}\n",
+            "目標値: {}  現在値: {}\n",
             k.target.as_deref().unwrap_or("-"),
             k.current.as_deref().unwrap_or("-")
         );
@@ -765,7 +767,7 @@ pub fn kr_summary(s: &KrSummary) -> String {
             s.kr_skills.join("、")
         };
         out += &format!(
-            "KR のスキル: {}（子スキルを含む）\n内訳: スキルから {} ・ 紐付いたタスクから {}（両方に当てはまる区間はスキルから）\n",
+            "成果の指標のスキル: {}（子スキルを含む）\n内訳: スキルから {} ・ 紐付いたタスクから {}（両方に当てはまる区間はスキルから）\n",
             names,
             dur(s.from_skill_ms),
             dur(s.from_task_ms)
@@ -834,7 +836,7 @@ pub fn kr_progress_recorded(tz: Tz, r: &ProgressRecorded) -> String {
     s
 }
 
-/// KR の現在値の履歴。週ごとに「その週の終わり時点の現在値」と時間を並べるだけで、評価は付けない。
+/// 成果の指標の現在値の履歴。週ごとに「その週の終わり時点の現在値」と時間を並べるだけで、評価は付けない。
 pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
     let k = &h.key_result;
     let mut out = format!(
@@ -844,13 +846,13 @@ pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
         h.range.start,
         h.range.end,
         match h.range_source {
-            "objective" => "Objective の期間",
+            "objective" => "目標の期間",
             "given" => "指定",
             _ => "直近 8 週",
         }
     );
     if let Some(t) = &k.target {
-        out += &format!("目標: {t}\n");
+        out += &format!("目標値: {t}\n");
     }
     out += "\n週（月曜始まり）  現在値        時間\n";
     for w in &h.weeks {
