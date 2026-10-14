@@ -16,7 +16,7 @@ export function ActivityLabelsCard() {
     if ((await act.run(fn)) !== undefined) labels.reload();
   };
   return (
-    <Card title="活動ラベル" help="判定器に渡す活動の候補です。外しても、過去の時間や活動ルールに付いたラベルは残ります。">
+    <Card title="活動ラベル" help="自動判定（AI）に渡す活動の候補です。外しても、過去の時間や活動ルールに付いたラベルは残ります。">
       <ErrorBox error={labels.error} />
       {labels.data?.labels.length === 0 && <Empty>活動ラベルはありません。</Empty>}
       <ObjectList label="活動ラベル">

@@ -1,4 +1,4 @@
-// 設定の「ルール」タブ。帰属ルール（全タスク分）・活動ルール・無視するアプリを 1 つの一覧にまとめる。
+// 設定の「ルール」タブ。タスクの割り当てルール（全タスク分）・活動ルール・無視するアプリを 1 つの一覧にまとめる。
 import { useState } from "preact/hooks";
 import { api } from "./api";
 import { EmptyState, ErrorBox, Field, Section } from "./components";
@@ -7,6 +7,8 @@ import { hasExe, normalizeExe } from "./ignore-util";
 import { useAction, useAsync } from "./lib";
 import { RuleFields, noImpact, priorityOf, type Draft } from "./rule-row";
 import {
+  FIELD_LABEL,
+  PTYPE_LABEL,
   RULE_FILTERS,
   RULE_KIND_LABEL,
   filterRules,
@@ -44,7 +46,7 @@ export function RulesTab() {
   return (
     <Section
       title="ルール"
-      help="時間の行き先を決めるルールです。帰属はウインドウのパターンからタスクへ、活動は活動ラベルへ、無視は特定のアプリを集計から外します。無効にするとルールを残したまま判定に使いません。"
+      help="時間の行き先を決めるルールです。「タスク」はウインドウなどのパターンからタスクへ、「活動」は活動ラベルへ、「無視」は特定のアプリを集計から外します。無効にするとルールを残したまま判定に使いません。"
     >
       <ErrorBox error={taskRules.error ?? actRules.error ?? ignore.error ?? tasks.error} />
       <ListDetail
@@ -158,7 +160,7 @@ function RuleListRow({
         title={
           <>
             <code class={i.enabled ? undefined : "meta"}>
-              {i.kind === "ignore" ? i.pattern : `${i.field} ${i.type} ${i.pattern}`}
+              {i.kind === "ignore" ? i.pattern : `${FIELD_LABEL[i.field!]} ${PTYPE_LABEL[i.type!]} ${i.pattern}`}
             </code>
             {meta && (
               <>

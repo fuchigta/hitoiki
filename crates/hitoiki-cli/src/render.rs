@@ -116,7 +116,7 @@ pub fn task_show(tz: Tz, v: &TaskShow) -> String {
         v.tracked_segments
     );
     if !v.rules.is_empty() {
-        s += &format!("\n\n帰属ルール:\n{}", rules_table(&v.rules));
+        s += &format!("\n\nタスクの割り当てルール:\n{}", rules_table(&v.rules));
     }
     s
 }

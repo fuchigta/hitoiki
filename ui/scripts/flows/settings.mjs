@@ -24,14 +24,14 @@ export default {
       "活動ルールがモックの状態に増えません",
     );
     // 追加すると一覧に出て、選択される。
-    await page.getByRole("button", { name: /^exe glob flowtest\*/ }).waitFor();
+    await page.getByRole("button", { name: /^アプリ（実行ファイル名） ワイルドカード（\* と \?） flowtest\*/ }).waitFor();
     await page.getByRole("heading", { name: "ルールの編集", level: 3 }).waitFor();
 
-    // 種類で絞り込む（活動だけ → 帰属は消える）。
+    // 種類で絞り込む（活動だけ → タスクは消える）。
     await page.getByRole("button", { name: "活動", exact: true }).click();
-    await page.getByRole("button", { name: /^exe contains Teams\.exe/ }).waitFor();
-    await page.getByRole("button", { name: "帰属", exact: true }).click();
-    await page.getByRole("button", { name: /^exe glob flowtest\*/ }).waitFor({ state: "detached" });
+    await page.getByRole("button", { name: /^アプリ（実行ファイル名） 含む Teams\.exe/ }).waitFor();
+    await page.getByRole("button", { name: "タスク", exact: true }).click();
+    await page.getByRole("button", { name: /^アプリ（実行ファイル名） ワイルドカード（\* と \?） flowtest\*/ }).waitFor({ state: "detached" });
     await page.getByRole("button", { name: "すべて", exact: true }).click();
 
     // 行のメニューから無効にする。状態が変わり、行に「無効」が付く。
@@ -41,7 +41,7 @@ export default {
       () => mockState(page, (s) => s.activityRules.some((r) => r.pattern === "flowtest*" && r.enabled === false)),
       "ルールが無効になりません",
     );
-    await page.getByRole("button", { name: /^exe glob flowtest\*.*無効/ }).waitFor();
+    await page.getByRole("button", { name: /^アプリ（実行ファイル名） ワイルドカード（\* と \?） flowtest\*.*無効/ }).waitFor();
 
     // テンプレートタブで作成。
     await page.getByRole("tab", { name: "テンプレート", exact: true }).click();

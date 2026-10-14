@@ -7,7 +7,7 @@ GitHub Releases から取得します。コード署名は付与していませ�
 1. [Releases](https://github.com/fuchigta/hitoiki/releases) から `hitoiki-<ver>-windows-x64-setup.exe` をダウンロードします。
 2. 実行します。SmartScreen の警告が出たら「詳細情報」→「実行」を選びます（[SmartScreen](#smartscreen-の警告が出る場合) を参照）。
 3. 画面の指示に従ってインストールします。管理者権限は不要で、既定のインストール先は `%LOCALAPPDATA%\Hitoiki` です。このフォルダは DB・ログの置き場（`%LOCALAPPDATA%\hitoiki`）と同じです（Windows はフォルダ名の大文字小文字を区別しません）。プログラムとデータが同じフォルダに並ぶので、**フォルダごと手で削除しないでください**（記録も消えます）。アンインストールは下記の手順で行ってください。
-4. 完了画面の「実行」のチェックを入れたままにすると、そのまま起動して初回のオンボーディングが始まります（[はじめに](./getting-started.md)）。
+4. 完了画面の「実行」のチェックを入れたままにすると、そのまま起動して初回の「はじめに」画面が開きます（[はじめに](./getting-started.md)）。
 
 インストーラーが行うこと:
 

@@ -25,7 +25,23 @@ export function settingsTab(seg: string | undefined): SettingsTabId {
 export type RuleKind = "task" | "activity" | "ignore";
 export type RuleFilter = "all" | RuleKind;
 
-export const RULE_KIND_LABEL: Record<RuleKind, string> = { task: "帰属", activity: "活動", ignore: "無視" };
+/** 対象（MatchField）の表示名。value は識別子のまま、画面にはこの名前を出す。 */
+export const FIELD_LABEL: Record<MatchField, string> = {
+  exe: "アプリ（実行ファイル名）",
+  title: "ウインドウ名",
+  cwd: "作業フォルダ",
+  repo: "リポジトリ",
+  url: "URL",
+  git_branch: "ブランチ",
+};
+/** 種類（PatternType）の表示名。 */
+export const PTYPE_LABEL: Record<PatternType, string> = {
+  glob: "ワイルドカード（* と ?）",
+  regex: "正規表現",
+  contains: "含む",
+};
+
+export const RULE_KIND_LABEL: Record<RuleKind, string> = { task: "タスク", activity: "活動", ignore: "無視" };
 export const RULE_FILTERS: { id: RuleFilter; label: string }[] = [
   { id: "all", label: "すべて" },
   { id: "task", label: RULE_KIND_LABEL.task },
@@ -35,11 +51,11 @@ export const RULE_FILTERS: { id: RuleFilter; label: string }[] = [
 
 const KIND_ORDER: Record<RuleKind, number> = { task: 0, activity: 1, ignore: 2 };
 
-/** 一覧の 1 行。帰属は task_id / 対象タスク名、活動は活動ラベル、無視は exe 名だけ。 */
+/** 一覧の 1 行。タスクは task_id / 対象タスク名、活動は活動ラベル、無視は exe 名だけ。 */
 export interface RuleItem {
   key: string;
   kind: RuleKind;
-  /** 帰属・活動はルールの ID、無視は exe 名。 */
+  /** タスク・活動はルールの ID、無視は exe 名。 */
   id: string;
   field?: MatchField;
   type?: PatternType;
@@ -90,13 +106,13 @@ export function mergeRules(
       (e): RuleItem => ({ key: `ignore:${e}`, kind: "ignore", id: e, pattern: e, priority: 0, enabled: true, target: "" }),
     ),
   ];
-  // 種類（帰属 → 活動 → 無視）、優先度の大きい順、パターン順。
+  // 種類（タスク → 活動 → 無視）、優先度の大きい順、パターン順。
   return items.sort(
     (a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || b.priority - a.priority || a.pattern.localeCompare(b.pattern),
   );
 }
 
-/** 種類とタスクで絞る。タスクで絞ると、そのタスクの帰属ルールだけになる（空文字は絞らない）。 */
+/** 種類とタスクで絞る。タスクで絞ると、そのタスクの割り当てルールだけになる（空文字は絞らない）。 */
 export function filterRules(items: RuleItem[], kind: RuleFilter, taskId = ""): RuleItem[] {
   return items.filter((i) => (kind === "all" || i.kind === kind) && (!taskId || (i.kind === "task" && i.taskId === taskId)));
 }

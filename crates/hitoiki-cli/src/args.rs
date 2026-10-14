@@ -99,7 +99,7 @@ pub enum Cmd {
     /// 活動ルール（アプリ・タイトル等のパターンから活動ラベルを当てる）
     #[command(subcommand, name = "activity-rule")]
     ActivityRule(ActivityRuleCmd),
-    /// 活動ラベルの候補（判定器へ渡す一覧）
+    /// 活動ラベルの候補（自動判定（AI）へ渡す一覧）
     #[command(subcommand, name = "activity-label")]
     ActivityLabel(LabelCmd),
     /// カレンダーソース（ICS）
@@ -288,7 +288,7 @@ pub enum TaskCmd {
     },
     /// 直前まで doing だったタスクに戻る（割り込みが終わったとき）
     Back,
-    /// 帰属ルール
+    /// タスクの割り当てルール
     #[command(subcommand)]
     Rule(RuleCmd),
 }

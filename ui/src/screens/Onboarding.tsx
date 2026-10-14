@@ -103,7 +103,7 @@ function TaskStep() {
     <Card title="いまやることを 1 つ決める">
       <div class="stack">
         <p>
-          進行中（doing）のタスクがあると、ルールに当たらない時間はそのタスクの候補になります。
+          進行中のタスクがあると、ルールに当たらない時間はそのタスクの候補になります。
         </p>
         <TrustDoingToggle cfg={cfg} label="始めたタスクを信頼する（進行中のタスクに仮で当てた時間を、確認待ちにしない）" />
         <ErrorBox error={cfg.error ?? act.error} />
@@ -176,7 +176,7 @@ function DailyStep() {
           <a href="#/today">今日</a>: タイムラインで一日の流れを確認します。
         </li>
         <li>
-          <a href="#/review">仕分け</a>: 要確認の区間を、タスクなどに確定します。
+          <a href="#/log?status=review">実績</a>: 要確認の区間を、タスクなどに確定します。
         </li>
         <li>通知に 1 タップで答えると、記録の精度が上がります。</li>
         <li>

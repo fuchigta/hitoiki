@@ -63,7 +63,7 @@ function GeneralTab() {
                 if (await act.run(() => api.onboardingReset())) navigate("#/onboarding");
               }}
             >
-              オンボーディングをもう一度見る
+              はじめにをもう一度見る
             </button>
           </div>
         </div>

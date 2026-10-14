@@ -34,23 +34,23 @@
 | `hitoiki task edit <ID> [...]` | 編集。`add` と同じオプションと `--title`。`--no-kr` で KR との紐付けを外す（`--kr` とは同時に指定できない） |
 | `hitoiki task start <ID>` | doing にする（`task.single_doing` が true なら他の doing を todo に戻す） |
 | `hitoiki task done <ID>` / `hitoiki task drop <ID>` | 完了にする / やめる |
-| `hitoiki task delete <ID> [--force] [--dry-run]` | 誤入力のタスクを削除する（やめる=記録として残す、削除=無かったことにする）。計上済みの時間・確定した割り当て・補正があるときは `--force` が無いと終了コード 2 で影響を表示して止まる。`--dry-run` は影響（区間数と時間、確定・補正・ルール・ブロックなどの件数）の表示だけで何も変えない。削除すると帰属ルール・スキルの紐付け・進行中の履歴・確定した割り当てと補正を消し、ブロックとテンプレート項目はタスクの指定だけを外し、影響した期間を再計算して未割り当てに戻す。`--json` で件数を取れる |
+| `hitoiki task delete <ID> [--force] [--dry-run]` | 誤入力のタスクを削除する（やめる=記録として残す、削除=無かったことにする）。計上済みの時間・確定した割り当て・補正があるときは `--force` が無いと終了コード 2 で影響を表示して止まる。`--dry-run` は影響（区間数と時間、確定・補正・ルール・ブロックなどの件数）の表示だけで何も変えない。削除するとタスクの割り当てルール・スキルの紐付け・進行中の履歴・確定した割り当てと補正を消し、ブロックとテンプレート項目はタスクの指定だけを外し、影響した期間を再計算して未割り当てに戻す。`--json` で件数を取れる |
 | `hitoiki task switch <タイトルまたは ID> [--new] [--interrupt]` | 未完了のタスクを選んですぐ開始する（割り込み用）。タイトルは完全一致、ID は前方一致（4 文字以上）、タイトルの部分一致の順に探す。複数に当たると終了コード 4、無いと 3。`--new` は探さずにタイトルとして新規作成して開始し、`--interrupt` を付けると割り込み（緊急）として作る（`--new` が必要）。`--json` の出力は `task start` と同じ形に `created` が加わる |
 | `hitoiki task back` | 直前まで進行中だったタスクに戻る（割り込みが終わったとき）。完了・やめたタスクには戻らない。戻り先が無いと終了コード 3 |
-| `hitoiki task rule add <ID> --field F --pattern P [--type T] [--priority N]` | 帰属ルールを追加。`--field` は `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`、`--type` は `glob`（既定）/ `regex` / `contains` |
-| `hitoiki task rule list [ID]` | 帰属ルールの一覧 |
+| `hitoiki task rule add <ID> --field F --pattern P [--type T] [--priority N]` | タスクの割り当てルールを追加。`--field` は `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`、`--type` は `glob`（既定）/ `regex` / `contains` |
+| `hitoiki task rule list [ID]` | タスクの割り当てルールの一覧 |
 
 ### 仕分け・再計算
 
 | コマンド | 内容 |
 |---|---|
 | `hitoiki review list [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`review.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
-| `hitoiki review set <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間から帰属ルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `override_ids` / `rules` |
+| `hitoiki review set <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間からタスクの割り当てルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `override_ids` / `rules` |
 | `hitoiki review set --from F --to T (--task ID \| --no-task \| --rest) [--activity A] [--include-confirmed] [--include-meeting] [--include-idle] [--exclude SEGMENT...] [--dry-run]` | 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）。区間 ID とは併用できない。境界にまたがる区間は範囲の内側だけが対象。最初のチェックは通常の作業とエージェント対話が ON で、確定済み・会議・無操作と記録なしは OFF（`--include-*` か設定 `review.correct_include_*` で ON）。`--exclude` には対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`。`--dry-run` の出力で分かる）。無操作・記録なしは種別 work の「PC 外」として計上される。`--dry-run` は確定せず、候補（`checked`）と合計を表示する。`--json` は適用時 `correction` / `preview` / `override_ids`、`--dry-run` 時は `preview` の内容（`summary` / `total_ms` / `offline_ms` / `excluded_count` / `candidates`） |
 | `hitoiki review corrections [--task ID] [--date D]` | 補正の一覧（新しい順）。`--task` でそのタスクへの補正だけ、`--date` でその日と重なるものだけ |
 | `hitoiki review undo-correction <ID>` | 補正を取り消す。その補正で作った確定を削除して、範囲を再計算する（ID は前方一致。存在しなければ終了コード 3） |
 | `hitoiki review idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
-| `hitoiki review suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目の帰属ルールを追加、`--dismiss N` で断る（`review.rule_suggest_snooze_days` 日は再提案しない） |
+| `hitoiki review suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目のタスクの割り当てルールを追加、`--dismiss N` で断る（`review.rule_suggest_snooze_days` 日は再提案しない） |
 | `hitoiki review ignore <SEGMENT>...` | 区間を「無視」にする（種別 `ignored`・タスクなしの確定として保存。集計・レポート・タスクの実績に数えない。再計算でも残る）。1 つでも解決できなければ何も変更しない（終了コード 3） |
 | `hitoiki review unignore <SEGMENT>...` | `review ignore` で無視にした区間を元に戻す（確定を削除して再計算）。無視でない区間、または無視リスト（`collect.ignore_exes`）による無視は終了コード 2 |
 | `hitoiki ignore list` | 無視リスト（`collect.ignore_exes`）の一覧。`--json` は `exes` / `default_exes` / `customized` |
@@ -124,8 +124,8 @@
 | `hitoiki skill list` | 一覧 |
 | `hitoiki skill edit <SKILL> [--name N] [--parent P \| --no-parent] [--description D]` | スキルを編集（名前または ID。取り込み済みのプリセットも可。自分や子孫を親にはできない） |
 | `hitoiki skill delete <SKILL> [--children reparent\|delete] [--force] [--dry-run]` | スキルを削除。タスクへの付与は外れる。子スキルは `reparent`（既定。親を付け替え）か `delete`（一緒に削除） |
-| `hitoiki task rule edit <RULE> [--field F] [--pattern P] [--type T] [--priority N] [--enable \| --disable]` | 帰属ルールを編集・有効/無効の切り替え |
-| `hitoiki task rule delete <RULE> [--dry-run]` | 帰属ルールを削除 |
+| `hitoiki task rule edit <RULE> [--field F] [--pattern P] [--type T] [--priority N] [--enable \| --disable]` | タスクの割り当てルールを編集・有効/無効の切り替え |
+| `hitoiki task rule delete <RULE> [--dry-run]` | タスクの割り当てルールを削除 |
 | `hitoiki activity-rule list` / `add --field F --pattern P --label L [--type T] [--priority N]` | 活動ルール（パターンから活動ラベルを当てる）の一覧・追加 |
 | `hitoiki activity-rule edit <RULE> [--field F] [--pattern P] [--type T] [--label L] [--priority N] [--enable \| --disable]` / `delete <RULE> [--dry-run]` | 活動ルールの編集・削除 |
 | `hitoiki activity-label list` / `add <L>` / `rename <FROM> <TO>` / `remove <L>` | 活動ラベルの候補（`activity.labels`）。`rename` は同じラベルの活動ルールも付け替える。`remove` しても過去の区間のラベルは残る |

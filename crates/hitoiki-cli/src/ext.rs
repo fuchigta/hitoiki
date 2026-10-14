@@ -86,7 +86,11 @@ pub fn rebuild(from: Option<String>, to: Option<String>, date: Option<String>, j
             to_local(tz, stats.range.end).format("%Y-%m-%d %H:%M"),
             stats.segments,
             stats.bindings,
-            if judge.is_some() { "、判定器あり" } else { "" }
+            if judge.is_some() {
+                "、自動判定（AI）あり"
+            } else {
+                ""
+            }
         )
     })
 }

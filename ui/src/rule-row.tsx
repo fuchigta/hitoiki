@@ -3,6 +3,7 @@ import { api, type ActivityRule, type DeleteOutcome, type MatchField, type Patte
 import { ErrorBox, Field } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
 import { useAction } from "./lib";
+import { FIELD_LABEL, PTYPE_LABEL } from "./settings-util";
 import { OverflowMenu } from "./ui/parts";
 
 export const FIELDS: MatchField[] = ["exe", "title", "cwd", "repo", "url", "git_branch"];
@@ -30,7 +31,7 @@ export interface Draft {
 
 /**
  * 設定の「ルール」タブの編集フォームが使う、対象・種類・パターン・優先度の欄（ラベルつき）。
- * 帰属・活動のどちらも同じ形。行き先（タスク・活動ラベル）の欄は呼び出し側が足す。
+ * タスク・活動のどちらも同じ形。行き先（タスク・活動ラベル）の欄は呼び出し側が足す。
  */
 export function RuleFields({ d, set }: { d: Draft; set: (d: Draft) => void }) {
   return (
@@ -39,14 +40,14 @@ export function RuleFields({ d, set }: { d: Draft; set: (d: Draft) => void }) {
         <Field label="対象">
           <select value={d.field} onChange={(e) => set({ ...d, field: e.currentTarget.value as MatchField })}>
             {FIELDS.map((f) => (
-              <option key={f}>{f}</option>
+              <option key={f} value={f}>{FIELD_LABEL[f]}</option>
             ))}
           </select>
         </Field>
         <Field label="種類">
           <select value={d.type} onChange={(e) => set({ ...d, type: e.currentTarget.value as PatternType })}>
             {PTYPES.map((f) => (
-              <option key={f}>{f}</option>
+              <option key={f} value={f}>{PTYPE_LABEL[f]}</option>
             ))}
           </select>
         </Field>
@@ -66,12 +67,12 @@ function EditFields({ d, set, withLabel }: { d: Draft; set: (d: Draft) => void; 
     <>
       <select value={d.field} onChange={(e) => set({ ...d, field: e.currentTarget.value as MatchField })} aria-label="対象">
         {FIELDS.map((f) => (
-          <option key={f}>{f}</option>
+          <option key={f} value={f}>{FIELD_LABEL[f]}</option>
         ))}
       </select>
       <select value={d.type} onChange={(e) => set({ ...d, type: e.currentTarget.value as PatternType })} aria-label="種類">
         {PTYPES.map((f) => (
-          <option key={f}>{f}</option>
+          <option key={f} value={f}>{PTYPE_LABEL[f]}</option>
         ))}
       </select>
       <input class="grow" value={d.pattern} onInput={(e) => set({ ...d, pattern: e.currentTarget.value })} aria-label="パターン" />
@@ -100,15 +101,15 @@ interface RowProps<R> {
   onChanged: () => void;
 }
 
-/** タスクの帰属ルール 1 行。有効/無効の切り替え、編集、削除。 */
+/** タスクの割り当てルール 1 行。有効/無効の切り替え、編集、削除。 */
 export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
   const mk = (): Draft => ({ field: r.field, type: r.pattern_type, pattern: r.pattern, priority: String(r.priority), label: "" });
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Draft>(mk);
   const act = useAction();
   const del = useConfirmDelete({
-    what: "帰属ルール",
-    preview: async () => noImpact(r.id, `${r.field} ${r.pattern}`),
+    what: "タスクの割り当てルール",
+    preview: async () => noImpact(r.id, `${FIELD_LABEL[r.field]} ${r.pattern}`),
     commit: () => api.ruleDelete(r.id),
     onDeleted: onChanged,
   });
@@ -153,7 +154,7 @@ export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
             />
           </label>
           <code class={r.enabled ? "grow" : "grow meta"}>
-            {r.field} {r.pattern_type} {r.pattern}
+            {FIELD_LABEL[r.field]} {PTYPE_LABEL[r.pattern_type]} {r.pattern}
             {r.priority !== 0 && ` （優先度 ${r.priority}）`}
           </code>
           <OverflowMenu
@@ -191,7 +192,7 @@ export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) 
   const act = useAction();
   const del = useConfirmDelete({
     what: "活動ルール",
-    preview: async () => noImpact(r.id, `${r.field} ${r.pattern}`),
+    preview: async () => noImpact(r.id, `${FIELD_LABEL[r.field]} ${r.pattern}`),
     commit: () => api.activityRuleDelete(r.id),
     onDeleted: onChanged,
   });
@@ -242,7 +243,7 @@ export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) 
             />
           </label>
           <code class={r.enabled ? "grow" : "grow meta"}>
-            {r.field} {r.pattern_type} {r.pattern} → {r.activity_label}
+            {FIELD_LABEL[r.field]} {PTYPE_LABEL[r.pattern_type]} {r.pattern} → {r.activity_label}
             {r.priority !== 0 && ` （優先度 ${r.priority}）`}
           </code>
           <OverflowMenu

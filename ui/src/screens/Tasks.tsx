@@ -10,7 +10,8 @@ import { krLabel, krOptions } from "../kr-util";
 import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "../lib";
 import { Markdown } from "../markdown";
 import { SkillPicker } from "../skill-picker";
-import { TaskRuleRow } from "../rule-row";
+import { FIELDS, PTYPES, TaskRuleRow } from "../rule-row";
+import { FIELD_LABEL, PTYPE_LABEL } from "../settings-util";
 
 /** 「保存しました」を出しておく時間。 */
 const SAVED_NOTICE_MS = 4000;
@@ -33,8 +34,6 @@ const FILTERS: { id: string; label: string; statuses: TaskStatus[] }[] = [
   { id: "all", label: "すべて", statuses: ["todo", "doing", "done", "dropped"] },
 ];
 
-const FIELDS: MatchField[] = ["exe", "title", "cwd", "repo", "url", "git_branch"];
-const PTYPES: PatternType[] = ["glob", "regex", "contains"];
 
 const TABS = [
   { id: "overview", label: "概要" },
@@ -247,7 +246,7 @@ function TaskDetail({
       <TabPanel id="rules" idBase="task" active={tab}>
         <Section
           level={3}
-          title="帰属ルール"
+          title="タスクの割り当てルール"
           help="条件に当たる時間は、自動でこのタスクになります。変更すると今日の分が再計算されます。"
         >
           {rules.length === 0 && <Empty>ルールはありません。</Empty>}
@@ -531,12 +530,12 @@ function RuleForm({ taskId, onAdded }: { taskId: string; onAdded: () => void }) 
     >
       <select value={field} onChange={(e) => setField(e.currentTarget.value as MatchField)} aria-label="対象">
         {FIELDS.map((f) => (
-          <option key={f}>{f}</option>
+          <option key={f} value={f}>{FIELD_LABEL[f]}</option>
         ))}
       </select>
       <select value={ptype} onChange={(e) => setPtype(e.currentTarget.value as PatternType)} aria-label="種類">
         {PTYPES.map((f) => (
-          <option key={f}>{f}</option>
+          <option key={f} value={f}>{PTYPE_LABEL[f]}</option>
         ))}
       </select>
       <input class="grow" value={pattern} onInput={(e) => setPattern(e.currentTarget.value)} placeholder="パターン（例: *hitoiki*）" />
