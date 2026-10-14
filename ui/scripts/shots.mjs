@@ -19,6 +19,8 @@ import { launchBrowser, openPage, root, SCENARIOS, startServer, WINDOWS } from "
 
 /** 伸ばす高さの上限（長すぎる画面で画像が巨大になるのを防ぐ）。 */
 const MAX_HEIGHT = 5000;
+/** --narrow で撮る幅（860px 以下の狭い幅の崩れを見るため）。 */
+const NARROW_WIDTH = 800;
 
 /**
  * 一覧で 1 つ選んだ状態（`#/tasks/<ID>` など）の撮影指定。ID はモックの状態から引く（フィクスチャに無ければ飛ばす）。
@@ -148,7 +150,7 @@ function readScreens() {
 }
 
 function parseArgs(argv) {
-  const o = { scenario: null, screen: null, window: null, dark: false, diff: false, out: join(root, "shots"), help: false };
+  const o = { scenario: null, screen: null, window: null, dark: false, narrow: false, diff: false, out: join(root, "shots"), help: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -157,6 +159,7 @@ function parseArgs(argv) {
     else if (a === "--window") o.window = next();
     else if (a === "--out") o.out = resolve(next());
     else if (a === "--dark") o.dark = true;
+    else if (a === "--narrow") o.narrow = true;
     else if (a === "--diff") o.diff = true;
     else if (a === "--help" || a === "-h") o.help = true;
     else throw new Error(`知らない引数です: ${a}`);
@@ -165,11 +168,12 @@ function parseArgs(argv) {
 }
 
 function usage() {
-  console.log(`使い方: npm run shots -- [--scenario default|empty|busy] [--window main|popup|quick] [--screen <画面ID>] [--dark] [--diff] [--out <dir>]
+  console.log(`使い方: npm run shots -- [--scenario default|empty|busy] [--window main|popup|quick] [--screen <画面ID>] [--dark] [--narrow] [--diff] [--out <dir>]
   --scenario  撮るシナリオ（省略で全部）
   --window    撮るウインドウ種別（省略で全部）。popup / quick は画面の指定が無効
   --screen    main の画面 ID（${readScreens().join(" / ")}）。省略で全部
   --dark      ダークテーマも撮る（ファイル名の末尾に -dark）
+  --narrow    main を幅 800px で撮る（ファイル名に -narrow。popup / quick は撮らない）
   --diff      前回の撮影（<out>-prev）と画像・aria を比べ、変化したものを一覧する。差分画像は <out>/diff/
   --out       出力先（既定は ui/shots）`);
 }
@@ -183,7 +187,9 @@ async function main() {
 
   const screens = readScreens();
   const scenarios = opt.scenario ? [opt.scenario] : SCENARIOS;
-  const windows = opt.window ? [opt.window] : Object.keys(WINDOWS);
+  const windows = opt.narrow ? ["main"] : opt.window ? [opt.window] : Object.keys(WINDOWS);
+  const width = opt.narrow ? NARROW_WIDTH : WINDOWS.main.width;
+  const sfx = opt.narrow ? "-narrow" : "";
   for (const s of scenarios) if (!SCENARIOS.includes(s)) throw new Error(`知らないシナリオです: ${s}`);
   for (const w of windows) if (!WINDOWS[w]) throw new Error(`知らないウインドウ種別です: ${w}`);
   if (opt.screen && !screens.includes(opt.screen)) throw new Error(`知らない画面です: ${opt.screen}（${screens.join(", ")}）`);
@@ -204,13 +210,13 @@ async function main() {
         const targets = win === "main" ? (opt.screen ? [opt.screen] : screens) : [null];
         for (const screen of targets) {
           for (const scheme of schemes) {
-            const name = `${screen ? `${win}-${screen}` : win}${scheme === "dark" ? "-dark" : ""}`;
+            const name = `${screen ? `${win}-${screen}` : win}${sfx}${scheme === "dark" ? "-dark" : ""}`;
             const where = `${scenario}/${name}`;
-            const { page, close } = await openPage(browser, { base, scenario, win, screen, scheme, problems, where });
+            const { page, close } = await openPage(browser, { base, scenario, win, screen, scheme, width: opt.narrow ? width : null, problems, where });
             // 本文は .content の中でスクロールするので、fullPage だけでは切れる。ビューポートを本文の高さまで伸ばす。
             const full = await page.evaluate(() => document.querySelector(".content")?.scrollHeight ?? 0);
             if (full > WINDOWS[win].height) {
-              await page.setViewportSize({ width: WINDOWS[win].width, height: Math.min(full, MAX_HEIGHT) });
+              await page.setViewportSize({ width: win === "main" ? width : WINDOWS[win].width, height: Math.min(full, MAX_HEIGHT) });
               await page.waitForTimeout(300);
             }
             await page.screenshot({ path: join(opt.out, scenario, `${name}.png`), fullPage: true });
@@ -231,9 +237,9 @@ async function main() {
       for (const sp of SELECTED) {
         if (!windows.includes("main") || (opt.screen && opt.screen !== sp.screen) || (scenario === "empty" && !sp.all)) continue;
         for (const scheme of schemes) {
-          const name = `main-${sp.name}${scheme === "dark" ? "-dark" : ""}`;
+          const name = `main-${sp.name}${sfx}${scheme === "dark" ? "-dark" : ""}`;
           const where = `${scenario}/${name}`;
-          const { page, close } = await openPage(browser, { base, scenario, win: "main", screen: sp.screen, scheme, problems, where });
+          const { page, close } = await openPage(browser, { base, scenario, win: "main", screen: sp.screen, scheme, width: opt.narrow ? width : null, problems, where });
           const hash =
             sp.fixed ??
             (await page.evaluate((src) => {
@@ -253,7 +259,7 @@ async function main() {
           }
           const full = await page.evaluate(() => document.querySelector(".content")?.scrollHeight ?? 0);
           if (full > WINDOWS.main.height) {
-            await page.setViewportSize({ width: WINDOWS.main.width, height: Math.min(full, MAX_HEIGHT) });
+            await page.setViewportSize({ width, height: Math.min(full, MAX_HEIGHT) });
             await page.waitForTimeout(300);
           }
           await page.screenshot({ path: join(opt.out, scenario, `${name}.png`), fullPage: true });

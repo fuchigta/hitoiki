@@ -11,7 +11,8 @@
     "tauri": "tauri",
     "dev:mock": "vite --mode mock",
     "shots": "node scripts/shots.mjs",
-    "flows": "node scripts/flows.mjs"
+    "flows": "node scripts/flows.mjs",
+    "audit": "node scripts/audit.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

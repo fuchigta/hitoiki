@@ -50,9 +50,9 @@ export async function launchBrowser() {
  * ページを開いて描画を待つ。console error・pageerror・"[mock] unhandled" は problems に積む。
  * 戻り値の close() でコンテキストを閉じる。
  */
-export async function openPage(browser, { base, scenario, win = "main", screen = null, scheme = "light", problems, where }) {
+export async function openPage(browser, { base, scenario, win = "main", screen = null, scheme = "light", width = null, problems, where }) {
   const ctx = await browser.newContext({
-    viewport: WINDOWS[win],
+    viewport: width ? { width, height: WINDOWS[win].height } : WINDOWS[win],
     colorScheme: scheme,
     locale: "ja-JP",
     timezoneId: "Asia/Tokyo",
