@@ -88,7 +88,7 @@ pub struct HassleInput {
 pub fn hassle(ctx: &Ctx, input: &HassleInput) -> Result<Hassle> {
     check_1_5("強度 (-i)", input.intensity)?;
     if input.text.trim().is_empty() {
-        return Err(Error::InvalidArgument("ハッスルの内容が空です".into()));
+        return Err(Error::InvalidArgument("気になったことの内容が空です".into()));
     }
     let h = Hassle {
         id: new_id(),
@@ -226,7 +226,7 @@ pub fn check_get(ctx: &Ctx, id: &str) -> Result<Checkin> {
 
 pub fn check_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
     let c = check_get(ctx, id)?;
-    let im = with_reflection_refs(ctx, Impact::new("checkin", &c.id, "チェックイン"))?;
+    let im = with_reflection_refs(ctx, Impact::new("checkin", &c.id, "調子"))?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
         edit::delete_checkin(ctx.conn, &c.id)?;
@@ -243,7 +243,7 @@ pub fn hassle_get(ctx: &Ctx, id: &str) -> Result<Hassle> {
 pub fn hassle_edit(ctx: &Ctx, id: &str, input: &HassleInput) -> Result<Hassle> {
     check_1_5("強度 (-i)", input.intensity)?;
     if input.text.trim().is_empty() {
-        return Err(Error::InvalidArgument("ハッスルの内容が空です".into()));
+        return Err(Error::InvalidArgument("気になったことの内容が空です".into()));
     }
     let mut h = hassle_get(ctx, id)?;
     let text = input.text.trim().to_string();
@@ -265,7 +265,7 @@ pub fn hassle_edit(ctx: &Ctx, id: &str, input: &HassleInput) -> Result<Hassle> {
 pub fn hassle_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
     let h = hassle_get(ctx, id)?;
     let im = Impact::new("hassle", &h.id, &h.text).line(
-        "このハッスルから作った ABC 記録（記録は残り、ハッスルとの紐付けだけ外れる）",
+        "この気になったことから作った捉え直し（記録は残り、気になったこととの紐付けだけ外れる）",
         edit::count_abc_of_hassle(ctx.conn, &h.id)?,
     );
     let im = with_reflection_refs(ctx, im)?;

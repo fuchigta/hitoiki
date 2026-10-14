@@ -157,7 +157,7 @@ pub fn get_abc(conn: &Connection, id: &str) -> Result<AbcRecord> {
         },
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("ABC 記録 {id}")))
+    .ok_or_else(|| Error::NotFound(format!("捉え直し {id}")))
 }
 
 pub fn resolve_abc(conn: &Connection, prefix: &str) -> Result<AbcRecord> {

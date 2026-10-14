@@ -4,6 +4,7 @@ import { api, type AbcRecord, type Checkin, type DeleteOutcome, type Hassle } fr
 import { ErrorBox, Field, Section } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
 import { fmtFull, useAction } from "./lib";
+import { ABC_HELP } from "./records-util";
 import { OverflowMenu, Scale } from "./ui/parts";
 import { scaleFromString, scaleToString } from "./ui/scale-util";
 
@@ -92,14 +93,14 @@ export function CheckinDetail({ c, erg, onChanged, onDeleted }: DetailProps & { 
         setNote(c.note ?? "");
         setEditing(true);
       }}
-      what="チェックイン"
+      what="調子"
       preview={() => named(api.checkinDelete(c.id, { dry_run: true }), fmtFull(c.at))}
       commit={() => api.checkinDelete(c.id, { force: true })}
       onDeleted={onDeleted}
     />
   );
   return (
-    <Section title="チェックイン" aside={editing ? undefined : menu}>
+    <Section title="調子" aside={editing ? undefined : menu}>
       <span class="meta">{fmtFull(c.at)}</span>
       {editing ? (
         <form
@@ -158,14 +159,14 @@ export function HassleDetail({ h, erg, onChanged, onDeleted }: DetailProps & { h
         setIntensity(String(h.intensity));
         setEditing(true);
       }}
-      what="ハッスル"
+      what="気になったこと"
       preview={() => api.hassleDelete(h.id, { dry_run: true })}
       commit={() => api.hassleDelete(h.id, { force: true })}
       onDeleted={onDeleted}
     />
   );
   return (
-    <Section title="ハッスル" aside={editing ? undefined : menu}>
+    <Section title="気になったこと" aside={editing ? undefined : menu}>
       <span class="meta">{fmtFull(h.at)}</span>
       {editing ? (
         <form
@@ -221,14 +222,14 @@ export function AbcDetail({
         setDispute(a.dispute ?? "");
         setEditing(true);
       }}
-      what="ABC の記録"
+      what="捉え直し"
       preview={() => named(api.abcDelete(a.id, { dry_run: true }), a.activating_event)}
       commit={() => api.abcDelete(a.id, { force: true })}
       onDeleted={onDeleted}
     />
   );
   return (
-    <Section title="ABC" aside={editing ? undefined : menu}>
+    <Section title="捉え直し（ABC）" help={ABC_HELP} aside={editing ? undefined : menu}>
       <span class="meta">{fmtFull(a.at)}</span>
       {editing ? (
         <form
@@ -262,7 +263,7 @@ export function AbcDetail({
             </Field>
             <ScaleField label="強さ" value={ci} onChange={setCi} />
           </div>
-          <Field label="反論・掘り下げのメモ">
+          <Field label="別の捉え方（反論）のメモ">
             <textarea rows={2} value={dispute} onInput={(e) => setDispute(e.currentTarget.value)} />
           </Field>
           <SaveBar busy={act.busy} ok={!!ev.trim()} onCancel={() => setEditing(false)} />
@@ -278,7 +279,7 @@ export function AbcDetail({
               {a.consequence_intensity != null && `（${a.consequence_intensity}）`}
             </div>
           )}
-          {a.dispute && <div class="hint">反論: {a.dispute}</div>}
+          {a.dispute && <div class="hint">別の捉え方: {a.dispute}</div>}
           {erg}
           {children}
         </>

@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import { api, type Reflection } from "./api";
 import { ErrorBox, Field, Section } from "./components";
 import { ErgSummary } from "./erg-label";
-import { weekOf } from "./erg-util";
+import { ERG_LEGEND, weekOf } from "./erg-util";
 import { dateInput, fmtFull, useAction, useAsync } from "./lib";
 import { Markdown } from "./markdown";
 import { StructuredAnswer } from "./reflect-form";
@@ -45,7 +45,9 @@ function WeekErg({ at }: { at: number }) {
   );
   if (!week) return null;
   return (
-    <Section level={3} title="この週の記録の ERG（件数）">
+    <Section level={3} title="この週の記録の ERG（件数）"
+      help={`ERG は「${ERG_LEGEND}」の 3 つの観点です。記録の内容から AI が判定し、確信が持てないものは確認待ちになります。`}
+    >
       <ErrorBox error={erg.error} />
       {erg.data && (
         <ErgSummary

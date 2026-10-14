@@ -109,14 +109,14 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
             let c = record::check_edit(ctx, &cur.id, &input)?;
             ext::notify_data("checkin");
             emit(json, &c, || {
-                format!("チェックインを更新しました: {}", render::short(&c.id))
+                format!("調子を更新しました: {}", render::short(&c.id))
             })
         }
         CheckCmd::Delete { id, opts } => {
             let _log = delete_log(&opts);
             let o = record::check_delete(ctx, &id, mode(&opts))?;
             ext::notify_data("checkin");
-            delete_report(json, "チェックイン", &o)
+            delete_report(json, "調子", &o)
         }
     }
 }
@@ -154,14 +154,14 @@ pub fn hassle_sub(ctx: &Ctx, json: bool, cmd: HassleCmd) -> Result<()> {
             )?;
             ext::notify_data("hassle");
             emit(json, &h, || {
-                format!("ハッスルを更新しました: {}", render::short(&h.id))
+                format!("気になったことを更新しました: {}", render::short(&h.id))
             })
         }
         HassleCmd::Delete { id, opts } => {
             let _log = delete_log(&opts);
             let o = record::hassle_delete(ctx, &id, mode(&opts))?;
             ext::notify_data("hassle");
-            delete_report(json, "ハッスル", &o)
+            delete_report(json, "気になったこと", &o)
         }
     }
 }
@@ -210,14 +210,14 @@ pub fn abc_sub(ctx: &Ctx, json: bool, cmd: AbcCmd) -> Result<()> {
             )?;
             ext::notify_data("abc");
             emit(json, &r, || {
-                format!("ABC を更新しました: {}", render::short(&r.id))
+                format!("捉え直しを更新しました: {}", render::short(&r.id))
             })
         }
         AbcCmd::Delete { id, opts } => {
             let _log = delete_log(&opts);
             let o = record::abc_delete(ctx, &id, mode(&opts))?;
             ext::notify_data("abc");
-            delete_report(json, "ABC 記録", &o)
+            delete_report(json, "捉え直し", &o)
         }
         AbcCmd::Add { .. } | AbcCmd::Dispute { .. } => unreachable!("handled in main"),
     }

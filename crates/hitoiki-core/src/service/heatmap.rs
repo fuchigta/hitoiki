@@ -82,9 +82,9 @@ enum Metric {
 
 /// (指定名, テーブル, 表示名)
 const RECORD_KINDS: [(&str, &str, &str); 4] = [
-    ("checkin", "checkin", "チェックイン"),
-    ("hassle", "hassle", "ハッスル"),
-    ("abc", "abc_record", "ABC"),
+    ("checkin", "checkin", "調子"),
+    ("hassle", "hassle", "気になったこと"),
+    ("abc", "abc_record", "捉え直し"),
     ("reflection", "reflection", "振り返り"),
 ];
 

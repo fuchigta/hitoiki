@@ -17,9 +17,9 @@ import {
 } from "./reflect-util";
 
 const KIND_LABELS: Record<Question["kind"], string> = {
-  checkin: "チェックイン",
-  hassle: "ハッスル",
-  abc: "ABC",
+  checkin: "調子",
+  hassle: "気になったこと",
+  abc: "捉え直し",
   free: "自由記述",
 };
 
@@ -61,7 +61,7 @@ export function StructuredAnswer({
   const [forms, setForms] = useState<QuestionForm[]>(() => (out ? initialForms(out) : []));
   const [saved, setSaved] = useState("");
   const save = useAction();
-  // 回答済みの問いに、保存したチェックイン・ハッスル・ABC の中身を並べて見せる。
+  // 回答済みの問いに、保存した調子・気になったこと・捉え直しの中身を並べて見せる。
   const [details, setDetails] = useState<AnswerDetail[] | null>(null);
   const detailOf = (i: number) => details?.find((d) => d.index === i);
   useEffect(() => {
@@ -92,7 +92,7 @@ export function StructuredAnswer({
     e.preventDefault();
     const r = await save.run(() => api.reflectAnswerStructured(reflection.id, buildAnswers(out.questions, forms, answeredIdx)));
     if (r) {
-      setSaved("回答を保存しました。チェックイン・ハッスル・ABC は「記録」の一覧にも出ます。");
+      setSaved("回答を保存しました。調子・気になったこと・捉え直しは「記録」の一覧にも出ます。");
       onSaved(r);
     }
   };

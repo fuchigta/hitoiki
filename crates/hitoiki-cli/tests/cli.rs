@@ -742,8 +742,8 @@ fn structured_reflection_show_and_answer() {
     let s = run(h, &["reflect", "show", "01HZZZ"]);
     assert_eq!(s.code, 0, "{}", s.stderr);
     for want in [
-        "[0] (チェックイン・未回答)",
-        "[1] (ハッスル・未回答)",
+        "[0] (調子・未回答)",
+        "[1] (気になったこと・未回答)",
         "A（出来事）の候補: 指摘された",
         "[3] (自由記述",
     ] {

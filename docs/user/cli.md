@@ -19,9 +19,9 @@
 |---|---|
 | `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ（時刻・種類・タイトル・ID）、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
 | `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
-| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|kr_skip_week\|skip] [--dismiss]` | 通知に答える。チェックイン・ハッスルの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない KR」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`kr_skip_week` は「時間が入っていない KR」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
+| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|kr_skip_week\|skip] [--dismiss]` | 通知に答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない KR」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`kr_skip_week` は「時間が入っていない KR」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `gaps`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
-| `hitoiki heatmap [--by 指標] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `kr:<ID またはタイトル>`（`okr show` と同じ KR の時間。KR のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（チェックイン・ハッスル・ABC・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
+| `hitoiki heatmap [--by 指標] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `kr:<ID またはタイトル>`（`okr show` と同じ KR の時間。KR のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `quadrant` / `okr` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
 ### タスク
@@ -46,7 +46,7 @@
 |---|---|
 | `hitoiki review list [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`review.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
 | `hitoiki review set <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間からタスクの割り当てルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `override_ids` / `rules` |
-| `hitoiki review set --from F --to T (--task ID \| --no-task \| --rest) [--activity A] [--include-confirmed] [--include-meeting] [--include-idle] [--exclude SEGMENT...] [--dry-run]` | 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）。区間 ID とは併用できない。境界にまたがる区間は範囲の内側だけが対象。最初のチェックは通常の作業とエージェント対話が ON で、確定済み・会議・無操作と記録なしは OFF（`--include-*` か設定 `review.correct_include_*` で ON）。`--exclude` には対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`。`--dry-run` の出力で分かる）。無操作・記録なしは種別 work の「PC 外」として計上される。`--dry-run` は確定せず、候補（`checked`）と合計を表示する。`--json` は適用時 `correction` / `preview` / `override_ids`、`--dry-run` 時は `preview` の内容（`summary` / `total_ms` / `offline_ms` / `excluded_count` / `candidates`） |
+| `hitoiki review set --from F --to T (--task ID \| --no-task \| --rest) [--activity A] [--include-confirmed] [--include-meeting] [--include-idle] [--exclude SEGMENT...] [--dry-run]` | 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）。区間 ID とは併用できない。境界にまたがる区間は範囲の内側だけが対象。最初のチェックは通常の作業と AI との対話が ON で、確定済み・会議・無操作と記録なしは OFF（`--include-*` か設定 `review.correct_include_*` で ON）。`--exclude` には対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`。`--dry-run` の出力で分かる）。無操作・記録なしは種別 work の「PC 外」として計上される。`--dry-run` は確定せず、候補（`checked`）と合計を表示する。`--json` は適用時 `correction` / `preview` / `override_ids`、`--dry-run` 時は `preview` の内容（`summary` / `total_ms` / `offline_ms` / `excluded_count` / `candidates`） |
 | `hitoiki review corrections [--task ID] [--date D]` | 補正の一覧（新しい順）。`--task` でそのタスクへの補正だけ、`--date` でその日と重なるものだけ |
 | `hitoiki review undo-correction <ID>` | 補正を取り消す。その補正で作った確定を削除して、範囲を再計算する（ID は前方一致。存在しなければ終了コード 3） |
 | `hitoiki review idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
@@ -75,14 +75,14 @@
 | `hitoiki block template save-from --name N [--date D] [--description D] [--weekdays W]` | 指定日のブロックからテンプレートを作る |
 | `hitoiki block template suggest [--date D]` | 指定日の曜日に割り当てたテンプレート |
 | `hitoiki check [-e 1-5] [-m 1-5] [-s 1-5] [--erg TAG] [--note TEXT]` | コンディション（エネルギー・気分・ストレス）の記録 |
-| `hitoiki hassle <TEXT> [-i 1-5]` | デイリーハッスルの記録（強度の既定は 3） |
-| `hitoiki abc add [--a A] [--b B] [--c-emotion E] [--c-intensity 1-5] [--from-hassle ID]` | ABC 理論の記録 |
+| `hitoiki hassle <TEXT> [-i 1-5]` | 気になったこと（ハッスル）の記録（強度の既定は 3） |
+| `hitoiki abc add [--a A] [--b B] [--c-emotion E] [--c-intensity 1-5] [--from-hassle ID]` | 捉え直し（ABC 理論）の記録。出来事・受け止め方・感情を分けて書く |
 | `hitoiki abc dispute <ID>` | AI で受け止め方を掘り下げる問いを生成 |
 | `hitoiki check list` / `hassle list` / `abc list` `[--date D] [--from F] [--to T]` | 記録の一覧（ID 付き。既定は今日） |
-| `hitoiki check edit <ID> [-e N] [-m N] [-s N] [--erg TAG] [--note TEXT]` | チェックインを編集（指定した項目だけ変える。`-e` `-m` `-s` に 0 でその項目を消す、`--note ""` でメモを消す） |
-| `hitoiki hassle edit <ID> [--text T] [-i 1-5]` | ハッスルを編集 |
-| `hitoiki abc edit <ID> [--a A] [--b B] [--c-emotion E] [--c-intensity N] [--dispute D]` | ABC の記録を編集（文字列は `""` で消す、`--c-intensity 0` で強度を消す） |
-| `hitoiki check delete <ID>` / `hassle delete <ID>` / `abc delete <ID>` `[--force] [--dry-run]` | 記録を削除。ハッスルを元にした ABC 記録があるか、振り返りの回答から参照されていると `--force` が必要（ABC は残り、ハッスルとの紐付けだけ外れる。参照されているときは「振り返り（日付・種類）の回答から参照されています」と表示）。削除したことは、記録の種類と ID だけをログに残す |
+| `hitoiki check edit <ID> [-e N] [-m N] [-s N] [--erg TAG] [--note TEXT]` | 調子（チェックイン）を編集（指定した項目だけ変える。`-e` `-m` `-s` に 0 でその項目を消す、`--note ""` でメモを消す） |
+| `hitoiki hassle edit <ID> [--text T] [-i 1-5]` | 気になったことを編集 |
+| `hitoiki abc edit <ID> [--a A] [--b B] [--c-emotion E] [--c-intensity N] [--dispute D]` | 捉え直しを編集（文字列は `""` で消す、`--c-intensity 0` で強度を消す） |
+| `hitoiki check delete <ID>` / `hassle delete <ID>` / `abc delete <ID>` `[--force] [--dry-run]` | 記録を削除。気になったことを元にした捉え直しがあるか、振り返りの回答から参照されていると `--force` が必要（捉え直しは残り、気になったこととの紐付けだけ外れる。参照されているときは「振り返り（日付・種類）の回答から参照されています」と表示）。削除したことは、記録の種類と ID だけをログに残す |
 
 `check` / `hassle` の本文が `list` `edit` `delete` と同じ語のときは、サブコマンドとして解釈されます。
 
@@ -141,16 +141,16 @@
 | `hitoiki reflect day_start [--date D]` / `day_end` / `weekly` | AI で問いを生成して保存 |
 | `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力）。構造化された問いには JSON `{"answers":[{"index":0,"energy":3,"mood":4},{"index":1,"text":"…","intensity":3}]}` を渡す（下記）。Markdown の回答も受け付ける |
 | `hitoiki reflect list [--kind K] [--limit N]` | 保存済みの振り返り一覧（新しい順。`--kind` は `day_start` / `day_end` / `weekly`） |
-| `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存したチェックイン・ハッスル・ABC の内容も出す。回答が作った記録が削除されているときは「この回答の記録は削除されています」と表示。`--json` の `answer_details` に `missing`） |
+| `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存した調子・気になったこと・捉え直しの内容も出す。回答が作った記録が削除されているときは「この回答の記録は削除されています」と表示。`--json` の `answer_details` に `missing`） |
 | `hitoiki context --kind K [--date D]` | AI 用のコンテキストを JSON で出力 |
 
-構造化された振り返り（[設定](./configuration.md#ai-コマンド) の `ai.structured`）では、問いに `[0]`、`[1]` … の番号と種類（チェックイン・ハッスル・ABC・自由記述）が付いて表示されます。`--json` では `structured`（問い）と `answers`（回答済みの対応表）がそのまま入ります。回答 JSON の各要素は `index`（問いの番号）と、種類ごとの次の項目です。
+構造化された振り返り（[設定](./configuration.md#ai-コマンド) の `ai.structured`）では、問いに `[0]`、`[1]` … の番号と種類（調子・気になったこと・捉え直し・自由記述）が付いて表示されます。`--json` では `structured`（問い）と `answers`（回答済みの対応表）がそのまま入ります。回答 JSON の各要素は `index`（問いの番号）と、種類ごとの次の項目です。
 
 | 種類 | 項目 | 保存先 |
 |---|---|---|
-| チェックイン | `energy` / `mood` / `stress`（1〜5）、`note`（`erg` も受け付け、付けるとユーザーのタグとして保存する） | `checkin` |
-| ハッスル | `text`、`intensity`（1〜5、省略時 3） | `hassle` |
-| ABC | `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論） | `abc_record` |
+| 調子 | `energy` / `mood` / `stress`（1〜5）、`note`（`erg` も受け付け、付けるとユーザーのタグとして保存する） | `checkin` |
+| 気になったこと | `text`、`intensity`（1〜5、省略時 3） | `hassle` |
+| 捉え直し | `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論） | `abc_record` |
 | 自由記述 | `text` | 振り返りの回答（`answers_md`） |
 
 空の項目は読み飛ばし、回答済みの問いには答え直せません（不正な値が 1 件でもあれば何も保存しません）。保存した記録の ID は `answers` に入ります。
@@ -164,7 +164,7 @@ ERG は、記録の内容から AI が判定します（存在 = 体や生活の
 | `hitoiki erg classify [--date D] [--from F --to T] [--dry-run]` | 未判定の記録を AI で判定する（既定は今日）。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は確認待ち。`--dry-run` は保存せず結果だけ表示。終業・週次の振り返りの前にも自動で実行される（`ai.erg_classify`） |
 | `hitoiki erg review` | 確認待ち（AI の提案で未確定）の一覧。提案のタグ・確信度・理由を表示 |
 | `hitoiki erg confirm <ID>` | 確認待ちの提案をそのまま確定する |
-| `hitoiki erg set <ID> <existence\|relatedness\|growth\|none>` | タグを付ける・直す（`none` はどれにも関わらない）。ID は前方一致でチェックイン・ハッスル・ABC・振り返りのどれでもよい |
+| `hitoiki erg set <ID> <existence\|relatedness\|growth\|none>` | タグを付ける・直す（`none` はどれにも関わらない）。ID は前方一致で調子・気になったこと・捉え直し・振り返りのどれでもよい |
 | `hitoiki erg show [--date D] [--from F --to T]` | 期間内の分布（件数）と、記録ごとのラベル（`--json`） |
 
 ### エージェントのセッション
@@ -189,7 +189,7 @@ ERG は、記録の内容から AI が判定します（存在 = 体や生活の
 
 ## `hitoiki ui` の画面名
 
-`today`、`log`、`tasks`、`okr`、`records`、`report`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「実績」「タスク」「目標」「記録」「レポート」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。旧名として `review`、`plan`、`reflect` も受け付けます。`plan` は「計画」の画面の旧名で、いまは計画が入った今日の画面（`today`）を開きます。`review` は実績の「要確認」の絞り込みを開く旧名として残しています。`reflect` は、記録画面に統合される前の「振り返り」の呼び名で、いまは記録画面で振り返りだけに絞った一覧（`reflect/day_start` のように種別まで指定すると、その種別の振り返りの作成フォーム）を開きます。`reflection`（通知が使う名前）も同じです。`checkin` / `hassle` は記録画面のチェックイン・ハッスルの作成フォームを開きます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
+`today`、`log`、`tasks`、`okr`、`records`、`report`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「実績」「タスク」「目標」「記録」「レポート」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。旧名として `review`、`plan`、`reflect` も受け付けます。`plan` は「計画」の画面の旧名で、いまは計画が入った今日の画面（`today`）を開きます。`review` は実績の「要確認」の絞り込みを開く旧名として残しています。`reflect` は、記録画面に統合される前の「振り返り」の呼び名で、いまは記録画面で振り返りだけに絞った一覧（`reflect/day_start` のように種別まで指定すると、その種別の振り返りの作成フォーム）を開きます。`reflection`（通知が使う名前）も同じです。`checkin` / `hassle` は記録画面の調子・気になったことの作成フォームを開きます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
 
 ## エージェントからの利用
 

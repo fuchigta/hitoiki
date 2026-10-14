@@ -122,8 +122,8 @@ export function fmtFull(ms: Millis): string {
 
 export const KIND_LABEL: Record<SegmentKind, string> = {
   work: "作業",
-  agent_dialog: "エージェント対話",
-  agent_watch: "エージェント待機",
+  agent_dialog: "AI との対話",
+  agent_watch: "AI の作業待ち",
   meeting: "会議",
   idle: "無操作",
   break: "休憩",

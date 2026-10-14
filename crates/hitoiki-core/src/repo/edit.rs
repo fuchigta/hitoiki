@@ -233,7 +233,7 @@ pub fn get_checkin(conn: &Connection, id: &str) -> Result<Checkin> {
     super::record::list_checkins(conn, s, e)?
         .into_iter()
         .find(|c| c.id == id)
-        .ok_or_else(|| Error::NotFound(format!("チェックイン {id}")))
+        .ok_or_else(|| Error::NotFound(format!("調子 {id}")))
 }
 
 pub fn update_checkin(conn: &Connection, c: &Checkin) -> Result<()> {
@@ -288,7 +288,7 @@ pub fn get_abc(conn: &Connection, id: &str) -> Result<AbcRecord> {
     super::record::list_abc(conn, 0, i64::MAX)?
         .into_iter()
         .find(|a| a.id == id)
-        .ok_or_else(|| Error::NotFound(format!("ABC 記録 {id}")))
+        .ok_or_else(|| Error::NotFound(format!("捉え直し {id}")))
 }
 
 pub fn update_abc(conn: &Connection, a: &AbcRecord) -> Result<()> {

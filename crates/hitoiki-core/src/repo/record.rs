@@ -62,7 +62,7 @@ pub fn get_hassle(conn: &Connection, id: &str) -> Result<Hassle> {
         hassle_from_row,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("ハッスル {id}")))
+    .ok_or_else(|| Error::NotFound(format!("気になったこと {id}")))
 }
 
 pub fn resolve_hassle(conn: &Connection, prefix: &str) -> Result<Hassle> {

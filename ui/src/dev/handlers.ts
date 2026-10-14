@@ -97,8 +97,8 @@ function group(segs: SegRec[], from: number, to: number, keyOf: (x: SegRec) => [
 
 const KIND_LABELS: Record<T.SegmentKind, string> = {
   work: "作業",
-  agent_dialog: "エージェント対話",
-  agent_watch: "エージェント待機",
+  agent_dialog: "AI との対話",
+  agent_watch: "AI の作業待ち",
   meeting: "会議",
   idle: "無操作",
   break: "休憩",
@@ -187,7 +187,7 @@ function buildReport(s: State, by: T.ReportBy, a: T.RangeArgs | undefined, inclu
     excluded: { idle_ms: includeIdle ? 0 : sum(["idle"]), break_ms: includeIdle ? 0 : sum(["break"]), ignored_ms: sum(["ignored"]) },
     include_idle: includeIdle,
     multi_attribution: multi,
-    note: by === "agent" && map.size === 0 ? "この期間にエージェントの区間はありません。" : null,
+    note: by === "agent" && map.size === 0 ? "この期間に AI エージェントの区間はありません。" : null,
   };
 }
 
@@ -1212,7 +1212,7 @@ const H: Record<string, Handler> = {
   },
   abc_dispute: (s, a) => {
     const r = s.abcs.find((x) => x.id === a.id);
-    if (!r) fail("not_found", "ABC 記録が見つかりません。");
+    if (!r) fail("not_found", "捉え直しが見つかりません。");
     r.dispute = "その考えを裏づける事実と、そうでない事実を並べてみると、どう見えますか。";
     r.ai_dialog_md = "**問い**: 指摘された点は設計全体への評価でしたか、それとも前提の一部についてでしたか。";
     return r;
@@ -1458,38 +1458,38 @@ const H: Record<string, Handler> = {
   // 記録の編集と削除
   checkin_edit: (s, a) => {
     const c = s.checkins.find((x) => x.id === a.id);
-    if (!c) fail("not_found", "チェックインが見つかりません。");
+    if (!c) fail("not_found", "調子が見つかりません。");
     const i = a.input as T.CheckInput;
     Object.assign(c, { energy: i.energy ?? null, mood: i.mood ?? null, stress: i.stress ?? null, note: i.note ?? null });
     return c;
   },
   checkin_delete: (s, a) => {
     const c = s.checkins.find((x) => x.id === a.id);
-    if (!c) fail("not_found", "チェックインが見つかりません。");
-    return deleteOutcome("checkin", c.id, "チェックイン", [], a.mode, () => (s.checkins = s.checkins.filter((x) => x.id !== c.id)));
+    if (!c) fail("not_found", "調子が見つかりません。");
+    return deleteOutcome("checkin", c.id, "調子", [], a.mode, () => (s.checkins = s.checkins.filter((x) => x.id !== c.id)));
   },
   hassle_edit: (s, a) => {
     const h = s.hassles.find((x) => x.id === a.id);
-    if (!h) fail("not_found", "ハッスルが見つかりません。");
+    if (!h) fail("not_found", "気になったことが見つかりません。");
     h.text = a.input.text;
     if (a.input.intensity !== undefined) h.intensity = a.input.intensity;
     return h;
   },
   hassle_delete: (s, a) => {
     const h = s.hassles.find((x) => x.id === a.id);
-    if (!h) fail("not_found", "ハッスルが見つかりません。");
-    return deleteOutcome("hassle", h.id, h.text, [{ label: "つながる ABC 記録", count: s.abcs.filter((x) => x.hassle_id === h.id).length }], a.mode, () => (s.hassles = s.hassles.filter((x) => x.id !== h.id)));
+    if (!h) fail("not_found", "気になったことが見つかりません。");
+    return deleteOutcome("hassle", h.id, h.text, [{ label: "つながる捉え直し", count: s.abcs.filter((x) => x.hassle_id === h.id).length }], a.mode, () => (s.hassles = s.hassles.filter((x) => x.id !== h.id)));
   },
   abc_edit: (s, a) => {
     const r = s.abcs.find((x) => x.id === a.id);
-    if (!r) fail("not_found", "ABC 記録が見つかりません。");
+    if (!r) fail("not_found", "捉え直しが見つかりません。");
     const i = a.input as T.AbcEditInput;
     Object.assign(r, { activating_event: i.activating_event, belief: i.belief ?? null, consequence_emotion: i.consequence_emotion ?? null, consequence_intensity: i.consequence_intensity ?? null, dispute: i.dispute ?? null });
     return r;
   },
   abc_delete: (s, a) => {
     const r = s.abcs.find((x) => x.id === a.id);
-    if (!r) fail("not_found", "ABC 記録が見つかりません。");
+    if (!r) fail("not_found", "捉え直しが見つかりません。");
     return deleteOutcome("abc", r.id, r.activating_event, [], a.mode, () => (s.abcs = s.abcs.filter((x) => x.id !== r.id)));
   },
 

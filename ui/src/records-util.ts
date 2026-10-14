@@ -16,12 +16,16 @@ import type {
 import { ergKey, ergState } from "./erg-util";
 import { ALL_PERIODS, type PeriodId } from "./ui/period-util";
 
+/** 捉え直し（ABC）の説明。記録の作成・詳細の見出しの「?」に出す。 */
+export const ABC_HELP =
+  "出来事（A）、その受け止め方（B）、感情（C）を分けて書き、別の捉え方（反論）を考えてみる方法です（ABC 理論）。受け止め方を言葉にすると、感じ方との間にある考えが見えてきます。";
+
 export type RecordKind = "checkin" | "hassle" | "abc" | "reflection";
 
 export const RECORD_KIND_LABEL: Record<RecordKind, string> = {
-  checkin: "チェックイン",
-  hassle: "ハッスル",
-  abc: "ABC",
+  checkin: "調子",
+  hassle: "気になったこと",
+  abc: "捉え直し",
   reflection: "振り返り",
 };
 
@@ -49,9 +53,9 @@ export const REFLECTION_KIND_LABEL: Record<ReflectionKind, string> = {
 export type NewKind = "checkin" | "hassle" | "abc" | ReflectionKind;
 
 export const NEW_KINDS: { id: NewKind; label: string }[] = [
-  { id: "checkin", label: "チェックイン" },
-  { id: "hassle", label: "ハッスル" },
-  { id: "abc", label: "ABC" },
+  { id: "checkin", label: "調子" },
+  { id: "hassle", label: "気になったこと" },
+  { id: "abc", label: "捉え直し" },
   { id: "day_start", label: "始業の振り返り" },
   { id: "day_end", label: "終業の振り返り" },
   { id: "weekly", label: "週次の振り返り" },
@@ -111,7 +115,7 @@ export function checkinSummary(c: Checkin): string {
   if (c.stress != null) parts.push(`ストレス ${c.stress}`);
   const note = c.note?.trim();
   const head = parts.join("・");
-  if (!note) return head || "チェックイン";
+  if (!note) return head || "調子";
   return head ? `${head}　${note}` : note;
 }
 

@@ -86,7 +86,7 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: Option<CheckCmd>,
     },
-    /// デイリーハッスルの記録（`hassle list|edit|delete` で一覧・編集・削除）
+    /// 気になったこと（ハッスル）の記録（`hassle list|edit|delete` で一覧・編集・削除）
     #[command(args_conflicts_with_subcommands = true)]
     Hassle {
         text: Option<String>,
@@ -105,7 +105,7 @@ pub enum Cmd {
     /// カレンダーソース（ICS）
     #[command(subcommand)]
     Calendar(CalendarCmd),
-    /// ABC 理論の記録
+    /// 捉え直し（ABC）の記録。出来事・受け止め方・感情を分けて書く
     #[command(subcommand)]
     Abc(AbcCmd),
     /// OKR
@@ -352,12 +352,12 @@ pub struct DeleteOpts {
 
 #[derive(Debug, Subcommand)]
 pub enum CheckCmd {
-    /// チェックインの一覧
+    /// 調子（チェックイン）の一覧
     List {
         #[command(flatten)]
         range: RangeOpts,
     },
-    /// チェックインを編集する（指定した項目だけ変える。-e/-m/-s に 0 を渡すとその項目を消す）
+    /// 調子を編集する（指定した項目だけ変える。-e/-m/-s に 0 を渡すとその項目を消す）
     Edit {
         id: String,
         #[arg(short = 'e', long)]
@@ -385,7 +385,7 @@ pub enum HassleCmd {
         #[command(flatten)]
         range: RangeOpts,
     },
-    /// ハッスルを編集する
+    /// 気になったことを編集する
     Edit {
         id: String,
         #[arg(long)]
@@ -393,7 +393,7 @@ pub enum HassleCmd {
         #[arg(short = 'i', long)]
         intensity: Option<i64>,
     },
-    /// ハッスルを削除する（元にした ABC 記録は残り、紐付けだけ外れる）
+    /// 気になったことを削除する（元にした捉え直しは残り、紐付けだけ外れる）
     Delete {
         id: String,
         #[command(flatten)]
@@ -503,7 +503,7 @@ pub enum PushCmd {
         /// ストレス 1-5
         #[arg(short = 's', long)]
         stress: Option<i64>,
-        /// 一言（デイリーハッスルとして保存）
+        /// 一言（気になったこととして保存）
         #[arg(long)]
         hassle: Option<String>,
         /// 無操作の分類: break / meeting / thinking / away、または task（通知が示したタスクをしていた。PC 外の作業として確定）（無操作からの復帰の通知のみ）
@@ -745,18 +745,18 @@ pub enum AbcCmd {
         /// C: 強度 1-5
         #[arg(long)]
         c_intensity: Option<i64>,
-        /// ハッスルの ID（A を補完する）
+        /// 気になったことの ID（A を補完する）
         #[arg(long)]
         from_hassle: Option<String>,
     },
     /// AI で受け止め方を掘り下げる問いを生成
     Dispute { id: String },
-    /// ABC 記録の一覧
+    /// 捉え直しの一覧
     List {
         #[command(flatten)]
         range: RangeOpts,
     },
-    /// ABC 記録を編集する（指定した項目だけ変える。文字列に空文字を渡すと消す。--c-intensity 0 で強度を消す）
+    /// 捉え直しを編集する（指定した項目だけ変える。文字列に空文字を渡すと消す。--c-intensity 0 で強度を消す）
     Edit {
         id: String,
         #[arg(long = "a")]
@@ -1014,7 +1014,7 @@ pub enum ErgCmd {
     Review,
     /// タグを付ける・直す（ユーザーの確定。AI は上書きしない）。`none` はどれにも関わらない
     Set {
-        /// 記録の ID（前方一致。チェックイン・ハッスル・ABC・振り返り）
+        /// 記録の ID（前方一致。調子・気になったこと・捉え直し・振り返り）
         record: String,
         /// existence | relatedness | growth | none
         tag: ErgChoice,

@@ -36,9 +36,9 @@ impl QuestionKind {
 
     pub fn label(&self) -> &'static str {
         match self {
-            QuestionKind::Checkin => "チェックイン",
-            QuestionKind::Hassle => "ハッスル",
-            QuestionKind::Abc => "ABC",
+            QuestionKind::Checkin => "調子",
+            QuestionKind::Hassle => "気になったこと",
+            QuestionKind::Abc => "捉え直し",
             QuestionKind::Free => "自由記述",
         }
     }
@@ -140,7 +140,7 @@ impl StructuredOutput {
             match q.kind {
                 QuestionKind::Checkin => {
                     let names: Vec<&str> = q.scales.iter().map(Scale::label).collect();
-                    s += &format!("   - チェックイン（{}）\n", names.join("・"));
+                    s += &format!("   - 調子（{}）\n", names.join("・"));
                 }
                 QuestionKind::Abc => {
                     if let Some(a) = &q.activating_event {
@@ -444,7 +444,7 @@ mod tests {
         let md = o.to_markdown();
         assert!(md.starts_with("## 要約\n\n要約"));
         assert!(md.contains("1. いまの調子は"));
-        assert!(md.contains("チェックイン（元気・気分）"));
+        assert!(md.contains("調子（元気・気分）"));
         assert!(md.contains("出来事の候補: レビューで指摘"));
         assert!(md.contains("例: 会議が長い"));
         assert!(md.contains("4. ひとことで"));

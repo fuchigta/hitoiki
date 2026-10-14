@@ -2,18 +2,25 @@ import { useState } from "preact/hooks";
 import { api, type ReportBy } from "../api";
 import { Bars, Card, ErrorBox } from "../components";
 import { HeatmapCard } from "../heatmap";
-import { PeriodSelect } from "../ui/parts";
+import { Help, PeriodSelect } from "../ui/parts";
 import { fmtDur, useAsync, useLiveTick } from "../lib";
 
 const BYS: { id: ReportBy; label: string }[] = [
   { id: "task", label: "タスク" },
   { id: "activity", label: "活動" },
   { id: "kind", label: "種別" },
-  { id: "quadrant", label: "象限" },
+  { id: "quadrant", label: "緊急・重要" },
   { id: "okr", label: "OKR" },
   { id: "skill", label: "スキル" },
-  { id: "agent", label: "エージェント" },
+  { id: "agent", label: "AI エージェント" },
 ];
+
+/** 内訳によっては意味が伝わりにくいので、選んだときだけ「?」で説明を添える。 */
+const BY_HELP: Partial<Record<ReportBy, string>> = {
+  quadrant:
+    "タスクの「緊急かどうか・重要かどうか」で時間を 4 つに分けます（アイゼンハワー・マトリクス）。緊急・重要のどちらかが未設定のタスクは「未設定」に入ります。",
+  agent: "Claude Code や Codex などの AI エージェントを使っていた時間です。AI との対話（指示を書いている時間）と AI の作業待ち（返答や作業が終わるのを待っている時間）に分かれます。",
+};
 
 export function Report() {
   const [by, setBy] = useState<ReportBy>("task");
@@ -32,6 +39,7 @@ export function Report() {
             </button>
           ))}
         </div>
+        {BY_HELP[by] && <Help label={`${BYS.find((b) => b.id === by)?.label}の説明`}>{BY_HELP[by]}</Help>}
         <span class="spacer" />
         <PeriodSelect value={period} onChange={setPeriod} />
         <label class="check">

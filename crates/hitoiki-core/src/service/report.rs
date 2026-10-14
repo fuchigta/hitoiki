@@ -285,7 +285,7 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
             "複数のスキルが付いたタスクの時間は、各スキルに全時間を計上しています（行の合計は total_ms を超えることがあります）。"
                 .to_string(),
         ),
-        ReportBy::Agent => Some("エージェント対話・見守りの区間のみを集計しています。".to_string()),
+        ReportBy::Agent => Some("AI との対話・作業待ちの区間のみを集計しています。".to_string()),
         ReportBy::Quadrant => Some(
             "urgent / important のどちらかが未設定のタスクは「未設定」に集計しています。".to_string(),
         ),

@@ -485,7 +485,7 @@ function seedCommon(s: State, busy: boolean) {
     input: { id: "hassle", placeholder: "困っていることがあれば一言" },
     open_screen: null,
   };
-  s.pushes.push({ id: nid(s, "push"), at: at(0, "10:00"), at_local: "10:00", trigger: "checkin", trigger_label: "チェックイン", title: payload.title, body: payload.body, state: "unanswered", payload });
+  s.pushes.push({ id: nid(s, "push"), at: at(0, "10:00"), at_local: "10:00", trigger: "checkin", trigger_label: "調子", title: payload.title, body: payload.body, state: "unanswered", payload });
   s.pendingPush = { push_id: s.pushes[0].id, payload };
 
   s.ruleSuggestions.push({ task_id: t4.id, task_title: t4.title, field: "url", pattern: "doc.rust-lang.org", pattern_type: "contains", count: 3, target: "doc.rust-lang.org" });

@@ -97,7 +97,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     }
     let switch = switch.build()?;
 
-    let mut checkin = SubmenuBuilder::new(app, "チェックイン（エネルギー）");
+    let mut checkin = SubmenuBuilder::new(app, "調子（エネルギー）");
     for n in 1..=5 {
         let item = MenuItemBuilder::with_id(format!("checkin:{n}"), format!("{n}")).build(app)?;
         checkin = checkin.item(&item);
@@ -115,7 +115,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
         None => "タスクを素早く入力…".to_string(),
     };
     let quick = MenuItemBuilder::with_id("quick", quick_label).build(app)?;
-    let hassle = MenuItemBuilder::with_id("hassle", "ハッスルを記録…").build(app)?;
+    let hassle = MenuItemBuilder::with_id("hassle", "気になったことを記録…").build(app)?;
     let open = MenuItemBuilder::with_id("open", "UI を開く").build(app)?;
     let snooze = MenuItemBuilder::with_id(
         "snooze",
@@ -278,7 +278,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
             )
         }) {
             Ok(_) => events::emit_segments_updated(app),
-            Err(e) => tracing::warn!("チェックインできませんでした: {}", e.message),
+            Err(e) => tracing::warn!("調子を記録できませんでした: {}", e.message),
         }
     } else {
         match id {

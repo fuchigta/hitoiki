@@ -349,9 +349,9 @@ pub fn candidates(ctx: &Ctx, range: Range) -> Result<Vec<Subject>> {
 
 fn kind_label(kind: ErgRecordKind) -> &'static str {
     match kind {
-        ErgRecordKind::Checkin => "チェックインのメモ",
-        ErgRecordKind::Hassle => "ハッスル（引っかかったこと）",
-        ErgRecordKind::Abc => "ABC の記録",
+        ErgRecordKind::Checkin => "調子のメモ",
+        ErgRecordKind::Hassle => "気になったこと",
+        ErgRecordKind::Abc => "捉え直しの記録",
         ErgRecordKind::Reflection => "振り返りの回答",
     }
 }

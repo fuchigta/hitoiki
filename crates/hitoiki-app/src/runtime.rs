@@ -199,7 +199,7 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
         });
         match r {
             Ok(_) => changed = true,
-            Err(e) => tracing::warn!("チェックインを記録できませんでした: {}", e.message),
+            Err(e) => tracing::warn!("調子を記録できませんでした: {}", e.message),
         }
     }
 

@@ -463,7 +463,7 @@ export function Today() {
             <h2 class="stat-label">今日の合計</h2>
             <span class="stat-num">{fmtDur(s.today.total_ms)}</span>
             <span class="stat-sub">
-              エージェント対話 {fmtDur(digest.agentMs)} ・ 無操作 {fmtDur(s.today.idle_ms)} ・ 休憩 {fmtDur(s.today.break_ms)}
+              AI との対話 {fmtDur(digest.agentMs)} ・ 無操作 {fmtDur(s.today.idle_ms)} ・ 休憩 {fmtDur(s.today.break_ms)}
               {s.today.ignored_ms > 0 ? ` ・ 無視 ${fmtDur(s.today.ignored_ms)}` : ""}
             </span>
             <span class="stat-sub">無操作・休憩・無視は合計に含みません</span>
@@ -503,7 +503,7 @@ export function Today() {
           <div class="stat">
             <h2 class="stat-label">{date} の合計</h2>
             <span class="stat-num">{fmtDur(daySum(segs))}</span>
-            <span class="stat-sub">エージェント対話 {fmtDur(digest.agentMs)} ・ 無操作・休憩・無視は含みません</span>
+            <span class="stat-sub">AI との対話 {fmtDur(digest.agentMs)} ・ 無操作・休憩・無視は含みません</span>
           </div>
         </div>
       )}

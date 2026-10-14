@@ -122,8 +122,8 @@ pub fn clipped_len(s: &ActivitySegment, range: Range) -> i64 {
 pub fn kind_label(kind: SegmentKind) -> &'static str {
     match kind {
         SegmentKind::Work => "作業",
-        SegmentKind::AgentDialog => "エージェント対話",
-        SegmentKind::AgentWatch => "エージェント見守り",
+        SegmentKind::AgentDialog => "AI との対話",
+        SegmentKind::AgentWatch => "AI の作業待ち",
         SegmentKind::Meeting => "会議",
         SegmentKind::Idle => "無操作",
         SegmentKind::Break => "休憩",

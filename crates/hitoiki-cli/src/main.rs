@@ -633,7 +633,7 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Hassle { text, intensity, .. } => {
             let text = read_text(&text.ok_or_else(|| {
-                hitoiki_core::Error::InvalidArgument("ハッスルの内容を指定してください".into())
+                hitoiki_core::Error::InvalidArgument("気になったことの内容を指定してください".into())
             })?)?;
             let h = record::hassle(&ctx, &record::HassleInput { text, intensity })?;
             ext::notify_data("hassle");
@@ -659,7 +659,7 @@ fn run(cli: Cli) -> Result<()> {
             ext::notify_data("abc");
             emit(json, &r, || {
                 format!(
-                    "ABC を記録しました: {} (A: {})",
+                    "捉え直し（ABC）を記録しました: {} (A: {})",
                     render::short(&r.id),
                     r.activating_event
                 )

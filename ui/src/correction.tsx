@@ -25,7 +25,7 @@ const FILTERS: { id: CandidateFilter; label: string }[] = [
 
 const CATEGORY_LABEL: Record<CorrectionCandidate["category"], string> = {
   work: "作業",
-  agent_dialog: "エージェント",
+  agent_dialog: "AI との対話",
   confirmed: "確定済み",
   meeting: "会議",
   idle: "無操作",

@@ -376,10 +376,10 @@ pub fn report(tz: Tz, r: &Report) -> String {
     let by = match r.by {
         ReportBy::Task => "タスク",
         ReportBy::Activity => "活動",
-        ReportBy::Quadrant => "象限",
+        ReportBy::Quadrant => "緊急・重要",
         ReportBy::Okr => "OKR",
         ReportBy::Skill => "スキル",
-        ReportBy::Agent => "エージェント",
+        ReportBy::Agent => "AI エージェント",
         ReportBy::Kind => "種別",
     };
     let mut s = format!(
@@ -596,7 +596,11 @@ pub fn checkin(c: &Checkin) -> String {
 }
 
 pub fn hassle(h: &Hassle) -> String {
-    format!("ハッスルを記録しました: {} (強度 {})", short(&h.id), h.intensity)
+    format!(
+        "気になったことを記録しました: {} (強度 {})",
+        short(&h.id),
+        h.intensity
+    )
 }
 
 pub fn okr_list(l: &OkrList) -> String {
@@ -1032,7 +1036,7 @@ pub fn reflection_list(tz: Tz, list: &[hitoiki_core::model::Reflection]) -> Stri
 
 pub fn abc_dispute(a: &hitoiki_core::model::AbcRecord) -> String {
     format!(
-        "ABC {} の問いを追記しました。\n\n{}",
+        "捉え直し {} の問いを追記しました。\n\n{}",
         short(&a.id),
         a.ai_dialog_md.as_deref().unwrap_or_default()
     )
@@ -1376,10 +1380,10 @@ pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String
         _ => {
             let mut parts = Vec::new();
             if r.checkin_id.is_some() {
-                parts.push("チェックイン".to_string());
+                parts.push("調子".to_string());
             }
             if r.hassle_id.is_some() {
-                parts.push("ハッスル".to_string());
+                parts.push("気になったこと".to_string());
             }
             if r.idle_labeled > 0 {
                 parts.push(format!("無操作の分類（{} 区間）", r.idle_labeled));

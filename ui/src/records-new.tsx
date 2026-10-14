@@ -2,7 +2,7 @@ import { useState } from "preact/hooks";
 import { api } from "./api";
 import { ErrorBox, Field, Section } from "./components";
 import { dateInput, useAction } from "./lib";
-import { REFLECTION_KIND_LABEL, isReflectionKind, type NewKind, type RecordSource } from "./records-util";
+import { ABC_HELP, REFLECTION_KIND_LABEL, isReflectionKind, type NewKind, type RecordSource } from "./records-util";
 import { Scale } from "./ui/parts";
 
 // 記録の作成フォーム（`#/records/new/<種類>`）。保存したら `onCreated` で作った記録を渡し、画面がその記録を選択する。
@@ -33,7 +33,7 @@ function NewCheckin({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   const [note, setNote] = useState("");
   const act = useAction();
   return (
-    <Section title="チェックインを記録">
+    <Section title="調子を記録">
       <form
         class="stack"
         onSubmit={async (e) => {
@@ -60,7 +60,7 @@ function NewHassle({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   const [intensity, setIntensity] = useState<number | undefined>(3);
   const act = useAction();
   return (
-    <Section title="ハッスルを記録">
+    <Section title="気になったことを記録">
       <form
         class="stack"
         onSubmit={async (e) => {
@@ -87,7 +87,7 @@ function NewAbc({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   const [ci, setCi] = useState<number>();
   const act = useAction();
   return (
-    <Section title="ABC を書く">
+    <Section title="捉え直し（ABC）を書く" help={ABC_HELP}>
       <form
         class="stack"
         onSubmit={async (e) => {
