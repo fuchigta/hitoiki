@@ -8,8 +8,12 @@
     "reason": "今日のタイムラインの時刻ラベルの幅に合わせた左余白（固定値）"
   },
   {
-    "pattern": "^style\\|button\\.ghost\\|(内側の余白=0px 4px|文字サイズ=13px)$",
+    "pattern": "^(style\\|button\\.ghost\\|(内側の余白=0px 4px|文字サイズ=13px|高さ=18px)|align\\|button\\.ghost\\|input)$",
     "reason": "スキル chip の中の「外す」ボタン。chip の文字サイズに合わせた小さな × ボタン"
+  },
+  {
+    "pattern": "^align\\|button\\.ghost(\\.help-btn)?\\|(button\\.ghost\\.help-btn|button\\.primary|input\\.setting-input)$",
+    "reason": "「?」ボタンは文字に添える 20px の丸で、標準の高さにしない。中心はそろっている"
   },
   {
     "pattern": "^style\\|h1\\|",
