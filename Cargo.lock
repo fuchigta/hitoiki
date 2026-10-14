@@ -1737,7 +1737,7 @@ checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
 name = "hitoiki-agents"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1753,7 +1753,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-app"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "hitoiki-agents",
@@ -1775,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-calendar"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1789,7 +1789,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-cli"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono-tz",
@@ -1809,7 +1809,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-collect"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -1820,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-collect-win"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -1832,7 +1832,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1853,7 +1853,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-daemon"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono-tz",
@@ -1878,7 +1878,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-ipc"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "libc",
@@ -1890,7 +1890,7 @@ dependencies = [
 
 [[package]]
 name = "hitoiki-judge"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "anyhow",
  "chrono-tz",
