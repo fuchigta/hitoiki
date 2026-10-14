@@ -364,7 +364,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 ## 9. AI 振り返り
 
-Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）を子プロセスとして起動し、標準入力にプロンプトを渡して標準出力を受け取る。`ai.timeout_sec`（既定 180）を超えたら強制終了してエラーにする。非 0 終了と空出力もエラー。AI の呼び出し以外でネットワークに接続しない。
+Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）を子プロセスとして起動し、標準入力にプロンプトを渡して標準出力を受け取る。起動する argv は `Ai::argv()`（`command` + `ai.model` 指定時のモデル引数。既定 `--model <名>`、`ai.model_args` の `{model}` を置換）で組み立て、構造化出力の引数はその後ろに足す（`reflect` / `erg` / `okr_suggest` のすべてがこれを経由する）。`ai.timeout_sec`（既定 180）を超えたら強制終了してエラーにする。非 0 終了と空出力もエラー。AI の呼び出し以外でネットワークに接続しない。
 
 - **種別**: `day_start` / `day_end` / `weekly` と、ABC 記録の反論（`abc_dispute`）。
 - **コンテキスト**: `service/context.rs` の `ContextJson`（集計、計画、doing タスク、割り込み、ハッスル、ABC 記録、チェックイン、要確認件数、OKR、前週との差、ERG の分布など。種別ごとに含める項目が変わる）。`hitoiki context` で AI 用に JSON 出力もできる。
@@ -440,7 +440,7 @@ KR の現在値の履歴と時系列（`service::okr_progress`、`repo/kr_progre
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`kr_idle_weekday`（3）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
-| `ai` | `command`（`["claude", "-p"]`）、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
+| `ai` | `command`（`["claude", "-p"]`）、`model`、`model_args`、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources`（`name`, `type`, `url`） |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 

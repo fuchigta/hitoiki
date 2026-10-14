@@ -1,5 +1,5 @@
 //! テスト用の AI コマンド代替。標準入力をそのまま標準出力へ返す。
-//! 引数 `fail` で終了コード 3、`sleep` で長時間待機する。
+//! 引数 `fail` で終了コード 3、`sleep` で長時間待機する。`args` は後ろの引数を `args: ...` として返す。
 //!
 //! 構造化出力のテスト用に、追加の引数（構造化のときだけ付く）がある場合の挙動を切り替えられる。
 //! - `structured`: 追加の引数があれば、claude 風の JSON を 2 つ連結して返す。無ければ Markdown を返す。
@@ -27,6 +27,11 @@ fn main() {
             std::process::exit(3);
         }
         "sleep" => std::thread::sleep(std::time::Duration::from_secs(60)),
+        // モードより後ろの引数を空白区切りで返す（モデル引数などの argv の検証用）。
+        "args" => {
+            write!(out, "args: {}", args[1..].join(" ")).unwrap();
+            return;
+        }
         // ERG 判定のプロンプト（`"id": "r1"` などを含む）には、r1 は growth（確信度 0.9）、
         // それ以外は relatedness（確信度 0.5）の JSON を返す。それ以外のプロンプトは空の判定を返す。
         "erg" => {

@@ -504,6 +504,29 @@ mod tests {
     }
 
     #[test]
+    fn model_args_come_before_structured_args() {
+        let ai = Ai {
+            model: Some("sonnet".into()),
+            ..Ai::default()
+        };
+        let mut argv = ai.argv();
+        argv.extend(build_args(&ai, "{}").unwrap().0);
+        assert_eq!(
+            argv,
+            cmd(&[
+                "claude",
+                "-p",
+                "--model",
+                "sonnet",
+                "--output-format",
+                "json",
+                "--json-schema",
+                "{}"
+            ])
+        );
+    }
+
+    #[test]
     fn custom_args_substitute_and_schema_file_is_removed() {
         let ai = Ai {
             command: cmd(&["codex", "exec"]),

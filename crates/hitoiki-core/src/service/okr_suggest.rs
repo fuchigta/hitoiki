@@ -357,7 +357,7 @@ pub fn suggest(ctx: &Ctx, kr: &str, use_ai: bool) -> Result<Suggestions> {
     if use_ai && ai_configured(ctx) {
         let ai = &ctx.cfg.ai;
         let timeout = Duration::from_secs(ai.timeout_sec.max(1));
-        let run = |prompt: &str| run_ai(&ai.command, prompt, timeout);
+        let run = |prompt: &str| run_ai(&ai.argv(), prompt, timeout);
         suggest_with(ctx, kr, Some(&run))
     } else {
         suggest_with(ctx, kr, None)

@@ -436,6 +436,11 @@ fn default_judge_timeout() -> u64 {
 #[serde(default)]
 pub struct Ai {
     pub command: Vec<String>,
+    /// 使うモデル名。未指定（または空白だけ）ならモデルの引数は付けず、AI コマンド側の既定に任せる。
+    pub model: Option<String>,
+    /// `model` を指定したときに `command` の後ろへ付ける引数。空なら `["--model", "{model}"]`
+    /// （`claude` と `codex` はどちらも `--model` を受け付ける）。`{model}` をモデル名に置換する。
+    pub model_args: Vec<String>,
     pub timeout_sec: u64,
     /// 未指定なら `paths::templates_dir()`。
     pub templates_dir: Option<String>,
@@ -455,6 +460,8 @@ impl Default for Ai {
     fn default() -> Self {
         Self {
             command: vec!["claude".into(), "-p".into()],
+            model: None,
+            model_args: Vec::new(),
             timeout_sec: 180,
             templates_dir: None,
             structured: AiStructured::Auto,
@@ -462,6 +469,24 @@ impl Default for Ai {
             erg_classify: true,
             erg_auto_threshold: 0.8,
         }
+    }
+}
+
+impl Ai {
+    /// AI コマンドの argv（`command` + モデルの引数）。構造化出力の引数はこの後ろに足す。
+    /// `model` が未指定・空白だけなら `command` のまま。
+    pub fn argv(&self) -> Vec<String> {
+        let mut argv = self.command.clone();
+        let Some(model) = self.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) else {
+            return argv;
+        };
+        if self.model_args.is_empty() {
+            argv.push("--model".into());
+            argv.push(model.to_string());
+        } else {
+            argv.extend(self.model_args.iter().map(|a| a.replace("{model}", model)));
+        }
+        argv
     }
 }
 
@@ -635,6 +660,25 @@ update_check = false
         // 未設定のまま書き出しても読み戻せる（TOML は None を省く）。
         let s = toml::to_string(&Config::default()).unwrap();
         assert_eq!(toml::from_str::<Config>(&s).unwrap().general.update_check, None);
+    }
+
+    #[test]
+    fn ai_argv_はモデルの引数を_command_の後ろに足す() {
+        let mut ai = Ai::default();
+        let base: Vec<String> = vec!["claude".into(), "-p".into()];
+        assert_eq!(ai.argv(), base);
+        ai.model = Some("  ".into());
+        assert_eq!(ai.argv(), base);
+        ai.model = Some(" sonnet ".into());
+        assert_eq!(ai.argv(), ["claude", "-p", "--model", "sonnet"]);
+        ai.model_args = vec!["-m".into(), "x-{model}".into()];
+        assert_eq!(ai.argv(), ["claude", "-p", "-m", "x-sonnet"]);
+        // model 未指定なら model_args があっても付けない
+        ai.model = None;
+        assert_eq!(ai.argv(), base);
+        // 既存の設定ファイル（model なし）も読める
+        let c: Config = toml::from_str("[ai]\ntimeout_sec = 5\n").unwrap();
+        assert!(c.ai.model.is_none() && c.ai.model_args.is_empty());
     }
 
     #[test]

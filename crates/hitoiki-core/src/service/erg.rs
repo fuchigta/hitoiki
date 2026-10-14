@@ -326,7 +326,7 @@ fn run_configured(ctx: &Ctx, prompt: &str) -> Result<String> {
     if structured::enabled(ai) {
         if let Ok((extra, _file)) = structured::build_args(ai, &schema_json()) {
             if !extra.is_empty() {
-                let mut argv = ai.command.clone();
+                let mut argv = ai.argv();
                 argv.extend(extra);
                 if let Ok(out) = run_ai(&argv, prompt, timeout) {
                     if parse_response(&out).is_ok() {
@@ -336,7 +336,7 @@ fn run_configured(ctx: &Ctx, prompt: &str) -> Result<String> {
             }
         }
     }
-    run_ai(&ai.command, prompt, timeout)
+    run_ai(&ai.argv(), prompt, timeout)
 }
 
 /// 判定の対象になる記録（文章があり、ラベルが無いもの）。

@@ -208,7 +208,7 @@ pub fn run_ai(argv: &[String], prompt: &str, timeout: Duration) -> Result<String
 
 fn run_configured(ctx: &Ctx, prompt: &str) -> Result<String> {
     run_ai(
-        &ctx.cfg.ai.command,
+        &ctx.cfg.ai.argv(),
         prompt,
         Duration::from_secs(ctx.cfg.ai.timeout_sec.max(1)),
     )
@@ -243,7 +243,7 @@ fn generate_structured(ctx: &Ctx, c: &ContextJson) -> Result<StructuredOutput> {
     let schema = structured::schema_json();
     // `_file` は実行が終わるまで保持する（Drop で一時スキーマファイルを消す）。
     let (extra, _file) = structured::build_args(&ctx.cfg.ai, &schema)?;
-    let mut argv = ctx.cfg.ai.command.clone();
+    let mut argv = ctx.cfg.ai.argv();
     argv.extend(extra);
     let out = run_ai(&argv, &prompt, Duration::from_secs(ctx.cfg.ai.timeout_sec.max(1)))?;
     structured::parse_output(&out)
@@ -755,6 +755,20 @@ mod tests {
         assert_eq!(a.answers_md.as_deref(), Some("考えたこと"));
         assert!(answer(&ctx, &r.id, "  ").is_err());
         assert_eq!(show(&ctx, &r.id).unwrap().id, r.id);
+    }
+
+    #[test]
+    fn model_is_passed_to_ai_command() {
+        let mut env = Env::new();
+        env.cfg.ai.command = argv(Some("args"));
+        env.cfg.ai.structured = crate::config::AiStructured::Off;
+        // model 未指定: 追加の引数なし
+        let r = reflect(&env.ctx(), ReflectionKind::DayEnd, None);
+        // 引数が空だと出力は `args: ` のみ（空白は trim される）
+        assert_eq!(r.unwrap().questions_md, "args:");
+        env.cfg.ai.model = Some("sonnet".into());
+        let r = reflect(&env.ctx(), ReflectionKind::DayEnd, None).unwrap();
+        assert_eq!(r.questions_md, "args: --model sonnet");
     }
 
     #[test]
