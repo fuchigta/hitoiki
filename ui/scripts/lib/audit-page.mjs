@@ -37,6 +37,20 @@ export function listToggles() {
 
 /** 監視対象の要素に data-au を振り、位置と大きさを返す。 */
 export function tagAll() {
+  const scrollers = [];
+  const scrollerOf = (el) => {
+    for (let n = el.parentElement; n && n !== document.body; n = n.parentElement) {
+      if (n.classList.contains("content")) return -1; // 本文のスクロールは y の補正で吸収する
+      const oy = getComputedStyle(n).overflowY;
+      if ((oy === "auto" || oy === "scroll") && n.scrollHeight > n.clientHeight) {
+        let i = scrollers.indexOf(n);
+        if (i < 0) i = scrollers.push(n) - 1;
+        n.setAttribute("data-au-sc", String(i));
+        return i;
+      }
+    }
+    return -1;
+  };
   const WATCH =
     "button, input, select, textarea, label, h1, h2, h3, h4, [role=tab], .tag, .chip, .meta, .card, .row, .content > *, a, .toolbar, .object-row, .field";
   const content = document.querySelector(".content");
@@ -60,10 +74,12 @@ export function tagAll() {
       y: r.top + dy,
       w: r.width,
       h: r.height,
+      sc: scrollerOf(el),
+      sticky: (() => { for (let n = el; n && n !== document.body; n = n.parentElement) if (getComputedStyle(n).position === "sticky") return true; return false; })(),
       ctl: /^(BUTTON|INPUT|SELECT|TEXTAREA)$/.test(el.tagName) || el.getAttribute("role") === "tab" || el.classList.contains("chip"),
     });
   });
-  return { cw: content?.clientWidth ?? 0, els: out };
+  return { cw: content?.clientWidth ?? 0, sy: content?.scrollTop ?? 0, sc: scrollers.map((n) => n.scrollTop), els: out };
 }
 
 /** 操作の対象を data-au-p で目印にする。 */
@@ -94,7 +110,34 @@ export function measureAgain() {
       pressed: el === pressed,
     });
   }
-  return { cw: content?.clientWidth ?? 0, els: out };
+  const sc = [];
+  for (const n of document.querySelectorAll("[data-au-sc]")) sc[Number(n.getAttribute("data-au-sc"))] = n.scrollTop;
+  return { cw: content?.clientWidth ?? 0, sy: content?.scrollTop ?? 0, sc, els: out };
+}
+
+/** 中身が入れ物の幅をはみ出している要素（横スクロールや、はみ出しの見切れ）を返す。 */
+export function findOverflow() {
+  const out = [];
+  for (const el of document.querySelectorAll("body *")) {
+    if (el.closest("svg")) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) continue;
+    const st = getComputedStyle(el);
+    // 意図した省略（text-overflow: ellipsis）と、横スクロールにしてある入れ物（とその中身）は除く。
+    if (st.textOverflow === "ellipsis") continue;
+    if (st.overflowX === "auto" || st.overflowX === "scroll") continue;
+    let inScroller = false;
+    for (let n = el.parentElement; n; n = n.parentElement) {
+      const ox = getComputedStyle(n).overflowX;
+      if (ox === "auto" || ox === "scroll") inScroller = true;
+    }
+    if (inScroller && el.closest(".heatmap-scroll")) continue;
+    if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0) {
+      const cls = (el.getAttribute("class") || "").split(/\s+/).filter(Boolean).slice(0, 3).join(".");
+      out.push({ id: `${el.tagName.toLowerCase()}${cls ? `.${cls}` : ""}`, over: el.scrollWidth - el.clientWidth, ox: getComputedStyle(el).overflowX });
+    }
+  }
+  return out;
 }
 
 /** 全部の要素のスタイルを集めて返す（部品の種類ごとの値と、トークン外の値の素材）。 */
@@ -130,11 +173,11 @@ export function collectStyles() {
   const px = (name) => parseFloat(cs.getPropertyValue(name));
   const tokens = {
     fs: ["--fs-xs", "--fs-s", "--fs-m", "--fs-l", "--fs-xl", "--fs-num"].map(px),
-    sp: [0, ...["--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5", "--sp-6"].map(px)],
+    sp: [0, ...["--sp-1", "--sp-2", "--sp-3", "--sp-4", "--sp-5", "--sp-6", "--sp-7"].map(px)],
     r: [0, ...["--r-s", "--r-m", "--r-l"].map(px)],
   };
 
-  const variantClasses = ["ghost", "primary", "chip", "link", "help-btn", "menu-btn", "menu-item", "object-main", "hm-cell", "attn"];
+  const variantClasses = ["tab", "vtl-del", "ghost", "primary", "chip", "link", "help-btn", "menu-btn", "menu-item", "object-main", "hm-cell", "attn"];
   const kindOf = (el) => {
     const t = el.tagName.toLowerCase();
     if (t === "button") {
@@ -192,7 +235,7 @@ export function collectStyles() {
     if (kind) {
       kinds.push({
         kind,
-        h: Math.round(r.height * 2) / 2,
+        h: st.display === "inline" ? null : Math.round(r.height), // inline は文字の箱の高さで、見た目の高さではない
         fs: st.fontSize,
         fw: st.fontWeight,
         pad: `${st.paddingTop} ${st.paddingRight}`,

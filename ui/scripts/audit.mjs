@@ -12,7 +12,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { collectStyles, listToggles, markPressed, measureAgain, tagAll } from "./lib/audit-page.mjs";
+import { collectStyles, findOverflow, listToggles, markPressed, measureAgain, tagAll } from "./lib/audit-page.mjs";
 import { launchBrowser, openPage, root, SCENARIOS, startServer } from "./lib/harness.mjs";
 
 const WIDTHS = [1280, 800];
@@ -120,6 +120,14 @@ async function runShift({ browser, base, scenario, width, target, problems, issu
   try {
     const hash = await gotoTarget(page, target);
     if (!hash) return;
+    for (const o of await page.evaluate(findOverflow))
+      addIssue(issues, {
+        check: "overflow",
+        key: `overflow|${target.name}|${o.id}`,
+        title: `${target.name}: ${o.id} の中身が ${o.over}px 幅をはみ出している（overflow-x: ${o.ox}）`,
+        detail: "",
+        where,
+      });
     const { SEL, list } = await page.evaluate(listToggles);
     stats.toggles += list.length;
     for (const cand of list.slice(0, MAX_TOGGLES)) {
@@ -146,6 +154,8 @@ async function runShift({ browser, base, scenario, width, target, problems, issu
       for (const b of before.els) {
         const a = byN.get(b.n);
         if (!a || !a.vis) continue;
+        if (b.sticky && Math.abs(after.sy - before.sy) > 0.5) continue; // 画面がスクロールしたときの sticky は動いて見えるだけ
+        if (b.sc >= 0 && Math.abs((after.sc[b.sc] ?? 0) - (before.sc[b.sc] ?? 0)) > 0.5) continue; // 入れ物の中でスクロールしただけ（クリックで見える位置に動く）
         if (b.y >= pb.y + pb.h - 0.5) continue; // 押した部品より下は変わってよい
         const dx = hOk ? a.x - b.x : 0;
         const dy = a.y - b.y;
@@ -204,7 +214,7 @@ function minorityIssues(records, issues) {
     for (const k of rec.kinds) {
       const metrics = /^h\d$/.test(k.kind)
         ? { 文字サイズ: k.fs, 太さ: k.fw, 余白: k.mb }
-        : { 高さ: `${k.h}px`, 文字サイズ: k.fs, 内側の余白: k.pad, 角丸: k.radius };
+        : k.kind === "button.object-main" ? { 文字サイズ: k.fs, 内側の余白: k.pad, 角丸: k.radius } : { 高さ: k.h == null ? null : `${k.h}px`, 文字サイズ: k.fs, 内側の余白: k.pad, 角丸: k.radius };
       for (const [m, v] of Object.entries(metrics)) {
         if (v === "" || v == null) continue;
         const g = groups.get(k.kind) ?? new Map();
@@ -291,7 +301,7 @@ function writeReport(out, issues, allowed, unused, summary) {
     return m;
   };
   writeFileSync(join(out, "report.json"), JSON.stringify({ summary, issues, allowed, unusedAllow: unused }, null, 2));
-  const NAMES = { shift: "位置ずれ", style: "値のばらつき（少数派）", token: "トークン外の値", align: "横並びの高さ・上下位置の不揃い" };
+  const NAMES = { shift: "位置ずれ", style: "値のばらつき（少数派）", token: "トークン外の値", align: "横並びの高さ・上下位置の不揃い", overflow: "横幅のはみ出し" };
   const lines = [`# UI 監査レポート`, ``, `- 操作した切り替え部品: ${summary.operated} 回（候補 ${summary.toggles}）`, `- 問題: ${issues.length} 件（${Object.entries(byCheck(issues)).map(([k, v]) => `${NAMES[k]} ${v}`).join("、") || "なし"}）`, `- 許可リストで除外: ${allowed.length} 件`, ``];
   for (const check of Object.keys(NAMES)) {
     const list = issues.filter((i) => i.check === check);
