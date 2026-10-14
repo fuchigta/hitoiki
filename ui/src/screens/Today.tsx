@@ -552,12 +552,17 @@ export function Today() {
         >
           {range && view && log.data && blocks.data ? (
             <>
-              {armed && (
-                <p class="hint" role="status">
-                  「{armed.title}」を置く場所をタイムラインでクリックしてください。
-                  <button type="button" class="link" onClick={() => setArmed(null)}>
-                    やめる
-                  </button>
+              {(armed || panel?.kind === "design" || side.design) && (
+                // デザインを開いている間は 1 行ぶん場所を空けておく（タスクを選んだときに、下のタイムラインが動かないように）。
+                <p class="hint hint-slot" role="status">
+                  {armed && (
+                    <>
+                      「<span class="hint-title">{armed.title}</span>」を置く場所をタイムラインでクリックしてください。
+                      <button type="button" class="link" onClick={() => setArmed(null)}>
+                        やめる
+                      </button>
+                    </>
+                  )}
                 </p>
               )}
               <DayDesigner

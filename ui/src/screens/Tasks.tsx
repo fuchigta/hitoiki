@@ -492,7 +492,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         <span>KR</span>
         <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="KR を選ぶ" disabled={busy} />
       </div>
-      <div class="row">
+      <div class="row row-end">
         <label class="check">
           <input type="checkbox" checked={draft.urgent} onChange={(e) => set("urgent", e.currentTarget.checked)} />
           緊急
