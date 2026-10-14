@@ -24,6 +24,7 @@
   --sp-4: 16px;
   --sp-5: 24px;
   --sp-6: 32px;
+  --sp-7: 40px;
   --fs-xs: 12px;
   --fs-s: 13px;
   --fs-m: 14px;
@@ -34,6 +35,8 @@
   --r-m: 8px;
   --r-l: 12px;
   --r-pill: 999px;
+  /* 操作部品（ボタン・入力・select・chip）の高さ。横に並べても、出し入れしても行の高さが変わらないようにそろえる */
+  --ctl-h: 32px;
   --shadow: 0 4px 16px rgb(0 0 0 / 0.12);
   --line: 1.6;
   color-scheme: light dark;
@@ -96,6 +99,10 @@ h3 {
   color: var(--text);
 }
 
+small {
+  font-size: var(--fs-xs);
+}
+
 a {
   color: var(--accent);
 }
@@ -140,7 +147,7 @@ a {
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: var(--sp-5) var(--sp-6) 40px;
+  padding: var(--sp-5) var(--sp-6) var(--sp-7);
 }
 
 .stack {
@@ -156,6 +163,9 @@ a {
 }
 .spacer {
   flex: 1;
+}
+.row.row-end {
+  align-items: flex-end;
 }
 .grow {
   flex: 1;
@@ -224,6 +234,18 @@ a {
   font-size: var(--fs-s);
   margin: 0;
 }
+.hint-slot {
+  min-height: calc(var(--fs-s) * var(--line));
+}
+/* 長い題名で 2 行にならないよう、題名は 12em で切る */
+.hint-title {
+  display: inline-block;
+  max-width: 12em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .num {
   font-variant-numeric: tabular-nums;
 }
@@ -289,6 +311,11 @@ textarea {
   padding: var(--sp-2) var(--sp-2);
   min-width: 0;
 }
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+select {
+  height: var(--ctl-h);
+  padding-block: 0;
+}
 textarea {
   width: 100%;
   resize: vertical;
@@ -304,7 +331,8 @@ button {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--r-m);
-  padding: var(--sp-2) var(--sp-3);
+  padding: 0 var(--sp-3);
+  min-height: var(--ctl-h);
   cursor: pointer;
 }
 button:hover:not(:disabled) {
@@ -330,14 +358,15 @@ button.ghost:hover:not(:disabled) {
 }
 /* chip = 押せる選択肢（フィルタ・選択）。tag = 表示専用のラベル */
 .chip {
+  font-size: var(--fs-m);
   border-radius: var(--r-pill);
-  padding: var(--sp-1) var(--sp-3);
+  padding: 0 var(--sp-3);
   background: transparent;
 }
+/* 選択中でも太字にしない（太字にすると幅が変わって、隣の chip が動く） */
 .chip.on {
   background: var(--accent-soft);
   border-color: var(--accent);
-  font-weight: 600;
 }
 .field {
   display: flex;
@@ -359,6 +388,7 @@ button.ghost:hover:not(:disabled) {
 .check {
   display: inline-flex;
   align-items: center;
+  min-height: var(--ctl-h);
   gap: var(--sp-2);
 }
 .scale {
@@ -381,6 +411,7 @@ button.ghost:hover:not(:disabled) {
 }
 .tag {
   font-size: var(--fs-xs);
+  line-height: var(--line);
   padding: 0 var(--sp-2);
   border-radius: var(--r-pill);
   border: 1px solid var(--border);
@@ -611,6 +642,7 @@ button.ghost:hover:not(:disabled) {
   font-size: var(--fs-xs);
 }
 button.link {
+  min-height: 0;
   border: 0;
   background: none;
   padding: 0;
@@ -618,7 +650,7 @@ button.link {
   text-decoration: underline;
 }
 button.link.on {
-  font-weight: 600;
+  text-decoration-thickness: 2px;
 }
 
 /* 常駐処理の状態 */
@@ -902,12 +934,20 @@ button.primary.attn {
   flex-wrap: wrap;
   gap: var(--sp-2);
 }
+.task-chips > li {
+  max-width: 100%;
+  min-width: 0;
+}
 .task-chip {
   touch-action: none;
   user-select: none;
   cursor: grab;
   border-radius: var(--r-pill);
-  padding: var(--sp-1) var(--sp-3);
+  /* 長い題名は 1 行に切る（折り返すと高さが chip ごとに変わる） */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .task-chip.on {
   background: var(--accent);
@@ -1127,6 +1167,7 @@ button.primary.attn {
   font-size: var(--fs-s);
 }
 .skill-chip button {
+  min-height: 0;
   padding: 0 var(--sp-1);
   line-height: 1.2;
 }
@@ -1253,6 +1294,7 @@ button.primary.attn {
   background: var(--surface-2);
 }
 button.hm-cell {
+  min-height: 0;
   cursor: pointer;
 }
 .hm-none {
@@ -1341,7 +1383,7 @@ button.hm-cell {
 .kr-bar-fill {
   width: 100%;
   background: var(--accent);
-  border-radius: 3px 3px 0 0;
+  border-radius: var(--r-s) var(--r-s) 0 0;
 }
 .kr-bar-label {
   font-size: var(--fs-xs);
@@ -1408,6 +1450,7 @@ button.hm-cell {
   align-items: center;
 }
 button.help-btn {
+  min-height: 0;
   width: 20px;
   height: 20px;
   min-width: 20px;
@@ -1623,7 +1666,9 @@ button.tab {
   border: 0;
   border-bottom: 2px solid transparent;
   border-radius: 0;
-  padding: var(--sp-2) var(--sp-3);
+  padding: 0 var(--sp-3);
+  /* 横の並びでも縦の並びでも同じ高さ（下線と右線の太さの違いを吸収する） */
+  min-height: calc(var(--ctl-h) + var(--sp-2));
   color: var(--muted);
 }
 button.tab:hover:not(:disabled) {
@@ -1631,7 +1676,6 @@ button.tab:hover:not(:disabled) {
 }
 button.tab[aria-selected="true"] {
   color: var(--text);
-  font-weight: 600;
   border-bottom-color: var(--accent);
 }
 .tab-panel {
@@ -1812,7 +1856,7 @@ a.link-chip:hover {
   width: 5.5em;
 }
 .setting-off {
-  font-size: 0.85em;
+  font-size: var(--fs-xs);
 }
 
 /* 設定のルール一覧: 狭い列でも、種類の chip・tag を折り返さない */
@@ -1828,6 +1872,11 @@ a.link-chip:hover {
   flex-shrink: 0;
 }
 @media (max-width: 860px) {
+  /* 記録の絞り込み: 狭いときは、期間と「＋ 記録」を 1 行目、種類の chip を 2 行目にまとめる */
+  .records-bar > .row {
+    order: 3;
+    flex: 1 0 100%;
+  }
   .settings .list-detail {
     grid-template-columns: 1fr;
   }

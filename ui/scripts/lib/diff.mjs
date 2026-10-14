@@ -7,7 +7,7 @@ import pixelmatch from "pixelmatch";
 import { PNG } from "pngjs";
 
 /** 比較から外すサブフォルダ（差分画像と操作シナリオの失敗画像）。 */
-const SKIP_DIRS = new Set(["diff", "flows"]);
+const SKIP_DIRS = new Set(["diff", "flows", "audit"]);
 
 /** 撮影の前に、前回の撮影結果を prevDir へ退避する（退避元が無ければ何もしない）。 */
 export function rotateShots(outDir, prevDir) {

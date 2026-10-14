@@ -57,6 +57,7 @@ cd ui
 npm run shots                                        # 全シナリオ × 全画面 × 全ウインドウ
 npm run shots -- --scenario default --screen today   # 絞り込み
 npm run shots -- --window popup --dark               # ダークテーマも撮る
+npm run shots -- --narrow                            # main を幅 800px で撮る（ファイル名に -narrow。860px 以下の崩れを見る）
 ```
 
 `ui/shots/<scenario>/<window>-<screen>.png`（popup と quick は `<window>.png`、ダークは末尾に `-dark`）に保存します（`ui/shots/` は git の管理外）。Vite をプログラムから起動し、Windows に入っている Edge（なければ Chrome）を Playwright で操作するので、ブラウザのダウンロードは要りません。ビューポートは main が 1280x800（本文が長い画面は高さを伸ばして全体を撮る）、popup が 360x320、quick が 520x380 です。各ページの console error・pageerror・`[mock] unhandled` を集め、1 件でもあれば最後に一覧を出して終了コード 1 になります。
@@ -85,6 +86,27 @@ npm run flows -- --flow tasks  # 1 本だけ実行
 主要な操作の流れ（実績・タスク・今日・記録・目標・設定）を、モックの UI で実際に操作して確かめます。1 本ごとに新しいブラウザコンテキスト（モックの状態は初期化済み）で実行し、時刻は撮影と同じく固定します。成功なら `OK`、失敗なら `NG` と理由を出し、`ui/shots/flows/<名前>.png` に失敗時の画面を保存して終了コード 1 になります。console error・pageerror・`[mock] unhandled` も失敗です。
 
 シナリオは画面ごとに 1 ファイルで、`{ name, scenario, screen, run({ page }) }` を default export します。要素は `getByRole` と accessible name で選び（スタイルのクラス名に頼らない）、結果は `window.__mock.state`（`scripts/lib/flow.mjs` の `mockState`）か画面で確かめます。画面の構成を変えて壊れたら、該当の 1 ファイルだけを直します。Vite の起動やブラウザの起動などの共通部分は `ui/scripts/lib/harness.mjs` にあり、`npm run shots` と共有しています。
+
+### UI の細かい不統一の検査（audit）
+
+```powershell
+cd ui
+npm run audit                                      # 全シナリオ × 全画面 × 幅 1280・800
+npm run audit -- --scenario default --screen report
+npm run audit -- --only shift                      # 位置ずれだけ（--only style で値の集計だけ）
+```
+
+モックの画面を巡回して、操作で表示がずれる・部品の寸法がそろっていない、といった細かい不統一を機械的に拾います（`ui/scripts/audit.mjs`、ページ内の測定は `ui/scripts/lib/audit-page.mjs`）。報告は `ui/shots/audit/report.md`（人が読む）と `report.json` に出ます。許可リストで除外した分を除いて 1 件でもあれば終了コード 1 です。全部で 10 分弱かかるので、画面を絞ると速く回せます。
+
+- **位置ずれ（shift）**: タブ・chip・ラジオ・チェックボックス・select の各 option を 1 つずつ操作し（そのたびに再読み込みして状態を戻します）、押した部品より上・同じ高さにある部品、見出し、本文の上端が 1px 以上動いたら報告します。操作部品は大きさの変化も見ます。削除・保存・確定などの名前のボタンは押しません。
+- **値のばらつき（style）**: 全画面の計算済みスタイルを部品の種類（button の変種・input の種類・select・見出しのレベル・tag）ごとに集め、高さ・文字サイズ・内側の余白・角丸の少数派（8 個以上のうち 15% 未満）を報告します。
+- **トークン外の値（token）**: 文字サイズ・余白・角丸・色が `styles.css` の `:root` のトークンに無いものを報告します。
+- **横並びの不揃い（align）**: 同じ行に並ぶ操作部品の高さ・垂直中心の差を報告します。
+- **横幅のはみ出し（overflow）**: 中身が入れ物の幅をはみ出している要素を報告します（省略表示と横スクロールにしてあるものは除く）。
+
+操作部品の高さは `--ctl-h` でそろえています（ボタン・input・select・chip）。chip と tab は、選択中でも太字にしません（幅が変わって隣が動くため）。操作で出し入れする部品は、場所を空けておくか、高さのそろった部品にしてください。
+
+意図した例外は `ui/scripts/audit-allow.json` に `{ "pattern": "<key に対する正規表現>", "reason": "<理由>" }` で足します（key は report.md に出ます）。使われなかった項目は報告に出ます。数値上はそろっているのに落ち着かない、といった印象の問題は検出できないので、スクリーンショットの目視で補います。
 
 ### AI エージェントが画面を確認する手順
 
