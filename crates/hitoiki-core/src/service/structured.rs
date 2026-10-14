@@ -277,14 +277,7 @@ pub fn enabled(ai: &Ai) -> bool {
     }
 }
 
-/// `command` の先頭が claude か（パス末尾のファイル名、拡張子を除いて判定）。
-pub fn is_claude(command: &[String]) -> bool {
-    command.first().is_some_and(|c| {
-        let name = c.rsplit(['/', '\\']).next().unwrap_or(c);
-        let stem = name.split('.').next().unwrap_or(name);
-        stem.eq_ignore_ascii_case("claude")
-    })
-}
+pub use crate::config::is_claude;
 
 /// 一時ファイルに書いた JSON Schema。破棄時に削除する。
 pub struct SchemaFile(PathBuf);

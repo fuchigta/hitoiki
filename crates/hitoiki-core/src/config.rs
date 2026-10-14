@@ -436,7 +436,8 @@ fn default_judge_timeout() -> u64 {
 #[serde(default)]
 pub struct Ai {
     pub command: Vec<String>,
-    /// 使うモデル名。未指定（または空白だけ）ならモデルの引数は付けず、AI コマンド側の既定に任せる。
+    /// 使うモデル名。未指定なら `command` の先頭が `claude` のときだけ [`DEFAULT_CLAUDE_MODEL`] を使い、
+    /// それ以外のコマンドには何も付けない。空文字（または空白だけ）ならモデルの引数を付けず、AI コマンド側の既定に任せる。
     pub model: Option<String>,
     /// `model` を指定したときに `command` の後ろへ付ける引数。空なら `["--model", "{model}"]`
     /// （`claude` と `codex` はどちらも `--model` を受け付ける）。`{model}` をモデル名に置換する。
@@ -472,12 +473,32 @@ impl Default for Ai {
     }
 }
 
+/// `ai.model` が未指定で、`ai.command` が `claude` のときに使うモデル。
+pub const DEFAULT_CLAUDE_MODEL: &str = "haiku";
+
+/// `command` の先頭が claude か（パス末尾のファイル名、拡張子を除いて判定）。
+pub fn is_claude(command: &[String]) -> bool {
+    command.first().is_some_and(|c| {
+        let name = c.rsplit(['/', '\\']).next().unwrap_or(c);
+        let stem = name.split('.').next().unwrap_or(name);
+        stem.eq_ignore_ascii_case("claude")
+    })
+}
+
 impl Ai {
+    /// 実際に使うモデル名。未指定なら `claude` のときだけ既定のモデル、空白だけなら None。
+    pub fn effective_model(&self) -> Option<&str> {
+        match self.model.as_deref() {
+            Some(m) => Some(m.trim()).filter(|m| !m.is_empty()),
+            None => is_claude(&self.command).then_some(DEFAULT_CLAUDE_MODEL),
+        }
+    }
+
     /// AI コマンドの argv（`command` + モデルの引数）。構造化出力の引数はこの後ろに足す。
-    /// `model` が未指定・空白だけなら `command` のまま。
+    /// 使うモデルが無ければ（[`Ai::effective_model`]）`command` のまま。
     pub fn argv(&self) -> Vec<String> {
         let mut argv = self.command.clone();
-        let Some(model) = self.model.as_deref().map(str::trim).filter(|m| !m.is_empty()) else {
+        let Some(model) = self.effective_model() else {
             return argv;
         };
         if self.model_args.is_empty() {
@@ -666,15 +687,23 @@ update_check = false
     fn ai_argv_はモデルの引数を_command_の後ろに足す() {
         let mut ai = Ai::default();
         let base: Vec<String> = vec!["claude".into(), "-p".into()];
-        assert_eq!(ai.argv(), base);
+        // 未指定なら claude には既定のモデルを付ける
+        assert_eq!(ai.argv(), ["claude", "-p", "--model", DEFAULT_CLAUDE_MODEL]);
         ai.model = Some("  ".into());
         assert_eq!(ai.argv(), base);
         ai.model = Some(" sonnet ".into());
         assert_eq!(ai.argv(), ["claude", "-p", "--model", "sonnet"]);
         ai.model_args = vec!["-m".into(), "x-{model}".into()];
         assert_eq!(ai.argv(), ["claude", "-p", "-m", "x-sonnet"]);
-        // model 未指定なら model_args があっても付けない
+        // 未指定なら claude には既定のモデルを model_args の形で付ける
         ai.model = None;
+        assert_eq!(ai.argv(), ["claude", "-p", "-m", "x-haiku"]);
+        // claude 以外のコマンドで未指定なら何も付けない
+        ai.command = vec!["codex".into(), "exec".into()];
+        assert_eq!(ai.argv(), ["codex", "exec"]);
+        // 空文字ならモデルの引数を付けない（claude でも）
+        ai.command = base.clone();
+        ai.model = Some(String::new());
         assert_eq!(ai.argv(), base);
         // 既存の設定ファイル（model なし）も読める
         let c: Config = toml::from_str("[ai]\ntimeout_sec = 5\n").unwrap();
