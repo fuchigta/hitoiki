@@ -1,8 +1,8 @@
 use super::*;
 use crate::model::{SegmentKind, SegmentStatus};
-use crate::repo::okr;
+use crate::repo::goal;
+use crate::service::goal::{self as goal_svc, GoalInput, KeyResultEdit, KeyResultInput};
 use crate::service::impact::DeleteMode;
-use crate::service::okr::{self as okr_svc, KrEdit, KrInput, ObjectiveInput};
 use crate::service::task::{self, TaskInput};
 use crate::service::testutil::{insert_segment, Env};
 use crate::Clock;
@@ -11,19 +11,19 @@ const MIN: i64 = 60_000;
 const DAY: i64 = 24 * 60 * MIN;
 
 fn setup(ctx: &Ctx) -> (String, String) {
-    let o = okr_svc::add_objective(
+    let o = goal_svc::add_goal(
         ctx,
-        &ObjectiveInput {
+        &GoalInput {
             title: "O".into(),
             from: None,
             to: None,
         },
     )
     .unwrap();
-    let k = okr_svc::add_kr(
+    let k = goal_svc::add_key_result(
         ctx,
-        &KrInput {
-            objective: o.id,
+        &KeyResultInput {
+            goal: o.id,
             title: "K".into(),
             target: Some("10".into()),
             skills: vec![],
@@ -46,7 +46,7 @@ fn setup(ctx: &Ctx) -> (String, String) {
 
 fn count_rows(c: &Ctx) -> i64 {
     c.conn
-        .query_row("SELECT COUNT(*) FROM kr_progress", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM key_result_progress", [], |r| r.get(0))
         .unwrap()
 }
 
@@ -65,12 +65,12 @@ fn 数値は先頭の数だけ読む() {
 fn 現在値が変わったときだけ履歴が残る() {
     let env = Env::new();
     let c = env.ctx();
-    let (kr, _) = setup(&c);
+    let (key_result, _) = setup(&c);
     let edit = |current: Option<&str>, note: Option<&str>, title: Option<&str>| {
-        okr_svc::edit_kr(
+        goal_svc::edit_key_result(
             &c,
-            &kr,
-            &KrEdit {
+            &key_result,
+            &KeyResultEdit {
                 current: current.map(Into::into),
                 current_note: note.map(Into::into),
                 title: title.map(Into::into),
@@ -84,7 +84,7 @@ fn 現在値が変わったときだけ履歴が残る() {
     edit(Some("3"), None, None); // 同じ値では残さない
     edit(Some("4 件"), None, None);
     edit(Some(""), None, None); // 消した
-    let h = kr_progress::list_of_kr(c.conn, &kr).unwrap();
+    let h = key_result_progress::list_of_key_result(c.conn, &key_result).unwrap();
     let got: Vec<_> = h
         .iter()
         .map(|p| (p.value, p.text.as_deref(), p.note.as_deref()))
@@ -103,12 +103,12 @@ fn 現在値が変わったときだけ履歴が残る() {
 fn 記録は同じ値でも1行残し_空は受け付けない() {
     let env = Env::new();
     let c = env.ctx();
-    let (kr, _) = setup(&c);
-    let r = record(&c, &kr, "5", Some("メモ")).unwrap();
+    let (key_result, _) = setup(&c);
+    let r = record(&c, &key_result, "5", Some("メモ")).unwrap();
     assert_eq!(r.key_result.current.as_deref(), Some("5"));
     record(&c, "K", "5", None).unwrap(); // タイトルでも指定できる
     assert_eq!(count_rows(&c), 2);
-    assert!(record(&c, &kr, "  ", None).is_err());
+    assert!(record(&c, &key_result, "  ", None).is_err());
     assert!(record(&c, "なし", "1", None).is_err());
 }
 
@@ -116,13 +116,13 @@ fn 記録は同じ値でも1行残し_空は受け付けない() {
 fn 時系列は週ごとの値と時間を並べる() {
     let env = Env::new();
     let c = env.ctx();
-    let (kr, t) = setup(&c);
+    let (key_result, t) = setup(&c);
     let now = env.clock.now_ms();
     // 8 日前（先週）に 1、今に 5 回。
     env.clock.set(now - 8 * DAY);
-    record(&c, &kr, "1", None).unwrap();
+    record(&c, &key_result, "1", None).unwrap();
     env.clock.set(now);
-    record(&c, &kr, "5 回", Some("追い込み")).unwrap();
+    record(&c, &key_result, "5 回", Some("追い込み")).unwrap();
     let d = env.day_start(); // 2026-10-10（土）
     insert_segment(
         c.conn,
@@ -142,7 +142,7 @@ fn 時系列は週ごとの値と時間を並べる() {
         Some(&t),
         SegmentStatus::Auto,
     );
-    let h = kr_history(&c, &kr, None).unwrap();
+    let h = key_result_history(&c, &key_result, None).unwrap();
     assert_eq!(h.weeks.len(), 8);
     let n = h.weeks.len();
     let last = &h.weeks[n - 1];
@@ -163,25 +163,25 @@ fn 時系列は週ごとの値と時間を並べる() {
 fn 数として読めない値の週はその文字列を残し_数値はnull() {
     let env = Env::new();
     let c = env.ctx();
-    let (kr, _) = setup(&c);
-    record(&c, &kr, "半分くらい", None).unwrap();
-    let h = kr_history(&c, &kr, None).unwrap();
+    let (key_result, _) = setup(&c);
+    record(&c, &key_result, "半分くらい", None).unwrap();
+    let h = key_result_history(&c, &key_result, None).unwrap();
     let last = h.weeks.last().unwrap();
     assert_eq!((last.value, last.text.as_deref()), (None, Some("半分くらい")));
 }
 
 #[test]
-fn kr_と_objective_の削除で履歴も消える() {
+fn key_result_と_goal_の削除で履歴も消える() {
     let env = Env::new();
     let c = env.ctx();
-    let (kr, _) = setup(&c);
-    record(&c, &kr, "1", None).unwrap();
-    okr_svc::delete_kr(&c, &kr, DeleteMode::FORCE).unwrap();
+    let (key_result, _) = setup(&c);
+    record(&c, &key_result, "1", None).unwrap();
+    goal_svc::delete_key_result(&c, &key_result, DeleteMode::FORCE).unwrap();
     assert_eq!(count_rows(&c), 0);
 
     let (kr2, _) = setup(&c);
     record(&c, &kr2, "2", None).unwrap();
-    let oid = okr::get_kr(c.conn, &kr2).unwrap().objective_id;
-    okr_svc::delete_objective(&c, &oid, DeleteMode::FORCE).unwrap();
+    let oid = goal::get_key_result(c.conn, &kr2).unwrap().goal_id;
+    goal_svc::delete_goal(&c, &oid, DeleteMode::FORCE).unwrap();
     assert_eq!(count_rows(&c), 0);
 }

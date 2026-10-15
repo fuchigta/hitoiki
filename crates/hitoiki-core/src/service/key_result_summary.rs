@@ -3,15 +3,15 @@
 //! 実績は常に `activity_segment`（`segment_override` 適用後の派生層）から算出する。
 //! 時間は「今日の合計」と同じ数え方で、無操作・休憩・無視は含めない。
 //!
-//! 成果の指標の時間はスキルが主: 成果の指標に付けたスキル（`kr_skill`。子スキルを含む）が付いたタスクの区間、または
+//! 成果の指標の時間はスキルが主: 成果の指標に付けたスキル（`key_result_skill`。子スキルを含む）が付いたタスクの区間、または
 //! `activity_skill_rule` でそのスキルが付く活動（区間の exe・タイトルに一致）の区間を数える。
 //! タスクとの紐付け（`task.key_result_id`）は「このタスクも含める」補助で、紐付いたタスクの区間も数える。
 //! 時間と日数は両方を区間単位の和集合で 1 つの数字にする（同じ区間を二重に数えない）。
 //! 内訳（`from_skill_ms` / `from_task_ms`）は、スキルの条件に合う区間をスキルから、それ以外の紐付いたタスクの区間を
 //! タスクから、と数える（両方に当てはまる区間はスキルから）。合計は `time_ms` と一致する。
-//! 完了数の軸だけは、対象を紐付けたタスクに限る。いずれも事実の数値で、目標との比較はしない。
+//! 完了したタスク数の数え方だけは、対象を紐付けたタスクに限る。いずれも事実の数値で、目標との比較はしない。
 //!
-//! `target` / `current` は自由記述のままで、達成率の計算や評価はしない（選んだ軸の値を出すだけ）。
+//! `target` / `current` は自由記述のままで、達成率の計算や評価はしない（選んだ数え方の値を出すだけ）。
 //!
 //! 期間: 目標に `period_start` / `period_end` があればそれ。無ければ直近 8 週
 //! （今日を含む週の月曜から 7 週前の月曜〜今日の終わり）。片方だけのときは、開始のみなら今日まで、
@@ -33,7 +33,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 pub const DEFAULT_WEEKS: i64 = 8;
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ObjectiveBrief {
+pub struct GoalBrief {
     pub id: String,
     pub title: String,
 }
@@ -54,7 +54,7 @@ pub struct SkillTime {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct KrTask {
+pub struct KeyResultTask {
     pub id: String,
     pub title: String,
     pub status: TaskStatus,
@@ -74,34 +74,34 @@ pub struct EstimateSummary {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct KrSummary {
+pub struct KeyResultSummary {
     pub key_result: KeyResult,
-    pub objective: ObjectiveBrief,
+    pub goal: GoalBrief,
     pub range: RangeView,
-    /// `given`（引数で指定）/ `objective`（目標の期間）/ `recent_weeks`（直近 8 週）。
+    /// `given`（引数で指定）/ `goal`（目標の期間）/ `recent_weeks`（直近 8 週）。
     pub range_source: &'static str,
-    /// 選んだ軸（`time` / `days` / `done`）。
+    /// 選んだ数え方（`time` / `active_days` / `done_tasks`）。
     pub measure: String,
     /// 時間: 成果の指標のスキルが付いた区間と、紐付いたタスクの区間の和集合（ミリ秒）。
     pub time_ms: i64,
-    /// 回数: 上の時間の合計が `day_min` 分以上あった日数。
+    /// 回数: 上の時間の合計が `active_day_min` 分以上あった日数。
     pub active_days: i64,
-    pub day_min: i64,
+    pub active_day_min: i64,
     /// 成果の指標に付けたスキルの名前（名前順）。
-    pub kr_skills: Vec<String>,
+    pub key_result_skills: Vec<String>,
     /// 内訳: 成果の指標のスキルの条件に合う区間の時間（ミリ秒。タスクにスキルが付いている区間と、活動ルールで付く区間）。
     pub from_skill_ms: i64,
     /// 内訳: 上に当てはまらない、紐付いたタスクの区間の時間（ミリ秒）。`from_skill_ms` との合計が `time_ms`。
     pub from_task_ms: i64,
     /// 完了数: 期間内に完了したタスク。
     pub done_count: i64,
-    /// 紐付いたタスクの数（やめたものを除く）。完了数の軸の対象。
+    /// 紐付いたタスクの数（やめたものを除く）。完了したタスク数の数え方の対象。
     pub task_count: i64,
     pub weekly: Vec<WeekBar>,
     /// report の skill 集計と同じ扱い（複数スキルが付いた区間は各スキルに全時間を計上するので、合計は `time_ms` を超えうる）。
     pub skills: Vec<SkillTime>,
     pub estimate: EstimateSummary,
-    pub tasks: Vec<KrTask>,
+    pub tasks: Vec<KeyResultTask>,
 }
 
 fn monday_of(d: NaiveDate) -> NaiveDate {
@@ -122,19 +122,19 @@ fn resolve_range(
     let today_end = timefmt::day_range(tz, today).end;
     let recent_start = timefmt::day_range(tz, monday_of(today) - Duration::weeks(DEFAULT_WEEKS - 1)).start;
     match (start, end) {
-        (Some(s), Some(e)) => (Range::new(s, e), "objective"),
-        (Some(s), None) => (Range::new(s, today_end.max(s + 1)), "objective"),
+        (Some(s), Some(e)) => (Range::new(s, e), "goal"),
+        (Some(s), None) => (Range::new(s, today_end.max(s + 1)), "goal"),
         (None, Some(e)) => (
             Range::new((e - DEFAULT_WEEKS * 7 * 86_400_000).min(e - 1), e),
-            "objective",
+            "goal",
         ),
         (None, None) => (Range::new(recent_start, today_end), "recent_weeks"),
     }
 }
 
-/// 成果の指標の集計に入る区間を選ぶ判定（`okr show` とヒートマップの `kr:` で共有する）。
+/// 成果の指標の集計に入る区間を選ぶ判定（`key-result show` とヒートマップの `key_result:` で共有する）。
 /// 成果の指標のスキル（子スキルを含む）が付いたタスク・活動ルールでそのスキルが付く活動・紐付けたタスクの和集合。
-pub(crate) struct KrSelector {
+pub(crate) struct KeyResultSelector {
     linked: HashSet<String>,
     skill_set: HashSet<String>,
     task_skills: HashMap<String, Vec<String>>,
@@ -142,7 +142,7 @@ pub(crate) struct KrSelector {
 }
 
 /// 選ばれた区間の内訳。
-pub(crate) struct KrPick {
+pub(crate) struct KeyResultPick {
     /// 成果の指標のスキル経由で入る（紐付けたタスクだけで入るときは false）。
     pub via_skill: bool,
     /// 紐付けたタスクの区間。
@@ -151,20 +151,20 @@ pub(crate) struct KrPick {
     pub skill_ids: Vec<String>,
 }
 
-impl KrSelector {
-    pub(crate) fn new(ctx: &Ctx, kr_id: &str) -> Result<Self> {
-        Self::with_conn(ctx.conn, kr_id)
+impl KeyResultSelector {
+    pub(crate) fn new(ctx: &Ctx, key_result_id: &str) -> Result<Self> {
+        Self::with_conn(ctx.conn, key_result_id)
     }
 
     /// DB 接続だけで作る（常駐プロセスの通知の判定用。`Ctx` を持たない呼び出し側向け）。
-    pub(crate) fn with_conn(conn: &rusqlite::Connection, kr_id: &str) -> Result<Self> {
-        let linked = repo::task::list_of_kr(conn, kr_id)?
+    pub(crate) fn with_conn(conn: &rusqlite::Connection, key_result_id: &str) -> Result<Self> {
+        let linked = repo::task::list_of_key_result(conn, key_result_id)?
             .into_iter()
             .map(|t| t.id)
             .collect();
         let all_skills = repo::skill::list(conn)?;
         let mut skill_set: HashSet<String> = HashSet::new();
-        for s in repo::skill::kr_skills(conn, kr_id)? {
+        for s in repo::skill::key_result_skills(conn, key_result_id)? {
             skill_set.extend(descendants(&all_skills, &s.id));
             skill_set.insert(s.id.clone());
         }
@@ -196,7 +196,7 @@ impl KrSelector {
     }
 
     /// 区間が成果の指標の集計に入るなら内訳を返す（無操作・休憩・無視は入らない）。
-    pub(crate) fn pick(&self, s: &crate::model::ActivitySegment) -> Option<KrPick> {
+    pub(crate) fn pick(&self, s: &crate::model::ActivitySegment) -> Option<KeyResultPick> {
         if matches!(
             s.kind,
             SegmentKind::Idle | SegmentKind::Break | SegmentKind::Ignored
@@ -219,7 +219,7 @@ impl KrSelector {
             }
         }
         let via_skill = skill_ids.iter().any(|sid| self.skill_set.contains(sid));
-        (via_skill || linked).then_some(KrPick {
+        (via_skill || linked).then_some(KeyResultPick {
             via_skill,
             linked,
             skill_ids,
@@ -229,24 +229,24 @@ impl KrSelector {
 
 /// 今週（月曜始まり、今日まで）まだ時間が入っていない成果の指標（kr_idle 通知の対象）。
 ///
-/// 対象は、成果の指標が active で軸が time / days、目標が active で今が期間内（期間が無ければ対象。
+/// 対象は、成果の指標が active で数え方が time / active_days、目標が active で今が期間内（期間が無ければ対象。
 /// 終わった・まだ始まっていない期間は対象外）、スキルか紐付けたタスク（やめたものを除く）のどちらかがある成果の指標。
-/// 「時間が入っている」は、`okr show` と同じ選び方（スキル経由と紐付けタスクの和集合）の区間が今週 1 つでもあること。
-pub fn idle_krs_this_week(
+/// 「時間が入っている」は、`key-result show` と同じ選び方（スキル経由と紐付けタスクの和集合）の区間が今週 1 つでもあること。
+pub fn idle_key_results_this_week(
     conn: &rusqlite::Connection,
     tz: chrono_tz::Tz,
     now: i64,
 ) -> Result<Vec<KeyResult>> {
     let week = timefmt::week_range(tz, timefmt::local_date_of(tz, now));
     let range = Range::new(week.start, now.max(week.start + 1));
-    let objectives = repo::okr::list_objectives(conn)?;
+    let goals = repo::goal::list_goals(conn)?;
     let mut segs: Option<Vec<crate::model::ActivitySegment>> = None;
     let mut out = Vec::new();
-    for k in repo::okr::list_krs(conn)? {
-        if k.status != "active" || !matches!(k.measure.as_str(), "time" | "days") {
+    for k in repo::goal::list_key_results(conn)? {
+        if k.status != "active" || !matches!(k.measure.as_str(), "time" | "active_days") {
             continue;
         }
-        let Some(o) = objectives.iter().find(|o| o.id == k.objective_id) else {
+        let Some(o) = goals.iter().find(|o| o.id == k.goal_id) else {
             continue;
         };
         if o.status != "active"
@@ -255,8 +255,8 @@ pub fn idle_krs_this_week(
         {
             continue;
         }
-        let has_skill = !repo::skill::kr_skills(conn, &k.id)?.is_empty();
-        let has_task = repo::task::list_of_kr(conn, &k.id)?
+        let has_skill = !repo::skill::key_result_skills(conn, &k.id)?.is_empty();
+        let has_task = repo::task::list_of_key_result(conn, &k.id)?
             .iter()
             .any(|t| t.status != TaskStatus::Dropped);
         if !has_skill && !has_task {
@@ -265,7 +265,7 @@ pub fn idle_krs_this_week(
         if segs.is_none() {
             segs = Some(repo::segment::list(conn, range)?);
         }
-        let selector = KrSelector::with_conn(conn, &k.id)?;
+        let selector = KeyResultSelector::with_conn(conn, &k.id)?;
         let worked = segs
             .iter()
             .flatten()
@@ -278,21 +278,21 @@ pub fn idle_krs_this_week(
 }
 
 /// 成果の指標（ID の前方一致またはタイトル）の集計。`range` が `None` なら目標の期間（無ければ直近 8 週）。
-pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary> {
-    let k = super::okr::find_kr(ctx, kr)?;
+pub fn key_result_summary(ctx: &Ctx, key_result: &str, range: Option<Range>) -> Result<KeyResultSummary> {
+    let k = super::goal::find_key_result(ctx, key_result)?;
     let tz = ctx.tz()?;
-    let o = edit::get_objective(ctx.conn, &k.objective_id)?;
+    let o = edit::get_goal(ctx.conn, &k.goal_id)?;
     let (range, source) = resolve_range(ctx, tz, o.period_start, o.period_end, range);
 
-    let linked = repo::task::list_of_kr(ctx.conn, &k.id)?;
-    let selector = KrSelector::new(ctx, &k.id)?;
+    let linked = repo::task::list_of_key_result(ctx.conn, &k.id)?;
+    let selector = KeyResultSelector::new(ctx, &k.id)?;
 
     let all_skills = repo::skill::list(ctx.conn)?;
     let skill_names: HashMap<&str, &str> = all_skills
         .iter()
         .map(|s| (s.id.as_str(), s.name.as_str()))
         .collect();
-    let kr_skills = repo::skill::kr_skills(ctx.conn, &k.id)?;
+    let key_result_skills = repo::skill::key_result_skills(ctx.conn, &k.id)?;
 
     let mut per_day: BTreeMap<NaiveDate, i64> = BTreeMap::new();
     let mut per_task: HashMap<&str, i64> = HashMap::new();
@@ -336,7 +336,7 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
     }
 
     let time_ms: i64 = per_day.values().sum();
-    let day_ms = k.day_min.max(1) * 60_000;
+    let day_ms = k.active_day_min.max(1) * 60_000;
     let active_days = per_day.values().filter(|v| **v >= day_ms).count() as i64;
 
     // 週ごと（月曜始まり）。範囲の最初の週から最後の週まで、値が 0 の週も並べる。
@@ -387,7 +387,7 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
     };
     let tasks = linked
         .iter()
-        .map(|t| KrTask {
+        .map(|t| KeyResultTask {
             id: t.id.clone(),
             title: t.title.clone(),
             status: t.status,
@@ -397,8 +397,8 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
         })
         .collect();
 
-    Ok(KrSummary {
-        objective: ObjectiveBrief {
+    Ok(KeyResultSummary {
+        goal: GoalBrief {
             id: o.id,
             title: o.title,
         },
@@ -407,8 +407,8 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
         measure: k.measure.clone(),
         time_ms,
         active_days,
-        day_min: k.day_min,
-        kr_skills: kr_skills.into_iter().map(|s| s.name).collect(),
+        active_day_min: k.active_day_min,
+        key_result_skills: key_result_skills.into_iter().map(|s| s.name).collect(),
         from_skill_ms,
         from_task_ms,
         done_count,
@@ -425,8 +425,8 @@ pub fn kr_summary(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrSummary
 mod tests {
     use super::*;
     use crate::model::SegmentStatus;
+    use crate::service::goal::{self as goal_svc, GoalInput, KeyResultEdit, KeyResultInput};
     use crate::service::impact::DeleteMode;
-    use crate::service::okr::{self as okr_svc, KrEdit, KrInput, ObjectiveInput};
     use crate::service::skill::{self, SkillInput};
     use crate::service::task::{self, TaskInput};
     use crate::service::testutil::{insert_segment, Env};
@@ -436,25 +436,25 @@ mod tests {
     const ST: SegmentStatus = SegmentStatus::Auto;
 
     struct Fx {
-        kr: String,
+        key_result: String,
         t1: String,
         t2: String,
     }
 
     fn setup(ctx: &Ctx, from: Option<i64>, to: Option<i64>) -> Fx {
-        let o = okr_svc::add_objective(
+        let o = goal_svc::add_goal(
             ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O".into(),
                 from,
                 to,
             },
         )
         .unwrap();
-        let k = okr_svc::add_kr(
+        let k = goal_svc::add_key_result(
             ctx,
-            &KrInput {
-                objective: o.id,
+            &KeyResultInput {
+                goal: o.id,
                 title: "K".into(),
                 target: Some("週 3 回".into()),
                 skills: vec![],
@@ -477,7 +477,7 @@ mod tests {
         Fx {
             t1: mk("T1"),
             t2: mk("T2"),
-            kr: k.id,
+            key_result: k.id,
         }
     }
 
@@ -533,7 +533,7 @@ mod tests {
             Some(&f.t1),
         );
         seg(&c, "F", d + 200 * MIN, d + 210 * MIN, SegmentKind::Work, None);
-        let s = kr_summary(&c, &f.kr[..20], None).unwrap();
+        let s = key_result_summary(&c, &f.key_result[..20], None).unwrap();
         assert_eq!(s.range_source, "recent_weeks");
         assert_eq!(s.time_ms, 90 * MIN);
         assert_eq!(s.active_days, 1);
@@ -554,11 +554,14 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t1),
         );
-        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().time_ms, 90 * MIN);
+        assert_eq!(
+            key_result_summary(&c, &f.key_result, None).unwrap().time_ms,
+            90 * MIN
+        );
     }
 
     #[test]
-    fn objective_の期間があればそれを使う() {
+    fn goal_の期間があればそれを使う() {
         let env = Env::new();
         let c = env.ctx();
         let d = env.day_start();
@@ -595,17 +598,17 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t1),
         ); // 終了ちょうど以降
-        let s = kr_summary(&c, &f.kr, None).unwrap();
-        assert_eq!(s.range_source, "objective");
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
+        assert_eq!(s.range_source, "goal");
         assert_eq!(s.time_ms, 30 * MIN);
         // 範囲を引数で上書きできる。
-        let all = kr_summary(&c, &f.kr, Some(Range::new(d - 10 * DAY, d))).unwrap();
+        let all = key_result_summary(&c, &f.key_result, Some(Range::new(d - 10 * DAY, d))).unwrap();
         assert_eq!(all.range_source, "given");
         assert_eq!(all.time_ms, 100 * MIN);
     }
 
     #[test]
-    fn 取り組んだ日は_day_min_以上の日だけで日付の境界で分かれる() {
+    fn 取り組んだ日は_active_day_min_以上の日だけで日付の境界で分かれる() {
         let env = Env::new();
         let c = env.ctx();
         let f = setup(&c, None, None);
@@ -644,31 +647,37 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t2),
         );
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         assert_eq!(s.active_days, 2);
-        // day_min を変えると数え方が変わる。
-        okr_svc::edit_kr(
+        // active_day_min を変えると数え方が変わる。
+        goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
-                day_min: Some(14),
-                measure: Some("days".into()),
+            &f.key_result,
+            &KeyResultEdit {
+                active_day_min: Some(14),
+                measure: Some("active_days".into()),
                 ..Default::default()
             },
         )
         .unwrap();
-        let s = kr_summary(&c, &f.kr, None).unwrap();
-        assert_eq!((s.active_days, s.measure.as_str(), s.day_min), (3, "days", 14));
-        okr_svc::edit_kr(
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
+        assert_eq!(
+            (s.active_days, s.measure.as_str(), s.active_day_min),
+            (3, "active_days", 14)
+        );
+        goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
-                day_min: Some(30),
+            &f.key_result,
+            &KeyResultEdit {
+                active_day_min: Some(30),
                 ..Default::default()
             },
         )
         .unwrap();
-        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().active_days, 0);
+        assert_eq!(
+            key_result_summary(&c, &f.key_result, None).unwrap().active_days,
+            0
+        );
         // 日付をまたぐ作業は、日ごとに分けて数える（前日 23:50 〜 当日 00:20）。
         seg(
             &c,
@@ -678,17 +687,20 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t1),
         );
-        okr_svc::edit_kr(
+        goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
-                day_min: Some(25),
+            &f.key_result,
+            &KeyResultEdit {
+                active_day_min: Some(25),
                 ..Default::default()
             },
         )
         .unwrap();
         // 当日は 8 + 8 + 20（00:00-00:20）= 36 分で足り、前日は 14 + 10 = 24 分で足りない。
-        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().active_days, 1);
+        assert_eq!(
+            key_result_summary(&c, &f.key_result, None).unwrap().active_days,
+            1
+        );
     }
 
     #[test]
@@ -700,7 +712,7 @@ mod tests {
             &c,
             &TaskInput {
                 title: Some("T3".into()),
-                key_result: Some(f.kr.clone()),
+                key_result: Some(f.key_result.clone()),
                 ..Default::default()
             },
         )
@@ -711,7 +723,7 @@ mod tests {
             &c,
             &TaskInput {
                 title: Some("T4".into()),
-                key_result: Some(f.kr.clone()),
+                key_result: Some(f.key_result.clone()),
                 ..Default::default()
             },
         )
@@ -720,13 +732,13 @@ mod tests {
         .id;
         task::done(&c, &f.t1).unwrap();
         task::drop_task(&c, &t3).unwrap();
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         // t1 が完了、t3 はやめた（全体に含めない）、t2・t4 は未完了。
         assert_eq!((s.done_count, s.task_count), (1, 3));
         assert_eq!(s.tasks.len(), 4);
         // 完了が期間より前なら、完了数に入らず全体には残る。
         let d = env.day_start();
-        let s = kr_summary(&c, &f.kr, Some(Range::new(d - 30 * DAY, d - 20 * DAY))).unwrap();
+        let s = key_result_summary(&c, &f.key_result, Some(Range::new(d - 30 * DAY, d - 20 * DAY))).unwrap();
         assert_eq!((s.done_count, s.task_count), (0, 3));
         let _ = t4;
     }
@@ -773,7 +785,7 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t2),
         );
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         let by = |n: &str| s.skills.iter().find(|x| x.name == n).map(|x| x.duration_ms);
         assert_eq!(by("Rust"), Some(60 * MIN));
         assert_eq!(by("設計"), Some(60 * MIN));
@@ -789,19 +801,19 @@ mod tests {
         let env = Env::new();
         let c = env.ctx();
         let f = setup(&c, None, None);
-        let o2 = okr_svc::add_objective(
+        let o2 = goal_svc::add_goal(
             &c,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O2".into(),
                 from: None,
                 to: None,
             },
         )
         .unwrap();
-        let k2 = okr_svc::add_kr(
+        let k2 = goal_svc::add_key_result(
             &c,
-            &KrInput {
-                objective: o2.id,
+            &KeyResultInput {
+                goal: o2.id,
                 title: "K2".into(),
                 target: None,
                 skills: vec![],
@@ -817,50 +829,50 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t1),
         );
-        let r = okr_svc::link_tasks(&c, &k2.id[..20], &[f.t1[..20].to_string()]).unwrap();
+        let r = goal_svc::link_tasks(&c, &k2.id[..20], &[f.t1[..20].to_string()]).unwrap();
         assert_eq!(
-            r.linked[0].previous_kr.as_ref().map(|p| p.title.as_str()),
+            r.linked[0].previous_key_result.as_ref().map(|p| p.title.as_str()),
             Some("K")
         );
-        assert_eq!(kr_summary(&c, &f.kr, None).unwrap().time_ms, 0);
-        assert_eq!(kr_summary(&c, &k2.id, None).unwrap().time_ms, 60 * MIN);
+        assert_eq!(key_result_summary(&c, &f.key_result, None).unwrap().time_ms, 0);
+        assert_eq!(key_result_summary(&c, &k2.id, None).unwrap().time_ms, 60 * MIN);
         // 外す。成果の指標に紐付いていないものは何もしない。
-        let out = okr_svc::unlink_tasks(&c, &[f.t1.clone(), f.t1.clone()]).unwrap();
+        let out = goal_svc::unlink_tasks(&c, &[f.t1.clone(), f.t1.clone()]).unwrap();
         assert_eq!(out.len(), 1);
-        assert_eq!(kr_summary(&c, &k2.id, None).unwrap().time_ms, 0);
-        assert!(okr_svc::unlink_tasks(&c, std::slice::from_ref(&f.t1))
+        assert_eq!(key_result_summary(&c, &k2.id, None).unwrap().time_ms, 0);
+        assert!(goal_svc::unlink_tasks(&c, std::slice::from_ref(&f.t1))
             .unwrap()
             .is_empty());
         // 見つからないタスクがあれば何も変えない。
-        assert!(okr_svc::link_tasks(&c, &k2.id, &[f.t2.clone(), "ZZZZ".into()]).is_err());
-        assert_eq!(kr_summary(&c, &k2.id, None).unwrap().tasks.len(), 0);
-        assert!(okr_svc::link_tasks(&c, &k2.id, &[]).is_err());
+        assert!(goal_svc::link_tasks(&c, &k2.id, &[f.t2.clone(), "ZZZZ".into()]).is_err());
+        assert_eq!(key_result_summary(&c, &k2.id, None).unwrap().tasks.len(), 0);
+        assert!(goal_svc::link_tasks(&c, &k2.id, &[]).is_err());
     }
 
     #[test]
-    fn 軸と最小分数の検証() {
+    fn 数え方と最小分数の検証() {
         let env = Env::new();
         let c = env.ctx();
         let f = setup(&c, None, None);
-        let bad = |e: KrEdit| okr_svc::edit_kr(&c, &f.kr, &e).is_err();
-        assert!(bad(KrEdit {
+        let bad = |e: KeyResultEdit| goal_svc::edit_key_result(&c, &f.key_result, &e).is_err();
+        assert!(bad(KeyResultEdit {
             measure: Some("x".into()),
             ..Default::default()
         }));
-        assert!(bad(KrEdit {
-            day_min: Some(0),
+        assert!(bad(KeyResultEdit {
+            active_day_min: Some(0),
             ..Default::default()
         }));
-        let k = okr_svc::edit_kr(
+        let k = goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
-                measure: Some("done".into()),
+            &f.key_result,
+            &KeyResultEdit {
+                measure: Some("done_tasks".into()),
                 ..Default::default()
             },
         )
         .unwrap();
-        assert_eq!((k.measure.as_str(), k.day_min), ("done", 15));
+        assert_eq!((k.measure.as_str(), k.active_day_min), ("done_tasks", 15));
     }
 
     /// 「Rust」（子: 「Rust 非同期」）を成果の指標に付け、紐付けていないタスク `o1`（Rust）・`o2`（子）・`o3`（別スキル）を作る。
@@ -875,10 +887,10 @@ mod tests {
             )
             .unwrap();
         }
-        okr_svc::edit_kr(
+        goal_svc::edit_key_result(
             c,
-            &f.kr,
-            &KrEdit {
+            &f.key_result,
+            &KeyResultEdit {
                 skills: vec!["Rust".into()],
                 ..Default::default()
             },
@@ -948,8 +960,8 @@ mod tests {
             SegmentKind::Idle,
             Some(&o1),
         ); // 無操作: 数えない
-        let s = kr_summary(&c, &f.kr, None).unwrap();
-        assert_eq!(s.kr_skills, vec!["Rust".to_string()]);
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
+        assert_eq!(s.key_result_skills, vec!["Rust".to_string()]);
         assert_eq!(s.time_ms, 100 * MIN);
         assert_eq!((s.from_skill_ms, s.from_task_ms), (40 * MIN, 60 * MIN));
         assert_eq!(s.weekly.iter().map(|w| w.duration_ms).sum::<i64>(), s.time_ms);
@@ -959,17 +971,20 @@ mod tests {
             60 * MIN
         );
         // スキルを外せば、紐付けたタスクだけになる。
-        okr_svc::edit_kr(
+        goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
+            &f.key_result,
+            &KeyResultEdit {
                 clear_skills: true,
                 ..Default::default()
             },
         )
         .unwrap();
-        let s = kr_summary(&c, &f.kr, None).unwrap();
-        assert_eq!((s.time_ms, s.from_skill_ms, s.kr_skills.len()), (60 * MIN, 0, 0));
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
+        assert_eq!(
+            (s.time_ms, s.from_skill_ms, s.key_result_skills.len()),
+            (60 * MIN, 0, 0)
+        );
     }
 
     #[test]
@@ -1004,7 +1019,7 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t2),
         ); // 紐付きのみ 30
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         assert_eq!(s.time_ms, 90 * MIN);
         assert_eq!((s.from_skill_ms, s.from_task_ms), (60 * MIN, 30 * MIN));
     }
@@ -1030,7 +1045,7 @@ mod tests {
                 [],
             )
             .unwrap();
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         assert_eq!(
             (s.time_ms, s.from_skill_ms, s.from_task_ms),
             (20 * MIN, 20 * MIN, 0)
@@ -1052,7 +1067,7 @@ mod tests {
         let f = setup(&c, None, None);
         let (o1, _, _) = setup_skill(&c, &f);
         let d = env.day_start();
-        // day_min 15: 2 日前 = タスク 5 + スキル 10 で届く、1 日前 = 5 + 9 で届かない、当日 = スキルのみ 20 で届く。
+        // active_day_min 15: 2 日前 = タスク 5 + スキル 10 で届く、1 日前 = 5 + 9 で届かない、当日 = スキルのみ 20 で届く。
         seg(
             &c,
             "A",
@@ -1093,13 +1108,13 @@ mod tests {
             SegmentKind::Work,
             Some(&o1),
         );
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         assert_eq!(s.active_days, 2);
         assert_eq!(s.time_ms, (15 + 14 + 20) * MIN);
     }
 
     #[test]
-    fn ヒートマップの_kr_指標は_okr_show_と同じ区間の和集合で日別に一致する() {
+    fn ヒートマップの_key_result_軸は_key_result_show_と同じ区間の和集合で日別に一致する() {
         use crate::service::heatmap::{heatmap, HeatmapInput};
         let env = Env::new();
         let c = env.ctx();
@@ -1150,7 +1165,7 @@ mod tests {
         let h = heatmap(
             &c,
             &HeatmapInput {
-                by: Some(format!("kr:{}", f.kr)),
+                by: Some(format!("key_result:{}", f.key_result)),
                 ..Default::default()
             },
         )
@@ -1158,7 +1173,7 @@ mod tests {
         let v = |date: &str| h.days.iter().find(|x| x.date == date).unwrap().value;
         assert_eq!(v("2026-10-09"), 30 * MIN);
         assert_eq!(v("2026-10-10"), 35 * MIN);
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         assert_eq!(h.total, s.time_ms);
         assert_eq!(h.active_days, 2);
     }
@@ -1171,7 +1186,7 @@ mod tests {
         let (o1, _, _) = setup_skill(&c, &f);
         task::done(&c, &o1).unwrap(); // スキルは付いているが紐付けていない
         task::done(&c, &f.t1).unwrap();
-        let s = kr_summary(&c, &f.kr, None).unwrap();
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
         assert_eq!((s.done_count, s.task_count), (1, 2));
     }
 
@@ -1181,45 +1196,48 @@ mod tests {
         let c = env.ctx();
         let f = setup(&c, None, None);
         setup_skill(&c, &f);
-        let bad = okr_svc::edit_kr(
+        let bad = goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
+            &f.key_result,
+            &KeyResultEdit {
                 title: Some("変えない".into()),
                 skills: vec!["設計".into(), "存在しない".into()],
                 ..Default::default()
             },
         );
         assert!(bad.is_err());
-        let s = kr_summary(&c, &f.kr, None).unwrap();
-        assert_eq!(s.kr_skills, vec!["Rust".to_string()]);
+        let s = key_result_summary(&c, &f.key_result, None).unwrap();
+        assert_eq!(s.key_result_skills, vec!["Rust".to_string()]);
         assert_eq!(s.key_result.title, "K");
-        // スキルを削除すると kr_skill も消える。
+        // スキルを削除すると key_result_skill も消える。
         skill::delete(&c, "Rust", skill::ChildPolicy::Reparent, DeleteMode::FORCE).unwrap();
-        assert!(kr_summary(&c, &f.kr, None).unwrap().kr_skills.is_empty());
+        assert!(key_result_summary(&c, &f.key_result, None)
+            .unwrap()
+            .key_result_skills
+            .is_empty());
         let count = |c: &Ctx| -> i64 {
             c.conn
-                .query_row("SELECT COUNT(*) FROM kr_skill", [], |r| r.get(0))
+                .query_row("SELECT COUNT(*) FROM key_result_skill", [], |r| r.get(0))
                 .unwrap()
         };
         assert_eq!(count(&c), 0);
-        // 成果の指標を消しても kr_skill が残らない。
-        okr_svc::edit_kr(
+        // 成果の指標を消しても key_result_skill が残らない。
+        goal_svc::edit_key_result(
             &c,
-            &f.kr,
-            &KrEdit {
+            &f.key_result,
+            &KeyResultEdit {
                 skills: vec!["Rust 非同期".into()],
                 ..Default::default()
             },
         )
         .unwrap();
         assert_eq!(count(&c), 1);
-        okr_svc::delete_kr(&c, &f.kr, DeleteMode::FORCE).unwrap();
+        goal_svc::delete_key_result(&c, &f.key_result, DeleteMode::FORCE).unwrap();
         assert_eq!(count(&c), 0);
     }
 
     #[test]
-    fn kr_の作成時にスキルを付けられ_不明なスキルなら作らない() {
+    fn key_result_の作成時にスキルを付けられ_不明なスキルなら作らない() {
         let env = Env::new();
         let c = env.ctx();
         let f = setup(&c, None, None);
@@ -1231,18 +1249,18 @@ mod tests {
             },
         )
         .unwrap();
-        let o = okr_svc::list(&c).unwrap().objectives[0].objective.id.clone();
-        let input = |skills: Vec<String>| KrInput {
-            objective: o.clone(),
+        let o = goal_svc::list(&c).unwrap().goals[0].goal.id.clone();
+        let input = |skills: Vec<String>| KeyResultInput {
+            goal: o.clone(),
             title: "K2".into(),
             target: None,
             skills,
         };
-        assert!(okr_svc::add_kr(&c, &input(vec!["存在しない".into()])).is_err());
-        assert_eq!(okr_svc::list(&c).unwrap().objectives[0].key_results.len(), 1);
-        let k = okr_svc::add_kr(&c, &input(vec!["Rust".into()])).unwrap();
+        assert!(goal_svc::add_key_result(&c, &input(vec!["存在しない".into()])).is_err());
+        assert_eq!(goal_svc::list(&c).unwrap().goals[0].key_results.len(), 1);
+        let k = goal_svc::add_key_result(&c, &input(vec!["Rust".into()])).unwrap();
         assert_eq!(
-            kr_summary(&c, &k.id, None).unwrap().kr_skills,
+            key_result_summary(&c, &k.id, None).unwrap().key_result_skills,
             vec!["Rust".to_string()]
         );
         let _ = f;
@@ -1250,7 +1268,7 @@ mod tests {
 
     fn idle_ids(env: &Env) -> Vec<String> {
         let tz = env.cfg.tz().unwrap();
-        idle_krs_this_week(&env.conn, tz, env.ctx().now())
+        idle_key_results_this_week(&env.conn, tz, env.ctx().now())
             .unwrap()
             .into_iter()
             .map(|k| k.id)
@@ -1258,12 +1276,12 @@ mod tests {
     }
 
     #[test]
-    fn 今週時間が入っていない_kr_だけを拾う() {
+    fn 今週時間が入っていない_key_result_だけを拾う() {
         let env = Env::new();
         let c = env.ctx();
         let f = setup(&c, None, None);
         let d = env.day_start(); // 2026-10-10（土）00:00 JST。今週は 10/5（月）から
-        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        assert_eq!(idle_ids(&env), vec![f.key_result.clone()]);
         // 先週の作業は今週に数えない。
         seg(
             &c,
@@ -1273,7 +1291,7 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t1),
         );
-        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        assert_eq!(idle_ids(&env), vec![f.key_result.clone()]);
         // 休憩は時間に数えない。
         seg(
             &c,
@@ -1283,7 +1301,7 @@ mod tests {
             SegmentKind::Break,
             Some(&f.t1),
         );
-        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        assert_eq!(idle_ids(&env), vec![f.key_result.clone()]);
         // 今週の作業があれば対象外。
         seg(
             &c,
@@ -1304,7 +1322,7 @@ mod tests {
         let (skilled, _, _) = setup_skill(&c, &f);
         let d = env.day_start();
         // スキル付きのタスクも紐付けタスクもある成果の指標は対象。時間が無い間は拾う。
-        assert_eq!(idle_ids(&env), vec![f.kr.clone()]);
+        assert_eq!(idle_ids(&env), vec![f.key_result.clone()]);
         seg(
             &c,
             "S",
@@ -1317,7 +1335,7 @@ mod tests {
     }
 
     #[test]
-    fn 対象外の_kr_は拾わない() {
+    fn 対象外の_key_result_は拾わない() {
         let env = Env::new();
         let c = env.ctx();
         let now = c.now();
@@ -1328,18 +1346,18 @@ mod tests {
         assert!(idle_ids(&env).is_empty());
         // 期間内なら拾う（期間が無い目標も同様）。
         let current = setup(&c, Some(now - DAY), Some(now + 30 * DAY));
-        assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
-        // done の軸・完了した成果の指標・やめた成果の指標は対象外。
+        assert_eq!(idle_ids(&env), vec![current.key_result.clone()]);
+        // 完了したタスク数の数え方・達成した成果の指標・やめた成果の指標は対象外。
         for (measure, status) in [
-            (Some("done"), None),
-            (None, Some("done")),
+            (Some("done_tasks"), None),
+            (None, Some("achieved")),
             (None, Some("dropped")),
         ] {
             let f = setup(&c, None, None);
-            okr_svc::edit_kr(
+            goal_svc::edit_key_result(
                 &c,
-                &f.kr,
-                &KrEdit {
+                &f.key_result,
+                &KeyResultEdit {
                     measure: measure.map(String::from),
                     status: status.map(String::from),
                     ..Default::default()
@@ -1347,20 +1365,20 @@ mod tests {
             )
             .unwrap();
         }
-        assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
+        assert_eq!(idle_ids(&env), vec![current.key_result.clone()]);
         // スキルも紐付けタスクも無い成果の指標は対象外。
-        let o = okr_svc::list(&c).unwrap().objectives[0].objective.id.clone();
-        okr_svc::add_kr(
+        let o = goal_svc::list(&c).unwrap().goals[0].goal.id.clone();
+        goal_svc::add_key_result(
             &c,
-            &KrInput {
-                objective: o,
+            &KeyResultInput {
+                goal: o,
                 title: "空".into(),
                 target: None,
                 skills: vec![],
             },
         )
         .unwrap();
-        assert_eq!(idle_ids(&env), vec![current.kr.clone()]);
+        assert_eq!(idle_ids(&env), vec![current.key_result.clone()]);
         let _ = (past, future);
     }
 }

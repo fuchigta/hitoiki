@@ -1,15 +1,15 @@
-//! 成果の指標の現在値の履歴と時系列（`kr_progress`。docs/dev/architecture.md「データモデル」）。
+//! 成果の指標の現在値の履歴と時系列（`key_result_progress`。docs/dev/architecture.md「データモデル」）。
 //!
 //! 現在値（`key_result.current`）が変わるたびに 1 行残す。時系列は、週ごとに「その週の終わり時点の
-//! 現在値」と「その週に成果の指標に紐付いたタスクへかけた時間」（`kr_summary` の週ごとの時間と同じ規則）を
+//! 現在値」と「その週に成果の指標に紐付いたタスクへかけた時間」（`key_result_summary` の週ごとの時間と同じ規則）を
 //! 並べるだけで、目標値との比較や評価はしない。
 
-use super::okr_summary::kr_summary;
+use super::key_result_summary::key_result_summary;
 use super::{Ctx, RangeView};
 use crate::id::new_id;
 use crate::model::KeyResult;
 use crate::repo::edit;
-use crate::repo::kr_progress::{self, KrProgress};
+use crate::repo::key_result_progress::{self, KeyResultProgress};
 use crate::timefmt::{self, Range};
 use crate::{Error, Millis, Result};
 use chrono::{Duration, NaiveDate};
@@ -41,40 +41,40 @@ fn blank_to_none(s: &str) -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
-/// 履歴を 1 行残す（`edit_kr` からも使う）。
+/// 履歴を 1 行残す（`edit_key_result` からも使う）。
 pub(super) fn insert_entry(
     ctx: &Ctx,
-    kr_id: &str,
+    key_result_id: &str,
     text: Option<&str>,
     note: Option<&str>,
-) -> Result<KrProgress> {
-    let p = KrProgress {
+) -> Result<KeyResultProgress> {
+    let p = KeyResultProgress {
         id: new_id(),
-        kr_id: kr_id.to_string(),
+        key_result_id: key_result_id.to_string(),
         value: text.and_then(parse_value),
         text: text.map(str::to_string),
         note: note.and_then(blank_to_none),
         at: ctx.now(),
     };
-    kr_progress::insert(ctx.conn, &p)?;
+    key_result_progress::insert(ctx.conn, &p)?;
     Ok(p)
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ProgressRecorded {
     pub key_result: KeyResult,
-    pub entry: KrProgress,
+    pub entry: KeyResultProgress,
 }
 
 /// 現在値を記録する。成果の指標の現在値を更新し、同じ値でも履歴に 1 行残す（メモだけ足したいとき用）。
-pub fn record(ctx: &Ctx, kr: &str, value: &str, note: Option<&str>) -> Result<ProgressRecorded> {
+pub fn record(ctx: &Ctx, key_result: &str, value: &str, note: Option<&str>) -> Result<ProgressRecorded> {
     let Some(text) = blank_to_none(value) else {
         return Err(Error::InvalidArgument("値が空です".into()));
     };
-    let mut k = super::okr::find_kr(ctx, kr)?;
+    let mut k = super::goal::find_key_result(ctx, key_result)?;
     let tx = ctx.conn.unchecked_transaction()?;
     k.current = Some(text.clone());
-    edit::update_kr(ctx.conn, &k)?;
+    edit::update_key_result(ctx.conn, &k)?;
     let entry = insert_entry(ctx, &k.id, Some(&text), note)?;
     tx.commit()?;
     Ok(ProgressRecorded { key_result: k, entry })
@@ -98,21 +98,21 @@ pub struct HistoryWeek {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct KrHistory {
+pub struct KeyResultHistory {
     pub key_result: KeyResult,
     pub range: RangeView,
-    /// `given` / `objective` / `recent_weeks`（`kr_summary` と同じ）。
+    /// `given` / `goal` / `recent_weeks`（`key_result_summary` と同じ）。
     pub range_source: &'static str,
     pub weeks: Vec<HistoryWeek>,
     /// 履歴の全件（古い順）。
-    pub entries: Vec<KrProgress>,
+    pub entries: Vec<KeyResultProgress>,
 }
 
-/// 成果の指標の時系列。`range` が `None` なら `kr_summary` と同じ期間。
-pub fn kr_history(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrHistory> {
-    let s = kr_summary(ctx, kr, range)?;
+/// 成果の指標の時系列。`range` が `None` なら `key_result_summary` と同じ期間。
+pub fn key_result_history(ctx: &Ctx, key_result: &str, range: Option<Range>) -> Result<KeyResultHistory> {
+    let s = key_result_summary(ctx, key_result, range)?;
     let tz = ctx.tz()?;
-    let entries = kr_progress::list_of_kr(ctx.conn, &s.key_result.id)?;
+    let entries = key_result_progress::list_of_key_result(ctx.conn, &s.key_result.id)?;
     let mut weeks = Vec::new();
     for w in &s.weekly {
         let start = NaiveDate::parse_from_str(&w.week_start, "%Y-%m-%d")
@@ -128,7 +128,7 @@ pub fn kr_history(ctx: &Ctx, kr: &str, range: Option<Range>) -> Result<KrHistory
             changes: entries.iter().filter(|e| e.at >= from && e.at < to).count() as i64,
         });
     }
-    Ok(KrHistory {
+    Ok(KeyResultHistory {
         key_result: s.key_result,
         range: s.range,
         range_source: s.range_source,

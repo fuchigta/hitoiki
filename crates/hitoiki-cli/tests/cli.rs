@@ -87,40 +87,61 @@ fn insert_segment(
 }
 
 #[test]
-fn kr_の現在値の記録と履歴() {
+fn key_result_の現在値の記録と履歴() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
-    let o = run(h, &["--json", "okr", "add-objective", "目標"]).json()["id"]
+    let o = run(h, &["--json", "goal", "add", "目標"]).json()["id"]
         .as_str()
         .unwrap()
         .to_string();
-    let k = run(h, &["--json", "okr", "add-kr", &o, "成果", "--target", "10"]).json()["id"]
+    let k = run(h, &["--json", "key-result", "add", &o, "成果", "--target", "10"]).json()["id"]
         .as_str()
         .unwrap()
         .to_string();
-    let p = run(h, &["--json", "okr", "progress", &k, "3", "--note", "初回"]);
+    let p = run(
+        h,
+        &["--json", "key-result", "progress", &k, "3", "--note", "初回"],
+    );
     assert_eq!(p.code, 0, "{}", p.stderr);
     assert_eq!(p.json()["entry"]["value"], 3.0);
     assert_eq!(p.json()["key_result"]["current"], "3");
-    // edit-kr --current でも履歴が残る（同じ値は残さない）
-    run(h, &["okr", "edit-kr", &k, "--current", "5", "--note", "追加"]);
-    run(h, &["okr", "edit-kr", &k, "--current", "5"]);
-    assert_eq!(run(h, &["okr", "progress", &k, " "]).code, 2);
-    assert_eq!(run(h, &["okr", "progress", "ZZZ", "1"]).code, 3);
-    assert_eq!(run(h, &["okr", "edit-kr", &k, "--note", "x"]).code, 2);
+    // edit-key_result --current でも履歴が残る（同じ値は残さない）
+    run(h, &["key-result", "edit", &k, "--current", "5", "--note", "追加"]);
+    run(h, &["key-result", "edit", &k, "--current", "5"]);
+    assert_eq!(run(h, &["key-result", "progress", &k, " "]).code, 2);
+    assert_eq!(run(h, &["key-result", "progress", "ZZZ", "1"]).code, 3);
+    assert_eq!(run(h, &["key-result", "edit", &k, "--note", "x"]).code, 2);
 
-    let j = run(h, &["--json", "okr", "history", &k]).json();
+    let j = run(h, &["--json", "key-result", "history", &k]).json();
     let entries = j["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[1]["note"], "追加");
     assert_eq!(j["weeks"].as_array().unwrap().len(), 8);
-    let text = run(h, &["okr", "history", &k]);
+    let text = run(h, &["key-result", "history", &k]);
     assert_eq!(text.code, 0, "{}", text.stderr);
     assert!(text.stdout.contains("初回"), "{}", text.stdout);
 
-    // KR を消すと履歴も消える
-    assert_eq!(run(h, &["okr", "delete-kr", &k]).code, 0);
-    assert_eq!(run(h, &["okr", "history", &k]).code, 3);
+    // 成果の指標を消すと履歴も消える
+    assert_eq!(run(h, &["key-result", "delete", &k]).code, 0);
+    assert_eq!(run(h, &["key-result", "history", &k]).code, 3);
+}
+
+#[test]
+fn goal_show_は目標と配下の成果の指標を出す() {
+    let home = tempfile::tempdir().unwrap();
+    let h = home.path();
+    let o = run(h, &["--json", "goal", "add", "読書"]).json()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(run(h, &["key-result", "add", &o, "週 3 回読む"]).code, 0);
+    let s = run(h, &["--json", "goal", "show", &o[..12]]);
+    assert_eq!(s.code, 0, "{}", s.stderr);
+    assert_eq!(s.json()["title"], "読書");
+    assert_eq!(s.json()["key_results"][0]["title"], "週 3 回読む");
+    let human = run(h, &["goal", "show", &o[..12]]);
+    assert!(human.stdout.contains("週 3 回読む"), "{}", human.stdout);
+    assert_eq!(run(h, &["goal", "show", "ZZZ"]).code, 3);
 }
 
 #[test]
@@ -129,13 +150,13 @@ fn 編集と削除_force_dry_run_終了コード() {
     let h = home.path();
     let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
 
-    // OKR: KR を編集し、紐付いたタスクがあると --force なしでは消せない
-    let o = id_of(&run(h, &["--json", "okr", "add-objective", "目標"]));
+    // 目標: 成果の指標を編集し、紐付いたタスクがあると --force なしでは消せない
+    let o = id_of(&run(h, &["--json", "goal", "add", "目標"]));
     let k = id_of(&run(
         h,
-        &["--json", "okr", "add-kr", &o, "成果", "--target", "10"],
+        &["--json", "key-result", "add", &o, "成果", "--target", "10"],
     ));
-    let t = run(h, &["--json", "task", "add", "作業", "--kr", &k]).json()["id"]
+    let t = run(h, &["--json", "task", "add", "作業", "--key-result", &k]).json()["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -143,37 +164,37 @@ fn 編集と削除_force_dry_run_終了コード() {
         h,
         &[
             "--json",
-            "okr",
-            "edit-kr",
+            "key-result",
+            "edit",
             &k,
             "--title",
             "成果2",
             "--current",
             "3",
             "--status",
-            "done",
+            "achieved",
         ],
     );
     assert_eq!(e.code, 0, "{}", e.stderr);
     assert_eq!(e.json()["current"], "3");
-    assert_eq!(run(h, &["okr", "edit-kr", &k, "--status", "bad"]).code, 2);
-    assert_eq!(run(h, &["okr", "edit-kr", "ZZZ", "--title", "x"]).code, 3);
+    assert_eq!(run(h, &["key-result", "edit", &k, "--status", "bad"]).code, 2);
+    assert_eq!(run(h, &["key-result", "edit", "ZZZ", "--title", "x"]).code, 3);
 
-    let d = run(h, &["okr", "delete-kr", &k]);
+    let d = run(h, &["key-result", "delete", &k]);
     assert_eq!(d.code, 2);
     assert!(d.stderr.contains("--force"), "{}", d.stderr);
-    let d = run(h, &["--json", "okr", "delete-kr", &k, "--dry-run"]);
+    let d = run(h, &["--json", "key-result", "delete", &k, "--dry-run"]);
     assert_eq!(d.code, 0);
     assert_eq!(d.json()["deleted"], false);
     assert_eq!(d.json()["impact"]["lines"][0]["count"], 1);
-    let d = run(h, &["--json", "okr", "delete-kr", &k, "--force"]);
+    let d = run(h, &["--json", "key-result", "delete", &k, "--force"]);
     assert_eq!(d.code, 0, "{}", d.stderr);
     assert_eq!(d.json()["deleted"], true);
     let shown = run(h, &["--json", "task", "show", &t]).json();
     assert!(shown["task"]["key_result"].is_null());
-    // 影響のない Objective は --force なしで消える
-    assert_eq!(run(h, &["okr", "delete-objective", &o]).code, 0);
-    assert_eq!(run(h, &["okr", "delete-objective", &o]).code, 3);
+    // 影響のない Goal は --force なしで消える
+    assert_eq!(run(h, &["goal", "delete", &o]).code, 0);
+    assert_eq!(run(h, &["goal", "delete", &o]).code, 3);
 
     // スキル: 子の付け替えと削除
     run(h, &["skill", "add", "親"]);
@@ -501,7 +522,14 @@ fn report_and_review_flow() {
 
     let q = run(
         h,
-        &["--json", "report", "--period", "2026-01-05", "--by", "quadrant"],
+        &[
+            "--json",
+            "report",
+            "--period",
+            "2026-01-05",
+            "--by",
+            "urgent_important",
+        ],
     );
     assert_eq!(q.json()["rows"][0]["label"], "重要（緊急でない）");
 
@@ -561,8 +589,8 @@ fn records_and_planning() {
         h,
         &[
             "--json",
-            "okr",
-            "add-objective",
+            "goal",
+            "add",
             "Q4",
             "--from",
             "2026-10-01",
@@ -571,9 +599,12 @@ fn records_and_planning() {
         ],
     );
     let oid = o.json()["id"].as_str().unwrap().to_string();
-    assert_eq!(run(h, &["okr", "add-kr", &oid, "KR1", "--target", "80%"]).code, 0);
-    let l = run(h, &["--json", "okr", "list"]);
-    assert_eq!(l.json()["objectives"][0]["key_results"][0]["title"], "KR1");
+    assert_eq!(
+        run(h, &["key-result", "add", &oid, "KR1", "--target", "80%"]).code,
+        0
+    );
+    let l = run(h, &["--json", "goal", "list"]);
+    assert_eq!(l.json()["goals"][0]["key_results"][0]["title"], "KR1");
 
     assert_eq!(run(h, &["skill", "import-preset"]).code, 0);
     let sk = run(h, &["--json", "skill", "list"]);
@@ -1627,7 +1658,7 @@ fn push_list_and_answer() {
 fn push_kr_idle_の見送りに答える() {
     use hitoiki_core::push::{store, PushDecision, PushPayload};
     let p: PushPayload = serde_json::from_value(serde_json::json!({
-        "trigger": "kr_idle", "title": "今週、時間が入っていない成果の指標 があります",
+        "trigger": "kr_idle", "title": "今週、時間が入っていない成果の指標があります",
         "body": "「成果」に、今週はまだ時間が入っていません。",
         "actions": [{"id": "open", "label": "今日の予定に入れる", "value": null},
                     {"id": "kr_skip_week", "label": "今週は見送る", "value": null}],
@@ -1655,18 +1686,21 @@ fn push_kr_idle_の見送りに答える() {
 }
 
 #[test]
-fn okr_suggest_候補を出し_付ける_付けないを選ぶ() {
+fn link_suggestion_候補を出し_付ける_付けないを選ぶ() {
     let home = tempfile::tempdir().unwrap();
     let h = home.path();
     let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
-    let o = id_of(&run(h, &["--json", "okr", "add-objective", "英語力を上げる"]));
-    let k = id_of(&run(h, &["--json", "okr", "add-kr", &o, "英語の勉強を続ける"]));
+    let o = id_of(&run(h, &["--json", "goal", "add", "英語力を上げる"]));
+    let k = id_of(&run(
+        h,
+        &["--json", "key-result", "add", &o, "英語の勉強を続ける"],
+    ));
     let t1 = id_of(&run(h, &["--json", "task", "add", "英語の教材を読む"]));
     let t2 = id_of(&run(h, &["--json", "task", "add", "英語の教材を買う"]));
     run(h, &["--json", "task", "add", "経費精算"]);
     assert_eq!(run(h, &["skill", "add", "英語"]).code, 0);
 
-    let s = run(h, &["--json", "okr", "suggest", &k, "--no-ai"]);
+    let s = run(h, &["--json", "key-result", "suggest", &k, "--no-ai"]);
     assert_eq!(s.code, 0, "{}", s.stderr);
     let j = s.json();
     assert_eq!(j["eligible"], true);
@@ -1674,14 +1708,23 @@ fn okr_suggest_候補を出し_付ける_付けないを選ぶ() {
     let cands = j["candidates"].as_array().unwrap();
     assert_eq!(cands.len(), 3, "{j}");
     assert!(cands.iter().all(|c| c["name"] != "経費精算"));
-    let human = run(h, &["okr", "suggest", &k, "--no-ai"]);
+    let human = run(h, &["key-result", "suggest", &k, "--no-ai"]);
     assert!(human.stdout.contains("英語の教材を読む"), "{}", human.stdout);
     assert!(human.stdout.contains("自動では紐付けません"), "{}", human.stdout);
 
     // 付けない: 以後は出ない。
-    let r = run(h, &["--json", "okr", "suggest-reject", &k, &format!("task:{t2}")]);
+    let r = run(
+        h,
+        &[
+            "--json",
+            "key-result",
+            "suggest-reject",
+            &k,
+            &format!("task:{t2}"),
+        ],
+    );
     assert_eq!(r.code, 0, "{}", r.stderr);
-    let j = run(h, &["--json", "okr", "suggest", &k, "--no-ai"]).json();
+    let j = run(h, &["--json", "key-result", "suggest", &k, "--no-ai"]).json();
     assert_eq!(j["candidates"].as_array().unwrap().len(), 2);
     assert!(j["candidates"]
         .as_array()
@@ -1689,12 +1732,12 @@ fn okr_suggest_候補を出し_付ける_付けないを選ぶ() {
         .iter()
         .all(|c| c["id"] != t2.as_str()));
 
-    // 付ける: タスクは紐付き、スキルは KR に加わる。以後は提案の対象外。
+    // 付ける: タスクは紐付き、スキルは成果の指標に加わる。以後は提案の対象外。
     let a = run(
         h,
         &[
             "--json",
-            "okr",
+            "key-result",
             "suggest-accept",
             &k,
             &format!("task:{t1}"),
@@ -1703,16 +1746,19 @@ fn okr_suggest_候補を出し_付ける_付けないを選ぶ() {
     );
     assert_eq!(a.code, 0, "{}", a.stderr);
     assert_eq!(a.json()["items"].as_array().unwrap().len(), 2);
-    let j = run(h, &["--json", "okr", "suggest", &k, "--no-ai"]).json();
+    let j = run(h, &["--json", "key-result", "suggest", &k, "--no-ai"]).json();
     assert_eq!(j["eligible"], false);
-    let shown = run(h, &["--json", "okr", "show", &k]).json();
-    assert_eq!(shown["kr_skills"][0], "英語");
+    let shown = run(h, &["--json", "key-result", "show", &k]).json();
+    assert_eq!(shown["key_result_skills"][0], "英語");
     assert_eq!(shown["task_count"], 1);
 
-    // 終了コード: 候補の書式が不正 2、KR / 候補が見つからない 3。
-    assert_eq!(run(h, &["okr", "suggest-accept", &k, "foo"]).code, 2);
-    assert_eq!(run(h, &["okr", "suggest-accept", &k, "skill:存在しない"]).code, 3);
-    assert_eq!(run(h, &["okr", "suggest", "ZZZ", "--no-ai"]).code, 3);
+    // 終了コード: 候補の書式が不正 2、成果の指標 / 候補が見つからない 3。
+    assert_eq!(run(h, &["key-result", "suggest-accept", &k, "foo"]).code, 2);
+    assert_eq!(
+        run(h, &["key-result", "suggest-accept", &k, "skill:存在しない"]).code,
+        3
+    );
+    assert_eq!(run(h, &["key-result", "suggest", "ZZZ", "--no-ai"]).code, 3);
 }
 
 #[test]
@@ -1793,7 +1839,7 @@ fn heatmap_日別の濃淡と終了コード() {
 }
 
 #[test]
-fn okr_link_unlink_show_と軸の編集() {
+fn key_result_link_unlink_show_と数え方の編集() {
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();
     let id_of = |o: &Out| o.json()["id"].as_str().unwrap().to_string();
@@ -1801,8 +1847,8 @@ fn okr_link_unlink_show_と軸の編集() {
         h,
         &[
             "--json",
-            "okr",
-            "add-objective",
+            "goal",
+            "add",
             "読書",
             "--from",
             "2026-01-01",
@@ -1814,52 +1860,58 @@ fn okr_link_unlink_show_と軸の編集() {
         h,
         &[
             "--json",
-            "okr",
-            "add-kr",
+            "key-result",
+            "add",
             &o,
             "週 3 回読書",
             "--target",
             "週 3 回",
         ],
     ));
-    let k2 = id_of(&run(h, &["--json", "okr", "add-kr", &o, "別の成果"]));
+    let k2 = id_of(&run(h, &["--json", "key-result", "add", &o, "別の成果"]));
     let t1 = id_of(&run(h, &["--json", "task", "add", "本を読む"]));
-    let t2 = id_of(&run(h, &["--json", "task", "add", "記事を読む", "--kr", &k2]));
+    let t2 = id_of(&run(
+        h,
+        &["--json", "task", "add", "記事を読む", "--key-result", &k2],
+    ));
 
-    // 紐付け（付け替えは previous_kr に出る）
-    let l = run(h, &["--json", "okr", "link", &k1, &t1, &t2]);
+    // 紐付け（付け替えは previous_key_result に出る）
+    let l = run(h, &["--json", "key-result", "link", &k1, &t1, &t2]);
     assert_eq!(l.code, 0, "{}", l.stderr);
     let v = l.json();
     assert_eq!(v["linked"].as_array().unwrap().len(), 2);
-    assert!(v["linked"][0]["previous_kr"].is_null());
-    assert_eq!(v["linked"][1]["previous_kr"]["id"], k2.as_str());
-    let human = run(h, &["okr", "link", &k1, &t1]);
+    assert!(v["linked"][0]["previous_key_result"].is_null());
+    assert_eq!(v["linked"][1]["previous_key_result"]["id"], k2.as_str());
+    let human = run(h, &["key-result", "link", &k1, &t1]);
     assert!(human.stdout.contains("紐付けました"), "{}", human.stdout);
-    assert_eq!(run(h, &["okr", "link", "ZZZZ", &t1]).code, 3);
-    assert_eq!(run(h, &["okr", "link", &k1, "ZZZZ"]).code, 3);
-    assert_eq!(run(h, &["okr", "link", &k1]).code, 2);
+    assert_eq!(run(h, &["key-result", "link", "ZZZZ", &t1]).code, 3);
+    assert_eq!(run(h, &["key-result", "link", &k1, "ZZZZ"]).code, 3);
+    assert_eq!(run(h, &["key-result", "link", &k1]).code, 2);
 
-    // 軸の編集
+    // 数え方の編集
     let e = run(
         h,
         &[
             "--json",
-            "okr",
-            "edit-kr",
+            "key-result",
+            "edit",
             &k1,
             "--measure",
-            "days",
-            "--day-min",
+            "active_days",
+            "--active-day-min",
             "20",
         ],
     );
     assert_eq!(e.code, 0, "{}", e.stderr);
-    assert_eq!(e.json()["measure"], "days");
-    assert_eq!(e.json()["day_min"], 20);
-    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--measure", "bad"]).code, 2);
-    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--day-min", "0"]).code, 2);
+    assert_eq!(e.json()["measure"], "active_days");
+    assert_eq!(e.json()["active_day_min"], 20);
+    assert_eq!(run(h, &["key-result", "edit", &k1, "--measure", "bad"]).code, 2);
+    assert_eq!(
+        run(h, &["key-result", "edit", &k1, "--active-day-min", "0"]).code,
+        2
+    );
 
-    // 集計: 25 分の日と 15 分の日（day_min 20 なら 1 日だけ）
+    // 集計: 25 分の日と 15 分の日（active_day_min 20 なら 1 日だけ）
     insert_segment(
         h,
         "K1",
@@ -1887,24 +1939,28 @@ fn okr_link_unlink_show_と軸の編集() {
         Some(&t2),
         "auto",
     );
-    let s = run(h, &["--json", "okr", "show", &k1]);
+    let s = run(h, &["--json", "key-result", "show", &k1]);
     assert_eq!(s.code, 0, "{}", s.stderr);
     let v = s.json();
-    assert_eq!(v["measure"], "days");
-    assert_eq!(v["range_source"], "objective");
+    assert_eq!(v["measure"], "active_days");
+    assert_eq!(v["range_source"], "goal");
     assert_eq!(v["time_ms"], 40 * 60_000);
     assert_eq!(v["active_days"], 1);
     assert_eq!(v["task_count"], 2);
     assert_eq!(v["key_result"]["target"], "週 3 回");
-    let human = run(h, &["okr", "show", &k1]);
+    let human = run(h, &["key-result", "show", &k1]);
     assert_eq!(human.code, 0, "{}", human.stderr);
-    assert!(human.stdout.contains("軸（回数）"), "{}", human.stdout);
+    assert!(
+        human.stdout.contains("数え方（取り組んだ日数）"),
+        "{}",
+        human.stdout
+    );
     // 期間の指定
     let r = run(
         h,
         &[
             "--json",
-            "okr",
+            "key-result",
             "show",
             &k1,
             "--from",
@@ -1915,16 +1971,16 @@ fn okr_link_unlink_show_と軸の編集() {
     );
     assert_eq!(r.json()["time_ms"], 15 * 60_000);
     assert_eq!(r.json()["range_source"], "given");
-    assert_eq!(run(h, &["okr", "show", "ZZZZ"]).code, 3);
+    assert_eq!(run(h, &["key-result", "show", "ZZZZ"]).code, 3);
 
-    // heatmap の kr 指標
+    // heatmap の key_result の集計の軸
     let hm = run(
         h,
         &[
             "--json",
             "heatmap",
             "--by",
-            &format!("kr:{k1}"),
+            &format!("key_result:{k1}"),
             "--from",
             "2026-01-05",
             "--to",
@@ -1934,39 +1990,42 @@ fn okr_link_unlink_show_と軸の編集() {
     assert_eq!(hm.code, 0, "{}", hm.stderr);
     assert_eq!(hm.json()["total"], 40 * 60_000);
 
-    // 外す（KR に紐付いていないものは 0 件）
-    let u = run(h, &["--json", "okr", "unlink", &t1]);
+    // 外す（成果の指標に紐付いていないものは 0 件）
+    let u = run(h, &["--json", "key-result", "unlink", &t1]);
     assert_eq!(u.json()["unlinked"].as_array().unwrap().len(), 1);
-    let u = run(h, &["--json", "okr", "unlink", &t1]);
+    let u = run(h, &["--json", "key-result", "unlink", &t1]);
     assert_eq!(u.code, 0);
     assert_eq!(u.json()["unlinked"].as_array().unwrap().len(), 0);
     assert_eq!(
-        run(h, &["--json", "okr", "show", &k1]).json()["time_ms"],
+        run(h, &["--json", "key-result", "show", &k1]).json()["time_ms"],
         15 * 60_000
     );
 
-    // task edit --no-kr
-    let ne = run(h, &["--json", "task", "edit", &t2, "--no-kr"]);
+    // task edit --no-key-result
+    let ne = run(h, &["--json", "task", "edit", &t2, "--no-key-result"]);
     assert_eq!(ne.code, 0, "{}", ne.stderr);
     assert!(run(h, &["--json", "task", "show", &t2]).json()["task"]["key_result"].is_null());
-    assert_eq!(run(h, &["task", "edit", &t2, "--kr", &k1, "--no-kr"]).code, 2);
+    assert_eq!(
+        run(h, &["task", "edit", &t2, "--key-result", &k1, "--no-key-result"]).code,
+        2
+    );
 
-    // KR のスキル: 紐付いていないタスク（t2、15 分）でも、スキルが付いていればKR の時間に入る
+    // 成果の指標のスキル: 紐付いていないタスク（t2、15 分）でも、スキルが付いていれば成果の指標の時間に入る
     assert_eq!(run(h, &["skill", "add", "Rust"]).code, 0);
     assert_eq!(run(h, &["task", "edit", &t2, "--skill", "Rust"]).code, 0);
-    assert_eq!(run(h, &["okr", "edit-kr", &k1, "--skill", "ZZZ"]).code, 3);
-    let e = run(h, &["--json", "okr", "edit-kr", &k1, "--skill", "Rust"]);
+    assert_eq!(run(h, &["key-result", "edit", &k1, "--skill", "ZZZ"]).code, 3);
+    let e = run(h, &["--json", "key-result", "edit", &k1, "--skill", "Rust"]);
     assert_eq!(e.code, 0, "{}", e.stderr);
-    let v = run(h, &["--json", "okr", "show", &k1]).json();
-    assert_eq!(v["kr_skills"][0], "Rust");
+    let v = run(h, &["--json", "key-result", "show", &k1]).json();
+    assert_eq!(v["key_result_skills"][0], "Rust");
     assert_eq!(v["time_ms"], 15 * 60_000);
     assert_eq!(v["from_skill_ms"], 15 * 60_000);
     assert_eq!(v["from_task_ms"], 0);
-    let human = run(h, &["okr", "show", &k1]);
+    let human = run(h, &["key-result", "show", &k1]);
     assert!(human.stdout.contains("内訳"), "{}", human.stdout);
-    let e = run(h, &["--json", "okr", "edit-kr", &k1, "--no-skill"]);
+    let e = run(h, &["--json", "key-result", "edit", &k1, "--no-skill"]);
     assert_eq!(e.code, 0, "{}", e.stderr);
-    let v = run(h, &["--json", "okr", "show", &k1]).json();
+    let v = run(h, &["--json", "key-result", "show", &k1]).json();
     assert_eq!(v["time_ms"], 0);
-    assert!(v["kr_skills"].as_array().unwrap().is_empty());
+    assert!(v["key_result_skills"].as_array().unwrap().is_empty());
 }

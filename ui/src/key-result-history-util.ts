@@ -1,9 +1,9 @@
 // 成果の指標の現在値の履歴（値の推移と週ごとの時間を同じ時間軸で並べる）の純粋ロジック。画面に依存しない。
 // 目標値との比較や評価はしない。並べるだけ。
-import type { KrHistoryWeek } from "./api";
+import type { KeyResultHistoryWeek } from "./api";
 
 /** 週の行に出す現在値。記録が無い週は「-」。 */
-export function weekValueText(w: Pick<KrHistoryWeek, "text">): string {
+export function weekValueText(w: Pick<KeyResultHistoryWeek, "text">): string {
   return w.text ?? "-";
 }
 
@@ -11,7 +11,7 @@ export function weekValueText(w: Pick<KrHistoryWeek, "text">): string {
  * 折れ線の y 座標（0 = 下、1 = 上）。数値のある週の最小〜最大を 0〜1 に伸ばす。
  * 数値が無い週は null、数値が 1 種類だけなら中央（0.5）。
  */
-export function valueLevels(weeks: Pick<KrHistoryWeek, "value">[]): (number | null)[] {
+export function valueLevels(weeks: Pick<KeyResultHistoryWeek, "value">[]): (number | null)[] {
   const vals = weeks.map((w) => w.value).filter((v): v is number => v !== null);
   if (vals.length === 0) return weeks.map(() => null);
   const min = Math.min(...vals);
@@ -52,6 +52,6 @@ export function valueSegments(
 }
 
 /** 履歴にも時間にも何も無いか（グラフを出さない判定）。 */
-export function isEmptyHistory(weeks: KrHistoryWeek[]): boolean {
+export function isEmptyHistory(weeks: KeyResultHistoryWeek[]): boolean {
   return weeks.every((w) => w.duration_ms === 0 && w.text === null && w.changes === 0);
 }

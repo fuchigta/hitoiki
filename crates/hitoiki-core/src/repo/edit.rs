@@ -2,7 +2,7 @@
 //!
 //! 外部キーが有効なので、参照されている行を消す前に参照側を外す（NULL 化または削除）。
 
-use crate::model::{AbcRecord, ActivityRule, Checkin, Hassle, KeyResult, Objective, Skill, TaskMatchRule};
+use crate::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskMatchRule};
 use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -12,12 +12,12 @@ fn count(conn: &Connection, sql: &str, id: &str) -> Result<i64> {
 
 // ===== 目標 =====
 
-pub fn get_objective(conn: &Connection, id: &str) -> Result<Objective> {
+pub fn get_goal(conn: &Connection, id: &str) -> Result<Goal> {
     conn.query_row(
-        "SELECT id, title, description_md, period_start, period_end, status FROM objective WHERE id = ?1",
+        "SELECT id, title, description_md, period_start, period_end, status FROM goal WHERE id = ?1",
         [id],
         |r| {
-            Ok(Objective {
+            Ok(Goal {
                 id: r.get(0)?,
                 title: r.get(1)?,
                 description_md: r.get(2)?,
@@ -31,71 +31,88 @@ pub fn get_objective(conn: &Connection, id: &str) -> Result<Objective> {
     .ok_or_else(|| Error::NotFound(format!("目標 {id}")))
 }
 
-pub fn update_objective(conn: &Connection, o: &Objective) -> Result<()> {
+pub fn update_goal(conn: &Connection, o: &Goal) -> Result<()> {
     conn.execute(
-        "UPDATE objective SET title = ?2, description_md = ?3, period_start = ?4, period_end = ?5, status = ?6 WHERE id = ?1",
+        "UPDATE goal SET title = ?2, description_md = ?3, period_start = ?4, period_end = ?5, status = ?6 WHERE id = ?1",
         params![o.id, o.title, o.description_md, o.period_start, o.period_end, o.status],
     )?;
     Ok(())
 }
 
-pub fn update_kr(conn: &Connection, k: &KeyResult) -> Result<()> {
+pub fn update_key_result(conn: &Connection, k: &KeyResult) -> Result<()> {
     conn.execute(
-        "UPDATE key_result SET objective_id = ?2, title = ?3, target = ?4, current = ?5, status = ?6, measure = ?7, day_min = ?8 WHERE id = ?1",
-        params![k.id, k.objective_id, k.title, k.target, k.current, k.status, k.measure, k.day_min],
+        "UPDATE key_result SET goal_id = ?2, title = ?3, target = ?4, current = ?5, status = ?6, measure = ?7, active_day_min = ?8 WHERE id = ?1",
+        params![k.id, k.goal_id, k.title, k.target, k.current, k.status, k.measure, k.active_day_min],
     )?;
     Ok(())
 }
 
-pub fn count_krs_of(conn: &Connection, objective_id: &str) -> Result<i64> {
+pub fn count_key_results_of(conn: &Connection, goal_id: &str) -> Result<i64> {
     count(
         conn,
-        "SELECT COUNT(*) FROM key_result WHERE objective_id = ?1",
-        objective_id,
+        "SELECT COUNT(*) FROM key_result WHERE goal_id = ?1",
+        goal_id,
     )
 }
 
-pub fn count_tasks_of_objective(conn: &Connection, objective_id: &str) -> Result<i64> {
+pub fn count_tasks_of_goal(conn: &Connection, goal_id: &str) -> Result<i64> {
     count(
         conn,
-        "SELECT COUNT(*) FROM task WHERE key_result_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
-        objective_id,
+        "SELECT COUNT(*) FROM task WHERE key_result_id IN (SELECT id FROM key_result WHERE goal_id = ?1)",
+        goal_id,
     )
 }
 
-pub fn count_tasks_of_kr(conn: &Connection, kr_id: &str) -> Result<i64> {
-    count(conn, "SELECT COUNT(*) FROM task WHERE key_result_id = ?1", kr_id)
+pub fn count_tasks_of_key_result(conn: &Connection, key_result_id: &str) -> Result<i64> {
+    count(
+        conn,
+        "SELECT COUNT(*) FROM task WHERE key_result_id = ?1",
+        key_result_id,
+    )
 }
 
 /// 成果の指標を消す。紐付いたタスクの `key_result_id` は NULL に戻す（タスクは残す）。
-pub fn delete_kr(conn: &Connection, kr_id: &str) -> Result<()> {
+pub fn delete_key_result(conn: &Connection, key_result_id: &str) -> Result<()> {
     conn.execute(
         "UPDATE task SET key_result_id = NULL WHERE key_result_id = ?1",
-        [kr_id],
+        [key_result_id],
     )?;
-    conn.execute("DELETE FROM kr_skill WHERE kr_id = ?1", [kr_id])?;
-    conn.execute("DELETE FROM kr_progress WHERE kr_id = ?1", [kr_id])?;
-    conn.execute("DELETE FROM kr_suggest_reject WHERE kr_id = ?1", [kr_id])?;
-    conn.execute("DELETE FROM key_result WHERE id = ?1", [kr_id])?;
+    conn.execute(
+        "DELETE FROM key_result_skill WHERE key_result_id = ?1",
+        [key_result_id],
+    )?;
+    conn.execute(
+        "DELETE FROM key_result_progress WHERE key_result_id = ?1",
+        [key_result_id],
+    )?;
+    conn.execute(
+        "DELETE FROM link_suggestion_reject WHERE key_result_id = ?1",
+        [key_result_id],
+    )?;
+    conn.execute("DELETE FROM key_result WHERE id = ?1", [key_result_id])?;
     Ok(())
 }
 
 /// 目標と配下の成果の指標を消す。成果の指標に紐付いたタスクの参照は NULL に戻す。
-pub fn delete_objective(conn: &Connection, objective_id: &str) -> Result<()> {
+pub fn delete_goal(conn: &Connection, goal_id: &str) -> Result<()> {
     conn.execute(
-        "UPDATE task SET key_result_id = NULL WHERE key_result_id IN (SELECT id FROM key_result WHERE objective_id = ?1)",
-        [objective_id],
+        "UPDATE task SET key_result_id = NULL WHERE key_result_id IN (SELECT id FROM key_result WHERE goal_id = ?1)",
+        [goal_id],
     )?;
-    for table in ["kr_skill", "kr_progress", "kr_suggest_reject"] {
+    for table in [
+        "key_result_skill",
+        "key_result_progress",
+        "link_suggestion_reject",
+    ] {
         conn.execute(
             &format!(
-                "DELETE FROM {table} WHERE kr_id IN (SELECT id FROM key_result WHERE objective_id = ?1)"
+                "DELETE FROM {table} WHERE key_result_id IN (SELECT id FROM key_result WHERE goal_id = ?1)"
             ),
-            [objective_id],
+            [goal_id],
         )?;
     }
-    conn.execute("DELETE FROM key_result WHERE objective_id = ?1", [objective_id])?;
-    conn.execute("DELETE FROM objective WHERE id = ?1", [objective_id])?;
+    conn.execute("DELETE FROM key_result WHERE goal_id = ?1", [goal_id])?;
+    conn.execute("DELETE FROM goal WHERE id = ?1", [goal_id])?;
     Ok(())
 }
 
@@ -132,19 +149,19 @@ pub fn count_activity_skill_rules(conn: &Connection, skill_id: &str) -> Result<i
     )
 }
 
-/// 指定スキルが付いた成果の指標の数（`kr_skill` の行数）。
-pub fn count_kr_skill(conn: &Connection, skill_id: &str) -> Result<i64> {
+/// 指定スキルが付いた成果の指標の数（`key_result_skill` の行数）。
+pub fn count_key_result_skill(conn: &Connection, skill_id: &str) -> Result<i64> {
     count(
         conn,
-        "SELECT COUNT(*) FROM kr_skill WHERE skill_id = ?1",
+        "SELECT COUNT(*) FROM key_result_skill WHERE skill_id = ?1",
         skill_id,
     )
 }
 
-/// スキル 1 件を消す（`task_skill`・`kr_skill`・`activity_skill_rule` の参照も消す）。子の付け替えは呼び出し側で先に行う。
+/// スキル 1 件を消す（`task_skill`・`key_result_skill`・`activity_skill_rule` の参照も消す）。子の付け替えは呼び出し側で先に行う。
 pub fn delete_skill_row(conn: &Connection, skill_id: &str) -> Result<()> {
     conn.execute("DELETE FROM task_skill WHERE skill_id = ?1", [skill_id])?;
-    conn.execute("DELETE FROM kr_skill WHERE skill_id = ?1", [skill_id])?;
+    conn.execute("DELETE FROM key_result_skill WHERE skill_id = ?1", [skill_id])?;
     conn.execute("DELETE FROM activity_skill_rule WHERE skill_id = ?1", [skill_id])?;
     conn.execute("DELETE FROM skill WHERE id = ?1", [skill_id])?;
     Ok(())

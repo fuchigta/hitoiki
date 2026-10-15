@@ -1,8 +1,8 @@
 import { useState } from "preact/hooks";
-import { api, type KeyResult, type KrHistory as KrHistoryData } from "./api";
+import { api, type KeyResult, type KeyResultHistory as KeyResultHistoryData } from "./api";
 import { ErrorBox, Section } from "./components";
-import { isEmptyHistory, valueLevels, valueSegments, weekValueText } from "./kr-history-util";
-import { barHeights, weekLabel } from "./kr-util";
+import { isEmptyHistory, valueLevels, valueSegments, weekValueText } from "./key-result-history-util";
+import { barHeights, weekLabel } from "./key-result-util";
 import { fmtDateTime, fmtDur, useAction, useAsync, useLiveTick } from "./lib";
 
 const COL_W = 24;
@@ -12,9 +12,9 @@ const CHART_H = 72;
  * 成果の指標の現在値の履歴: 値の推移（折れ線）と週ごとの時間（棒）を同じ週の軸で並べ、値を記録するフォームを添える。
  * 目標値との比較や評価はしない。並べるだけ。
  */
-export function KrHistory({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
+export function KeyResultHistory({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   const tick = useLiveTick(["segments-updated"]);
-  const hist = useAsync(() => api.okrHistory(k.id), [k.id, k.current, tick]);
+  const hist = useAsync(() => api.keyResultHistory(k.id), [k.id, k.current, tick]);
   const h = hist.data;
   return (
     <Section level={3} title="値の履歴">
@@ -34,7 +34,7 @@ export function KrHistory({ k, onChanged }: { k: KeyResult; onChanged: () => voi
   );
 }
 
-function HistoryChart({ h }: { h: KrHistoryData }) {
+function HistoryChart({ h }: { h: KeyResultHistoryData }) {
   if (isEmptyHistory(h.weeks)) {
     return <p class="hint">値の記録も、紐付いたタスクの時間も、この期間にはまだありません。</p>;
   }
@@ -44,7 +44,7 @@ function HistoryChart({ h }: { h: KrHistoryData }) {
   return (
     <div class="stack">
       <svg
-        class="kr-history-chart"
+        class="key-result-history-chart"
         viewBox={`0 0 ${width} ${CHART_H}`}
         role="img"
         aria-label="週ごとの時間（棒）と現在値の推移（折れ線）"
@@ -54,7 +54,7 @@ function HistoryChart({ h }: { h: KrHistoryData }) {
           return (
             <rect
               key={w.week_start}
-              class="kr-history-bar"
+              class="key-result-history-bar"
               x={i * COL_W + 4}
               y={CHART_H - bh}
               width={COL_W - 8}
@@ -67,16 +67,16 @@ function HistoryChart({ h }: { h: KrHistoryData }) {
         {segs.map((pts, i) => (
           <polyline
             key={i}
-            class="kr-history-line"
+            class="key-result-history-line"
             fill="none"
             points={pts.map((p) => `${p.x},${p.y}`).join(" ")}
           />
         ))}
         {segs.flat().map((p) => (
-          <circle key={`${p.x}`} class="kr-history-dot" cx={p.x} cy={p.y} r={2.5} />
+          <circle key={`${p.x}`} class="key-result-history-dot" cx={p.x} cy={p.y} r={2.5} />
         ))}
       </svg>
-      <table class="kr-history-table">
+      <table class="key-result-history-table">
         <thead>
           <tr>
             <th>週</th>
@@ -94,7 +94,7 @@ function HistoryChart({ h }: { h: KrHistoryData }) {
           ))}
         </tbody>
       </table>
-      <p class="meta kr-range">
+      <p class="meta key-result-range">
         棒は週ごとの時間、線は各週の終わり時点の現在値（数として読める値だけ。最小〜最大を縦に伸ばして表示）。
       </p>
     </div>
@@ -109,7 +109,7 @@ function ProgressForm({ k, onDone }: { k: KeyResult; onDone: () => void }) {
     e.preventDefault();
     const v = value.trim();
     if (!v) return;
-    const r = await act.run(() => api.okrProgress(k.id, v, note.trim() || undefined));
+    const r = await act.run(() => api.keyResultProgress(k.id, v, note.trim() || undefined));
     if (r) {
       setValue("");
       setNote("");
@@ -138,10 +138,10 @@ function ProgressForm({ k, onDone }: { k: KeyResult; onDone: () => void }) {
   );
 }
 
-function EntryList({ h }: { h: KrHistoryData }) {
+function EntryList({ h }: { h: KeyResultHistoryData }) {
   if (h.entries.length === 0) return <p class="hint">値の記録はまだありません。</p>;
   return (
-    <ul class="plain kr-history-entries">
+    <ul class="plain key-result-history-entries">
       {[...h.entries].reverse().map((e) => (
         <li key={e.id}>
           <span class="meta">{fmtDateTime(e.at)}</span> {e.text ?? "（消した）"}

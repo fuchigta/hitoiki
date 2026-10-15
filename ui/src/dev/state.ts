@@ -43,10 +43,10 @@ export interface State {
   checkins: T.Checkin[];
   hassles: T.Hassle[];
   abcs: T.AbcRecord[];
-  objectives: T.Objective[];
-  krs: T.KeyResult[];
-  krSkills: Record<string, string[]>;
-  krProgress: T.KrProgressEntry[];
+  goals: T.Goal[];
+  keyResults: T.KeyResult[];
+  keyResultSkills: Record<string, string[]>;
+  keyResultProgress: T.KeyResultProgressEntry[];
   skills: T.Skill[];
   activityRules: T.ActivityRule[];
   activityLabels: string[];
@@ -120,10 +120,10 @@ export function emptyState(scenario: Scenario): State {
     checkins: [],
     hassles: [],
     abcs: [],
-    objectives: [],
-    krs: [],
-    krSkills: {},
-    krProgress: [],
+    goals: [],
+    keyResults: [],
+    keyResultSkills: {},
+    keyResultProgress: [],
     skills: [],
     activityRules: [],
     activityLabels: [],
@@ -189,8 +189,8 @@ function seedSkills(s: State) {
   mkSkill(s, "会議運営");
 }
 
-function seedOkr(s: State) {
-  const o1: T.Objective = {
+function seedGoals(s: State) {
+  const o1: T.Goal = {
     id: nid(s, "obj"),
     title: "今期は設計力を伸ばす",
     description_md: "レビューで指摘される点を減らし、設計書を自分で仕上げられるようにする。",
@@ -198,7 +198,7 @@ function seedOkr(s: State) {
     period_end: at(60, "00:00"),
     status: "active",
   };
-  const o2: T.Objective = {
+  const o2: T.Goal = {
     id: nid(s, "obj"),
     title: "無理なく働き続ける",
     description_md: null,
@@ -206,31 +206,31 @@ function seedOkr(s: State) {
     period_end: null,
     status: "active",
   };
-  s.objectives.push(o1, o2);
-  const kr = (objective: T.Objective, title: string, extra: Partial<T.KeyResult>): T.KeyResult => {
+  s.goals.push(o1, o2);
+  const keyResult = (goal: T.Goal, title: string, extra: Partial<T.KeyResult>): T.KeyResult => {
     const k: T.KeyResult = {
-      id: nid(s, "kr"),
-      objective_id: objective.id,
+      id: nid(s, "key-result"),
+      goal_id: goal.id,
       title,
       target: null,
       current: null,
       status: "active",
       measure: "time",
-      day_min: 30,
+      active_day_min: 30,
       ...extra,
     };
-    s.krs.push(k);
+    s.keyResults.push(k);
     return k;
   };
-  const k1 = kr(o1, "設計書を 3 本仕上げる", { target: "3 本", current: "1 本", measure: "done" });
-  const k2 = kr(o1, "Rust の学習に週 5 時間使う", { target: "5 時間/週", measure: "time" });
-  const k3 = kr(o1, "設計レビューに週 2 回参加する", { target: "週 2 回", measure: "days", day_min: 20 });
-  const k4 = kr(o2, "毎日 12 時台に休憩を取る", { target: "週 5 日", measure: "days", day_min: 15 });
-  s.krSkills[k2.id] = ["Rust"];
-  s.krSkills[k3.id] = ["設計"];
-  s.krProgress.push(
-    { id: nid(s, "prog"), kr_id: k1.id, value: 0, text: "0 本", note: "着手前", at: at(-28, "10:00") },
-    { id: nid(s, "prog"), kr_id: k1.id, value: 1, text: "1 本", note: "API 設計書が完了", at: at(-9, "17:30") },
+  const k1 = keyResult(o1, "設計書を 3 本仕上げる", { target: "3 本", current: "1 本", measure: "done_tasks" });
+  const k2 = keyResult(o1, "Rust の学習に週 5 時間使う", { target: "5 時間/週", measure: "time" });
+  const k3 = keyResult(o1, "設計レビューに週 2 回参加する", { target: "週 2 回", measure: "active_days", active_day_min: 20 });
+  const k4 = keyResult(o2, "毎日 12 時台に休憩を取る", { target: "週 5 日", measure: "active_days", active_day_min: 15 });
+  s.keyResultSkills[k2.id] = ["Rust"];
+  s.keyResultSkills[k3.id] = ["設計"];
+  s.keyResultProgress.push(
+    { id: nid(s, "prog"), key_result_id: k1.id, value: 0, text: "0 本", note: "着手前", at: at(-28, "10:00") },
+    { id: nid(s, "prog"), key_result_id: k1.id, value: 1, text: "1 本", note: "API 設計書が完了", at: at(-9, "17:30") },
   );
   return { k1, k2, k3, k4 };
 }
@@ -345,7 +345,7 @@ function genDay(s: State, dayOffset: number, r: () => number, opts: { reviewEver
 
 function seedCommon(s: State, busy: boolean) {
   seedSkills(s);
-  const { k1, k2, k3, k4 } = seedOkr(s);
+  const { k1, k2, k3, k4 } = seedGoals(s);
   s.activityLabels = ["設計", "実装", "レビュー", "会議", "調査", "学習", "考えごと", "離席", "休憩"];
   (s.config.activity as { labels: string[] }).labels = s.activityLabels;
 

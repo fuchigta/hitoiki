@@ -3,7 +3,7 @@ import { api, type SegmentKind } from "./api";
 import { Card, Empty, ErrorBox } from "./components";
 import { Help } from "./ui/parts";
 import { buildBy, buildWeeks, cellTitle, fmtHeatValue, monthLabels, WEEKDAY_LABELS, type HeatBy } from "./heatmap-util";
-import { krLabel, krOptions } from "./kr-util";
+import { keyResultLabel, keyResultOptions } from "./key-result-util";
 import { KIND_LABEL, KIND_ORDER, useAsync, useLiveTick } from "./lib";
 
 const BYS: { id: HeatBy; label: string }[] = [
@@ -11,7 +11,7 @@ const BYS: { id: HeatBy; label: string }[] = [
   { id: "kind", label: "種別" },
   { id: "task", label: "タスク" },
   { id: "skill", label: "スキル" },
-  { id: "kr", label: "成果の指標" },
+  { id: "key_result", label: "成果の指標" },
   { id: "records", label: "記録" },
 ];
 
@@ -31,8 +31,8 @@ export function HeatmapCard() {
   const tick = useLiveTick();
   const tasks = useAsync(() => api.taskList(), []);
   const skills = useAsync(() => api.skillList(), []);
-  const okr = useAsync(() => api.okrList(), []);
-  const krs = krOptions(okr.data?.objectives ?? []);
+  const goals = useAsync(() => api.goalList(), []);
+  const keyResults = keyResultOptions(goals.data?.goals ?? []);
   const query = buildBy(by, arg);
   const hm = useAsync(
     () => (query ? api.heatmap(query) : Promise.resolve(null)),
@@ -89,12 +89,12 @@ export function HeatmapCard() {
             ))}
           </select>
         )}
-        {by === "kr" && (
+        {by === "key_result" && (
           <select value={arg} onChange={(e) => setArg(e.currentTarget.value)} aria-label="成果の指標">
             <option value="">成果の指標を選ぶ</option>
-            {krs.map((k) => (
+            {keyResults.map((k) => (
               <option key={k.id} value={k.id}>
-                {krLabel(k)}
+                {keyResultLabel(k)}
               </option>
             ))}
           </select>
@@ -110,7 +110,7 @@ export function HeatmapCard() {
         )}
       </div>
       <ErrorBox error={hm.error} />
-      {!query && <Empty>{by === "task" ? "タスク" : by === "kr" ? "成果の指標" : "スキル"}を選ぶと表示します。</Empty>}
+      {!query && <Empty>{by === "task" ? "タスク" : by === "key_result" ? "成果の指標" : "スキル"}を選ぶと表示します。</Empty>}
       {data && query && (
         <>
           <div class="heatmap-scroll">

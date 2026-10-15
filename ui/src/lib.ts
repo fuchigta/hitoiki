@@ -155,7 +155,7 @@ export const SCREENS = [
   { id: "today", label: "今日" },
   { id: "log", label: "実績" },
   { id: "tasks", label: "タスク" },
-  { id: "okr", label: "目標" },
+  { id: "goals", label: "目標" },
   { id: "records", label: "記録" },
   { id: "report", label: "レポート" },
   { id: "settings", label: "設定" },

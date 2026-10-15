@@ -6,8 +6,8 @@ use crate::table::table;
 use crate::{emit, ext, range_args, render};
 use hitoiki_core::config::Config;
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
-use hitoiki_core::service::okr_suggest::{self, CandidateRef};
-use hitoiki_core::service::{okr, okr_progress, parse_to, record, rule, settings, skill, Ctx};
+use hitoiki_core::service::link_suggestion::{self, CandidateRef};
+use hitoiki_core::service::{goal, key_result_progress, parse_to, record, rule, settings, skill, Ctx};
 use hitoiki_core::timefmt::{self, to_local};
 use hitoiki_core::{paths, Error, Result};
 
@@ -227,11 +227,25 @@ fn parse_candidates(items: &[String]) -> Result<Vec<CandidateRef>> {
     items.iter().map(|s| s.parse()).collect()
 }
 
-pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
+pub fn goal_sub(ctx: &Ctx, json: bool, cmd: GoalCmd) -> Result<()> {
     let tz = ctx.tz()?;
     let now = ctx.now();
     match cmd {
-        OkrCmd::EditObjective {
+        GoalCmd::Add { title, from, to } => {
+            let from = from.map(|s| timefmt::parse_instant(tz, &s, now)).transpose()?;
+            let to = to.map(|s| parse_to(tz, &s, now)).transpose()?;
+            let o = goal::add_goal(ctx, &goal::GoalInput { title, from, to })?;
+            emit(json, &o, || render::goal_added(&o))
+        }
+        GoalCmd::List => {
+            let l = goal::list(ctx)?;
+            emit(json, &l, || render::goal_list(&l))
+        }
+        GoalCmd::Show { goal: key } => {
+            let v = goal::show(ctx, &key)?;
+            emit(json, &v, || render::goal_show(&v))
+        }
+        GoalCmd::Edit {
             id,
             title,
             description,
@@ -240,10 +254,10 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
             clear_period,
             status,
         } => {
-            let o = okr::edit_objective(
+            let o = goal::edit_goal(
                 ctx,
                 &id,
-                &okr::ObjectiveEdit {
+                &goal::GoalEdit {
                     title,
                     description,
                     from: from.map(|s| timefmt::parse_instant(tz, &s, now)).transpose()?,
@@ -256,35 +270,58 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                 format!("目標を更新しました: {} {}", render::short(&o.id), o.title)
             })
         }
-        OkrCmd::DeleteObjective { id, opts } => {
-            let o = okr::delete_objective(ctx, &id, mode(&opts))?;
+        GoalCmd::Delete { id, opts } => {
+            let o = goal::delete_goal(ctx, &id, mode(&opts))?;
             delete_report(json, "目標", &o)
         }
-        OkrCmd::EditKr {
+    }
+}
+
+pub fn key_result_sub(ctx: &Ctx, json: bool, cmd: KeyResultCmd) -> Result<()> {
+    let tz = ctx.tz()?;
+    match cmd {
+        KeyResultCmd::Add {
+            goal,
+            title,
+            target,
+            skill,
+        } => {
+            let k = goal::add_key_result(
+                ctx,
+                &goal::KeyResultInput {
+                    goal,
+                    title,
+                    target,
+                    skills: skill,
+                },
+            )?;
+            emit(json, &k, || render::key_result_added(&k))
+        }
+        KeyResultCmd::Edit {
             id,
             title,
             target,
             current,
             note,
             status,
-            objective,
+            goal,
             measure,
-            day_min,
+            active_day_min,
             skill,
             no_skill,
         } => {
-            let k = okr::edit_kr(
+            let k = goal::edit_key_result(
                 ctx,
                 &id,
-                &okr::KrEdit {
+                &goal::KeyResultEdit {
                     title,
                     target,
                     current,
                     current_note: note,
                     status,
-                    objective,
+                    goal,
                     measure,
-                    day_min,
+                    active_day_min,
                     skills: skill,
                     clear_skills: no_skill,
                 },
@@ -293,58 +330,67 @@ pub fn okr_sub(ctx: &Ctx, json: bool, cmd: OkrCmd) -> Result<()> {
                 format!("成果の指標を更新しました: {} {}", render::short(&k.id), k.title)
             })
         }
-        OkrCmd::DeleteKr { id, opts } => {
-            let o = okr::delete_kr(ctx, &id, mode(&opts))?;
+        KeyResultCmd::Delete { id, opts } => {
+            let o = goal::delete_key_result(ctx, &id, mode(&opts))?;
             delete_report(json, "成果の指標", &o)
         }
-        OkrCmd::Link { kr, tasks } => {
-            let r = okr::link_tasks(ctx, &kr, &tasks)?;
+        KeyResultCmd::Link { key_result, tasks } => {
+            let r = goal::link_tasks(ctx, &key_result, &tasks)?;
             ext::notify_task(None);
-            emit(json, &r, || render::kr_linked(&r))
+            emit(json, &r, || render::key_result_linked(&r))
         }
-        OkrCmd::Unlink { tasks } => {
-            let r = okr::unlink_tasks(ctx, &tasks)?;
+        KeyResultCmd::Unlink { tasks } => {
+            let r = goal::unlink_tasks(ctx, &tasks)?;
             ext::notify_task(None);
             emit(json, &serde_json::json!({ "unlinked": r }), || {
-                render::kr_unlinked(&r)
+                render::key_result_unlinked(&r)
             })
         }
-        OkrCmd::Suggest { kr, no_ai } => {
-            let s = okr_suggest::suggest(ctx, &kr, !no_ai)?;
-            emit(json, &s, || render::kr_suggestions(&s))
+        KeyResultCmd::Suggest { key_result, no_ai } => {
+            let s = link_suggestion::suggest(ctx, &key_result, !no_ai)?;
+            emit(json, &s, || render::key_result_suggestions(&s))
         }
-        OkrCmd::SuggestAccept { kr, candidates } => {
+        KeyResultCmd::SuggestAccept {
+            key_result,
+            candidates,
+        } => {
             let refs = parse_candidates(&candidates)?;
-            let r = okr_suggest::accept(ctx, &kr, &refs)?;
+            let r = link_suggestion::accept(ctx, &key_result, &refs)?;
             ext::notify_task(None);
-            emit(json, &r, || render::kr_suggest_decided(&r, true))
+            emit(json, &r, || render::key_result_suggest_decided(&r, true))
         }
-        OkrCmd::SuggestReject { kr, candidates } => {
+        KeyResultCmd::SuggestReject {
+            key_result,
+            candidates,
+        } => {
             let refs = parse_candidates(&candidates)?;
-            let r = okr_suggest::reject(ctx, &kr, &refs)?;
-            emit(json, &r, || render::kr_suggest_decided(&r, false))
+            let r = link_suggestion::reject(ctx, &key_result, &refs)?;
+            emit(json, &r, || render::key_result_suggest_decided(&r, false))
         }
-        OkrCmd::Progress { kr, value, note } => {
-            let r = okr_progress::record(ctx, &kr, &value, note.as_deref())?;
-            emit(json, &r, || render::kr_progress_recorded(tz, &r))
+        KeyResultCmd::Progress {
+            key_result,
+            value,
+            note,
+        } => {
+            let r = key_result_progress::record(ctx, &key_result, &value, note.as_deref())?;
+            emit(json, &r, || render::key_result_progress_recorded(tz, &r))
         }
-        OkrCmd::History { kr, range } => {
+        KeyResultCmd::History { key_result, range } => {
             let args = range_args(&range);
             let given = (args.date.is_some() || args.from.is_some() || args.to.is_some())
                 .then(|| ctx.range(&args))
                 .transpose()?;
-            let h = okr_progress::kr_history(ctx, &kr, given)?;
-            emit(json, &h, || render::kr_history(tz, &h))
+            let h = key_result_progress::key_result_history(ctx, &key_result, given)?;
+            emit(json, &h, || render::key_result_history(tz, &h))
         }
-        OkrCmd::Show { kr, range } => {
+        KeyResultCmd::Show { key_result, range } => {
             let args = range_args(&range);
             let given = (args.date.is_some() || args.from.is_some() || args.to.is_some())
                 .then(|| ctx.range(&args))
                 .transpose()?;
-            let s = okr::kr_summary(ctx, &kr, given)?;
-            emit(json, &s, || render::kr_summary(&s))
+            let s = goal::key_result_summary(ctx, &key_result, given)?;
+            emit(json, &s, || render::key_result_summary(&s))
         }
-        _ => unreachable!("handled in main"),
     }
 }
 

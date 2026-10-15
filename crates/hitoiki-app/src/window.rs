@@ -13,7 +13,7 @@ pub const SCREENS: &[&str] = &[
     "reflect",
     "report",
     "records",
-    "okr",
+    "goals",
     "settings",
     "onboarding",
 ];

@@ -1,24 +1,24 @@
 import { useState } from "preact/hooks";
-import { api, type KeyResult, type KrMeasure, type ObjectiveView, type SkillView } from "./api";
+import { api, type KeyResult, type KeyResultMeasure, type GoalView, type SkillView } from "./api";
 import { Card, Empty, ErrorBox, Field, Section } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
-import { KrDetail } from "./kr-detail";
-import { MEASURE_OPTION, MEASURES, parseDayMin } from "./kr-util";
+import { KeyResultDetail } from "./key-result-detail";
+import { MEASURE_OPTION, MEASURES, parseActiveDayMin } from "./key-result-util";
 import { hrefOf, navigate, useAction, useAsync } from "./lib";
 import { periodEdit, periodInputs } from "./manage-util";
-import { tasksWithSkill } from "./okr-util";
+import { tasksWithSkill } from "./goal-util";
 import { SkillPicker } from "./skill-picker";
 import { Help, OverflowMenu } from "./ui/parts";
 
-export const OKR_STATUS_LABEL: Record<string, string> = { active: "進行中", done: "達成", dropped: "やめた" };
-const STATUSES = ["active", "done", "dropped"];
+export const GOAL_STATUS_LABEL: Record<string, string> = { active: "進行中", achieved: "達成", dropped: "やめた" };
+const STATUSES = ["active", "achieved", "dropped"];
 
 function StatusSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <select value={value} onChange={(e) => onChange(e.currentTarget.value)} aria-label="状態">
       {STATUSES.map((s) => (
         <option key={s} value={s}>
-          {OKR_STATUS_LABEL[s]}
+          {GOAL_STATUS_LABEL[s]}
         </option>
       ))}
     </select>
@@ -26,11 +26,11 @@ function StatusSelect({ value, onChange }: { value: string; onChange: (v: string
 }
 
 /** 目標の削除（確認ダイアログつき）。一覧の行のメニューと詳細のメニューで共有する。 */
-export function useObjectiveDelete(id: string, onDeleted: () => void) {
+export function useGoalDelete(id: string, onDeleted: () => void) {
   return useConfirmDelete({
     what: "目標",
-    preview: () => api.okrDeleteObjective(id, { dry_run: true }),
-    commit: () => api.okrDeleteObjective(id, { force: true }),
+    preview: () => api.goalDelete(id, { dry_run: true }),
+    commit: () => api.goalDelete(id, { force: true }),
     onDeleted,
   });
 }
@@ -38,14 +38,14 @@ export function useObjectiveDelete(id: string, onDeleted: () => void) {
 // ===== 目標 =====
 
 /** 目標の詳細。タイトル・説明・期間・状態の編集と、配下の成果の指標の一覧（リンク）。 */
-export function ObjectiveDetail({
+export function GoalDetail({
   o,
   onChanged,
   onDeleted,
   initialEditing = false,
   initialAdding = false,
 }: {
-  o: ObjectiveView;
+  o: GoalView;
   onChanged: () => void;
   onDeleted: () => void;
   initialEditing?: boolean;
@@ -60,7 +60,7 @@ export function ObjectiveDetail({
   const [to, setTo] = useState(init.to);
   const [status, setStatus] = useState(o.status);
   const act = useAction();
-  const del = useObjectiveDelete(o.id, onDeleted);
+  const del = useGoalDelete(o.id, onDeleted);
 
   const open = () => {
     const p = periodInputs(o);
@@ -77,7 +77,7 @@ export function ObjectiveDetail({
       title={o.title}
       aside={
         <>
-          {o.status !== "active" && <span class="tag">{OKR_STATUS_LABEL[o.status] ?? o.status}</span>}
+          {o.status !== "active" && <span class="tag">{GOAL_STATUS_LABEL[o.status] ?? o.status}</span>}
           <OverflowMenu
             label="目標の操作"
             items={[
@@ -96,7 +96,7 @@ export function ObjectiveDetail({
           onSubmit={async (e) => {
             e.preventDefault();
             const r = await act.run(() =>
-              api.okrEditObjective(o.id, {
+              api.goalEdit(o.id, {
                 title: title.trim(),
                 description: desc.trim(),
                 status,
@@ -160,20 +160,20 @@ export function ObjectiveDetail({
         <ul class="link-list">
           {o.key_results.map((k) => (
             <li key={k.id}>
-              <a href={hrefOf("okr", ["kr", k.id])}>{k.title}</a>
+              <a href={hrefOf("goals", ["key-result", k.id])}>{k.title}</a>
               {k.target && <span class="meta">目標値 {k.target}</span>}
-              {k.status !== "active" && <span class="tag">{OKR_STATUS_LABEL[k.status] ?? k.status}</span>}
+              {k.status !== "active" && <span class="tag">{GOAL_STATUS_LABEL[k.status] ?? k.status}</span>}
             </li>
           ))}
         </ul>
         {adding && (
-          <KrForm
-            objective={o.id}
+          <KeyResultForm
+            goal={o.id}
             onCancel={() => setAdding(false)}
             onAdded={(k) => {
               setAdding(false);
               onChanged();
-              navigate(hrefOf("okr", ["kr", k.id]));
+              navigate(hrefOf("goals", ["key-result", k.id]));
             }}
           />
         )}
@@ -183,12 +183,12 @@ export function ObjectiveDetail({
 }
 
 /** 成果の指標を追加するフォーム（タイトル・目標値・スキル）。 */
-function KrForm({
-  objective,
+function KeyResultForm({
+  goal,
   onAdded,
   onCancel,
 }: {
-  objective: string;
+  goal: string;
   onAdded: (k: KeyResult) => void;
   onCancel: () => void;
 }) {
@@ -202,7 +202,7 @@ function KrForm({
       class="stack"
       onSubmit={async (e) => {
         e.preventDefault();
-        const r = await act.run(() => api.okrAddKr(objective, title.trim(), target.trim() || undefined, skillNames));
+        const r = await act.run(() => api.keyResultAdd(goal, title.trim(), target.trim() || undefined, skillNames));
         if (r) onAdded(r);
       }}
     >
@@ -248,15 +248,15 @@ function KrForm({
 
 // ===== 成果の指標 =====
 
-/** 成果の指標の詳細。ヘッダーの「編集」で、タイトル・目標値・現在値・軸・状態・目標の編集に切り替える。 */
-export function KrPanel({
+/** 成果の指標の詳細。ヘッダーの「編集」で、タイトル・目標値・現在値・数え方・状態・目標の編集に切り替える。 */
+export function KeyResultPanel({
   k,
-  objectives,
+  goals,
   onChanged,
   onDeleted,
 }: {
   k: KeyResult;
-  objectives: ObjectiveView[];
+  goals: GoalView[];
   onChanged: () => void;
   onDeleted: () => void;
 }) {
@@ -265,26 +265,26 @@ export function KrPanel({
   const [target, setTarget] = useState(k.target ?? "");
   const [current, setCurrent] = useState(k.current ?? "");
   const [status, setStatus] = useState(k.status);
-  const [objective, setObjective] = useState(k.objective_id);
-  const [measure, setMeasure] = useState<KrMeasure>(k.measure);
-  const [dayMin, setDayMin] = useState(String(k.day_min));
+  const [goal, setGoal] = useState(k.goal_id);
+  const [measure, setMeasure] = useState<KeyResultMeasure>(k.measure);
+  const [activeDayMin, setActiveDayMin] = useState(String(k.active_day_min));
   const act = useAction();
   const del = useConfirmDelete({
     what: "成果の指標",
-    preview: () => api.okrDeleteKr(k.id, { dry_run: true }),
-    commit: () => api.okrDeleteKr(k.id, { force: true }),
+    preview: () => api.keyResultDelete(k.id, { dry_run: true }),
+    commit: () => api.keyResultDelete(k.id, { force: true }),
     onDeleted,
   });
-  const parent = objectives.find((o) => o.id === k.objective_id);
+  const parent = goals.find((o) => o.id === k.goal_id);
 
   const open = () => {
     setTitle(k.title);
     setTarget(k.target ?? "");
     setCurrent(k.current ?? "");
     setStatus(k.status);
-    setObjective(k.objective_id);
+    setGoal(k.goal_id);
     setMeasure(k.measure);
-    setDayMin(String(k.day_min));
+    setActiveDayMin(String(k.active_day_min));
     setEditing(true);
   };
 
@@ -293,7 +293,7 @@ export function KrPanel({
       title={k.title}
       aside={
         <>
-          {k.status !== "active" && <span class="tag">{OKR_STATUS_LABEL[k.status] ?? k.status}</span>}
+          {k.status !== "active" && <span class="tag">{GOAL_STATUS_LABEL[k.status] ?? k.status}</span>}
           {!editing && (
             <button type="button" onClick={open}>
               編集
@@ -310,14 +310,14 @@ export function KrPanel({
           onSubmit={async (e) => {
             e.preventDefault();
             const r = await act.run(() =>
-              api.okrEditKr(k.id, {
+              api.keyResultEdit(k.id, {
                 title: title.trim(),
                 target: target.trim(),
                 current: current.trim(),
                 status,
-                objective: objective !== k.objective_id ? objective : undefined,
+                goal: goal !== k.goal_id ? goal : undefined,
                 measure,
-                day_min: measure === "days" ? parseDayMin(dayMin, k.day_min) : undefined,
+                active_day_min: measure === "active_days" ? parseActiveDayMin(activeDayMin, k.active_day_min) : undefined,
               }),
             );
             if (r) {
@@ -340,8 +340,8 @@ export function KrPanel({
               <StatusSelect value={status} onChange={setStatus} />
             </Field>
             <Field label="目標">
-              <select value={objective} onChange={(e) => setObjective(e.currentTarget.value)}>
-                {objectives.map((o) => (
+              <select value={goal} onChange={(e) => setGoal(e.currentTarget.value)}>
+                {goals.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.title}
                   </option>
@@ -350,8 +350,8 @@ export function KrPanel({
             </Field>
           </div>
           <div class="row">
-            <Field label="何を軸に見るか">
-              <select value={measure} onChange={(e) => setMeasure(e.currentTarget.value as KrMeasure)}>
+            <Field label="数え方">
+              <select value={measure} onChange={(e) => setMeasure(e.currentTarget.value as KeyResultMeasure)}>
                 {MEASURES.map((m) => (
                   <option key={m} value={m}>
                     {MEASURE_OPTION[m]}
@@ -359,13 +359,13 @@ export function KrPanel({
                 ))}
               </select>
             </Field>
-            {measure === "days" && (
+            {measure === "active_days" && (
               <Field label="取り組んだ日とみなす 1 日の最小分数">
                 <input
                   class="narrow"
                   inputMode="numeric"
-                  value={dayMin}
-                  onInput={(e) => setDayMin(e.currentTarget.value)}
+                  value={activeDayMin}
+                  onInput={(e) => setActiveDayMin(e.currentTarget.value)}
                 />
               </Field>
             )}
@@ -385,7 +385,7 @@ export function KrPanel({
         <>
           <div class="relations">
             {parent && (
-              <a class="link-chip" href={hrefOf("okr", ["o", parent.id])} title="この目標の詳細を開く">
+              <a class="link-chip" href={hrefOf("goals", ["goal", parent.id])} title="この目標の詳細を開く">
                 {parent.title}
               </a>
             )}
@@ -397,7 +397,7 @@ export function KrPanel({
               </span>
             )}
           </div>
-          <KrDetail k={k} onChanged={onChanged} />
+          <KeyResultDetail k={k} onChanged={onChanged} />
         </>
       )}
     </Card>
@@ -502,11 +502,11 @@ export function SkillDetail({
 /** このスキルが付いたタスクと成果の指標。リンクで相手の詳細へ移る（付け外しは相手の側で行う）。 */
 function SkillUsers({ name }: { name: string }) {
   const tasks = useAsync(() => api.taskList(["todo", "doing", "done", "dropped"]), []);
-  const krs = useAsync(async () => {
-    const { objectives } = await api.okrList();
-    const all = objectives.flatMap((o) => o.key_results.map((k) => ({ k, o })));
-    const sums = await Promise.all(all.map((x) => api.okrShow(x.k.id).catch(() => null)));
-    return all.filter((_, i) => sums[i]?.kr_skills.includes(name));
+  const keyResults = useAsync(async () => {
+    const { goals } = await api.goalList();
+    const all = goals.flatMap((o) => o.key_results.map((k) => ({ k, o })));
+    const sums = await Promise.all(all.map((x) => api.keyResultShow(x.k.id).catch(() => null)));
+    return all.filter((_, i) => sums[i]?.key_result_skills.includes(name));
   }, [name]);
   const ts = tasksWithSkill(tasks.data?.tasks ?? [], name);
   return (
@@ -523,12 +523,12 @@ function SkillUsers({ name }: { name: string }) {
         </ul>
       </Section>
       <Section level={3} title="このスキルが付いた成果の指標" help="付け外しは、成果の指標の詳細の「スキル」で行います。">
-        <ErrorBox error={krs.error} />
-        {krs.data && krs.data.length === 0 && <Empty>付いている成果の指標はありません。</Empty>}
+        <ErrorBox error={keyResults.error} />
+        {keyResults.data && keyResults.data.length === 0 && <Empty>付いている成果の指標はありません。</Empty>}
         <ul class="link-list">
-          {krs.data?.map(({ k, o }) => (
+          {keyResults.data?.map(({ k, o }) => (
             <li key={k.id}>
-              <a href={hrefOf("okr", ["kr", k.id])}>{k.title}</a>
+              <a href={hrefOf("goals", ["key-result", k.id])}>{k.title}</a>
               <span class="meta">{o.title}</span>
             </li>
           ))}

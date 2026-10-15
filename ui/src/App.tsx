@@ -6,7 +6,7 @@ import { leaveGuard } from "./edit-util";
 import { SCREENS, hrefOf, loadTimeZone, navigate, useAsync, useLiveTick, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
 import { Log } from "./screens/Log";
 import { Onboarding } from "./screens/Onboarding";
-import { Okr } from "./screens/Okr";
+import { Goals } from "./screens/Goals";
 import { Popup } from "./screens/Popup";
 import { Quick } from "./screens/Quick";
 import { Records } from "./screens/Records";
@@ -21,7 +21,7 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   tasks: Tasks,
   report: Report,
   records: Records,
-  okr: Okr,
+  goals: Goals,
   settings: Settings,
   onboarding: Onboarding,
 };

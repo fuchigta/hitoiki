@@ -24,9 +24,9 @@ const COUNTED: T.SegmentKind[] = ["work", "agent_dialog", "agent_watch", "meetin
 // ===== 変換 =====
 
 function taskView(s: State, t: TaskRec): T.TaskView {
-  const k = t.key_result_id ? s.krs.find((x) => x.id === t.key_result_id) : undefined;
-  const o = k ? s.objectives.find((x) => x.id === k.objective_id) : undefined;
-  return { ...t, skills: [...t.skills], key_result: k && o ? { id: k.id, title: k.title, objective_id: o.id, objective_title: o.title } : null };
+  const k = t.key_result_id ? s.keyResults.find((x) => x.id === t.key_result_id) : undefined;
+  const o = k ? s.goals.find((x) => x.id === k.goal_id) : undefined;
+  return { ...t, skills: [...t.skills], key_result: k && o ? { id: k.id, title: k.title, goal_id: o.id, goal_title: o.title } : null };
 }
 
 function segView(s: State, r: SegRec): T.SegmentView {
@@ -45,13 +45,13 @@ function needTask(s: State, q: string | undefined | null): TaskRec {
   return t;
 }
 
-function findKr(s: State, q: string | undefined | null): T.KeyResult | undefined {
+function findKeyResult(s: State, q: string | undefined | null): T.KeyResult | undefined {
   if (!q) return undefined;
-  return s.krs.find((k) => k.id === q) ?? s.krs.find((k) => k.title === q);
+  return s.keyResults.find((k) => k.id === q) ?? s.keyResults.find((k) => k.title === q);
 }
 
-function needKr(s: State, q: string): T.KeyResult {
-  const k = findKr(s, q);
+function needKeyResult(s: State, q: string): T.KeyResult {
+  const k = findKeyResult(s, q);
   if (!k) fail("not_found", `成果の指標が見つかりません: ${q}`);
   return k;
 }
@@ -106,7 +106,7 @@ const KIND_LABELS: Record<T.SegmentKind, string> = {
   ignored: "無視",
 };
 
-function quadrant(t: TaskRec | undefined): [string | null, string] {
+function urgentImportant(t: TaskRec | undefined): [string | null, string] {
   if (!t) return [null, "（タスクなし）"];
   const u = t.urgent === true;
   const i = t.important === true;
@@ -150,12 +150,12 @@ function buildReport(s: State, by: T.ReportBy, a: T.RangeArgs | undefined, inclu
     case "activity":
       map = group(segs, from, to, (x) => [x.activity_label ? [x.activity_label, x.activity_label] : [null, "（活動なし）"]]);
       break;
-    case "quadrant":
-      map = group(segs, from, to, (x) => [quadrant(task(x))]);
+    case "urgent_important":
+      map = group(segs, from, to, (x) => [urgentImportant(task(x))]);
       break;
-    case "okr":
+    case "key_result":
       map = group(segs, from, to, (x) => {
-        const k = s.krs.find((kr) => kr.id === task(x)?.key_result_id);
+        const k = s.keyResults.find((keyResult) => keyResult.id === task(x)?.key_result_id);
         return [k ? [k.id, k.title] : [null, "（成果の指標なし）"]];
       });
       break;
@@ -233,14 +233,14 @@ function buildHeatmap(s: State, by: string | undefined, fromS?: string, toS?: st
     if (kind === "kind") label = `${KIND_LABELS[arg as T.SegmentKind] ?? arg}の時間`;
     if (kind === "task") label = `${s.tasks.find((t) => t.id === arg)?.title ?? "タスク"}の時間`;
     if (kind === "skill") label = `${arg} の時間`;
-    if (kind === "kr") label = `${s.krs.find((k) => k.id === arg)?.title ?? "成果の指標"}の時間`;
+    if (kind === "key_result") label = `${s.keyResults.find((k) => k.id === arg)?.title ?? "成果の指標"}の時間`;
     for (const x of s.segments) {
       const t = s.tasks.find((y) => y.id === x.task_id);
       let ok = COUNTED.includes(x.kind);
       if (kind === "kind") ok = x.kind === arg;
       if (kind === "task") ok = ok && x.task_id === arg;
       if (kind === "skill") ok = ok && !!t?.skills.some((n) => skillNames!.has(n));
-      if (kind === "kr") ok = ok && t?.key_result_id === arg;
+      if (kind === "key_result") ok = ok && t?.key_result_id === arg;
       if (ok) add(x.start_at, x.end_at - x.start_at);
     }
   }
@@ -268,23 +268,23 @@ function buildHeatmap(s: State, by: string | undefined, fromS?: string, toS?: st
 
 // ===== 目標 =====
 
-function krRange(s: State, k: T.KeyResult, given?: T.RangeArgs): { from: number; to: number; source: T.KrSummary["range_source"] } {
+function keyResultRange(s: State, k: T.KeyResult, given?: T.RangeArgs): { from: number; to: number; source: T.KeyResultSummary["range_source"] } {
   if (given && (given.date || given.from || given.to)) {
     const [from, to] = range(s, given);
     return { from, to, source: "given" };
   }
-  const o = s.objectives.find((x) => x.id === k.objective_id);
-  if (o?.period_start != null && o.period_end != null) return { from: o.period_start, to: Math.min(o.period_end, dayStart(s.now) + DAY), source: "objective" };
+  const o = s.goals.find((x) => x.id === k.goal_id);
+  if (o?.period_start != null && o.period_end != null) return { from: o.period_start, to: Math.min(o.period_end, dayStart(s.now) + DAY), source: "goal" };
   const w = weekStart(s.now);
   return { from: w - 3 * 7 * DAY, to: w + 7 * DAY, source: "recent_weeks" };
 }
 
-function krSummary(s: State, k: T.KeyResult): T.KrSummary {
-  const o = s.objectives.find((x) => x.id === k.objective_id)!;
-  const { from, to, source } = krRange(s, k);
-  const names = skillClosure(s, s.krSkills[k.id] ?? []);
+function keyResultSummary(s: State, k: T.KeyResult): T.KeyResultSummary {
+  const o = s.goals.find((x) => x.id === k.goal_id)!;
+  const { from, to, source } = keyResultRange(s, k);
+  const names = skillClosure(s, s.keyResultSkills[k.id] ?? []);
   const linked = s.tasks.filter((t) => t.key_result_id === k.id);
-  const hasSkill = (t?: TaskRec) => !!t?.skills.some((n) => names.has(n)) && (s.krSkills[k.id] ?? []).length > 0;
+  const hasSkill = (t?: TaskRec) => !!t?.skills.some((n) => names.has(n)) && (s.keyResultSkills[k.id] ?? []).length > 0;
   let fromSkill = 0;
   let fromTask = 0;
   const perDay = new Map<string, number>();
@@ -303,20 +303,20 @@ function krSummary(s: State, k: T.KeyResult): T.KrSummary {
     perWeek.set(weekStart(x.start_at), (perWeek.get(weekStart(x.start_at)) ?? 0) + ms);
     for (const n of t?.skills ?? []) perSkill.set(n, (perSkill.get(n) ?? 0) + ms);
   }
-  const weekly: T.KrWeekBar[] = [];
+  const weekly: T.KeyResultWeekBar[] = [];
   for (let w = weekStart(from); w < to; w += 7 * DAY) weekly.push({ week_start: ymd(w), duration_ms: perWeek.get(w) ?? 0 });
   const tracked = (t: TaskRec) => s.segments.filter((x) => x.task_id === t.id).reduce((n, x) => n + (x.end_at - x.start_at), 0);
   const est = linked.filter((t) => t.estimate_min);
   return {
     key_result: k,
-    objective: { id: o.id, title: o.title },
+    goal: { id: o.id, title: o.title },
     range: rangeView(from, to),
     range_source: source,
     measure: k.measure,
     time_ms: fromSkill + fromTask,
-    active_days: [...perDay.values()].filter((v) => v >= k.day_min * MIN).length,
-    day_min: k.day_min,
-    kr_skills: s.krSkills[k.id] ?? [],
+    active_days: [...perDay.values()].filter((v) => v >= k.active_day_min * MIN).length,
+    active_day_min: k.active_day_min,
+    key_result_skills: s.keyResultSkills[k.id] ?? [],
     from_skill_ms: fromSkill,
     from_task_ms: fromTask,
     done_count: linked.filter((t) => t.status === "done").length,
@@ -337,11 +337,11 @@ function numberOf(text: string): number | null {
   return m ? Number(m[0]) : null;
 }
 
-function krHistory(s: State, k: T.KeyResult): T.KrHistory {
-  const { from, to, source } = krRange(s, k);
-  const entries = s.krProgress.filter((x) => x.kr_id === k.id).sort((a, b) => b.at - a.at);
-  const sum = krSummary(s, k);
-  const weeks: T.KrHistoryWeek[] = sum.weekly.map((w) => {
+function keyResultHistory(s: State, k: T.KeyResult): T.KeyResultHistory {
+  const { from, to, source } = keyResultRange(s, k);
+  const entries = s.keyResultProgress.filter((x) => x.key_result_id === k.id).sort((a, b) => b.at - a.at);
+  const sum = keyResultSummary(s, k);
+  const weeks: T.KeyResultHistoryWeek[] = sum.weekly.map((w) => {
     const ws = parseYmd(w.week_start);
     const upto = entries.find((e) => e.at < ws + 7 * DAY);
     return {
@@ -440,7 +440,7 @@ function applyTaskInput(s: State, t: TaskRec, i: T.TaskInput) {
   if (i.urgent !== undefined) t.urgent = i.urgent;
   if (i.important !== undefined) t.important = i.important;
   if (i.estimate_min !== undefined) t.estimate_min = i.estimate_min;
-  if (i.key_result) t.key_result_id = needKr(s, i.key_result).id;
+  if (i.key_result) t.key_result_id = needKeyResult(s, i.key_result).id;
   if (i.clear_key_result) t.key_result_id = null;
   if (i.skills) t.skills = [...i.skills];
   if (i.clear_skills) t.skills = [];
@@ -1258,19 +1258,19 @@ const H: Record<string, Handler> = {
   erg_confirm: (s, a) => upsertErg(s, a.record_kind, a.record_id, { source: "user" }),
 
   // 目標・スキル
-  okr_list: (s) => ({ objectives: s.objectives.map((o) => ({ ...o, key_results: s.krs.filter((k) => k.objective_id === o.id) })) }),
-  okr_add_objective: (s, a) => {
-    const o: T.Objective = { id: nid(s, "obj"), title: a.input.title, description_md: null, period_start: null, period_end: null, status: "active" };
-    s.objectives.push(o);
+  goal_list: (s) => ({ goals: s.goals.map((o) => ({ ...o, key_results: s.keyResults.filter((k) => k.goal_id === o.id) })) }),
+  goal_add: (s, a) => {
+    const o: T.Goal = { id: nid(s, "obj"), title: a.input.title, description_md: null, period_start: null, period_end: null, status: "active" };
+    s.goals.push(o);
     return o;
   },
-  okr_add_kr: (s, a) => {
-    const i = a.input as { objective: string; title: string; target?: string; skills?: string[] };
-    const o = s.objectives.find((x) => x.id === i.objective || x.title === i.objective);
+  key_result_add: (s, a) => {
+    const i = a.input as { goal: string; title: string; target?: string; skills?: string[] };
+    const o = s.goals.find((x) => x.id === i.goal || x.title === i.goal);
     if (!o) fail("not_found", "目標が見つかりません。");
-    const k: T.KeyResult = { id: nid(s, "kr"), objective_id: o.id, title: i.title, target: i.target ?? null, current: null, status: "active", measure: "time", day_min: 30 };
-    s.krs.push(k);
-    if (i.skills?.length) s.krSkills[k.id] = i.skills;
+    const k: T.KeyResult = { id: nid(s, "key-result"), goal_id: o.id, title: i.title, target: i.target ?? null, current: null, status: "active", measure: "time", active_day_min: 30 };
+    s.keyResults.push(k);
+    if (i.skills?.length) s.keyResultSkills[k.id] = i.skills;
     return k;
   },
   skill_list: (s) => ({ skills: s.skills.map((k) => ({ ...k, parent_name: s.skills.find((p) => p.id === k.parent_id)?.name ?? null })) }),
@@ -1291,10 +1291,10 @@ const H: Record<string, Handler> = {
     }
     return { preset: a.name ?? "default", added, skipped: names.length - added };
   },
-  okr_edit_objective: (s, a) => {
-    const o = s.objectives.find((x) => x.id === a.id);
+  goal_edit: (s, a) => {
+    const o = s.goals.find((x) => x.id === a.id);
     if (!o) fail("not_found", "目標が見つかりません。");
-    const i = a.input as T.ObjectiveEdit;
+    const i = a.input as T.GoalEdit;
     if (i.title !== undefined) o.title = i.title;
     if (i.description !== undefined) o.description_md = i.description || null;
     if (i.from !== undefined) o.period_start = i.from;
@@ -1303,77 +1303,77 @@ const H: Record<string, Handler> = {
     if (i.status !== undefined) o.status = i.status;
     return o;
   },
-  okr_delete_objective: (s, a) => {
-    const o = s.objectives.find((x) => x.id === a.id);
+  goal_delete: (s, a) => {
+    const o = s.goals.find((x) => x.id === a.id);
     if (!o) fail("not_found", "目標が見つかりません。");
-    const krs = s.krs.filter((k) => k.objective_id === o.id);
-    return deleteOutcome("objective", o.id, o.title, [{ label: "成果の指標", count: krs.length }, { label: "紐付けたタスク", count: s.tasks.filter((t) => krs.some((k) => k.id === t.key_result_id)).length }], a.mode, () => {
+    const keyResults = s.keyResults.filter((k) => k.goal_id === o.id);
+    return deleteOutcome("goal", o.id, o.title, [{ label: "成果の指標", count: keyResults.length }, { label: "紐付けたタスク", count: s.tasks.filter((t) => keyResults.some((k) => k.id === t.key_result_id)).length }], a.mode, () => {
       s.tasks.forEach((t) => {
-        if (krs.some((k) => k.id === t.key_result_id)) t.key_result_id = null;
+        if (keyResults.some((k) => k.id === t.key_result_id)) t.key_result_id = null;
       });
-      s.krs = s.krs.filter((k) => k.objective_id !== o.id);
-      s.objectives = s.objectives.filter((x) => x.id !== o.id);
+      s.keyResults = s.keyResults.filter((k) => k.goal_id !== o.id);
+      s.goals = s.goals.filter((x) => x.id !== o.id);
     });
   },
-  okr_edit_kr: (s, a) => {
-    const k = needKr(s, a.id);
-    const i = a.input as T.KrEdit;
+  key_result_edit: (s, a) => {
+    const k = needKeyResult(s, a.id);
+    const i = a.input as T.KeyResultEdit;
     if (i.title !== undefined) k.title = i.title;
     if (i.target !== undefined) k.target = i.target || null;
     if (i.current !== undefined && i.current !== (k.current ?? "")) {
       k.current = i.current || null;
-      s.krProgress.push({ id: nid(s, "prog"), kr_id: k.id, value: i.current ? numberOf(i.current) : null, text: i.current || null, note: i.current_note ?? null, at: s.now });
+      s.keyResultProgress.push({ id: nid(s, "prog"), key_result_id: k.id, value: i.current ? numberOf(i.current) : null, text: i.current || null, note: i.current_note ?? null, at: s.now });
     }
     if (i.status !== undefined) k.status = i.status;
-    if (i.objective) k.objective_id = s.objectives.find((o) => o.id === i.objective || o.title === i.objective)?.id ?? k.objective_id;
+    if (i.goal) k.goal_id = s.goals.find((o) => o.id === i.goal || o.title === i.goal)?.id ?? k.goal_id;
     if (i.measure) k.measure = i.measure;
-    if (i.day_min !== undefined) k.day_min = i.day_min;
-    if (i.skills?.length) s.krSkills[k.id] = i.skills;
-    if (i.clear_skills) delete s.krSkills[k.id];
+    if (i.active_day_min !== undefined) k.active_day_min = i.active_day_min;
+    if (i.skills?.length) s.keyResultSkills[k.id] = i.skills;
+    if (i.clear_skills) delete s.keyResultSkills[k.id];
     return k;
   },
-  okr_delete_kr: (s, a) => {
-    const k = needKr(s, a.id);
-    return deleteOutcome("key_result", k.id, k.title, [{ label: "紐付けたタスク", count: s.tasks.filter((t) => t.key_result_id === k.id).length }, { label: "現在値の履歴", count: s.krProgress.filter((p) => p.kr_id === k.id).length }], a.mode, () => {
+  key_result_delete: (s, a) => {
+    const k = needKeyResult(s, a.id);
+    return deleteOutcome("key_result", k.id, k.title, [{ label: "紐付けたタスク", count: s.tasks.filter((t) => t.key_result_id === k.id).length }, { label: "現在値の履歴", count: s.keyResultProgress.filter((p) => p.key_result_id === k.id).length }], a.mode, () => {
       s.tasks.forEach((t) => {
         if (t.key_result_id === k.id) t.key_result_id = null;
       });
-      s.krs = s.krs.filter((x) => x.id !== k.id);
-      s.krProgress = s.krProgress.filter((p) => p.kr_id !== k.id);
+      s.keyResults = s.keyResults.filter((x) => x.id !== k.id);
+      s.keyResultProgress = s.keyResultProgress.filter((p) => p.key_result_id !== k.id);
     });
   },
-  okr_link: (s, a) => {
-    const k = needKr(s, a.kr);
+  key_result_link: (s, a) => {
+    const k = needKeyResult(s, a.key_result);
     const linked = (a.tasks as string[]).map((q): T.LinkedTask => {
       const t = needTask(s, q);
-      const prev = t.key_result_id ? s.krs.find((x) => x.id === t.key_result_id) : undefined;
+      const prev = t.key_result_id ? s.keyResults.find((x) => x.id === t.key_result_id) : undefined;
       t.key_result_id = k.id;
-      return { id: t.id, title: t.title, previous_kr: prev ? { id: prev.id, title: prev.title } : null };
+      return { id: t.id, title: t.title, previous_key_result: prev ? { id: prev.id, title: prev.title } : null };
     });
     return { key_result: k, linked } satisfies T.LinkResult;
   },
-  okr_unlink: (s, a) =>
+  key_result_unlink: (s, a) =>
     (a.tasks as string[]).map((q): T.LinkedTask => {
       const t = needTask(s, q);
-      const prev = t.key_result_id ? s.krs.find((x) => x.id === t.key_result_id) : undefined;
+      const prev = t.key_result_id ? s.keyResults.find((x) => x.id === t.key_result_id) : undefined;
       t.key_result_id = null;
-      return { id: t.id, title: t.title, previous_kr: prev ? { id: prev.id, title: prev.title } : null };
+      return { id: t.id, title: t.title, previous_key_result: prev ? { id: prev.id, title: prev.title } : null };
     }),
-  okr_show: (s, a) => krSummary(s, needKr(s, a.kr)),
-  okr_suggest: (s, a) => {
-    const k = needKr(s, a.kr);
-    const eligible = !(s.krSkills[k.id]?.length) && !s.tasks.some((t) => t.key_result_id === k.id);
-    const candidates: T.KrCandidate[] = eligible
+  key_result_show: (s, a) => keyResultSummary(s, needKeyResult(s, a.key_result)),
+  key_result_suggest: (s, a) => {
+    const k = needKeyResult(s, a.key_result);
+    const eligible = !(s.keyResultSkills[k.id]?.length) && !s.tasks.some((t) => t.key_result_id === k.id);
+    const candidates: T.KeyResultCandidate[] = eligible
       ? [
-          ...s.tasks.filter((t) => !t.key_result_id && t.status !== "dropped").slice(0, 3).map((t, n): T.KrCandidate => ({ kind: "task", id: t.id, name: t.title, score: 0.8 - n * 0.1, source: "local" })),
-          ...s.skills.slice(0, 2).map((x, n): T.KrCandidate => ({ kind: "skill", id: x.id, name: x.name, score: 0.7 - n * 0.1, source: "local" })),
+          ...s.tasks.filter((t) => !t.key_result_id && t.status !== "dropped").slice(0, 3).map((t, n): T.KeyResultCandidate => ({ kind: "task", id: t.id, name: t.title, score: 0.8 - n * 0.1, source: "name_match" })),
+          ...s.skills.slice(0, 2).map((x, n): T.KeyResultCandidate => ({ kind: "skill", id: x.id, name: x.name, score: 0.7 - n * 0.1, source: "name_match" })),
         ]
       : [];
-    return { key_result: { id: k.id, title: k.title }, eligible, candidates, ai: { used: false, note: a.use_ai ? "AI は設定されていないため、名前の近い候補だけを出しました。" : null } } satisfies T.KrSuggestions;
+    return { key_result: { id: k.id, title: k.title }, eligible, candidates, ai: { used: false, note: a.use_ai ? "AI は設定されていないため、名前の近い候補だけを出しました。" : null } } satisfies T.KeyResultSuggestions;
   },
-  okr_suggest_accept: (s, a) => {
-    const k = needKr(s, a.kr);
-    const out: T.KrSuggestDecision["items"] = [];
+  key_result_suggest_accept: (s, a) => {
+    const k = needKeyResult(s, a.key_result);
+    const out: T.KeyResultSuggestDecision["items"] = [];
     for (const id of a.candidates as string[]) {
       const t = s.tasks.find((x) => x.id === id);
       const sk = s.skills.find((x) => x.id === id);
@@ -1381,24 +1381,24 @@ const H: Record<string, Handler> = {
         t.key_result_id = k.id;
         out.push({ kind: "task", id, name: t.title });
       } else if (sk) {
-        s.krSkills[k.id] = [...(s.krSkills[k.id] ?? []), sk.name];
+        s.keyResultSkills[k.id] = [...(s.keyResultSkills[k.id] ?? []), sk.name];
         out.push({ kind: "skill", id, name: sk.name });
       }
     }
-    return { key_result: { id: k.id, title: k.title }, items: out } satisfies T.KrSuggestDecision;
+    return { key_result: { id: k.id, title: k.title }, items: out } satisfies T.KeyResultSuggestDecision;
   },
-  okr_suggest_reject: (s, a) => {
-    const k = needKr(s, a.kr);
-    return { key_result: { id: k.id, title: k.title }, items: (a.candidates as string[]).map((id) => ({ kind: "task" as const, id, name: s.tasks.find((t) => t.id === id)?.title ?? id })) } satisfies T.KrSuggestDecision;
+  key_result_suggest_reject: (s, a) => {
+    const k = needKeyResult(s, a.key_result);
+    return { key_result: { id: k.id, title: k.title }, items: (a.candidates as string[]).map((id) => ({ kind: "task" as const, id, name: s.tasks.find((t) => t.id === id)?.title ?? id })) } satisfies T.KeyResultSuggestDecision;
   },
-  okr_progress: (s, a) => {
-    const k = needKr(s, a.kr);
-    const e: T.KrProgressEntry = { id: nid(s, "prog"), kr_id: k.id, value: numberOf(a.value), text: a.value || null, note: a.note ?? null, at: s.now };
-    s.krProgress.push(e);
+  key_result_progress: (s, a) => {
+    const k = needKeyResult(s, a.key_result);
+    const e: T.KeyResultProgressEntry = { id: nid(s, "prog"), key_result_id: k.id, value: numberOf(a.value), text: a.value || null, note: a.note ?? null, at: s.now };
+    s.keyResultProgress.push(e);
     k.current = a.value || null;
     return { key_result: k, entry: e } satisfies T.ProgressRecorded;
   },
-  okr_history: (s, a) => krHistory(s, needKr(s, a.kr)),
+  key_result_history: (s, a) => keyResultHistory(s, needKeyResult(s, a.key_result)),
   skill_edit: (s, a) => {
     const k = s.skills.find((x) => x.id === a.key || x.name === a.key);
     if (!k) fail("not_found", "スキルが見つかりません。");

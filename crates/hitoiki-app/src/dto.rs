@@ -1,7 +1,7 @@
 //! UI から受け取る入力の型。core のサービス入力型へ変換するだけで、ロジックは持たない。
 
 use hitoiki_core::model::{MatchField, PatternType, SegmentKind, TaskKind, TaskStatus};
-use hitoiki_core::service::okr::{KrInput, ObjectiveInput};
+use hitoiki_core::service::goal::{GoalInput, KeyResultInput};
 use hitoiki_core::service::plan::BlockInput;
 use hitoiki_core::service::review::ReviewSetInput;
 use hitoiki_core::service::skill::SkillInput;
@@ -98,7 +98,7 @@ impl From<BlockInputDto> for BlockInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ObjectiveInputDto {
+pub struct GoalInputDto {
     pub title: String,
     #[serde(default)]
     pub from: Option<Millis>,
@@ -106,9 +106,9 @@ pub struct ObjectiveInputDto {
     pub to: Option<Millis>,
 }
 
-impl From<ObjectiveInputDto> for ObjectiveInput {
-    fn from(o: ObjectiveInputDto) -> Self {
-        ObjectiveInput {
+impl From<GoalInputDto> for GoalInput {
+    fn from(o: GoalInputDto) -> Self {
+        GoalInput {
             title: o.title,
             from: o.from,
             to: o.to,
@@ -117,8 +117,8 @@ impl From<ObjectiveInputDto> for ObjectiveInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct KrInputDto {
-    pub objective: String,
+pub struct KeyResultInputDto {
+    pub goal: String,
     pub title: String,
     #[serde(default)]
     pub target: Option<String>,
@@ -126,10 +126,10 @@ pub struct KrInputDto {
     pub skills: Vec<String>,
 }
 
-impl From<KrInputDto> for KrInput {
-    fn from(k: KrInputDto) -> Self {
-        KrInput {
-            objective: k.objective,
+impl From<KeyResultInputDto> for KeyResultInput {
+    fn from(k: KeyResultInputDto) -> Self {
+        KeyResultInput {
+            goal: k.goal,
             title: k.title,
             target: k.target,
             skills: k.skills,

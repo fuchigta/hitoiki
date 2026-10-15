@@ -43,8 +43,8 @@ function settingsTabs() {
 const SELECTED = [
   { name: "today-design", screen: "today", fixed: "#/today/design" },
   { name: "tasks-selected", screen: "tasks", hash: (s) => s.tasks[0] && `#/tasks/${s.tasks[0].id}` },
-  { name: "okr-kr-selected", screen: "okr", hash: (s) => s.krs[0] && `#/okr/kr/${s.krs[0].id}` },
-  { name: "okr-skill-selected", screen: "okr", hash: (s) => s.skills[0] && `#/okr/skill/${s.skills[0].id}?tab=skills` },
+  { name: "goals-key-result-selected", screen: "goals", hash: (s) => s.keyResults[0] && `#/goals/key-result/${s.keyResults[0].id}` },
+  { name: "goals-skill-selected", screen: "goals", hash: (s) => s.skills[0] && `#/goals/skill/${s.skills[0].id}?tab=skills` },
   { name: "records-checkin-selected", screen: "records", hash: (s) => s.checkins[0] && `#/records/checkin/${s.checkins[0].id}` },
   { name: "records-reflection-selected", screen: "records", hash: (s) => s.reflections[0] && `#/records/reflection/${s.reflections[0].id}` },
   { name: "records-new-abc", screen: "records", fixed: "#/records/new/abc" },

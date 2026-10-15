@@ -87,12 +87,15 @@ pub fn set_task_skills(conn: &Connection, task_id: &str, skill_ids: &[String]) -
 }
 
 /// 成果の指標のスキルを置き換える。
-pub fn set_kr_skills(conn: &Connection, kr_id: &str, skill_ids: &[String]) -> Result<()> {
-    conn.execute("DELETE FROM kr_skill WHERE kr_id = ?1", [kr_id])?;
+pub fn set_key_result_skills(conn: &Connection, key_result_id: &str, skill_ids: &[String]) -> Result<()> {
+    conn.execute(
+        "DELETE FROM key_result_skill WHERE key_result_id = ?1",
+        [key_result_id],
+    )?;
     for s in skill_ids {
         conn.execute(
-            "INSERT OR IGNORE INTO kr_skill (kr_id, skill_id) VALUES (?1, ?2)",
-            params![kr_id, s],
+            "INSERT OR IGNORE INTO key_result_skill (key_result_id, skill_id) VALUES (?1, ?2)",
+            params![key_result_id, s],
         )?;
     }
     Ok(())
@@ -115,11 +118,11 @@ pub fn list_activity_skill_rules(conn: &Connection) -> Result<Vec<crate::model::
 }
 
 /// 成果の指標のスキル（名前順）。
-pub fn kr_skills(conn: &Connection, kr_id: &str) -> Result<Vec<Skill>> {
+pub fn key_result_skills(conn: &Connection, key_result_id: &str) -> Result<Vec<Skill>> {
     let mut stmt = conn.prepare(
-        "SELECT s.id, s.name, s.parent_id, s.description, s.preset FROM kr_skill ks          JOIN skill s ON s.id = ks.skill_id WHERE ks.kr_id = ?1 ORDER BY s.name",
+        "SELECT s.id, s.name, s.parent_id, s.description, s.preset FROM key_result_skill ks          JOIN skill s ON s.id = ks.skill_id WHERE ks.key_result_id = ?1 ORDER BY s.name",
     )?;
-    let rows = stmt.query_map([kr_id], from_row)?;
+    let rows = stmt.query_map([key_result_id], from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 

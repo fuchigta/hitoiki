@@ -2,18 +2,18 @@
 
 use crate::table::{pad, table, truncate};
 use chrono_tz::Tz;
-use hitoiki_core::model::{Checkin, Hassle, KeyResult, Objective, TaskMatchRule, TimeBlock};
+use hitoiki_core::model::{Checkin, Goal, Hassle, KeyResult, TaskMatchRule, TimeBlock};
 use hitoiki_core::repo::segment::kind_label;
 use hitoiki_core::service::{
     correction::{
         ApplyResult as CorrApplied, Candidate, CorrectionList, CorrectionView, Preview as CorrPreview,
         UndoResult as CorrUndone,
     },
+    goal::{GoalList, GoalView, KeyResultSummary, LinkResult, LinkedTask},
     heatmap::Heatmap,
+    key_result_progress::{KeyResultHistory, ProgressRecorded},
+    link_suggestion::{DecisionResult, Suggestions},
     log::Log,
-    okr::{KrSummary, LinkResult, LinkedTask, OkrList},
-    okr_progress::{KrHistory, ProgressRecorded},
-    okr_suggest::{DecisionResult, Suggestions},
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
     review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
@@ -81,12 +81,12 @@ pub fn task_detail(tz: Tz, v: &TaskView) -> String {
     if let Some(m) = t.estimate_min {
         s += &format!("見積もり: {m}分\n");
     }
-    if let Some(kr) = &v.key_result {
+    if let Some(key_result) = &v.key_result {
         s += &format!(
             "成果の指標:       {} / {} ({})\n",
-            kr.objective_title,
-            kr.title,
-            short(&kr.id)
+            key_result.goal_title,
+            key_result.title,
+            short(&key_result.id)
         );
     }
     if !v.skills.is_empty() {
@@ -376,8 +376,8 @@ pub fn report(tz: Tz, r: &Report) -> String {
     let by = match r.by {
         ReportBy::Task => "タスク",
         ReportBy::Activity => "活動",
-        ReportBy::Quadrant => "緊急・重要",
-        ReportBy::Okr => "目標",
+        ReportBy::UrgentImportant => "緊急・重要",
+        ReportBy::KeyResult => "目標",
         ReportBy::Skill => "スキル",
         ReportBy::Agent => "AI エージェント",
         ReportBy::Kind => "種別",
@@ -603,21 +603,16 @@ pub fn hassle(h: &Hassle) -> String {
     )
 }
 
-pub fn okr_list(l: &OkrList) -> String {
-    if l.objectives.is_empty() {
+pub fn goal_list(l: &GoalList) -> String {
+    if l.goals.is_empty() {
         return "目標はありません。".into();
     }
     let mut s = String::new();
-    for o in &l.objectives {
-        s += &format!(
-            "{} {} [{}]\n",
-            short(&o.objective.id),
-            o.objective.title,
-            o.objective.status
-        );
+    for o in &l.goals {
+        s += &format!("{} {} [{}]\n", short(&o.goal.id), o.goal.title, o.goal.status);
         for k in &o.key_results {
             s += &format!(
-                "  {} {}{} [軸: {}]\n",
+                "  {} {}{} [数え方: {}]\n",
                 short(&k.id),
                 k.title,
                 k.target
@@ -631,15 +626,21 @@ pub fn okr_list(l: &OkrList) -> String {
     s.trim_end().to_string()
 }
 
-pub fn objective_added(o: &Objective) -> String {
+pub fn goal_show(v: &GoalView) -> String {
+    goal_list(&GoalList {
+        goals: vec![v.clone()],
+    })
+}
+
+pub fn goal_added(o: &Goal) -> String {
     format!("目標を追加しました: {} {}", short(&o.id), o.title)
 }
 
-pub fn kr_added(k: &KeyResult) -> String {
+pub fn key_result_added(k: &KeyResult) -> String {
     format!("成果の指標を追加しました: {} {}", short(&k.id), k.title)
 }
 
-pub fn kr_suggestions(s: &Suggestions) -> String {
+pub fn key_result_suggestions(s: &Suggestions) -> String {
     let title = &s.key_result.title;
     if !s.eligible {
         return format!(
@@ -660,7 +661,7 @@ pub fn kr_suggestions(s: &Suggestions) -> String {
             out += &format!("\n  {}:{}  {}  [{}]", c.kind.as_str(), short(&c.id), c.name, src);
         }
         out += &format!(
-            "\n付けるには `hitoiki okr suggest-accept \"{title}\" <候補>`、付けないなら `suggest-reject` を使います。"
+            "\n付けるには `hitoiki key-result suggest-accept \"{title}\" <候補>`、付けないなら `suggest-reject` を使います。"
         );
     }
     if let Some(n) = &s.ai.note {
@@ -669,7 +670,7 @@ pub fn kr_suggestions(s: &Suggestions) -> String {
     out
 }
 
-pub fn kr_suggest_decided(r: &DecisionResult, accepted: bool) -> String {
+pub fn key_result_suggest_decided(r: &DecisionResult, accepted: bool) -> String {
     let mut out = if accepted {
         format!("成果の指標「{}」に付けました。", r.key_result.title)
     } else {
@@ -686,13 +687,13 @@ pub fn kr_suggest_decided(r: &DecisionResult, accepted: bool) -> String {
 
 fn measure_label(m: &str) -> &'static str {
     match m {
-        "days" => "回数",
-        "done" => "完了数",
+        "active_days" => "取り組んだ日数",
+        "done_tasks" => "完了したタスク数",
         _ => "時間",
     }
 }
 
-pub fn kr_linked(r: &LinkResult) -> String {
+pub fn key_result_linked(r: &LinkResult) -> String {
     let mut s = format!(
         "{} 件のタスクを成果の指標「{}」に紐付けました。",
         r.linked.len(),
@@ -700,39 +701,39 @@ pub fn kr_linked(r: &LinkResult) -> String {
     );
     for t in &r.linked {
         s += &format!("\n  {} {}", short(&t.id), t.title);
-        if let Some(p) = &t.previous_kr {
+        if let Some(p) = &t.previous_key_result {
             s += &format!("（成果の指標「{}」から付け替え）", p.title);
         }
     }
     s
 }
 
-pub fn kr_unlinked(l: &[LinkedTask]) -> String {
+pub fn key_result_unlinked(l: &[LinkedTask]) -> String {
     if l.is_empty() {
         return "外したタスクはありません（成果の指標に紐付いていませんでした）。".into();
     }
     let mut s = format!("{} 件のタスクの成果の指標との紐付けを外しました。", l.len());
     for t in l {
         s += &format!("\n  {} {}", short(&t.id), t.title);
-        if let Some(p) = &t.previous_kr {
+        if let Some(p) = &t.previous_key_result {
             s += &format!("（成果の指標「{}」）", p.title);
         }
     }
     s
 }
 
-/// 成果の指標の集計。選んだ軸の値を先頭に、残りは補助として並べる。評価や達成率は出さない。
-pub fn kr_summary(s: &KrSummary) -> String {
+/// 成果の指標の集計。選んだ数え方の値を先頭に、残りは補助として並べる。評価や達成率は出さない。
+pub fn key_result_summary(s: &KeyResultSummary) -> String {
     let k = &s.key_result;
     let mut out = format!(
         "{} / {} ({})\n期間: {} 〜 {}（{}）\n",
-        s.objective.title,
+        s.goal.title,
         k.title,
         short(&k.id),
         s.range.start,
         s.range.end,
         match s.range_source {
-            "objective" => "目標の期間",
+            "goal" => "目標の期間",
             "given" => "指定",
             _ => "直近 8 週",
         }
@@ -745,26 +746,29 @@ pub fn kr_summary(s: &KrSummary) -> String {
         );
     }
     let time = format!("時間 {}", dur(s.time_ms));
-    let days = format!("取り組んだ日 {} 日（1 日 {} 分以上）", s.active_days, s.day_min);
+    let days = format!(
+        "取り組んだ日 {} 日（1 日 {} 分以上）",
+        s.active_days, s.active_day_min
+    );
     let done = format!("完了 {} / {} 件", s.done_count, s.task_count);
     let (main, others) = match s.measure.as_str() {
-        "days" => (days, [time, done]),
-        "done" => (done, [time, days]),
+        "active_days" => (days, [time, done]),
+        "done_tasks" => (done, [time, days]),
         _ => (time, [days, done]),
     };
     out += &format!(
-        "\n軸（{}）: {}\n  補助: {} ・ {}\n",
+        "\n数え方（{}）: {}\n  補助: {} ・ {}\n",
         measure_label(&s.measure),
         main,
         others[0],
         others[1]
     );
     // 内訳は小さく添えるだけ。時間・日数は両方を重ならないように合算した値。
-    if !s.kr_skills.is_empty() || s.from_skill_ms > 0 {
-        let names = if s.kr_skills.is_empty() {
+    if !s.key_result_skills.is_empty() || s.from_skill_ms > 0 {
+        let names = if s.key_result_skills.is_empty() {
             "(なし)".to_string()
         } else {
-            s.kr_skills.join("、")
+            s.key_result_skills.join("、")
         };
         out += &format!(
             "成果の指標のスキル: {}（子スキルを含む）\n内訳: スキルから {} ・ 紐付いたタスクから {}（両方に当てはまる区間はスキルから）\n",
@@ -801,7 +805,7 @@ pub fn kr_summary(s: &KrSummary) -> String {
         }
     }
     if s.tasks.is_empty() {
-        out += "\n紐付いたタスクはありません。スキルは `hitoiki okr edit-kr --skill`、タスクは `hitoiki okr link` で追加できます。";
+        out += "\n紐付いたタスクはありません。スキルは `hitoiki key-result edit --skill`、タスクは `hitoiki key-result link` で追加できます。";
     } else {
         out += "\n紐付いたタスク\n";
         for t in &s.tasks {
@@ -821,7 +825,7 @@ fn progress_value(text: Option<&str>) -> &str {
     text.unwrap_or("（消した）")
 }
 
-pub fn kr_progress_recorded(tz: Tz, r: &ProgressRecorded) -> String {
+pub fn key_result_progress_recorded(tz: Tz, r: &ProgressRecorded) -> String {
     let e = &r.entry;
     let mut s = format!(
         "現在値を記録しました: {} {}  {} ({})",
@@ -837,7 +841,7 @@ pub fn kr_progress_recorded(tz: Tz, r: &ProgressRecorded) -> String {
 }
 
 /// 成果の指標の現在値の履歴。週ごとに「その週の終わり時点の現在値」と時間を並べるだけで、評価は付けない。
-pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
+pub fn key_result_history(tz: Tz, h: &KeyResultHistory) -> String {
     let k = &h.key_result;
     let mut out = format!(
         "{} ({})\n期間: {} 〜 {}（{}）\n",
@@ -846,7 +850,7 @@ pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
         h.range.start,
         h.range.end,
         match h.range_source {
-            "objective" => "目標の期間",
+            "goal" => "目標の期間",
             "given" => "指定",
             _ => "直近 8 週",
         }
@@ -860,7 +864,7 @@ pub fn kr_history(tz: Tz, h: &KrHistory) -> String {
         out += &format!("  {}  {}  {}\n", w.week_start, pad(&v, 12), dur(w.duration_ms));
     }
     if h.entries.is_empty() {
-        out += "\n値の履歴はまだありません。`hitoiki okr progress` で記録できます。";
+        out += "\n値の履歴はまだありません。`hitoiki key-result progress` で記録できます。";
     } else {
         out += "\n値の履歴\n";
         for e in &h.entries {

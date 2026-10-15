@@ -3,22 +3,22 @@
 use super::impact::{DeleteMode, DeleteOutcome, Impact};
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{KeyResult, Objective};
-use crate::repo::{edit, okr};
+use crate::model::{Goal, KeyResult};
+use crate::repo::{edit, goal};
 use crate::{Error, Millis, Result};
 use serde::Serialize;
 
 #[derive(Debug, Clone)]
-pub struct ObjectiveInput {
+pub struct GoalInput {
     pub title: String,
     pub from: Option<Millis>,
     pub to: Option<Millis>,
 }
 
 #[derive(Debug, Clone)]
-pub struct KrInput {
+pub struct KeyResultInput {
     /// 目標の ID（前方一致）。
-    pub objective: String,
+    pub goal: String,
     pub title: String,
     pub target: Option<String>,
     /// 成果の指標のスキル（既存のスキル名）。成果の指標の時間はこのスキルが付いたタスク・活動の時間が主になる。
@@ -26,18 +26,18 @@ pub struct KrInput {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ObjectiveView {
+pub struct GoalView {
     #[serde(flatten)]
-    pub objective: Objective,
+    pub goal: Goal,
     pub key_results: Vec<KeyResult>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct OkrList {
-    pub objectives: Vec<ObjectiveView>,
+pub struct GoalList {
+    pub goals: Vec<GoalView>,
 }
 
-pub fn add_objective(ctx: &Ctx, input: &ObjectiveInput) -> Result<Objective> {
+pub fn add_goal(ctx: &Ctx, input: &GoalInput) -> Result<Goal> {
     if input.title.trim().is_empty() {
         return Err(Error::InvalidArgument("タイトルが空です".into()));
     }
@@ -48,7 +48,7 @@ pub fn add_objective(ctx: &Ctx, input: &ObjectiveInput) -> Result<Objective> {
             ));
         }
     }
-    let o = Objective {
+    let o = Goal {
         id: new_id(),
         title: input.title.trim().to_string(),
         description_md: None,
@@ -56,29 +56,29 @@ pub fn add_objective(ctx: &Ctx, input: &ObjectiveInput) -> Result<Objective> {
         period_end: input.to,
         status: "active".into(),
     };
-    okr::insert_objective(ctx.conn, &o)?;
+    goal::insert_goal(ctx.conn, &o)?;
     Ok(o)
 }
 
-pub fn add_kr(ctx: &Ctx, input: &KrInput) -> Result<KeyResult> {
+pub fn add_key_result(ctx: &Ctx, input: &KeyResultInput) -> Result<KeyResult> {
     if input.title.trim().is_empty() {
         return Err(Error::InvalidArgument("タイトルが空です".into()));
     }
-    let objective_id = okr::resolve_objective(ctx.conn, &input.objective)?;
+    let goal_id = goal::resolve_goal(ctx.conn, &input.goal)?;
     let sids = skill_ids(ctx, &input.skills)?;
     let k = KeyResult {
         id: new_id(),
-        objective_id,
+        goal_id,
         title: input.title.trim().to_string(),
         target: input.target.clone(),
         current: None,
         status: "active".into(),
         measure: DEFAULT_MEASURE.into(),
-        day_min: DEFAULT_DAY_MIN,
+        active_day_min: DEFAULT_DAY_MIN,
     };
     let tx = ctx.conn.unchecked_transaction()?;
-    okr::insert_kr(ctx.conn, &k)?;
-    crate::repo::skill::set_kr_skills(ctx.conn, &k.id, &sids)?;
+    goal::insert_key_result(ctx.conn, &k)?;
+    crate::repo::skill::set_key_result_skills(ctx.conn, &k.id, &sids)?;
     tx.commit()?;
     Ok(k)
 }
@@ -91,10 +91,10 @@ fn skill_ids(ctx: &Ctx, names: &[String]) -> Result<Vec<String>> {
         .collect()
 }
 
-/// 成果の指標の軸。`time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
-pub const MEASURES: [&str; 3] = ["time", "days", "done"];
+/// 成果の指標の数え方。`time`（時間）/ `active_days`（取り組んだ日数）/ `done_tasks`（完了したタスク数）。
+pub const MEASURES: [&str; 3] = ["time", "active_days", "done_tasks"];
 pub const DEFAULT_MEASURE: &str = "time";
-/// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数の既定。
+/// 数え方が `active_days` のとき「取り組んだ日」とみなす 1 日の最小分数の既定。
 pub const DEFAULT_DAY_MIN: i64 = 15;
 
 fn check_measure(s: &str) -> Result<()> {
@@ -102,19 +102,19 @@ fn check_measure(s: &str) -> Result<()> {
         Ok(())
     } else {
         Err(Error::InvalidArgument(format!(
-            "軸は {} のいずれかにしてください",
+            "数え方は {} のいずれかにしてください",
             MEASURES.join(" / ")
         )))
     }
 }
 
 /// ID（前方一致）、なければタイトルの完全一致で成果の指標を探す。
-pub fn find_kr(ctx: &Ctx, key: &str) -> Result<KeyResult> {
-    match okr::resolve_kr(ctx.conn, key) {
+pub fn find_key_result(ctx: &Ctx, key: &str) -> Result<KeyResult> {
+    match goal::resolve_key_result(ctx.conn, key) {
         Err(Error::NotFound(_)) => {}
         other => return other,
     }
-    let hits: Vec<_> = okr::list_krs(ctx.conn)?
+    let hits: Vec<_> = goal::list_key_results(ctx.conn)?
         .into_iter()
         .filter(|k| k.title == key)
         .collect();
@@ -134,11 +134,11 @@ pub struct LinkedTask {
     pub id: String,
     pub title: String,
     /// 付け替え前の成果の指標（無かった・同じ成果の指標のままなら null）。
-    pub previous_kr: Option<KrBrief>,
+    pub previous_key_result: Option<KeyResultBrief>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct KrBrief {
+pub struct KeyResultBrief {
     pub id: String,
     pub title: String,
 }
@@ -165,15 +165,15 @@ fn resolve_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<crate::model::Task>>
 
 /// タスクを成果の指標に紐付ける。別の成果の指標に紐付いていたものは付け替える。
 /// 先にすべてのタスクを解決し、1 つでも見つからなければ何も変えない。
-pub fn link_tasks(ctx: &Ctx, kr: &str, tasks: &[String]) -> Result<LinkResult> {
-    let k = find_kr(ctx, kr)?;
+pub fn link_tasks(ctx: &Ctx, key_result: &str, tasks: &[String]) -> Result<LinkResult> {
+    let k = find_key_result(ctx, key_result)?;
     let found = resolve_tasks(ctx, tasks)?;
     let now = ctx.now();
     let tx = ctx.conn.unchecked_transaction()?;
     let mut linked = Vec::new();
     for t in found {
-        let previous_kr = match t.key_result_id.as_deref() {
-            Some(prev) if prev != k.id => okr::get_kr(ctx.conn, prev).ok().map(|p| KrBrief {
+        let previous_key_result = match t.key_result_id.as_deref() {
+            Some(prev) if prev != k.id => goal::get_key_result(ctx.conn, prev).ok().map(|p| KeyResultBrief {
                 id: p.id,
                 title: p.title,
             }),
@@ -183,7 +183,7 @@ pub fn link_tasks(ctx: &Ctx, kr: &str, tasks: &[String]) -> Result<LinkResult> {
         linked.push(LinkedTask {
             id: t.id,
             title: t.title,
-            previous_kr,
+            previous_key_result,
         });
     }
     tx.commit()?;
@@ -203,7 +203,7 @@ pub fn unlink_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<LinkedTask>> {
         let Some(prev) = t.key_result_id.as_deref() else {
             continue;
         };
-        let previous_kr = okr::get_kr(ctx.conn, prev).ok().map(|p| KrBrief {
+        let previous_key_result = goal::get_key_result(ctx.conn, prev).ok().map(|p| KeyResultBrief {
             id: p.id,
             title: p.title,
         });
@@ -211,34 +211,45 @@ pub fn unlink_tasks(ctx: &Ctx, tasks: &[String]) -> Result<Vec<LinkedTask>> {
         out.push(LinkedTask {
             id: t.id,
             title: t.title,
-            previous_kr,
+            previous_key_result,
         });
     }
     tx.commit()?;
     Ok(out)
 }
 
-pub use super::okr_summary::{idle_krs_this_week, kr_summary, KrSummary};
+pub use super::key_result_summary::{idle_key_results_this_week, key_result_summary, KeyResultSummary};
 
-pub fn list(ctx: &Ctx) -> Result<OkrList> {
-    let krs = okr::list_krs(ctx.conn)?;
-    let objectives = okr::list_objectives(ctx.conn)?
+pub fn list(ctx: &Ctx) -> Result<GoalList> {
+    let key_results = goal::list_key_results(ctx.conn)?;
+    let goals = goal::list_goals(ctx.conn)?
         .into_iter()
         .map(|o| {
-            let key_results = krs.iter().filter(|k| k.objective_id == o.id).cloned().collect();
-            ObjectiveView {
-                objective: o,
-                key_results,
-            }
+            let key_results = key_results
+                .iter()
+                .filter(|k| k.goal_id == o.id)
+                .cloned()
+                .collect();
+            GoalView { goal: o, key_results }
         })
         .collect();
-    Ok(OkrList { objectives })
+    Ok(GoalList { goals })
+}
+
+/// 目標 1 件と、その下の成果の指標。ID（前方一致）で選ぶ。
+pub fn show(ctx: &Ctx, key: &str) -> Result<GoalView> {
+    let id = goal::resolve_goal(ctx.conn, key)?;
+    list(ctx)?
+        .goals
+        .into_iter()
+        .find(|g| g.goal.id == id)
+        .ok_or_else(|| Error::NotFound(format!("目標が見つかりません: {key}")))
 }
 
 // ===== 編集・削除 =====
 
 /// 目標 / 成果の指標の状態。
-pub const STATUSES: [&str; 3] = ["active", "done", "dropped"];
+pub const STATUSES: [&str; 3] = ["active", "achieved", "dropped"];
 
 fn check_status(s: &str) -> Result<()> {
     if STATUSES.contains(&s) {
@@ -254,7 +265,7 @@ fn check_status(s: &str) -> Result<()> {
 /// 目標の編集。`None` は「変更しない」。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
-pub struct ObjectiveEdit {
+pub struct GoalEdit {
     pub title: Option<String>,
     /// 空文字で説明を消す。
     pub description: Option<String>,
@@ -268,19 +279,19 @@ pub struct ObjectiveEdit {
 /// 成果の指標の編集。`None` は「変更しない」（`target` / `current` は空文字で消す）。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
-pub struct KrEdit {
+pub struct KeyResultEdit {
     pub title: Option<String>,
     pub target: Option<String>,
     pub current: Option<String>,
-    /// 現在値を変えたときに履歴（`kr_progress`）へ残すメモ。
+    /// 現在値を変えたときに履歴（`key_result_progress`）へ残すメモ。
     pub current_note: Option<String>,
     pub status: Option<String>,
     /// 付け替え先の目標（ID の前方一致）。
-    pub objective: Option<String>,
-    /// 軸（`time` / `days` / `done`）。
+    pub goal: Option<String>,
+    /// 数え方（`time` / `active_days` / `done_tasks`）。
     pub measure: Option<String>,
-    /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（1 以上）。
-    pub day_min: Option<i64>,
+    /// 数え方が `active_days` のとき「取り組んだ日」とみなす 1 日の最小分数（1 以上）。
+    pub active_day_min: Option<i64>,
     /// 成果の指標のスキル（名前）。空でなければ今のスキルをこれで置き換える。
     pub skills: Vec<String>,
     /// 成果の指標のスキルを全て外す（`skills` が空でも置き換える）。
@@ -292,8 +303,8 @@ fn blank_to_none(s: &str) -> Option<String> {
     (!t.is_empty()).then(|| t.to_string())
 }
 
-pub fn edit_objective(ctx: &Ctx, id: &str, input: &ObjectiveEdit) -> Result<Objective> {
-    let mut o = edit::get_objective(ctx.conn, &okr::resolve_objective(ctx.conn, id)?)?;
+pub fn edit_goal(ctx: &Ctx, id: &str, input: &GoalEdit) -> Result<Goal> {
+    let mut o = edit::get_goal(ctx.conn, &goal::resolve_goal(ctx.conn, id)?)?;
     if let Some(t) = &input.title {
         if t.trim().is_empty() {
             return Err(Error::InvalidArgument("タイトルが空です".into()));
@@ -324,12 +335,12 @@ pub fn edit_objective(ctx: &Ctx, id: &str, input: &ObjectiveEdit) -> Result<Obje
         check_status(s)?;
         o.status = s.clone();
     }
-    crate::repo::edit::update_objective(ctx.conn, &o)?;
+    crate::repo::edit::update_goal(ctx.conn, &o)?;
     Ok(o)
 }
 
-pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
-    let mut k = okr::resolve_kr(ctx.conn, id)?;
+pub fn edit_key_result(ctx: &Ctx, id: &str, input: &KeyResultEdit) -> Result<KeyResult> {
+    let mut k = goal::resolve_key_result(ctx.conn, id)?;
     let old_current = k.current.clone();
     if let Some(t) = &input.title {
         if t.trim().is_empty() {
@@ -347,77 +358,82 @@ pub fn edit_kr(ctx: &Ctx, id: &str, input: &KrEdit) -> Result<KeyResult> {
         check_status(s)?;
         k.status = s.clone();
     }
-    if let Some(o) = &input.objective {
-        k.objective_id = okr::resolve_objective(ctx.conn, o)?;
+    if let Some(o) = &input.goal {
+        k.goal_id = goal::resolve_goal(ctx.conn, o)?;
     }
     if let Some(m) = &input.measure {
         check_measure(m)?;
         k.measure = m.clone();
     }
-    if let Some(d) = input.day_min {
+    if let Some(d) = input.active_day_min {
         if d < 1 {
             return Err(Error::InvalidArgument(
                 "「取り組んだ日」の最小分数は 1 以上にしてください".into(),
             ));
         }
-        k.day_min = d;
+        k.active_day_min = d;
     }
     // 存在しないスキル名は何も変えずに失敗させる。
     let sids = skill_ids(ctx, &input.skills)?;
     let tx = ctx.conn.unchecked_transaction()?;
-    crate::repo::edit::update_kr(ctx.conn, &k)?;
+    crate::repo::edit::update_key_result(ctx.conn, &k)?;
     if !sids.is_empty() || input.clear_skills {
-        crate::repo::skill::set_kr_skills(ctx.conn, &k.id, &sids)?;
+        crate::repo::skill::set_key_result_skills(ctx.conn, &k.id, &sids)?;
     }
     // 現在値が変わったときは履歴を 1 行残す。
     if k.current != old_current {
-        super::okr_progress::insert_entry(ctx, &k.id, k.current.as_deref(), input.current_note.as_deref())?;
+        super::key_result_progress::insert_entry(
+            ctx,
+            &k.id,
+            k.current.as_deref(),
+            input.current_note.as_deref(),
+        )?;
     }
     tx.commit()?;
     Ok(k)
 }
 
 /// 目標の削除の影響。配下の成果の指標は一緒に消え、成果の指標に紐付いたタスクは残して参照だけ外す。
-pub fn objective_impact(ctx: &Ctx, id: &str) -> Result<Impact> {
-    let oid = okr::resolve_objective(ctx.conn, id)?;
-    let o = edit::get_objective(ctx.conn, &oid)?;
-    Ok(Impact::new("objective", &oid, &o.title)
+pub fn goal_impact(ctx: &Ctx, id: &str) -> Result<Impact> {
+    let oid = goal::resolve_goal(ctx.conn, id)?;
+    let o = edit::get_goal(ctx.conn, &oid)?;
+    Ok(Impact::new("goal", &oid, &o.title)
         .line(
             "配下の成果の指標（一緒に削除）",
-            edit::count_krs_of(ctx.conn, &oid)?,
+            edit::count_key_results_of(ctx.conn, &oid)?,
         )
         .line(
             "成果の指標に紐付いたタスク（タスクは残り、成果の指標との紐付けだけ外れる）",
-            edit::count_tasks_of_objective(ctx.conn, &oid)?,
+            edit::count_tasks_of_goal(ctx.conn, &oid)?,
         ))
 }
 
-pub fn delete_objective(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
-    let impact = objective_impact(ctx, id)?;
+pub fn delete_goal(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
+    let impact = goal_impact(ctx, id)?;
     let go = DeleteOutcome::gate(mode, &impact)?;
     if go {
         let tx = ctx.conn.unchecked_transaction()?;
-        edit::delete_objective(ctx.conn, &impact.id)?;
+        edit::delete_goal(ctx.conn, &impact.id)?;
         tx.commit()?;
     }
     Ok(DeleteOutcome::new(mode, impact, go))
 }
 
 /// 成果の指標の削除の影響。紐付いたタスクは残して参照だけ外す。
-pub fn kr_impact(ctx: &Ctx, id: &str) -> Result<Impact> {
-    let k = okr::resolve_kr(ctx.conn, id)?;
+pub fn key_result_impact(ctx: &Ctx, id: &str) -> Result<Impact> {
+    let k = goal::resolve_key_result(ctx.conn, id)?;
     Ok(Impact::new("key_result", &k.id, &k.title).line(
         "紐付いたタスク（タスクは残り、成果の指標との紐付けだけ外れる）",
-        edit::count_tasks_of_kr(ctx.conn, &k.id)?,
+        edit::count_tasks_of_key_result(ctx.conn, &k.id)?,
     ))
 }
 
-pub fn delete_kr(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
-    let impact = kr_impact(ctx, id)?;
+pub fn delete_key_result(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
+    let impact = key_result_impact(ctx, id)?;
     let go = DeleteOutcome::gate(mode, &impact)?;
     if go {
         let tx = ctx.conn.unchecked_transaction()?;
-        edit::delete_kr(ctx.conn, &impact.id)?;
+        edit::delete_key_result(ctx.conn, &impact.id)?;
         tx.commit()?;
     }
     Ok(DeleteOutcome::new(mode, impact, go))
@@ -429,20 +445,20 @@ mod edit_tests {
     use crate::service::task::{self, TaskInput};
     use crate::service::testutil::Env;
 
-    fn setup(ctx: &Ctx) -> (Objective, KeyResult, String) {
-        let o = add_objective(
+    fn setup(ctx: &Ctx) -> (Goal, KeyResult, String) {
+        let o = add_goal(
             ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O".into(),
                 from: Some(1),
                 to: Some(100),
             },
         )
         .unwrap();
-        let k = add_kr(
+        let k = add_key_result(
             ctx,
-            &KrInput {
-                objective: o.id.clone(),
+            &KeyResultInput {
+                goal: o.id.clone(),
                 title: "K".into(),
                 target: Some("10".into()),
                 skills: vec![],
@@ -462,30 +478,30 @@ mod edit_tests {
     }
 
     #[test]
-    fn objective_を編集できる() {
+    fn goal_を編集できる() {
         let env = Env::new();
         let ctx = env.ctx();
         let (o, _, _) = setup(&ctx);
-        let e = edit_objective(
+        let e = edit_goal(
             &ctx,
             &o.id[..12],
-            &ObjectiveEdit {
+            &GoalEdit {
                 title: Some(" O2 ".into()),
                 description: Some("説明".into()),
-                status: Some("done".into()),
+                status: Some("achieved".into()),
                 ..Default::default()
             },
         )
         .unwrap();
         assert_eq!(
             (e.title.as_str(), e.description_md.as_deref(), e.status.as_str()),
-            ("O2", Some("説明"), "done")
+            ("O2", Some("説明"), "achieved")
         );
         assert_eq!((e.period_start, e.period_end), (Some(1), Some(100)));
-        let e = edit_objective(
+        let e = edit_goal(
             &ctx,
             &o.id,
-            &ObjectiveEdit {
+            &GoalEdit {
                 clear_period: true,
                 description: Some("".into()),
                 ..Default::default()
@@ -497,59 +513,59 @@ mod edit_tests {
             (None, None, None)
         );
         // 不正な入力
-        let bad = |edit: ObjectiveEdit| edit_objective(&ctx, &o.id, &edit).is_err();
-        assert!(bad(ObjectiveEdit {
+        let bad = |edit: GoalEdit| edit_goal(&ctx, &o.id, &edit).is_err();
+        assert!(bad(GoalEdit {
             title: Some(" ".into()),
             ..Default::default()
         }));
-        assert!(bad(ObjectiveEdit {
+        assert!(bad(GoalEdit {
             from: Some(10),
             to: Some(5),
             ..Default::default()
         }));
-        assert!(bad(ObjectiveEdit {
+        assert!(bad(GoalEdit {
             status: Some("x".into()),
             ..Default::default()
         }));
-        assert_eq!(list(&ctx).unwrap().objectives[0].objective.title, "O2");
+        assert_eq!(list(&ctx).unwrap().goals[0].goal.title, "O2");
     }
 
     #[test]
-    fn kr_を編集して付け替えられる() {
+    fn key_result_を編集して付け替えられる() {
         let env = Env::new();
         let ctx = env.ctx();
         let (o, k, _) = setup(&ctx);
-        let o2 = add_objective(
+        let o2 = add_goal(
             &ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O2".into(),
                 from: None,
                 to: None,
             },
         )
         .unwrap();
-        let e = edit_kr(
+        let e = edit_key_result(
             &ctx,
             &k.id,
-            &KrEdit {
+            &KeyResultEdit {
                 title: Some("K2".into()),
                 target: Some("".into()),
                 current: Some("3".into()),
                 status: Some("dropped".into()),
-                objective: Some(o2.id.clone()),
+                goal: Some(o2.id.clone()),
                 ..Default::default()
             },
         )
         .unwrap();
         assert_eq!(e.title, "K2");
         assert_eq!((e.target, e.current.as_deref()), (None, Some("3")));
-        assert_eq!(e.objective_id, o2.id);
+        assert_eq!(e.goal_id, o2.id);
         assert_eq!(count_after_move(&ctx, &o.id, &o2.id), (0, 1));
-        assert!(edit_kr(
+        assert!(edit_key_result(
             &ctx,
             &k.id,
-            &KrEdit {
-                objective: Some("ZZZ".into()),
+            &KeyResultEdit {
+                goal: Some("ZZZ".into()),
                 ..Default::default()
             }
         )
@@ -558,59 +574,55 @@ mod edit_tests {
 
     fn count_after_move(ctx: &Ctx, a: &str, b: &str) -> (i64, i64) {
         (
-            edit::count_krs_of(ctx.conn, a).unwrap(),
-            edit::count_krs_of(ctx.conn, b).unwrap(),
+            edit::count_key_results_of(ctx.conn, a).unwrap(),
+            edit::count_key_results_of(ctx.conn, b).unwrap(),
         )
     }
 
     #[test]
-    fn kr_の削除はタスクの参照を外して残す() {
+    fn key_result_の削除はタスクの参照を外して残す() {
         let env = Env::new();
         let ctx = env.ctx();
         let (_, k, tid) = setup(&ctx);
-        let im = kr_impact(&ctx, &k.id).unwrap();
+        let im = key_result_impact(&ctx, &k.id).unwrap();
         assert_eq!(im.total(), 1);
         // force なしは失敗し、何も変わらない
-        assert!(delete_kr(&ctx, &k.id, DeleteMode::default()).is_err());
-        let d = delete_kr(&ctx, &k.id, DeleteMode::DRY_RUN).unwrap();
+        assert!(delete_key_result(&ctx, &k.id, DeleteMode::default()).is_err());
+        let d = delete_key_result(&ctx, &k.id, DeleteMode::DRY_RUN).unwrap();
         assert!(d.dry_run && !d.deleted);
-        assert_eq!(list(&ctx).unwrap().objectives[0].key_results.len(), 1);
-        let d = delete_kr(&ctx, &k.id, DeleteMode::FORCE).unwrap();
+        assert_eq!(list(&ctx).unwrap().goals[0].key_results.len(), 1);
+        let d = delete_key_result(&ctx, &k.id, DeleteMode::FORCE).unwrap();
         assert!(d.deleted);
-        assert!(list(&ctx).unwrap().objectives[0].key_results.is_empty());
+        assert!(list(&ctx).unwrap().goals[0].key_results.is_empty());
         let t = task::show(&ctx, &tid).unwrap();
         assert!(t.task.task.key_result_id.is_none());
         assert!(t.task.key_result.is_none());
-        assert!(delete_kr(&ctx, &k.id, DeleteMode::FORCE).is_err());
+        assert!(delete_key_result(&ctx, &k.id, DeleteMode::FORCE).is_err());
     }
 
     #[test]
-    fn objective_の削除は配下の_kr_も消してタスクを残す() {
+    fn goal_の削除は配下の_key_result_も消してタスクを残す() {
         let env = Env::new();
         let ctx = env.ctx();
         let (o, _, tid) = setup(&ctx);
-        let im = objective_impact(&ctx, &o.id).unwrap();
+        let im = goal_impact(&ctx, &o.id).unwrap();
         assert_eq!(im.lines.len(), 2);
         assert_eq!(im.total(), 2);
-        assert!(delete_objective(&ctx, &o.id, DeleteMode::default()).is_err());
-        delete_objective(&ctx, &o.id, DeleteMode::FORCE).unwrap();
-        assert!(list(&ctx).unwrap().objectives.is_empty());
+        assert!(delete_goal(&ctx, &o.id, DeleteMode::default()).is_err());
+        delete_goal(&ctx, &o.id, DeleteMode::FORCE).unwrap();
+        assert!(list(&ctx).unwrap().goals.is_empty());
         assert!(task::show(&ctx, &tid).unwrap().task.task.key_result_id.is_none());
         // 影響のない目標は force なしで消える
-        let o2 = add_objective(
+        let o2 = add_goal(
             &ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "空".into(),
                 from: None,
                 to: None,
             },
         )
         .unwrap();
-        assert!(
-            delete_objective(&ctx, &o2.id, DeleteMode::default())
-                .unwrap()
-                .deleted
-        );
+        assert!(delete_goal(&ctx, &o2.id, DeleteMode::default()).unwrap().deleted);
     }
 }
 
@@ -623,19 +635,19 @@ mod tests {
     fn add_and_list() {
         let env = Env::new();
         let ctx = env.ctx();
-        let o = add_objective(
+        let o = add_goal(
             &ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O".into(),
                 from: Some(1),
                 to: Some(2),
             },
         )
         .unwrap();
-        add_kr(
+        add_key_result(
             &ctx,
-            &KrInput {
-                objective: o.id[..12].to_string(),
+            &KeyResultInput {
+                goal: o.id[..12].to_string(),
                 title: "K".into(),
                 target: Some("80%".into()),
                 skills: vec![],
@@ -643,21 +655,21 @@ mod tests {
         )
         .unwrap();
         let l = list(&ctx).unwrap();
-        assert_eq!(l.objectives.len(), 1);
-        assert_eq!(l.objectives[0].key_results[0].target.as_deref(), Some("80%"));
-        assert!(add_kr(
+        assert_eq!(l.goals.len(), 1);
+        assert_eq!(l.goals[0].key_results[0].target.as_deref(), Some("80%"));
+        assert!(add_key_result(
             &ctx,
-            &KrInput {
-                objective: "ZZZ".into(),
+            &KeyResultInput {
+                goal: "ZZZ".into(),
                 title: "K".into(),
                 target: None,
                 skills: vec![],
             }
         )
         .is_err());
-        assert!(add_objective(
+        assert!(add_goal(
             &ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "x".into(),
                 from: Some(5),
                 to: Some(1)

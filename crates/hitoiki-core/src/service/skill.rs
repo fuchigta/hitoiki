@@ -247,15 +247,15 @@ pub fn impact(ctx: &Ctx, key: &str, children: ChildPolicy) -> Result<Impact> {
     }
     let mut ts = 0;
     let mut rules = 0;
-    let mut krs = 0;
+    let mut key_results = 0;
     for t in &targets {
         ts += edit::count_task_skill(ctx.conn, t)?;
-        krs += edit::count_kr_skill(ctx.conn, t)?;
+        key_results += edit::count_key_result_skill(ctx.conn, t)?;
         rules += edit::count_activity_skill_rules(ctx.conn, t)?;
     }
     im = im
         .line("スキルが付いたタスク（付与だけ外れる）", ts)
-        .line("スキルを付けた成果の指標（付与だけ外れる）", krs)
+        .line("スキルを付けた成果の指標（付与だけ外れる）", key_results)
         .line("活動からスキルを推定するルール（一緒に削除）", rules);
     if s.preset {
         im = im.note("同梱プリセットのスキルです。もう一度取り込むと復活します。");

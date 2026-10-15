@@ -1,8 +1,8 @@
 import { useState } from "preact/hooks";
-import { api, type KeyResult, type KrSummary } from "./api";
+import { api, type KeyResult, type KeyResultSummary } from "./api";
 import { ErrorBox, Section } from "./components";
 import { OverflowMenu } from "./ui/parts";
-import { KrHistory } from "./kr-history";
+import { KeyResultHistory } from "./key-result-history";
 import { SkillPicker } from "./skill-picker";
 import {
   barHeights,
@@ -12,32 +12,32 @@ import {
   relinkCount,
   splitMeasures,
   weekLabel,
-} from "./kr-util";
-import { aiNote, candidateRef, kindLabel, sourceLabel, wantsSuggestion } from "./kr-suggest-util";
+} from "./key-result-util";
+import { aiNote, candidateRef, kindLabel, sourceLabel, wantsSuggestion } from "./key-result-suggest-util";
 import { STATUS_LABEL, fmtDur, hrefOf, useAction, useAsync, useLiveTick } from "./lib";
 
 /**
- * 成果の指標のカードの中身: 選んだ軸の値（大きく）と補助の値、週ごとの時間、スキル別、見積と実績、紐付いたタスク。
+ * 成果の指標のカードの中身: 選んだ数え方の値（大きく）と補助の値、週ごとの時間、スキル別、見積と実績、紐付いたタスク。
  * 目標値・現在値は自由記述のまま成果の指標の行に並べるだけで、達成率の計算や評価はしない。
  */
-export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
+export function KeyResultDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   const tick = useLiveTick(["segments-updated"]);
-  const sum = useAsync(() => api.okrShow(k.id), [k.id, k.measure, k.day_min, tick]);
+  const sum = useAsync(() => api.keyResultShow(k.id), [k.id, k.measure, k.active_day_min, tick]);
   const s = sum.data;
   const reload = () => {
     sum.reload();
     onChanged();
   };
-  const skills = <KrSkills k={k} names={s?.kr_skills ?? []} onChanged={reload} />;
-  const tasks = <KrTasks k={k} summary={s ?? null} onChanged={reload} />;
+  const skills = <KeyResultSkills k={k} names={s?.key_result_skills ?? []} onChanged={reload} />;
+  const tasks = <KeyResultTasks k={k} summary={s ?? null} onChanged={reload} />;
   return (
-    <div class="stack kr-detail">
+    <div class="stack key-result-detail">
       <ErrorBox error={sum.error} />
       {/* 集計 → 週別 → スキル別 → 値の履歴 → スキル → タスク → 提案。区画ごとに Section で区切る。 */}
       {s && <SummarySections s={s} />}
-      <KrHistory k={k} onChanged={onChanged} />
-      {/* スキルが主。完了数の軸のときだけ、完了数の対象である紐付けたタスクを先に出す。 */}
-      {k.measure === "done" ? (
+      <KeyResultHistory k={k} onChanged={onChanged} />
+      {/* スキルが主。完了したタスク数の数え方のときだけ、その対象である紐付けたタスクを先に出す。 */}
+      {k.measure === "done_tasks" ? (
         <>
           {tasks}
           {skills}
@@ -48,26 +48,26 @@ export function KrDetail({ k, onChanged }: { k: KeyResult; onChanged: () => void
           {tasks}
         </>
       )}
-      {wantsSuggestion(s) && <KrSuggest k={k} onChanged={reload} />}
+      {wantsSuggestion(s) && <KeyResultSuggest k={k} onChanged={reload} />}
     </div>
   );
 }
 
-/** 集計: 選んだ軸の値（大きく）と、補助の値。期間も添える。 */
-function SummaryHead({ s }: { s: KrSummary }) {
+/** 集計: 選んだ数え方の値（大きく）と、補助の値。期間も添える。 */
+function SummaryHead({ s }: { s: KeyResultSummary }) {
   const { main, aux } = splitMeasures(s);
   const breakdown = breakdownText(s);
   return (
     <div class="stack">
-      <div class="kr-main-row">
+      <div class="key-result-main-row">
         <div>
-          <div class="kr-main num" aria-label={main.label}>
+          <div class="key-result-main num" aria-label={main.label}>
             {main.text}
           </div>
-          <div class="meta kr-main-label">{main.label}</div>
-          {breakdown && main.measure !== "done" && <div class="meta kr-indirect">{breakdown}</div>}
+          <div class="meta key-result-main-label">{main.label}</div>
+          {breakdown && main.measure !== "done_tasks" && <div class="meta key-result-indirect">{breakdown}</div>}
         </div>
-        <div class="kr-aux meta">
+        <div class="key-result-aux meta">
           {aux.map((a) => (
             <span key={a.measure}>
               {a.label}: {a.text}
@@ -75,7 +75,7 @@ function SummaryHead({ s }: { s: KrSummary }) {
           ))}
         </div>
       </div>
-      <p class="meta kr-range">
+      <p class="meta key-result-range">
         期間: {s.range.start.slice(0, 10)} 〜 {s.range.end.slice(0, 10)}（{rangeSourceLabel(s.range_source)}）
       </p>
     </div>
@@ -83,7 +83,7 @@ function SummaryHead({ s }: { s: KrSummary }) {
 }
 
 /** 集計・週別の時間・スキル別・見積と実績の各区画。 */
-function SummarySections({ s }: { s: KrSummary }) {
+function SummarySections({ s }: { s: KeyResultSummary }) {
   const heights = barHeights(s.weekly);
   const hasTime = s.time_ms > 0;
   return (
@@ -93,13 +93,13 @@ function SummarySections({ s }: { s: KrSummary }) {
       </Section>
       {hasTime && (
         <Section level={3} title="週別の時間">
-          <div class="kr-bars" role="img" aria-label="週ごとの時間">
+          <div class="key-result-bars" role="img" aria-label="週ごとの時間">
             {s.weekly.map((w, i) => (
-              <div class="kr-bar" key={w.week_start} title={`${w.week_start} の週: ${fmtDur(w.duration_ms)}`}>
-                <div class="kr-bar-track">
-                  <div class="kr-bar-fill" style={{ height: `${heights[i]}%` }} />
+              <div class="key-result-bar" key={w.week_start} title={`${w.week_start} の週: ${fmtDur(w.duration_ms)}`}>
+                <div class="key-result-bar-track">
+                  <div class="key-result-bar-fill" style={{ height: `${heights[i]}%` }} />
                 </div>
-                <span class="kr-bar-label">{weekLabel(w.week_start)}</span>
+                <span class="key-result-bar-label">{weekLabel(w.week_start)}</span>
               </div>
             ))}
           </div>
@@ -107,7 +107,7 @@ function SummarySections({ s }: { s: KrSummary }) {
       )}
       {hasTime && s.skills.length > 0 && (
         <Section level={3} title="スキル別">
-          <p class="meta kr-skills">
+          <p class="meta key-result-skills">
             {s.skills.map((sk, i) => (
               <span key={sk.name}>
                 {i > 0 && "、"}
@@ -136,20 +136,20 @@ function SummarySections({ s }: { s: KrSummary }) {
  * 最初は名前の近い候補だけを出し、「AI にも聞く」を押したときだけ AI に問い合わせる
  * （送るのは成果の指標・目標の名前とタスク・スキルの名前だけ。AI が設定されているときのみ）。
  */
-function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
+function KeyResultSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
   const [askAi, setAskAi] = useState(false);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
-  const sug = useAsync(() => api.okrSuggest(k.id, askAi), [k.id, askAi]);
+  const sug = useAsync(() => api.keyResultSuggest(k.id, askAi), [k.id, askAi]);
   const act = useAction();
   const r = sug.data;
   const shown = (r?.candidates ?? []).filter((c) => !hidden.has(candidateRef(c)));
 
   const accept = async (ref: string) => {
-    const d = await act.run(() => api.okrSuggestAccept(k.id, [ref]));
+    const d = await act.run(() => api.keyResultSuggestAccept(k.id, [ref]));
     if (d) onChanged();
   };
   const reject = async (ref: string) => {
-    const d = await act.run(() => api.okrSuggestReject(k.id, [ref]));
+    const d = await act.run(() => api.keyResultSuggestReject(k.id, [ref]));
     if (d) setHidden((h) => new Set(h).add(ref));
   };
 
@@ -215,11 +215,11 @@ function KrSuggest({ k, onChanged }: { k: KeyResult; onChanged: () => void }) {
  * 成果の指標に付けるスキル（主）。このスキル（子スキルを含む）が付いたタスク・活動の時間が、この成果の指標の時間になる。
  * 変更はその場で保存する。
  */
-function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onChanged: () => void }) {
+function KeyResultSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onChanged: () => void }) {
   const known = useAsync(() => api.skillList(), []);
   const act = useAction();
   const change = async (next: string[]) => {
-    const r = await act.run(() => api.okrEditKr(k.id, { skills: next, clear_skills: next.length === 0 }));
+    const r = await act.run(() => api.keyResultEdit(k.id, { skills: next, clear_skills: next.length === 0 }));
     if (r) onChanged();
   };
   return (
@@ -227,8 +227,8 @@ function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onCh
       level={3}
       title="スキル"
       help={
-        k.measure === "done"
-          ? "完了数の対象は紐付けたタスクです。スキルは時間・日数に使います。"
+        k.measure === "done_tasks"
+          ? "完了したタスク数の対象は紐付けたタスクです。スキルは時間・取り組んだ日数に使います。"
           : "このスキルが付いたタスク・活動の時間をこの成果の指標の時間として数えます。付け外しはここで行います。"
       }
     >
@@ -245,13 +245,13 @@ function KrSkills({ k, names, onChanged }: { k: KeyResult; names: string[]; onCh
 }
 
 /** 紐付いたタスクの一覧（個別に外せる）と、タスクの追加・既存タスクの紐付け。 */
-function KrTasks({
+function KeyResultTasks({
   k,
   summary,
   onChanged,
 }: {
   k: KeyResult;
-  summary: KrSummary | null;
+  summary: KeyResultSummary | null;
   onChanged: () => void;
 }) {
   const [title, setTitle] = useState("");
@@ -270,7 +270,7 @@ function KrTasks({
     }
   };
   const unlink = async (id: string) => {
-    const r = await act.run(() => api.okrUnlink([id]));
+    const r = await act.run(() => api.keyResultUnlink([id]));
     if (r) onChanged();
   };
 
@@ -279,8 +279,8 @@ function KrTasks({
       level={3}
       title="タスク"
       help={
-        k.measure === "done"
-          ? "完了数の対象です。タイトルを押すとタスクの詳細を開きます。"
+        k.measure === "done_tasks"
+          ? "完了したタスク数の対象です。タイトルを押すとタスクの詳細を開きます。"
           : "補助です。スキルが付いていなくても、この成果の指標の時間に含めます。タイトルを押すとタスクの詳細を開きます。"
       }
     >
@@ -352,12 +352,12 @@ function LinkPicker({ k, onDone, onCancel }: { k: KeyResult; onDone: () => void;
       return n;
     });
   const submit = async () => {
-    const r = await act.run(() => api.okrLink(k.id, [...sel]));
+    const r = await act.run(() => api.keyResultLink(k.id, [...sel]));
     if (r) onDone();
   };
 
   return (
-    <div class="stack kr-link-picker">
+    <div class="stack key-result-link-picker">
       <ErrorBox error={all.error} />
       <input
         value={query}
@@ -366,13 +366,13 @@ function LinkPicker({ k, onDone, onCancel }: { k: KeyResult; onDone: () => void;
         aria-label="紐付けるタスクを絞り込む"
       />
       {cands.length === 0 && <p class="hint">紐付けられる未完了のタスクがありません。</p>}
-      <ul class="plain kr-cands">
+      <ul class="plain key-result-cands">
         {cands.map((c) => (
           <li key={c.task.id}>
             <label class="check">
               <input type="checkbox" checked={sel.has(c.task.id)} onChange={() => toggle(c.task.id)} />
               {c.task.title}
-              {c.fromKr && <span class="meta">（成果の指標「{c.fromKr}」に紐付いています。選ぶと付け替えます）</span>}
+              {c.fromKeyResult && <span class="meta">（成果の指標「{c.fromKeyResult}」に紐付いています。選ぶと付け替えます）</span>}
             </label>
           </li>
         ))}

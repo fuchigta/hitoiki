@@ -362,7 +362,7 @@ pub struct TimeBlock {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Objective {
+pub struct Goal {
     pub id: String,
     pub title: String,
     pub description_md: Option<String>,
@@ -374,15 +374,15 @@ pub struct Objective {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KeyResult {
     pub id: String,
-    pub objective_id: String,
+    pub goal_id: String,
     pub title: String,
     pub target: Option<String>,
     pub current: Option<String>,
     pub status: String,
-    /// 何を軸に見るか: `time`（時間）/ `days`（取り組んだ日の回数）/ `done`（完了数）。
+    /// 数え方: `time`（時間）/ `active_days`（取り組んだ日数）/ `done_tasks`（完了したタスク数）。
     pub measure: String,
-    /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数。
-    pub day_min: i64,
+    /// 数え方が `active_days` のとき「取り組んだ日」とみなす 1 日の最小分数。
+    pub active_day_min: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

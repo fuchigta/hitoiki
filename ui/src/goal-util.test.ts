@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SkillView, TaskView } from "./api";
-import { krMetaText, okrSelection, okrTab, skillTree, tasksWithSkill } from "./okr-util";
+import { keyResultMetaText, goalSelection, goalsTab, skillTree, tasksWithSkill } from "./goal-util";
 
 const sk = (id: string, name: string, parent_id: string | null = null): SkillView => ({
   id,
@@ -11,29 +11,29 @@ const sk = (id: string, name: string, parent_id: string | null = null): SkillVie
   preset: false,
 });
 
-describe("okrSelection / okrTab", () => {
+describe("goalSelection / goalsTab", () => {
   it("パスから種類と ID を得る", () => {
-    expect(okrSelection(["kr", "K1"])).toEqual({ kind: "kr", id: "K1" });
-    expect(okrSelection(["o", "O1"])).toEqual({ kind: "o", id: "O1" });
-    expect(okrSelection(["skill", "S1"])).toEqual({ kind: "skill", id: "S1" });
-    expect(okrSelection([])).toBeNull();
-    expect(okrSelection(["kr"])).toBeNull();
-    expect(okrSelection(["x", "1"])).toBeNull();
+    expect(goalSelection(["key-result", "K1"])).toEqual({ kind: "key-result", id: "K1" });
+    expect(goalSelection(["goal", "O1"])).toEqual({ kind: "goal", id: "O1" });
+    expect(goalSelection(["skill", "S1"])).toEqual({ kind: "skill", id: "S1" });
+    expect(goalSelection([])).toBeNull();
+    expect(goalSelection(["key-result"])).toBeNull();
+    expect(goalSelection(["x", "1"])).toBeNull();
   });
   it("タブは ?tab=skills か、スキルを選んでいるときにスキル", () => {
-    expect(okrTab(null, null)).toBe("okr");
-    expect(okrTab("skills", null)).toBe("skills");
-    expect(okrTab(null, { kind: "skill", id: "S1" })).toBe("skills");
-    expect(okrTab("okr", { kind: "skill", id: "S1" })).toBe("okr");
-    expect(okrTab("nope", { kind: "kr", id: "K1" })).toBe("okr");
+    expect(goalsTab(null, null)).toBe("goals");
+    expect(goalsTab("skills", null)).toBe("skills");
+    expect(goalsTab(null, { kind: "skill", id: "S1" })).toBe("skills");
+    expect(goalsTab("goals", { kind: "skill", id: "S1" })).toBe("goals");
+    expect(goalsTab("nope", { kind: "key-result", id: "K1" })).toBe("goals");
   });
 });
 
-describe("krMetaText", () => {
+describe("keyResultMetaText", () => {
   it("値と目標値を並べるだけ", () => {
-    expect(krMetaText("19時間23分", "週5時間")).toBe("19時間23分 / 目標値 週5時間");
-    expect(krMetaText("3 日", null)).toBe("3 日");
-    expect(krMetaText("3 日", "  ")).toBe("3 日");
+    expect(keyResultMetaText("19時間23分", "週5時間")).toBe("19時間23分 / 目標値 週5時間");
+    expect(keyResultMetaText("3 日", null)).toBe("3 日");
+    expect(keyResultMetaText("3 日", "  ")).toBe("3 日");
   });
 });
 

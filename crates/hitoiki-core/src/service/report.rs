@@ -17,8 +17,8 @@ use std::str::FromStr;
 pub enum ReportBy {
     Task,
     Activity,
-    Quadrant,
-    Okr,
+    UrgentImportant,
+    KeyResult,
     Skill,
     Agent,
     Kind,
@@ -29,8 +29,8 @@ impl ReportBy {
         match self {
             ReportBy::Task => "task",
             ReportBy::Activity => "activity",
-            ReportBy::Quadrant => "quadrant",
-            ReportBy::Okr => "okr",
+            ReportBy::UrgentImportant => "urgent_important",
+            ReportBy::KeyResult => "key_result",
             ReportBy::Skill => "skill",
             ReportBy::Agent => "agent",
             ReportBy::Kind => "kind",
@@ -44,14 +44,14 @@ impl FromStr for ReportBy {
         Ok(match s {
             "task" => ReportBy::Task,
             "activity" => ReportBy::Activity,
-            "quadrant" => ReportBy::Quadrant,
-            "okr" => ReportBy::Okr,
+            "urgent_important" => ReportBy::UrgentImportant,
+            "key_result" => ReportBy::KeyResult,
             "skill" => ReportBy::Skill,
             "agent" => ReportBy::Agent,
             "kind" => ReportBy::Kind,
             _ => {
                 return Err(Error::InvalidArgument(format!(
-                    "--by の値が不正です: {s} (候補: task, activity, quadrant, okr, skill, agent, kind)"
+                    "--by の値が不正です: {s} (候補: task, activity, urgent_important, key_result, skill, agent, kind)"
                 )))
             }
         })
@@ -107,8 +107,8 @@ const NONE_LABEL: &str = "(なし)";
 
 struct Lookup {
     tasks: HashMap<String, Task>,
-    /// kr id -> (kr title, objective id, objective title)
-    krs: HashMap<String, (String, String, String)>,
+    /// key_result id -> (key_result title, goal id, goal title)
+    key_results: HashMap<String, (String, String, String)>,
     task_skills: HashMap<String, Vec<(String, String)>>,
 }
 
@@ -117,10 +117,9 @@ fn load_lookup(conn: &Connection) -> Result<Lookup> {
         .into_iter()
         .map(|t| (t.id.clone(), t))
         .collect();
-    let mut krs = HashMap::new();
-    let mut stmt = conn.prepare(
-        "SELECT k.id, k.title, o.id, o.title FROM key_result k JOIN objective o ON o.id = k.objective_id",
-    )?;
+    let mut key_results = HashMap::new();
+    let mut stmt = conn
+        .prepare("SELECT k.id, k.title, o.id, o.title FROM key_result k JOIN goal o ON o.id = k.goal_id")?;
     for row in stmt.query_map([], |r| {
         Ok((
             r.get::<_, String>(0)?,
@@ -130,7 +129,7 @@ fn load_lookup(conn: &Connection) -> Result<Lookup> {
         ))
     })? {
         let (id, t, oid, ot) = row?;
-        krs.insert(id, (t, oid, ot));
+        key_results.insert(id, (t, oid, ot));
     }
     let mut task_skills: HashMap<String, Vec<(String, String)>> = HashMap::new();
     let mut stmt = conn.prepare(
@@ -148,12 +147,12 @@ fn load_lookup(conn: &Connection) -> Result<Lookup> {
     }
     Ok(Lookup {
         tasks,
-        krs,
+        key_results,
         task_skills,
     })
 }
 
-fn quadrant(t: &Task) -> (&'static str, &'static str) {
+fn urgent_important(t: &Task) -> (&'static str, &'static str) {
     match (t.urgent, t.important) {
         (Some(true), Some(true)) => ("urgent_important", "緊急かつ重要"),
         (Some(false), Some(true)) => ("important", "重要（緊急でない）"),
@@ -219,15 +218,15 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
                 _ => (None, NONE_LABEL.into()),
             }],
             ReportBy::Kind => vec![(Some(s.kind.to_string()), kind_label(s.kind).to_string())],
-            ReportBy::Quadrant => vec![match task {
+            ReportBy::UrgentImportant => vec![match task {
                 Some(t) => {
-                    let (k, l) = quadrant(t);
+                    let (k, l) = urgent_important(t);
                     (Some(k.into()), l.into())
                 }
                 None => (None, NONE_LABEL.into()),
             }],
-            ReportBy::Okr => vec![match task.and_then(|t| t.key_result_id.as_ref()) {
-                Some(kid) => match lookup.krs.get(kid) {
+            ReportBy::KeyResult => vec![match task.and_then(|t| t.key_result_id.as_ref()) {
+                Some(kid) => match lookup.key_results.get(kid) {
                     Some((kt, _, ot)) => (Some(kid.clone()), format!("{ot} / {kt}")),
                     None => (Some(kid.clone()), kid.clone()),
                 },
@@ -286,7 +285,7 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
                 .to_string(),
         ),
         ReportBy::Agent => Some("AI との対話・作業待ちの区間のみを集計しています。".to_string()),
-        ReportBy::Quadrant => Some(
+        ReportBy::UrgentImportant => Some(
             "urgent / important のどちらかが未設定のタスクは「未設定」に集計しています。".to_string(),
         ),
         _ => None,
@@ -307,7 +306,7 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
 mod tests {
     use super::*;
     use crate::model::SegmentStatus;
-    use crate::service::okr::{self, KrInput, ObjectiveInput};
+    use crate::service::goal::{self, GoalInput, KeyResultInput};
     use crate::service::skill::{self, SkillInput};
     use crate::service::task::{self, TaskInput};
     use crate::service::testutil::{insert_segment, Env};
@@ -324,19 +323,19 @@ mod tests {
 
     fn setup(env: &Env) -> (String, String) {
         let ctx = env.ctx();
-        let o = okr::add_objective(
+        let o = goal::add_goal(
             &ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O1".into(),
                 from: None,
                 to: None,
             },
         )
         .unwrap();
-        let k = okr::add_kr(
+        let k = goal::add_key_result(
             &ctx,
-            &KrInput {
-                objective: o.id,
+            &KeyResultInput {
+                goal: o.id,
                 title: "KR1".into(),
                 target: None,
                 skills: vec![],
@@ -438,15 +437,15 @@ mod tests {
     }
 
     #[test]
-    fn by_quadrant_okr_skill_agent() {
+    fn by_urgent_important_key_result_skill_agent() {
         let env = Env::new();
         let (a, b) = setup(&env);
         fill(&env, &a, &b);
-        let q = report(&env.ctx(), &input(ReportBy::Quadrant)).unwrap();
+        let q = report(&env.ctx(), &input(ReportBy::UrgentImportant)).unwrap();
         let labels: Vec<_> = q.rows.iter().map(|r| r.label.as_str()).collect();
         assert_eq!(labels, ["緊急かつ重要", "未設定", "(なし)"]);
 
-        let o = report(&env.ctx(), &input(ReportBy::Okr)).unwrap();
+        let o = report(&env.ctx(), &input(ReportBy::KeyResult)).unwrap();
         assert_eq!(o.rows[0].label, "O1 / KR1");
         assert_eq!(o.rows[0].duration_ms, 60 * MIN);
         assert_eq!(o.rows[1].label, "(なし)");

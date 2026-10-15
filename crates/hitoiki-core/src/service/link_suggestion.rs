@@ -2,7 +2,7 @@
 //!
 //! スキルも紐付けタスクも無い成果の指標について、紐付けるとよさそうなタスクとスキルの候補を出す。自動では紐付けない。
 //! ユーザーが「付ける」を選んだときだけタスクの紐付け・成果の指標のスキルの追加をし、「付けない」を選んだ候補は
-//! `kr_suggest_reject` に残して二度と出さない。
+//! `link_suggestion_reject` に残して二度と出さない。
 //!
 //! - 名前の近い候補: 目標と成果の指標の名前（タイトル・説明・目標）と、タスク名・スキル名の近さ。ASCII の語の一致と、
 //!   日本語は文字 2 つ組（助詞を含むものを除く）の重なりで見る。外部には何も送らない。
@@ -11,7 +11,7 @@
 //!   失敗しても名前の近い候補は出す。
 
 use super::erg::ai_configured;
-use super::okr::{find_kr, KrBrief};
+use super::goal::{find_key_result, KeyResultBrief};
 use super::reflect::run_ai;
 
 use super::Ctx;
@@ -56,7 +56,7 @@ pub struct Candidate {
     pub name: String,
     /// 0〜1。名前の近い候補は名前の近さ、AI の候補は AI が答えた確信度（無ければ 0.5）。
     pub score: f64,
-    /// `local`（名前の近さ）/ `ai` / `both`（両方）。
+    /// `name_match`（名前の近さ）/ `ai` / `both`（両方）。
     pub source: &'static str,
 }
 
@@ -71,7 +71,7 @@ pub struct AiOutcome {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Suggestions {
-    pub key_result: KrBrief,
+    pub key_result: KeyResultBrief,
     /// 提案の対象か。スキルか紐付けタスクが既にある成果の指標は対象外（候補は空）。
     pub eligible: bool,
     pub candidates: Vec<Candidate>,
@@ -201,26 +201,28 @@ struct Pool {
     skills: Vec<Skill>,
 }
 
-fn rejected(ctx: &Ctx, kr_id: &str) -> Result<HashSet<(String, String)>> {
+fn rejected(ctx: &Ctx, key_result_id: &str) -> Result<HashSet<(String, String)>> {
     let mut stmt = ctx
         .conn
-        .prepare("SELECT kind, target_id FROM kr_suggest_reject WHERE kr_id = ?1")?;
-    let rows = stmt.query_map([kr_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        .prepare("SELECT kind, target_id FROM link_suggestion_reject WHERE key_result_id = ?1")?;
+    let rows = stmt.query_map([key_result_id], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+    })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
 /// 提案の対象になる成果の指標か（スキルも紐付けタスク（やめたものを除く）も無い）。
-fn eligible(ctx: &Ctx, kr_id: &str) -> Result<bool> {
-    let no_skill = repo::skill::kr_skills(ctx.conn, kr_id)?.is_empty();
-    let no_task = repo::task::list_of_kr(ctx.conn, kr_id)?
+fn eligible(ctx: &Ctx, key_result_id: &str) -> Result<bool> {
+    let no_skill = repo::skill::key_result_skills(ctx.conn, key_result_id)?.is_empty();
+    let no_task = repo::task::list_of_key_result(ctx.conn, key_result_id)?
         .iter()
         .all(|t| t.status == TaskStatus::Dropped);
     Ok(no_skill && no_task)
 }
 
 /// 候補にできるタスク（どの成果の指標にも紐付いていない未完了のもの）とスキル。「付けない」にしたものは除く。
-fn pool(ctx: &Ctx, kr_id: &str) -> Result<Pool> {
-    let rej = rejected(ctx, kr_id)?;
+fn pool(ctx: &Ctx, key_result_id: &str) -> Result<Pool> {
+    let rej = rejected(ctx, key_result_id)?;
     let tasks = repo::task::list(ctx.conn, &[TaskStatus::Todo, TaskStatus::Doing], None)?
         .into_iter()
         .filter(|t| t.key_result_id.is_none() && !rej.contains(&("task".into(), t.id.clone())))
@@ -234,8 +236,8 @@ fn pool(ctx: &Ctx, kr_id: &str) -> Result<Pool> {
 
 /// 名前の近い候補。成果の指標の文章（タイトル・目標値）と目標の文章（タイトル・説明）のそれぞれとの近さのうち、
 /// 大きい方（目標との近さは 0.8 倍）をスコアにする。
-fn local_candidates(kr_text: &str, obj_text: &str, pool: &Pool) -> Vec<Candidate> {
-    let score = |name: &str| closeness(name, kr_text).max(0.8 * closeness(name, obj_text));
+fn name_match_candidates(key_result_text: &str, goal_text: &str, pool: &Pool) -> Vec<Candidate> {
+    let score = |name: &str| closeness(name, key_result_text).max(0.8 * closeness(name, goal_text));
     let top = |kind: CandidateKind, items: Vec<(&str, &str)>| {
         let mut v: Vec<Candidate> = items
             .into_iter()
@@ -246,7 +248,7 @@ fn local_candidates(kr_text: &str, obj_text: &str, pool: &Pool) -> Vec<Candidate
                 id: id.to_string(),
                 name: name.to_string(),
                 score: s,
-                source: "local",
+                source: "name_match",
             })
             .collect();
         v.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.name.cmp(&b.name)));
@@ -278,8 +280,8 @@ pub type Runner<'a> = &'a dyn Fn(&str) -> Result<String>;
 /// AI に聞く。返り値は (候補, 確信度)。ID は連番 `t1` / `s1` から実際の ID に戻す。
 fn ask_ai(
     run: Runner,
-    objective_title: &str,
-    kr_title: &str,
+    goal_title: &str,
+    key_result_title: &str,
     pool: &Pool,
 ) -> Result<Vec<(CandidateKind, String, f64)>> {
     let tasks: Vec<&Task> = pool.tasks.iter().take(AI_POOL_PER_KIND).collect();
@@ -288,13 +290,13 @@ fn ask_ai(
         return Ok(vec![]);
     }
     let mut prompt = String::from(
-        "次の KR に関係しそうなタスクとスキルを、下の候補の中から選んでください。\n\
-         名前の意味が KR に近いものだけを選び、関係が薄いものは含めないでください（最大 5 件）。\n\n",
+        "次の成果の指標に関係しそうなタスクとスキルを、下の候補の中から選んでください。\n\
+         名前の意味が成果の指標に近いものだけを選び、関係が薄いものは含めないでください（最大 5 件）。\n\n",
     );
     prompt.push_str(&format!(
-        "Objective: {}\nKR: {}\n\nタスク候補:\n",
-        truncate(objective_title, AI_NAME_CHARS),
-        truncate(kr_title, AI_NAME_CHARS)
+        "Goal: {}\n成果の指標: {}\n\nタスク候補:\n",
+        truncate(goal_title, AI_NAME_CHARS),
+        truncate(key_result_title, AI_NAME_CHARS)
     ));
     let mut ids: HashMap<String, (CandidateKind, String)> = HashMap::new();
     for (i, t) in tasks.iter().enumerate() {
@@ -353,21 +355,21 @@ fn parse_response(stdout: &str) -> Result<Vec<(String, f64)>> {
 // ===== 提案 =====
 
 /// 成果の指標（ID の前方一致またはタイトル）への紐づけの候補。`use_ai` が true で `ai.command` が設定されていれば AI にも聞く。
-pub fn suggest(ctx: &Ctx, kr: &str, use_ai: bool) -> Result<Suggestions> {
+pub fn suggest(ctx: &Ctx, key_result: &str, use_ai: bool) -> Result<Suggestions> {
     if use_ai && ai_configured(ctx) {
         let ai = &ctx.cfg.ai;
         let timeout = Duration::from_secs(ai.timeout_sec.max(1));
         let run = |prompt: &str| run_ai(&ai.argv(), prompt, timeout);
-        suggest_with(ctx, kr, Some(&run))
+        suggest_with(ctx, key_result, Some(&run))
     } else {
-        suggest_with(ctx, kr, None)
+        suggest_with(ctx, key_result, None)
     }
 }
 
 /// [`suggest`] の AI を呼ぶ関数を差し替えられる版。`None` なら名前の近い候補だけ。
-pub fn suggest_with(ctx: &Ctx, kr: &str, run: Option<Runner>) -> Result<Suggestions> {
-    let k = find_kr(ctx, kr)?;
-    let brief = KrBrief {
+pub fn suggest_with(ctx: &Ctx, key_result: &str, run: Option<Runner>) -> Result<Suggestions> {
+    let k = find_key_result(ctx, key_result)?;
+    let brief = KeyResultBrief {
         id: k.id.clone(),
         title: k.title.clone(),
     };
@@ -379,12 +381,12 @@ pub fn suggest_with(ctx: &Ctx, kr: &str, run: Option<Runner>) -> Result<Suggesti
             ai: AiOutcome::default(),
         });
     }
-    let o = edit::get_objective(ctx.conn, &k.objective_id)?;
+    let o = edit::get_goal(ctx.conn, &k.goal_id)?;
     let pool = pool(ctx, &k.id)?;
-    let kr_text = format!("{} {}", k.title, k.target.as_deref().unwrap_or(""));
-    let obj_text = format!("{} {}", o.title, o.description_md.as_deref().unwrap_or(""));
+    let key_result_text = format!("{} {}", k.title, k.target.as_deref().unwrap_or(""));
+    let goal_text = format!("{} {}", o.title, o.description_md.as_deref().unwrap_or(""));
 
-    let mut merged: Vec<Candidate> = local_candidates(&kr_text, &obj_text, &pool);
+    let mut merged: Vec<Candidate> = name_match_candidates(&key_result_text, &goal_text, &pool);
     let mut ai = AiOutcome::default();
     if let Some(run) = run {
         match ask_ai(run, &o.title, &k.title, &pool) {
@@ -417,7 +419,7 @@ pub fn suggest_with(ctx: &Ctx, kr: &str, run: Option<Runner>) -> Result<Suggesti
             }
             Err(e) => {
                 // 文章や応答の中身はログに出さない。
-                tracing::warn!(error = %e, "KR の紐づけの提案: AI に問い合わせられませんでした");
+                tracing::warn!(error = %e, "成果の指標の紐づけの提案: AI に問い合わせられませんでした");
                 ai.note = Some("AI に問い合わせられなかったため、名前の近い候補だけを表示します".into());
             }
         }
@@ -486,7 +488,7 @@ pub struct DecisionItem {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DecisionResult {
-    pub key_result: KrBrief,
+    pub key_result: KeyResultBrief,
     pub items: Vec<DecisionItem>,
 }
 
@@ -500,10 +502,10 @@ fn items_of(r: Vec<Resolved>) -> Vec<DecisionItem> {
         .collect()
 }
 
-/// 「付ける」: タスクは成果の指標に紐付け（`okr link` と同じ）、スキルは成果の指標のスキルに加える（今のスキルは残す）。
+/// 「付ける」: タスクは成果の指標に紐付け（`key-result link` と同じ）、スキルは成果の指標のスキルに加える（今のスキルは残す）。
 /// すべての候補を先に解決し、1 つでも見つからなければ何も変えない。
-pub fn accept(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResult> {
-    let k = find_kr(ctx, kr)?;
+pub fn accept(ctx: &Ctx, key_result: &str, refs: &[CandidateRef]) -> Result<DecisionResult> {
+    let k = find_key_result(ctx, key_result)?;
     let resolved = resolve_refs(ctx, refs)?;
     // タスクの紐付け（`link_tasks`）は自前でトランザクションを張るので、ここでは張らない（候補は解決済み）。
     let task_ids: Vec<String> = resolved
@@ -512,14 +514,14 @@ pub fn accept(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResu
         .map(|r| r.id.clone())
         .collect();
     if !task_ids.is_empty() {
-        super::okr::link_tasks(ctx, &k.id, &task_ids)?;
+        super::goal::link_tasks(ctx, &k.id, &task_ids)?;
     }
     let new_skills: Vec<&Resolved> = resolved
         .iter()
         .filter(|r| r.kind == CandidateKind::Skill)
         .collect();
     if !new_skills.is_empty() {
-        let mut ids: Vec<String> = repo::skill::kr_skills(ctx.conn, &k.id)?
+        let mut ids: Vec<String> = repo::skill::key_result_skills(ctx.conn, &k.id)?
             .into_iter()
             .map(|s| s.id)
             .collect();
@@ -528,10 +530,10 @@ pub fn accept(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResu
                 ids.push(s.id.clone());
             }
         }
-        repo::skill::set_kr_skills(ctx.conn, &k.id, &ids)?;
+        repo::skill::set_key_result_skills(ctx.conn, &k.id, &ids)?;
     }
     Ok(DecisionResult {
-        key_result: KrBrief {
+        key_result: KeyResultBrief {
             id: k.id,
             title: k.title,
         },
@@ -540,20 +542,20 @@ pub fn accept(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResu
 }
 
 /// 「付けない」: 候補を記録し、以後この成果の指標には提案しない。
-pub fn reject(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResult> {
-    let k = find_kr(ctx, kr)?;
+pub fn reject(ctx: &Ctx, key_result: &str, refs: &[CandidateRef]) -> Result<DecisionResult> {
+    let k = find_key_result(ctx, key_result)?;
     let resolved = resolve_refs(ctx, refs)?;
     let now = ctx.now();
     let tx = ctx.conn.unchecked_transaction()?;
     for r in &resolved {
         ctx.conn.execute(
-            "INSERT OR REPLACE INTO kr_suggest_reject (kr_id, kind, target_id, at) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT OR REPLACE INTO link_suggestion_reject (key_result_id, kind, target_id, at) VALUES (?1, ?2, ?3, ?4)",
             params![k.id, r.kind.as_str(), r.id, now],
         )?;
     }
     tx.commit()?;
     Ok(DecisionResult {
-        key_result: KrBrief {
+        key_result: KeyResultBrief {
             id: k.id,
             title: k.title,
         },
@@ -564,26 +566,26 @@ pub fn reject(ctx: &Ctx, kr: &str, refs: &[CandidateRef]) -> Result<DecisionResu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::okr::{self as okr_svc, KrInput, ObjectiveInput};
+    use crate::service::goal::{self as goal_svc, GoalInput, KeyResultInput};
     use crate::service::skill::{self, SkillInput};
     use crate::service::task::{self, TaskInput};
     use crate::service::testutil::Env;
 
-    fn setup(ctx: &Ctx, obj: &str, kr: &str) -> String {
-        let o = okr_svc::add_objective(
+    fn setup(ctx: &Ctx, obj: &str, key_result: &str) -> String {
+        let o = goal_svc::add_goal(
             ctx,
-            &ObjectiveInput {
+            &GoalInput {
                 title: obj.into(),
                 from: None,
                 to: None,
             },
         )
         .unwrap();
-        okr_svc::add_kr(
+        goal_svc::add_key_result(
             ctx,
-            &KrInput {
-                objective: o.id,
-                title: kr.into(),
+            &KeyResultInput {
+                goal: o.id,
+                title: key_result.into(),
                 target: None,
                 skills: vec![],
             },
@@ -633,12 +635,12 @@ mod tests {
     fn 名前の近い候補を近さの順に出し_無関係なものは出さない() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力を上げる", "英語の勉強を続ける");
+        let key_result = setup(&ctx, "英語力を上げる", "英語の勉強を続ける");
         let t1 = add_task(&ctx, "英語の教材を読む");
         add_task(&ctx, "経費精算");
         let s1 = add_skill(&ctx, "英語");
         add_skill(&ctx, "料理");
-        let s = suggest_with(&ctx, &kr, None).unwrap();
+        let s = suggest_with(&ctx, &key_result, None).unwrap();
         assert!(s.eligible);
         assert!(!s.ai.used);
         let got: Vec<(&str, &str)> = s
@@ -649,43 +651,46 @@ mod tests {
         assert!(got.contains(&("task", t1.as_str())));
         assert!(got.contains(&("skill", s1.as_str())));
         assert_eq!(s.candidates.len(), 2);
-        assert!(s.candidates.iter().all(|c| c.source == "local"));
+        assert!(s.candidates.iter().all(|c| c.source == "name_match"));
     }
 
     #[test]
-    fn スキルか紐付けタスクがある_kr_は対象外() {
+    fn スキルか紐付けタスクがある_key_result_は対象外() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力", "英語の勉強");
+        let key_result = setup(&ctx, "英語力", "英語の勉強");
         add_task(&ctx, "英語の教材");
         let t = add_task(&ctx, "別のタスク");
-        okr_svc::link_tasks(&ctx, &kr, &[t]).unwrap();
-        let s = suggest_with(&ctx, &kr, None).unwrap();
+        goal_svc::link_tasks(&ctx, &key_result, &[t]).unwrap();
+        let s = suggest_with(&ctx, &key_result, None).unwrap();
         assert!(!s.eligible && s.candidates.is_empty());
     }
 
     #[test]
-    fn 他の_kr_に紐付いたタスクは候補にしない() {
+    fn 他の_key_result_に紐付いたタスクは候補にしない() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力", "英語の勉強");
-        let other = setup(&ctx, "別", "別の KR");
+        let key_result = setup(&ctx, "英語力", "英語の勉強");
+        let other = setup(&ctx, "別", "別の 成果の指標");
         let t = add_task(&ctx, "英語の教材");
-        okr_svc::link_tasks(&ctx, &other, &[t]).unwrap();
-        assert!(suggest_with(&ctx, &kr, None).unwrap().candidates.is_empty());
+        goal_svc::link_tasks(&ctx, &other, &[t]).unwrap();
+        assert!(suggest_with(&ctx, &key_result, None)
+            .unwrap()
+            .candidates
+            .is_empty());
     }
 
     #[test]
     fn 付けるでタスクを紐付けスキルを加え_付けないは再び出ない() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力", "英語の勉強");
+        let key_result = setup(&ctx, "英語力", "英語の勉強");
         let t1 = add_task(&ctx, "英語の教材を読む");
         let t2 = add_task(&ctx, "英語のリスニング");
         let s1 = add_skill(&ctx, "英語");
-        let r = reject(&ctx, &kr, &[format!("task:{t2}").parse().unwrap()]).unwrap();
+        let r = reject(&ctx, &key_result, &[format!("task:{t2}").parse().unwrap()]).unwrap();
         assert_eq!(r.items.len(), 1);
-        let s = suggest_with(&ctx, &kr, None).unwrap();
+        let s = suggest_with(&ctx, &key_result, None).unwrap();
         assert!(s.candidates.iter().all(|c| c.id != t2));
         assert!(s.candidates.iter().any(|c| c.id == t1));
 
@@ -693,33 +698,33 @@ mod tests {
             format!("task:{t1}").parse().unwrap(),
             "skill:英語".parse().unwrap(),
         ];
-        let a = accept(&ctx, &kr, &refs).unwrap();
+        let a = accept(&ctx, &key_result, &refs).unwrap();
         assert_eq!(a.items.len(), 2);
         assert_eq!(
             repo::task::get(ctx.conn, &t1).unwrap().key_result_id.as_deref(),
-            Some(kr.as_str())
+            Some(key_result.as_str())
         );
-        let ids: Vec<String> = repo::skill::kr_skills(ctx.conn, &kr)
+        let ids: Vec<String> = repo::skill::key_result_skills(ctx.conn, &key_result)
             .unwrap()
             .into_iter()
             .map(|s| s.id)
             .collect();
         assert_eq!(ids, vec![s1]);
         // 紐付けたので対象外になる。
-        assert!(!suggest_with(&ctx, &kr, None).unwrap().eligible);
+        assert!(!suggest_with(&ctx, &key_result, None).unwrap().eligible);
     }
 
     #[test]
     fn 見つからない候補があれば何も変えない() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力", "英語の勉強");
+        let key_result = setup(&ctx, "英語力", "英語の勉強");
         let t1 = add_task(&ctx, "英語の教材を読む");
         let refs: Vec<CandidateRef> = vec![
             format!("task:{t1}").parse().unwrap(),
             "skill:存在しない".parse().unwrap(),
         ];
-        assert!(accept(&ctx, &kr, &refs).is_err());
+        assert!(accept(&ctx, &key_result, &refs).is_err());
         assert!(repo::task::get(ctx.conn, &t1).unwrap().key_result_id.is_none());
         assert!("foo:x".parse::<CandidateRef>().is_err());
         assert!("task".parse::<CandidateRef>().is_err());
@@ -729,7 +734,7 @@ mod tests {
     fn ai_の候補を合わせ_プールに無い_id_は捨てる() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "健康", "運動を習慣にする");
+        let key_result = setup(&ctx, "健康", "運動を習慣にする");
         let t1 = add_task(&ctx, "ジムの入会手続き");
         let seen = std::cell::RefCell::new(String::new());
         let run = |prompt: &str| -> Result<String> {
@@ -737,7 +742,7 @@ mod tests {
             // t1 は唯一のタスク候補。存在しない t9 と低確信度の s1 は捨てられる。
             Ok("```json\n{\"suggestions\":[{\"id\":\"t1\",\"confidence\":0.9},{\"id\":\"t9\",\"confidence\":0.9},{\"id\":\"s1\",\"confidence\":0.1}]}\n```".into())
         };
-        let s = suggest_with(&ctx, &kr, Some(&run)).unwrap();
+        let s = suggest_with(&ctx, &key_result, Some(&run)).unwrap();
         assert!(s.ai.used);
         assert_eq!(s.candidates.len(), 1);
         assert_eq!(s.candidates[0].id, t1);
@@ -752,25 +757,25 @@ mod tests {
     fn ai_が失敗しても名前の近い候補は出る() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力", "英語の勉強");
+        let key_result = setup(&ctx, "英語力", "英語の勉強");
         add_task(&ctx, "英語の教材を読む");
         let run = |_: &str| -> Result<String> { Err(Error::Other(anyhow::anyhow!("boom"))) };
-        let s = suggest_with(&ctx, &kr, Some(&run)).unwrap();
+        let s = suggest_with(&ctx, &key_result, Some(&run)).unwrap();
         assert!(!s.ai.used);
         assert!(s.ai.note.is_some());
         assert_eq!(s.candidates.len(), 1);
         let run = |_: &str| -> Result<String> { Ok("関係ありません".into()) };
-        assert!(!suggest_with(&ctx, &kr, Some(&run)).unwrap().ai.used);
+        assert!(!suggest_with(&ctx, &key_result, Some(&run)).unwrap().ai.used);
     }
 
     #[test]
     fn 両方が挙げた候補は_both_になる() {
         let env = Env::new();
         let ctx = env.ctx();
-        let kr = setup(&ctx, "英語力", "英語の勉強");
+        let key_result = setup(&ctx, "英語力", "英語の勉強");
         let t1 = add_task(&ctx, "英語の教材を読む");
         let run = |_: &str| -> Result<String> { Ok("{\"suggestions\":[{\"id\":\"t1\"}]}".into()) };
-        let s = suggest_with(&ctx, &kr, Some(&run)).unwrap();
+        let s = suggest_with(&ctx, &key_result, Some(&run)).unwrap();
         assert_eq!(s.candidates.len(), 1);
         assert_eq!(
             (s.candidates[0].id.as_str(), s.candidates[0].source),

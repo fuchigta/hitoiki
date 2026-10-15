@@ -110,7 +110,10 @@ pub enum Cmd {
     Abc(AbcCmd),
     /// 目標
     #[command(subcommand)]
-    Okr(OkrCmd),
+    Goal(GoalCmd),
+    /// 成果の指標
+    #[command(subcommand, name = "key-result")]
+    KeyResult(KeyResultCmd),
     /// スキル
     #[command(subcommand)]
     Skill(SkillCmd),
@@ -123,7 +126,7 @@ pub enum Cmd {
         from: Option<String>,
         #[arg(long)]
         to: Option<String>,
-        /// task | activity | quadrant | okr | skill | agent | kind
+        /// task | activity | urgent_important | key_result | skill | agent | kind
         #[arg(long, default_value = "task")]
         by: String,
         /// idle / break も合計に含める
@@ -160,7 +163,7 @@ pub enum Cmd {
     Agent(AgentCmd),
     /// ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止）
     Daemon,
-    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|log|tasks|okr|records|report|settings|onboarding（旧名: review・plan・reflect・reflection・checkin・hassle）
+    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|log|tasks|goals|records|report|settings|onboarding（旧名: review・plan・reflect・reflection・checkin・hassle）
     Ui { screen: Option<String> },
     /// 補助コレクタ用の取り込み
     #[command(subcommand)]
@@ -208,11 +211,11 @@ pub struct TaskOpts {
     #[arg(long)]
     pub estimate: Option<String>,
     /// 成果の指標の ID
-    #[arg(long, conflicts_with = "no_kr")]
-    pub kr: Option<String>,
+    #[arg(long, conflicts_with = "no_key_result")]
+    pub key_result: Option<String>,
     /// 成果の指標との紐付けを外す（edit のみ）
     #[arg(long)]
-    pub no_kr: bool,
+    pub no_key_result: bool,
     /// スキル名（複数指定可。`,` 区切りも可）
     #[arg(long, value_delimiter = ',')]
     pub skill: Vec<String>,
@@ -779,26 +782,24 @@ pub enum AbcCmd {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum OkrCmd {
-    AddObjective {
+pub enum GoalCmd {
+    /// 目標を追加する
+    Add {
         title: String,
         #[arg(long)]
         from: Option<String>,
         #[arg(long)]
         to: Option<String>,
     },
-    AddKr {
-        objective: String,
-        title: String,
-        #[arg(long)]
-        target: Option<String>,
-        /// 成果の指標のスキル（スキル名。複数指定可、`,` 区切りも可）。成果の指標の時間はこのスキルが付いたタスク・活動の時間が主になる
-        #[arg(long, value_delimiter = ',')]
-        skill: Vec<String>,
-    },
+    /// 目標と成果の指標の一覧
     List,
+    /// 目標と、その下の成果の指標を表示する
+    Show {
+        /// 目標の ID（前方一致）
+        goal: String,
+    },
     /// 目標を編集する（指定した項目だけ変える。--description "" で説明を消す）
-    EditObjective {
+    Edit {
         id: String,
         #[arg(long)]
         title: Option<String>,
@@ -811,18 +812,33 @@ pub enum OkrCmd {
         /// 期間を消す
         #[arg(long)]
         clear_period: bool,
-        /// active | done | dropped
+        /// active | achieved | dropped
         #[arg(long)]
         status: Option<String>,
     },
     /// 目標を削除する（配下の成果の指標も消え、成果の指標に紐付いたタスクは残って紐付けだけ外れる）
-    DeleteObjective {
+    Delete {
         id: String,
         #[command(flatten)]
         opts: DeleteOpts,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum KeyResultCmd {
+    /// 成果の指標を目標の下に追加する
+    Add {
+        /// 目標の ID（前方一致）
+        goal: String,
+        title: String,
+        #[arg(long)]
+        target: Option<String>,
+        /// 成果の指標のスキル（スキル名。複数指定可、`,` 区切りも可）。成果の指標の時間はこのスキルが付いたタスク・活動の時間が主になる
+        #[arg(long, value_delimiter = ',')]
+        skill: Vec<String>,
+    },
     /// 成果の指標を編集する（指定した項目だけ変える。--target "" で目標値を消す）
-    EditKr {
+    Edit {
         id: String,
         #[arg(long)]
         title: Option<String>,
@@ -834,18 +850,18 @@ pub enum OkrCmd {
         /// --current で値を変えるときに履歴へ残すメモ
         #[arg(long, requires = "current")]
         note: Option<String>,
-        /// active | done | dropped
+        /// active | achieved | dropped
         #[arg(long)]
         status: Option<String>,
         /// 別の目標へ付け替える
         #[arg(long)]
-        objective: Option<String>,
-        /// 何を軸に見るか: time（時間）| days（取り組んだ日の回数）| done（完了数）
+        goal: Option<String>,
+        /// 数え方: time（時間）| active_days（取り組んだ日数）| done_tasks（完了したタスク数）
         #[arg(long)]
         measure: Option<String>,
-        /// 回数の軸で「取り組んだ日」とみなす 1 日の最小分数（既定 15）
+        /// 数え方が active_days のとき「取り組んだ日」とみなす 1 日の最小分数（既定 15）
         #[arg(long)]
-        day_min: Option<i64>,
+        active_day_min: Option<i64>,
         /// 成果の指標のスキル（スキル名。複数指定可、`,` 区切りも可。指定すると今のスキルを置き換える）。成果の指標の時間はスキルが主で、このスキル（子スキルを含む）が付いたタスク・活動の時間を数える。紐付けたタスクの時間も重ならないように合算する
         #[arg(long, value_delimiter = ',')]
         skill: Vec<String>,
@@ -856,7 +872,7 @@ pub enum OkrCmd {
     /// 成果の指標にタスクを紐付ける（別の成果の指標に紐付いていたものは付け替える）
     Link {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
+        key_result: String,
         /// タスクの ID（前方一致。複数可）
         #[arg(required = true)]
         tasks: Vec<String>,
@@ -867,10 +883,10 @@ pub enum OkrCmd {
         #[arg(required = true)]
         tasks: Vec<String>,
     },
-    /// 成果の指標の集計（軸の値、取り組んだ日、完了数、週ごとの時間、スキル別、見積と実績）
+    /// 成果の指標の集計（数え方の値、取り組んだ日、完了数、週ごとの時間、スキル別、見積と実績）
     Show {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
+        key_result: String,
         /// 集計の期間（省略時は目標の期間、無ければ直近 8 週）
         #[command(flatten)]
         range: RangeOpts,
@@ -879,7 +895,7 @@ pub enum OkrCmd {
     /// 名前の近さで探し、AI が設定されていれば AI にも聞いて合わせる（送るのは成果の指標・目標の名前とタスク・スキルの名前だけ）
     Suggest {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
+        key_result: String,
         /// AI に聞かず、名前の近い候補だけにする
         #[arg(long)]
         no_ai: bool,
@@ -887,23 +903,23 @@ pub enum OkrCmd {
     /// 提案の候補を「付ける」（task:<ID> は成果の指標に紐付け、skill:<ID または名前> は成果の指標のスキルに加える。今のスキルは残る）
     SuggestAccept {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
-        /// 候補（`okr suggest` が出した task:<ID> / skill:<ID>。複数可）
+        key_result: String,
+        /// 候補（`key-result suggest` が出した task:<ID> / skill:<ID>。複数可）
         #[arg(required = true)]
         candidates: Vec<String>,
     },
     /// 提案の候補を「付けない」（以後この成果の指標には提案しない）
     SuggestReject {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
-        /// 候補（`okr suggest` が出した task:<ID> / skill:<ID>。複数可）
+        key_result: String,
+        /// 候補（`key-result suggest` が出した task:<ID> / skill:<ID>。複数可）
         #[arg(required = true)]
         candidates: Vec<String>,
     },
     /// 成果の指標の現在値を記録する（現在値を更新し、履歴に 1 行残す。同じ値でも残る）
     Progress {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
+        key_result: String,
         /// 現在値（例: 12、3 回）
         value: String,
         /// 履歴に添えるメモ
@@ -913,13 +929,13 @@ pub enum OkrCmd {
     /// 成果の指標の現在値の履歴を、週ごとの時間と並べて表示する
     History {
         /// 成果の指標の ID（前方一致）またはタイトル
-        kr: String,
+        key_result: String,
         /// 期間（省略時は目標の期間、無ければ直近 8 週）
         #[command(flatten)]
         range: RangeOpts,
     },
     /// 成果の指標を削除する（紐付いたタスクは残って紐付けだけ外れる）
-    DeleteKr {
+    Delete {
         id: String,
         #[command(flatten)]
         opts: DeleteOpts,

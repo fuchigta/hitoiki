@@ -134,33 +134,33 @@ export const api = {
     call<T.ErgLabel>("erg_confirm", { record_kind, record_id }),
 
   // 目標・スキル
-  okrList: () => call<{ objectives: T.ObjectiveView[] }>("okr_list"),
-  okrAddObjective: (title: string) => call<T.Objective>("okr_add_objective", { input: { title } }),
-  okrAddKr: (objective: string, title: string, target?: string, skills?: string[]) =>
-    call<T.KeyResult>("okr_add_kr", { input: { objective, title, target, skills } }),
+  goalList: () => call<{ goals: T.GoalView[] }>("goal_list"),
+  goalAdd: (title: string) => call<T.Goal>("goal_add", { input: { title } }),
+  keyResultAdd: (goal: string, title: string, target?: string, skills?: string[]) =>
+    call<T.KeyResult>("key_result_add", { input: { goal, title, target, skills } }),
   skillList: () => call<{ skills: T.SkillView[] }>("skill_list"),
   skillAdd: (name: string, parent?: string) => call<T.Skill>("skill_add", { input: { name, parent } }),
   skillImportPreset: (name?: string) => call<T.PresetImport>("skill_import_preset", { name }),
 
   // 目標・スキルの編集と削除。削除は mode で dry_run（影響の確認）と force（削除）を指定する。
-  okrEditObjective: (id: string, input: T.ObjectiveEdit) => call<T.Objective>("okr_edit_objective", { id, input }),
-  okrDeleteObjective: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_objective", { id, mode }),
-  okrEditKr: (id: string, input: T.KrEdit) => call<T.KeyResult>("okr_edit_kr", { id, input }),
-  okrDeleteKr: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("okr_delete_kr", { id, mode }),
+  goalEdit: (id: string, input: T.GoalEdit) => call<T.Goal>("goal_edit", { id, input }),
+  goalDelete: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("goal_delete", { id, mode }),
+  keyResultEdit: (id: string, input: T.KeyResultEdit) => call<T.KeyResult>("key_result_edit", { id, input }),
+  keyResultDelete: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("key_result_delete", { id, mode }),
   // 成果の指標とタスクのつながり。紐付けは別の成果の指標に紐付いていたタスクを付け替える。
-  okrLink: (kr: string, tasks: string[]) => call<T.LinkResult>("okr_link", { kr, tasks }),
-  okrUnlink: (tasks: string[]) => call<T.LinkedTask[]>("okr_unlink", { tasks }),
-  okrShow: (kr: string) => call<T.KrSummary>("okr_show", { kr }),
+  keyResultLink: (keyResult: string, tasks: string[]) => call<T.LinkResult>("key_result_link", { key_result: keyResult, tasks }),
+  keyResultUnlink: (tasks: string[]) => call<T.LinkedTask[]>("key_result_unlink", { tasks }),
+  keyResultShow: (keyResult: string) => call<T.KeyResultSummary>("key_result_show", { key_result: keyResult }),
   // 成果の指標への紐づけの提案。自動では紐付けない。AI は設定されているときだけ（use_ai=false なら名前の近い候補だけ）。
-  okrSuggest: (kr: string, useAi = false) => call<T.KrSuggestions>("okr_suggest", { kr, use_ai: useAi }),
-  okrSuggestAccept: (kr: string, candidates: string[]) =>
-    call<T.KrSuggestDecision>("okr_suggest_accept", { kr, candidates }),
-  okrSuggestReject: (kr: string, candidates: string[]) =>
-    call<T.KrSuggestDecision>("okr_suggest_reject", { kr, candidates }),
+  keyResultSuggest: (keyResult: string, useAi = false) => call<T.KeyResultSuggestions>("key_result_suggest", { key_result: keyResult, use_ai: useAi }),
+  keyResultSuggestAccept: (keyResult: string, candidates: string[]) =>
+    call<T.KeyResultSuggestDecision>("key_result_suggest_accept", { key_result: keyResult, candidates }),
+  keyResultSuggestReject: (keyResult: string, candidates: string[]) =>
+    call<T.KeyResultSuggestDecision>("key_result_suggest_reject", { key_result: keyResult, candidates }),
   // 成果の指標の現在値の記録と履歴（値の推移と週ごとの時間）。
-  okrProgress: (kr: string, value: string, note?: string) =>
-    call<T.ProgressRecorded>("okr_progress", { kr, value, note }),
-  okrHistory: (kr: string) => call<T.KrHistory>("okr_history", { kr }),
+  keyResultProgress: (keyResult: string, value: string, note?: string) =>
+    call<T.ProgressRecorded>("key_result_progress", { key_result: keyResult, value, note }),
+  keyResultHistory: (keyResult: string) => call<T.KeyResultHistory>("key_result_history", { key_result: keyResult }),
   skillEdit: (key: string, input: T.SkillEdit) => call<T.Skill>("skill_edit", { key, input }),
   skillDelete: (key: string, children: T.ChildPolicy, mode: T.DeleteMode) =>
     call<T.DeleteOutcome>("skill_delete", { key, children, mode }),

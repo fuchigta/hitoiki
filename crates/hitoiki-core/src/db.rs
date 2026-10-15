@@ -17,6 +17,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (8, include_str!("../migrations/0008_kr_skill.sql")),
     (9, include_str!("../migrations/0009_kr_progress.sql")),
     (10, include_str!("../migrations/0010_kr_suggest_reject.sql")),
+    (11, include_str!("../migrations/0011_rename_goal.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -114,9 +115,9 @@ mod tests {
         assert_eq!(n as usize, MIGRATIONS.len());
     }
 
-    /// 0005 までの DB にある KR は、0006 の適用後に既定の軸（time）と最小分数（15）になる。
+    /// 0005 までの DB にある成果の指標は、0006 の適用後に既定の数え方（time）と最小分数（15）になる。
     #[test]
-    fn migration_0006_既存の_kr_に既定値が入る() {
+    fn migration_0006_既存の成果の指標に既定値が入る() {
         let mut conn = Connection::open_in_memory().unwrap();
         ensure_migration_table(&conn).unwrap();
         for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v <= 5) {
@@ -134,16 +135,92 @@ mod tests {
             [],
         )
         .unwrap();
-        assert_eq!(pending_versions(&conn).unwrap(), vec![6, 7, 8, 9, 10]);
+        let expected: Vec<i64> = MIGRATIONS.iter().map(|(v, _)| *v).filter(|v| *v > 5).collect();
+        assert_eq!(pending_versions(&conn).unwrap(), expected);
         migrate(&mut conn).unwrap();
         let (m, d): (String, i64) = conn
             .query_row(
-                "SELECT measure, day_min FROM key_result WHERE id = 'K1'",
+                "SELECT measure, active_day_min FROM key_result WHERE id = 'K1'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
         assert_eq!((m.as_str(), d), ("time", 15));
+    }
+
+    /// 0010 までの DB の目標・成果の指標は、0011 の適用後に新しい表名・列名・値になる。
+    #[test]
+    fn migration_0011_目標と成果の指標の物理名と値が書き換わる() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        ensure_migration_table(&conn).unwrap();
+        for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v <= 10) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO schema_migration(version) VALUES (?1)", [v])
+                .unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO objective (id, title, status) VALUES ('O1', 'o1', 'done'), ('O2', 'o2', 'active');
+             INSERT INTO key_result (id, objective_id, title, status, measure, day_min) VALUES
+               ('K1', 'O1', 'k1', 'done', 'days', 20),
+               ('K2', 'O1', 'k2', 'active', 'done', 15),
+               ('K3', 'O2', 'k3', 'dropped', 'time', 15);
+             INSERT INTO skill (id, name, preset) VALUES ('S1', 's', 0);
+             INSERT INTO kr_skill (kr_id, skill_id) VALUES ('K1', 'S1');
+             INSERT INTO kr_progress (id, kr_id, value, text, note, at) VALUES ('P1', 'K1', 1, '1', NULL, 100);
+             INSERT INTO kr_suggest_reject (kr_id, kind, target_id, at) VALUES ('K1', 'task', 'T1', 100);",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+
+        let goals: Vec<(String, String)> = conn
+            .prepare("SELECT id, status FROM goal ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            goals,
+            vec![("O1".into(), "achieved".into()), ("O2".into(), "active".into())]
+        );
+        let key_results: Vec<(String, String, String, String, i64)> = conn
+            .prepare("SELECT id, goal_id, status, measure, active_day_min FROM key_result ORDER BY id")
+            .unwrap()
+            .query_map([], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        let t = |a: &str, b: &str, c: &str, d: &str, e: i64| {
+            (a.to_string(), b.to_string(), c.to_string(), d.to_string(), e)
+        };
+        assert_eq!(
+            key_results,
+            vec![
+                t("K1", "O1", "achieved", "active_days", 20),
+                t("K2", "O1", "active", "done_tasks", 15),
+                t("K3", "O2", "dropped", "time", 15),
+            ]
+        );
+        let n = |sql: &str| -> i64 { conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert_eq!(
+            n("SELECT COUNT(*) FROM key_result_skill WHERE key_result_id = 'K1'"),
+            1
+        );
+        assert_eq!(
+            n("SELECT COUNT(*) FROM key_result_progress WHERE key_result_id = 'K1'"),
+            1
+        );
+        assert_eq!(
+            n("SELECT COUNT(*) FROM link_suggestion_reject WHERE key_result_id = 'K1'"),
+            1
+        );
+        // 旧名の表は残らない。
+        assert_eq!(
+            n("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('objective', 'kr_skill', 'kr_progress', 'kr_suggest_reject')"),
+            0
+        );
     }
 
     #[test]

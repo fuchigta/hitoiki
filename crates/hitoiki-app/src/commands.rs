@@ -19,12 +19,12 @@ use hitoiki_core::service::correction::{
     Include, Preview as CorrectionPreview, UndoResult as CorrectionUndone,
 };
 use hitoiki_core::service::erg;
+use hitoiki_core::service::goal::{self, GoalList};
 use hitoiki_core::service::heatmap::{self, Heatmap, HeatmapInput};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
+use hitoiki_core::service::link_suggestion;
 use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
-use hitoiki_core::service::okr::{self, OkrList};
-use hitoiki_core::service::okr_suggest;
 use hitoiki_core::service::onboarding::{self, OnboardingStatus};
 use hitoiki_core::service::plan::{self, BlockList};
 use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
@@ -570,13 +570,13 @@ pub async fn erg_classify(
 
 /// 成果の指標への紐づけの候補（名前の近さ + AI が設定されていれば AI）。AI は時間がかかるので専用スレッドで実行する。
 #[tauri::command(rename_all = "snake_case")]
-pub async fn okr_suggest(
+pub async fn key_result_suggest(
     app: AppHandle,
-    kr: String,
+    key_result: String,
     use_ai: Option<bool>,
-) -> AppResult<okr_suggest::Suggestions> {
+) -> AppResult<link_suggestion::Suggestions> {
     blocking(app, move |st| {
-        st.with_own_ctx(|c| okr_suggest::suggest(c, &kr, use_ai.unwrap_or(true)))
+        st.with_own_ctx(|c| link_suggestion::suggest(c, &key_result, use_ai.unwrap_or(true)))
     })
     .await
 }
@@ -599,20 +599,20 @@ pub fn erg_confirm(state: S, record_kind: String, record_id: String) -> AppResul
 // ===== 目標・スキル =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_list(state: S) -> AppResult<OkrList> {
-    state.with_ctx(okr::list)
+pub fn goal_list(state: S) -> AppResult<GoalList> {
+    state.with_ctx(goal::list)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_add_objective(state: S, input: ObjectiveInputDto) -> AppResult<hitoiki_core::model::Objective> {
+pub fn goal_add(state: S, input: GoalInputDto) -> AppResult<hitoiki_core::model::Goal> {
     let input = input.into();
-    state.with_ctx(|c| okr::add_objective(c, &input))
+    state.with_ctx(|c| goal::add_goal(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_add_kr(state: S, input: KrInputDto) -> AppResult<hitoiki_core::model::KeyResult> {
+pub fn key_result_add(state: S, input: KeyResultInputDto) -> AppResult<hitoiki_core::model::KeyResult> {
     let input = input.into();
-    state.with_ctx(|c| okr::add_kr(c, &input))
+    state.with_ctx(|c| goal::add_key_result(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]

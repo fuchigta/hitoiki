@@ -10,12 +10,12 @@ export interface TaskDraft {
   /** 付いているスキル名（既知のスキルだけ。選択欄で編集する）。 */
   skills: string[];
   /** 紐付いている成果の指標の ID（無ければ空）。 */
-  kr: string;
+  keyResult: string;
 }
 
 /** 保存時の成果の指標の指定。選んでいれば紐付け、空にしたときだけ（元が紐付いていれば）外す指定を送る。 */
-export function krPatch(kr: string, original: string | null): { key_result?: string; clear_key_result?: boolean } {
-  if (kr) return { key_result: kr };
+export function keyResultPatch(keyResult: string, original: string | null): { key_result?: string; clear_key_result?: boolean } {
+  if (keyResult) return { key_result: keyResult };
   return original ? { clear_key_result: true } : {};
 }
 
@@ -33,7 +33,7 @@ function normalize(d: TaskDraft) {
     important: d.important,
     est: parseEstimate(d.est) ?? null,
     skills: d.skills.map((x) => x.trim()).sort(),
-    kr: d.kr,
+    keyResult: d.keyResult,
   };
 }
 

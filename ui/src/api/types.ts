@@ -17,7 +17,7 @@ export type TaskKind = "normal" | "interrupt";
 export type MatchField = "exe" | "title" | "cwd" | "repo" | "url" | "git_branch";
 export type PatternType = "glob" | "regex" | "contains";
 export type ErgTag = "existence" | "relatedness" | "growth";
-export type ReportBy = "task" | "activity" | "quadrant" | "okr" | "skill" | "agent" | "kind";
+export type ReportBy = "task" | "activity" | "urgent_important" | "key_result" | "skill" | "agent" | "kind";
 
 export interface AppError {
   code: string;
@@ -80,11 +80,11 @@ export interface Task {
 export interface KeyResultRef {
   id: string;
   title: string;
-  objective_id: string;
-  objective_title: string;
+  goal_id: string;
+  goal_title: string;
 }
 
-/** Task にスキルと KR を足したもの（フラットに展開される）。 */
+/** Task にスキルと成果の指標を足したもの（フラットに展開される）。 */
 export interface TaskView extends Task {
   skills: string[];
   key_result: KeyResultRef | null;
@@ -107,7 +107,7 @@ export interface TaskInput {
   important?: boolean;
   estimate_min?: number;
   key_result?: string;
-  /** 編集で KR との紐付けを外す。 */
+  /** 編集で成果の指標との紐付けを外す。 */
   clear_key_result?: boolean;
   skills?: string[];
   /** 編集でスキルを全て外す。 */
@@ -560,7 +560,7 @@ export interface AbcInput {
   from_hassle?: string;
 }
 
-export interface Objective {
+export interface Goal {
   id: string;
   title: string;
   description_md: string | null;
@@ -571,32 +571,32 @@ export interface Objective {
 
 export interface KeyResult {
   id: string;
-  objective_id: string;
+  goal_id: string;
   title: string;
   target: string | null;
   current: string | null;
   status: string;
-  /** 何を軸に見るか。 */
-  measure: KrMeasure;
-  /** 回数の軸で「取り組んだ日」とみなす 1 日の最小分数。 */
-  day_min: number;
+  /** 数え方。 */
+  measure: KeyResultMeasure;
+  /** 数え方が「取り組んだ日数」のとき「取り組んだ日」とみなす 1 日の最小分数。 */
+  active_day_min: number;
 }
 
-export type KrMeasure = "time" | "days" | "done";
+export type KeyResultMeasure = "time" | "active_days" | "done_tasks";
 
-export interface KrWeekBar {
+export interface KeyResultWeekBar {
   /** 週の月曜（YYYY-MM-DD）。 */
   week_start: string;
   duration_ms: number;
 }
 
-export interface KrSkillTime {
+export interface KeyResultSkillTime {
   skill_id: string | null;
   name: string;
   duration_ms: number;
 }
 
-export interface KrTask {
+export interface KeyResultTask {
   id: string;
   title: string;
   status: TaskStatus;
@@ -605,34 +605,34 @@ export interface KrTask {
   done_at: Millis | null;
 }
 
-/** KR の集計（core の `kr_summary`）。 */
-export interface KrSummary {
+/** 成果の指標の集計（core の `key_result_summary`）。 */
+export interface KeyResultSummary {
   key_result: KeyResult;
-  objective: { id: string; title: string };
+  goal: { id: string; title: string };
   range: RangeView;
-  range_source: "given" | "objective" | "recent_weeks";
-  measure: KrMeasure;
+  range_source: "given" | "goal" | "recent_weeks";
+  measure: KeyResultMeasure;
   time_ms: number;
   active_days: number;
-  day_min: number;
-  /** KR に付けたスキルの名前。時間・日数はこのスキルが主で、紐付けたタスクも重ならないように合算する。 */
-  kr_skills: string[];
-  /** 内訳: KR のスキル（子スキルを含む）が付いたタスク・活動の区間の時間。`time_ms` の一部。 */
+  active_day_min: number;
+  /** 成果の指標に付けたスキルの名前。時間・日数はこのスキルが主で、紐付けたタスクも重ならないように合算する。 */
+  key_result_skills: string[];
+  /** 内訳: 成果の指標のスキル（子スキルを含む）が付いたタスク・活動の区間の時間。`time_ms` の一部。 */
   from_skill_ms: number;
   /** 内訳: 上に当てはまらない、紐付けたタスクの区間の時間（両方に当てはまる区間は上に入る）。 */
   from_task_ms: number;
   done_count: number;
   task_count: number;
-  weekly: KrWeekBar[];
-  skills: KrSkillTime[];
+  weekly: KeyResultWeekBar[];
+  skills: KeyResultSkillTime[];
   estimate: { estimate_min_total: number; estimated_tasks: number; actual_ms_of_estimated: number };
-  tasks: KrTask[];
+  tasks: KeyResultTask[];
 }
 
-/** KR の現在値の履歴 1 件（core の `KrProgress`）。 */
-export interface KrProgressEntry {
+/** 成果の指標の現在値の履歴 1 件（core の `KeyResultProgress`）。 */
+export interface KeyResultProgressEntry {
   id: string;
-  kr_id: string;
+  key_result_id: string;
   /** `text` の先頭の数値。数として読めなければ null。 */
   value: number | null;
   /** 入力された現在値。消したときは null。 */
@@ -641,7 +641,7 @@ export interface KrProgressEntry {
   at: Millis;
 }
 
-export interface KrHistoryWeek {
+export interface KeyResultHistoryWeek {
   week_start: string;
   duration_ms: number;
   /** その週の終わり時点の現在値の数値。 */
@@ -651,25 +651,25 @@ export interface KrHistoryWeek {
   changes: number;
 }
 
-/** KR の時系列（core の `kr_history`）。 */
-export interface KrHistory {
+/** 成果の指標の時系列（core の `key_result_history`）。 */
+export interface KeyResultHistory {
   key_result: KeyResult;
   range: RangeView;
-  range_source: "given" | "objective" | "recent_weeks";
-  weeks: KrHistoryWeek[];
-  entries: KrProgressEntry[];
+  range_source: "given" | "goal" | "recent_weeks";
+  weeks: KeyResultHistoryWeek[];
+  entries: KeyResultProgressEntry[];
 }
 
 export interface ProgressRecorded {
   key_result: KeyResult;
-  entry: KrProgressEntry;
+  entry: KeyResultProgressEntry;
 }
 
 export interface LinkedTask {
   id: string;
   title: string;
-  /** 付け替え前の KR（無かったときは null）。 */
-  previous_kr: { id: string; title: string } | null;
+  /** 付け替え前の成果の指標（無かったときは null）。 */
+  previous_key_result: { id: string; title: string } | null;
 }
 
 export interface LinkResult {
@@ -677,33 +677,33 @@ export interface LinkResult {
   linked: LinkedTask[];
 }
 
-/** KR への紐づけの候補の種類。 */
-export type KrCandidateKind = "task" | "skill";
+/** 成果の指標への紐づけの候補の種類。 */
+export type KeyResultCandidateKind = "task" | "skill";
 
 /** 紐づけの候補 1 件。`source` は名前の近さ（local）/ AI（ai）/ 両方（both）。 */
-export interface KrCandidate {
-  kind: KrCandidateKind;
+export interface KeyResultCandidate {
+  kind: KeyResultCandidateKind;
   id: string;
   name: string;
   score: number;
-  source: "local" | "ai" | "both";
+  source: "name_match" | "ai" | "both";
 }
 
-/** `okr_suggest` の結果。スキルか紐付けタスクが既にある KR は `eligible` が false。 */
-export interface KrSuggestions {
+/** `key_result_suggest` の結果。スキルか紐付けタスクが既にある成果の指標は `eligible` が false。 */
+export interface KeyResultSuggestions {
   key_result: { id: string; title: string };
   eligible: boolean;
-  candidates: KrCandidate[];
+  candidates: KeyResultCandidate[];
   ai: { used: boolean; note: string | null };
 }
 
-/** `okr_suggest_accept` / `okr_suggest_reject` の結果。 */
-export interface KrSuggestDecision {
+/** `key_result_suggest_accept` / `key_result_suggest_reject` の結果。 */
+export interface KeyResultSuggestDecision {
   key_result: { id: string; title: string };
-  items: { kind: KrCandidateKind; id: string; name: string }[];
+  items: { kind: KeyResultCandidateKind; id: string; name: string }[];
 }
 
-export interface ObjectiveView extends Objective {
+export interface GoalView extends Goal {
   key_results: KeyResult[];
 }
 
@@ -750,7 +750,7 @@ export interface DeleteMode {
 
 export type ChildPolicy = "reparent" | "delete";
 
-export interface ObjectiveEdit {
+export interface GoalEdit {
   title?: string;
   /** 空文字で説明を消す。 */
   description?: string;
@@ -760,7 +760,7 @@ export interface ObjectiveEdit {
   status?: string;
 }
 
-export interface KrEdit {
+export interface KeyResultEdit {
   title?: string;
   /** 空文字で消す。 */
   target?: string;
@@ -768,12 +768,12 @@ export interface KrEdit {
   /** 現在値を変えたときに履歴へ残すメモ。 */
   current_note?: string;
   status?: string;
-  objective?: string;
-  measure?: KrMeasure;
-  day_min?: number;
-  /** KR のスキル（名前）。空でなければ今のスキルを置き換える。 */
+  goal?: string;
+  measure?: KeyResultMeasure;
+  active_day_min?: number;
+  /** 成果の指標のスキル（名前）。空でなければ今のスキルを置き換える。 */
   skills?: string[];
-  /** KR のスキルを全て外す。 */
+  /** 成果の指標のスキルを全て外す。 */
   clear_skills?: boolean;
 }
 

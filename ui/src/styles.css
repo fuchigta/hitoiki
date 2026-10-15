@@ -1330,43 +1330,43 @@ button.hm-cell {
 }
 
 /* 成果の指標の集計（選んだ軸を大きく、補助は小さく。達成率や評価は出さない） */
-.kr-detail {
+.key-result-detail {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
 }
-.kr-main-row {
+.key-result-main-row {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--sp-2) var(--sp-5);
 }
-.kr-main {
+.key-result-main {
   font-size: var(--fs-num);
   font-weight: 600;
   line-height: 1.2;
 }
-.kr-main-label,
-.kr-indirect,
-.kr-aux {
+.key-result-main-label,
+.key-result-indirect,
+.key-result-aux {
   font-size: var(--fs-xs);
 }
-.kr-aux {
+.key-result-aux {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-1) var(--sp-3);
 }
-.kr-range {
+.key-result-range {
   margin: 0;
   font-size: var(--fs-xs);
 }
-.kr-bars {
+.key-result-bars {
   display: flex;
   align-items: flex-end;
   gap: var(--sp-1);
   height: 64px;
 }
-.kr-bar {
+.key-result-bar {
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -1374,18 +1374,18 @@ button.hm-cell {
   flex-direction: column;
   align-items: stretch;
 }
-.kr-bar-track {
+.key-result-bar-track {
   flex: 1;
   min-height: 0;
   display: flex;
   align-items: flex-end;
 }
-.kr-bar-fill {
+.key-result-bar-fill {
   width: 100%;
   background: var(--accent);
   border-radius: var(--r-s) var(--r-s) 0 0;
 }
-.kr-bar-label {
+.key-result-bar-label {
   font-size: var(--fs-xs);
   color: var(--muted);
   text-align: center;
@@ -1393,51 +1393,51 @@ button.hm-cell {
   white-space: nowrap;
   overflow: hidden;
 }
-.kr-skills {
+.key-result-skills {
   margin: 0;
   font-size: var(--fs-xs);
 }
-.kr-cands {
+.key-result-cands {
   max-height: 220px;
   overflow-y: auto;
 }
-.kr-history > summary {
+.key-result-history > summary {
   cursor: pointer;
   font-size: var(--fs-s);
   color: var(--muted);
 }
-.kr-history > .stack {
+.key-result-history > .stack {
   margin-top: var(--sp-2);
 }
-.kr-history-chart {
+.key-result-history-chart {
   width: 100%;
   max-width: 480px;
   height: 80px;
 }
-.kr-history-bar {
+.key-result-history-bar {
   fill: var(--accent-soft);
 }
-.kr-history-line {
+.key-result-history-line {
   stroke: var(--accent);
   stroke-width: 1.5;
 }
-.kr-history-dot {
+.key-result-history-dot {
   fill: var(--accent);
 }
-.kr-history-table {
+.key-result-history-table {
   border-collapse: collapse;
   font-size: var(--fs-xs);
 }
-.kr-history-table th,
-.kr-history-table td {
+.key-result-history-table th,
+.key-result-history-table td {
   text-align: left;
   padding: var(--sp-1) var(--sp-3) var(--sp-1) 0;
 }
-.kr-history-table th {
+.key-result-history-table th {
   color: var(--muted);
   font-weight: normal;
 }
-.kr-history-entries {
+.key-result-history-entries {
   font-size: var(--fs-xs);
 }
 
@@ -1632,15 +1632,15 @@ button.object-main {
 }
 
 /* 成果の指標の詳細: 要点だけ常時表示し、残りは <details> に閉じる */
-.kr-more > summary {
+.key-result-more > summary {
   cursor: pointer;
   color: var(--muted);
   font-size: var(--fs-s);
 }
-.kr-more[open] > summary {
+.key-result-more[open] > summary {
   margin-bottom: var(--sp-2);
 }
-.kr-more-body {
+.key-result-more-body {
   gap: var(--sp-3);
 }
 .obj-title {

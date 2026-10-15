@@ -2,31 +2,31 @@
 // 達成率の計算や評価はしない。値と目標値を並べるだけ。
 import type { SkillView, TaskView } from "./api";
 
-export type OkrKind = "o" | "kr" | "skill";
+export type GoalSelectionKind = "goal" | "key-result" | "skill";
 
-export interface OkrSelection {
-  kind: OkrKind;
+export interface GoalSelection {
+  kind: GoalSelectionKind;
   id: string;
 }
 
-/** `#/okr/<kind>/<ID>` のパスから選択を得る。形が合わなければ null。 */
-export function okrSelection(path: string[]): OkrSelection | null {
+/** `#/goals/<kind>/<ID>` のパスから選択を得る。形が合わなければ null。 */
+export function goalSelection(path: string[]): GoalSelection | null {
   const [kind, id] = path;
-  if ((kind === "o" || kind === "kr" || kind === "skill") && id) return { kind, id };
+  if ((kind === "goal" || kind === "key-result" || kind === "skill") && id) return { kind, id };
   return null;
 }
 
-export type OkrTab = "okr" | "skills";
+export type GoalsTab = "goals" | "skills";
 
 /** 一覧のタブ。`?tab=skills` か、スキルを選んでいるときはスキル。それ以外は目標。 */
-export function okrTab(param: string | null | undefined, sel: OkrSelection | null): OkrTab {
+export function goalsTab(param: string | null | undefined, sel: GoalSelection | null): GoalsTab {
   if (param === "skills") return "skills";
-  if (param === "okr") return "okr";
-  return sel?.kind === "skill" ? "skills" : "okr";
+  if (param === "goals") return "goals";
+  return sel?.kind === "skill" ? "skills" : "goals";
 }
 
 /** 成果の指標の行に出す値。主軸の値に、書いてある目標値を並べるだけ（達成率は出さない）。 */
-export function krMetaText(mainText: string, target: string | null | undefined): string {
+export function keyResultMetaText(mainText: string, target: string | null | undefined): string {
   const t = target?.trim();
   return t ? `${mainText} / 目標値 ${t}` : mainText;
 }

@@ -25,7 +25,7 @@ pub struct RowView {
     pub segments: usize,
 }
 
-/// 期間の集計。`by` のキーは task / kind / activity / quadrant / okr / skill / agent。
+/// 期間の集計。`by` のキーは task / kind / activity / urgent_important / key_result / skill / agent。
 #[derive(Debug, Clone, Serialize)]
 pub struct Summary {
     pub range: RangeView,
@@ -140,15 +140,15 @@ pub struct KeyResultView {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ObjectiveView {
+pub struct GoalView {
     pub title: String,
     pub status: String,
     pub key_results: Vec<KeyResultView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct OkrProgress {
-    pub objectives: Vec<ObjectiveView>,
+pub struct GoalProgress {
+    pub goals: Vec<GoalView>,
     /// 期間中の投下時間（目標別。どの成果の指標にも紐付かない行は「(なし)」）。
     pub invested: Vec<RowView>,
     /// どの成果の指標にも紐付かない時間の割合（0〜1）。
@@ -181,7 +181,7 @@ pub struct ContextJson {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs_review_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub okr: Option<OkrProgress>,
+    pub goals: Option<GoalProgress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_week_diff: Option<WeekDiff>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -389,7 +389,7 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
         abc_records: None,
         checkins: vec![],
         needs_review_count: None,
-        okr: None,
+        goals: None,
         previous_week_diff: None,
         erg_distribution: None,
     };
@@ -420,8 +420,8 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                 &[
                     ReportBy::Task,
                     ReportBy::Activity,
-                    ReportBy::Quadrant,
-                    ReportBy::Okr,
+                    ReportBy::UrgentImportant,
+                    ReportBy::KeyResult,
                     ReportBy::Skill,
                     ReportBy::Kind,
                     ReportBy::Agent,
@@ -445,8 +445,8 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                 &[
                     ReportBy::Task,
                     ReportBy::Activity,
-                    ReportBy::Quadrant,
-                    ReportBy::Okr,
+                    ReportBy::UrgentImportant,
+                    ReportBy::KeyResult,
                     ReportBy::Skill,
                     ReportBy::Kind,
                     ReportBy::Agent,
@@ -470,21 +470,21 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
             });
 
             // 目標: 目標と成果の指標、期間中の投下時間。
-            let okr_report = run_report(ctx, week, tz, ReportBy::Okr)?;
-            let unlinked_ms: i64 = okr_report
+            let key_result_report = run_report(ctx, week, tz, ReportBy::KeyResult)?;
+            let unlinked_ms: i64 = key_result_report
                 .rows
                 .iter()
                 .filter(|r| r.key.is_none())
                 .map(|r| r.duration_ms)
                 .sum();
-            let list = super::okr::list(ctx)?;
-            out.okr = Some(OkrProgress {
-                objectives: list
-                    .objectives
+            let list = super::goal::list(ctx)?;
+            out.goals = Some(GoalProgress {
+                goals: list
+                    .goals
                     .into_iter()
-                    .map(|o| ObjectiveView {
-                        title: o.objective.title,
-                        status: o.objective.status,
+                    .map(|o| GoalView {
+                        title: o.goal.title,
+                        status: o.goal.status,
                         key_results: o
                             .key_results
                             .into_iter()
@@ -497,9 +497,9 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                             .collect(),
                     })
                     .collect(),
-                invested: rows(&okr_report.rows),
-                unlinked_ratio: if okr_report.total_ms > 0 {
-                    ((unlinked_ms as f64 / okr_report.total_ms as f64) * 1000.0).round() / 1000.0
+                invested: rows(&key_result_report.rows),
+                unlinked_ratio: if key_result_report.total_ms > 0 {
+                    ((unlinked_ms as f64 / key_result_report.total_ms as f64) * 1000.0).round() / 1000.0
                 } else {
                     0.0
                 },
@@ -661,7 +661,15 @@ mod tests {
         let env = seeded();
         let v = json(&env, ReflectionKind::DayEnd);
         assert_eq!(v["summary"]["total_minutes"], 80);
-        for k in ["task", "activity", "quadrant", "okr", "skill", "kind", "agent"] {
+        for k in [
+            "task",
+            "activity",
+            "urgent_important",
+            "key_result",
+            "skill",
+            "kind",
+            "agent",
+        ] {
             assert!(v["summary"]["by"][k].is_array(), "{k}");
         }
         assert_eq!(v["interrupts"]["total_minutes"], 20);
@@ -691,8 +699,8 @@ mod tests {
         assert_eq!(v["previous_week_diff"]["previous_total_minutes"], 60);
         assert_eq!(v["previous_week_diff"]["total_delta_minutes"], 140);
         assert!(v["previous_week_diff"]["top_task_changes"].is_array());
-        assert!(v["okr"]["objectives"].is_array());
-        assert!(v["okr"]["unlinked_ratio"].is_number());
+        assert!(v["goals"]["goals"].is_array());
+        assert!(v["goals"]["unlinked_ratio"].is_number());
         assert_eq!(v["erg_distribution"]["growth"], 1);
         assert_eq!(v["abc_records"].as_array().unwrap().len(), 1);
         assert_eq!(v["abc_records"][0]["belief"], "自分は駄目だ");

@@ -91,19 +91,19 @@ const SELECTED = [
     },
   },
   {
-    name: "okr-kr-selected",
-    screen: "okr",
+    name: "goals-key-result-selected",
+    screen: "goals",
     hash: (s) => {
-      const k = s.krs.find((x) => x.title.includes("Rust の学習に週 5 時間"));
-      return k && `#/okr/kr/${k.id}`;
+      const k = s.keyResults.find((x) => x.title.includes("Rust の学習に週 5 時間"));
+      return k && `#/goals/key-result/${k.id}`;
     },
   },
   {
-    name: "okr-skill-selected",
-    screen: "okr",
+    name: "goals-skill-selected",
+    screen: "goals",
     hash: (s) => {
       const k = s.skills.find((x) => x.name === "Rust");
-      return k && `#/okr/skill/${k.id}?tab=skills`;
+      return k && `#/goals/skill/${k.id}?tab=skills`;
     },
   },
   {

@@ -1,12 +1,12 @@
 import { useId, useRef, useState } from "preact/hooks";
-import { filterKrs, krLabel, type KrOption } from "./kr-util";
+import { filterKeyResults, keyResultLabel, type KeyResultOption } from "./key-result-util";
 import { moveIndex } from "./task-picker-util";
 
 interface Props {
   /** 選択中の成果の指標の ID（無ければ空）。 */
   value: string;
   /** 候補の成果の指標（未取得のうちは空でよい）。 */
-  options: KrOption[];
+  options: KeyResultOption[];
   onChange: (id: string) => void;
   ariaLabel: string;
   disabled?: boolean;
@@ -17,7 +17,7 @@ interface Props {
  * 入力で成果の指標名・目標名を部分一致で絞り込む。
  * キーボード: ↑↓ で移動、Enter / Tab で選択、Backspace（入力が空のとき）で外す、Esc で閉じる。
  */
-export function KrPicker(p: Props) {
+export function KeyResultPicker(p: Props) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -25,12 +25,12 @@ export function KrPicker(p: Props) {
   const listId = useId();
 
   const selected = p.options.find((o) => o.id === p.value);
-  const items = filterKrs(p.options, query);
+  const items = filterKeyResults(p.options, query);
   const listOpen = open && items.length > 0;
   const idx = items.length === 0 ? -1 : Math.min(active, items.length - 1);
   const noMatch = open && query.trim() !== "" && items.length === 0;
 
-  const pick = (o: KrOption) => {
+  const pick = (o: KeyResultOption) => {
     p.onChange(o.id);
     setQuery("");
     setOpen(false);
@@ -77,7 +77,7 @@ export function KrPicker(p: Props) {
       <div class="skill-input" onClick={() => inputRef.current?.focus()}>
         {p.value && (
           <span class="skill-chip">
-            {selected ? krLabel(selected) : p.value}
+            {selected ? keyResultLabel(selected) : p.value}
             <button
               type="button"
               class="ghost"
@@ -134,7 +134,7 @@ export function KrPicker(p: Props) {
               onMouseMove={() => setActive(i)}
             >
               {o.title}
-              <span class="meta"> （{o.objective_title}）</span>
+              <span class="meta"> （{o.goal_title}）</span>
             </li>
           ))}
         </ul>

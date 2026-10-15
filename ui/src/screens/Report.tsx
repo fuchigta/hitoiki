@@ -9,16 +9,16 @@ const BYS: { id: ReportBy; label: string }[] = [
   { id: "task", label: "タスク" },
   { id: "activity", label: "活動" },
   { id: "kind", label: "種別" },
-  { id: "quadrant", label: "緊急・重要" },
-  { id: "okr", label: "目標" },
+  { id: "urgent_important", label: "緊急・重要" },
+  { id: "key_result", label: "成果の指標" },
   { id: "skill", label: "スキル" },
   { id: "agent", label: "AI エージェント" },
 ];
 
 /** 内訳によっては意味が伝わりにくいので、選んだときだけ「?」で説明を添える。 */
 const BY_HELP: Partial<Record<ReportBy, string>> = {
-  quadrant:
-    "タスクの「緊急かどうか・重要かどうか」で時間を 4 つに分けます（アイゼンハワー・マトリクス）。緊急・重要のどちらかが未設定のタスクは「未設定」に入ります。",
+  urgent_important:
+    "タスクの「緊急かどうか・重要かどうか」で時間を 4 つに分けます。緊急・重要のどちらかが未設定のタスクは「未設定」に入ります。",
   agent: "Claude Code や Codex などの AI エージェントを使っていた時間です。AI との対話（指示を書いている時間）と AI の作業待ち（返答や作業が終わるのを待っている時間）に分かれます。",
 };
 

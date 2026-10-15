@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { KrCandidate, KrSuggestions, KrSummary } from "./api";
-import { aiNote, candidateRef, kindLabel, sourceLabel, without, wantsSuggestion } from "./kr-suggest-util";
+import type { KeyResultCandidate, KeyResultSuggestions, KeyResultSummary } from "./api";
+import { aiNote, candidateRef, kindLabel, sourceLabel, without, wantsSuggestion } from "./key-result-suggest-util";
 
-const cand = (kind: KrCandidate["kind"], id: string, source: KrCandidate["source"] = "local"): KrCandidate => ({
+const cand = (kind: KeyResultCandidate["kind"], id: string, source: KeyResultCandidate["source"] = "name_match"): KeyResultCandidate => ({
   kind,
   id,
   name: id,
   score: 0.5,
   source,
 });
-const sugg = (ai: KrSuggestions["ai"]): KrSuggestions => ({
+const sugg = (ai: KeyResultSuggestions["ai"]): KeyResultSuggestions => ({
   key_result: { id: "k", title: "K" },
   eligible: true,
   candidates: [],
@@ -27,15 +27,15 @@ describe("ラベル", () => {
   it("種類と出どころの日本語", () => {
     expect(kindLabel("task")).toBe("タスク");
     expect(kindLabel("skill")).toBe("スキル");
-    expect(sourceLabel("local")).toBe("名前の近さ");
+    expect(sourceLabel("name_match")).toBe("名前の近さ");
     expect(sourceLabel("ai")).toBe("AI");
     expect(sourceLabel("both")).toBe("名前の近さと AI");
   });
 });
 
 describe("wantsSuggestion", () => {
-  const sum = (kr_skills: string[], statuses: string[]) =>
-    ({ kr_skills, tasks: statuses.map((status) => ({ status })) }) as unknown as KrSummary;
+  const sum = (key_result_skills: string[], statuses: string[]) =>
+    ({ key_result_skills, tasks: statuses.map((status) => ({ status })) }) as unknown as KeyResultSummary;
   it("スキルも紐付けタスクも無い成果の指標だけ", () => {
     expect(wantsSuggestion(null)).toBe(false);
     expect(wantsSuggestion(sum([], []))).toBe(true);

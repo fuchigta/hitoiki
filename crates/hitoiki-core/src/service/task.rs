@@ -4,7 +4,7 @@ use super::Ctx;
 use crate::id::new_id;
 use crate::model::{MatchField, PatternType, Task, TaskKind, TaskMatchRule, TaskStatus};
 use crate::pipeline::SegmentJudge;
-use crate::repo::{self, okr, rule, skill};
+use crate::repo::{self, goal, rule, skill};
 use crate::timefmt::Range;
 use crate::{Error, Millis, Result};
 use rusqlite::params;
@@ -38,8 +38,8 @@ pub struct TaskInput {
 pub struct KeyResultRef {
     pub id: String,
     pub title: String,
-    pub objective_id: String,
-    pub objective_title: String,
+    pub goal_id: String,
+    pub goal_title: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -82,17 +82,17 @@ pub fn view(ctx: &Ctx, task: Task) -> Result<TaskView> {
     let skills = skill::task_skill_names(ctx.conn, &task.id)?;
     let key_result = match &task.key_result_id {
         Some(id) => {
-            let kr = okr::get_kr(ctx.conn, id)?;
-            let objective_title: String = ctx.conn.query_row(
-                "SELECT title FROM objective WHERE id = ?1",
-                [&kr.objective_id],
+            let key_result = goal::get_key_result(ctx.conn, id)?;
+            let goal_title: String = ctx.conn.query_row(
+                "SELECT title FROM goal WHERE id = ?1",
+                [&key_result.goal_id],
                 |r| r.get(0),
             )?;
             Some(KeyResultRef {
-                id: kr.id,
-                title: kr.title,
-                objective_id: kr.objective_id,
-                objective_title,
+                id: key_result.id,
+                title: key_result.title,
+                goal_id: key_result.goal_id,
+                goal_title,
             })
         }
         None => None,
@@ -138,8 +138,8 @@ pub fn add(ctx: &Ctx, input: &TaskInput) -> Result<TaskView> {
         .clone()
         .ok_or_else(|| Error::InvalidArgument("タイトルが必要です".into()))?;
     let now = ctx.now();
-    let kr_id = match &input.key_result {
-        Some(p) => Some(okr::resolve_kr(ctx.conn, p)?.id),
+    let key_result_id = match &input.key_result {
+        Some(p) => Some(goal::resolve_key_result(ctx.conn, p)?.id),
         None => None,
     };
     let sids = skill_ids(ctx, &input.skills)?;
@@ -158,7 +158,7 @@ pub fn add(ctx: &Ctx, input: &TaskInput) -> Result<TaskView> {
         estimate_min: input.estimate_min,
         planned_start_at: input.planned_start_at,
         planned_end_at: input.planned_end_at,
-        key_result_id: kr_id,
+        key_result_id,
         external_url: input.external_url.clone(),
         created_at: now,
         updated_at: now,
@@ -225,7 +225,7 @@ pub fn edit(ctx: &Ctx, id: &str, input: &TaskInput) -> Result<TaskView> {
     if input.clear_key_result {
         t.key_result_id = None;
     } else if let Some(p) = &input.key_result {
-        t.key_result_id = Some(okr::resolve_kr(ctx.conn, p)?.id);
+        t.key_result_id = Some(goal::resolve_key_result(ctx.conn, p)?.id);
     }
     if input.external_url.is_some() {
         t.external_url = input.external_url.clone();

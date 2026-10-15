@@ -5,14 +5,12 @@
 use crate::error::AppResult;
 use crate::state::AppState;
 use hitoiki_core::config::Config;
-use hitoiki_core::model::{
-    AbcRecord, ActivityRule, Checkin, Hassle, KeyResult, Objective, Skill, TaskMatchRule,
-};
+use hitoiki_core::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskMatchRule};
 use hitoiki_core::paths;
+use hitoiki_core::service::goal::{self, GoalEdit, KeyResultEdit};
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
-use hitoiki_core::service::okr::{self, KrEdit, ObjectiveEdit};
-use hitoiki_core::service::okr_progress;
-use hitoiki_core::service::okr_suggest;
+use hitoiki_core::service::key_result_progress;
+use hitoiki_core::service::link_suggestion;
 use hitoiki_core::service::record::{self, AbcEditInput, CheckInput, HassleInput};
 use hitoiki_core::service::rule::{
     self, ActivityRuleEdit, ActivityRuleInput, ActivityRuleList, RuleDeleted, TaskRuleEdit,
@@ -26,88 +24,88 @@ type S<'a> = State<'a, AppState>;
 // ===== 目標 =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_edit_objective(state: S, id: String, input: ObjectiveEdit) -> AppResult<Objective> {
-    state.with_ctx(|c| okr::edit_objective(c, &id, &input))
+pub fn goal_edit(state: S, id: String, input: GoalEdit) -> AppResult<Goal> {
+    state.with_ctx(|c| goal::edit_goal(c, &id, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_delete_objective(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+pub fn goal_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
     let mode = mode.unwrap_or_default();
-    let v = state.with_ctx(|c| okr::delete_objective(c, &id, mode))?;
-    // 報告（okr）はタスクの紐付けから算出するので、再計算は不要。
+    let v = state.with_ctx(|c| goal::delete_goal(c, &id, mode))?;
+    // 報告（成果の指標別・目標別の時間）はタスクの紐付けから算出するので、再計算は不要。
     Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_edit_kr(state: S, id: String, input: KrEdit) -> AppResult<KeyResult> {
-    state.with_ctx(|c| okr::edit_kr(c, &id, &input))
+pub fn key_result_edit(state: S, id: String, input: KeyResultEdit) -> AppResult<KeyResult> {
+    state.with_ctx(|c| goal::edit_key_result(c, &id, &input))
 }
 
 /// 成果の指標にタスクを紐付ける（別の成果の指標に紐付いていたものは付け替える）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_link(state: S, kr: String, tasks: Vec<String>) -> AppResult<okr::LinkResult> {
-    state.with_ctx(|c| okr::link_tasks(c, &kr, &tasks))
+pub fn key_result_link(state: S, key_result: String, tasks: Vec<String>) -> AppResult<goal::LinkResult> {
+    state.with_ctx(|c| goal::link_tasks(c, &key_result, &tasks))
 }
 
 /// タスクの成果の指標との紐付けを外す。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_unlink(state: S, tasks: Vec<String>) -> AppResult<Vec<okr::LinkedTask>> {
-    state.with_ctx(|c| okr::unlink_tasks(c, &tasks))
+pub fn key_result_unlink(state: S, tasks: Vec<String>) -> AppResult<Vec<goal::LinkedTask>> {
+    state.with_ctx(|c| goal::unlink_tasks(c, &tasks))
 }
 
 /// 提案の候補を「付ける」（`candidates` は `task:<ID>` / `skill:<ID または名前>`）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_suggest_accept(
+pub fn key_result_suggest_accept(
     state: S,
-    kr: String,
+    key_result: String,
     candidates: Vec<String>,
-) -> AppResult<okr_suggest::DecisionResult> {
+) -> AppResult<link_suggestion::DecisionResult> {
     let refs = parse_candidates(&candidates)?;
-    state.with_ctx(|c| okr_suggest::accept(c, &kr, &refs))
+    state.with_ctx(|c| link_suggestion::accept(c, &key_result, &refs))
 }
 
 /// 提案の候補を「付けない」（以後この成果の指標には提案しない）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_suggest_reject(
+pub fn olink_suggestion_reject(
     state: S,
-    kr: String,
+    key_result: String,
     candidates: Vec<String>,
-) -> AppResult<okr_suggest::DecisionResult> {
+) -> AppResult<link_suggestion::DecisionResult> {
     let refs = parse_candidates(&candidates)?;
-    state.with_ctx(|c| okr_suggest::reject(c, &kr, &refs))
+    state.with_ctx(|c| link_suggestion::reject(c, &key_result, &refs))
 }
 
-fn parse_candidates(items: &[String]) -> hitoiki_core::Result<Vec<okr_suggest::CandidateRef>> {
+fn parse_candidates(items: &[String]) -> hitoiki_core::Result<Vec<link_suggestion::CandidateRef>> {
     items.iter().map(|s| s.parse()).collect()
 }
 
 /// 成果の指標の集計（期間は目標の期間、無ければ直近 8 週）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_show(state: S, kr: String) -> AppResult<okr::KrSummary> {
-    state.with_ctx(|c| okr::kr_summary(c, &kr, None))
+pub fn key_result_show(state: S, key_result: String) -> AppResult<goal::KeyResultSummary> {
+    state.with_ctx(|c| goal::key_result_summary(c, &key_result, None))
 }
 
 /// 成果の指標の現在値を記録する（現在値を更新し、履歴に 1 行残す）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_progress(
+pub fn key_result_progress(
     state: S,
-    kr: String,
+    key_result: String,
     value: String,
     note: Option<String>,
-) -> AppResult<okr_progress::ProgressRecorded> {
-    state.with_ctx(|c| okr_progress::record(c, &kr, &value, note.as_deref()))
+) -> AppResult<key_result_progress::ProgressRecorded> {
+    state.with_ctx(|c| key_result_progress::record(c, &key_result, &value, note.as_deref()))
 }
 
 /// 成果の指標の現在値の履歴と、週ごとの時間（期間は目標の期間、無ければ直近 8 週）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_history(state: S, kr: String) -> AppResult<okr_progress::KrHistory> {
-    state.with_ctx(|c| okr_progress::kr_history(c, &kr, None))
+pub fn key_result_history(state: S, key_result: String) -> AppResult<key_result_progress::KeyResultHistory> {
+    state.with_ctx(|c| key_result_progress::key_result_history(c, &key_result, None))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn okr_delete_kr(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+pub fn key_result_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
     let mode = mode.unwrap_or_default();
-    state.with_ctx(|c| okr::delete_kr(c, &id, mode))
+    state.with_ctx(|c| goal::delete_key_result(c, &id, mode))
 }
 
 // ===== スキル =====

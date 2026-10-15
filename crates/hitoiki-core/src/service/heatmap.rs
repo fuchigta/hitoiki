@@ -1,6 +1,6 @@
 //! 活動量ヒートマップ（日別の集計と濃淡の段階）。
 //!
-//! 時間の指標は `activity_segment`（`segment_override` 適用後の派生層）から、記録の指標は
+//! 時間の集計の軸は `activity_segment`（`segment_override` 適用後の派生層）から、記録の集計の軸は
 //! `checkin` / `hassle` / `abc_record` / `reflection` の `at` から、ローカル日付ごとに集計する。
 //! 日付の区切りは設定のタイムゾーンの 0 時。週は月曜始まり。
 //!
@@ -8,7 +8,7 @@
 //! 「その値以下の日」が全体に占める割合 p を 4 等分する（段階 = ceil(4p)）。同じ値は同じ段階。
 //! 段階は相対的な濃淡であり、多い少ないの評価ではない。
 
-use super::okr_summary::KrSelector;
+use super::key_result_summary::KeyResultSelector;
 use super::skill::descendants;
 use super::Ctx;
 use crate::model::SegmentKind;
@@ -26,7 +26,7 @@ pub const DEFAULT_WEEKS: i64 = 53;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct HeatmapInput {
-    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `kr:<ID・タイトル>`（`okr show` と同じ成果の指標の時間: 成果の指標のスキルが付いた作業と紐付けたタスク）/ `records[:checkin|hassle|abc|reflection]`。
+    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `key_result:<ID・タイトル>`（`key-result show` と同じ成果の指標の時間: 成果の指標のスキルが付いた作業と紐付けたタスク）/ `records[:checkin|hassle|abc|reflection]`。
     pub by: Option<String>,
     /// 開始日（`YYYY-MM-DD` / `today` / `yesterday`）。既定は 53 週前の週の月曜。
     pub from: Option<String>,
@@ -52,7 +52,7 @@ pub struct Heatmap {
     pub from_weekday: u8,
     /// 常に `monday`。
     pub week_start: &'static str,
-    /// 正規化した指標（例 `kind:work`）。
+    /// 正規化した集計の軸（例 `kind:work`）。
     pub by: String,
     pub label: String,
     /// `ms` または `count`。
@@ -66,7 +66,7 @@ pub struct Heatmap {
     pub thresholds: Vec<i64>,
 }
 
-enum Metric {
+enum HeatmapBy {
     Time,
     Kind(SegmentKind),
     Task {
@@ -75,8 +75,8 @@ enum Metric {
     Skill {
         ids: HashSet<String>,
     },
-    /// 成果の指標の集計（`okr show` と同じ区間の選び方）。
-    Kr(KrSelector),
+    /// 成果の指標の集計（`key-result show` と同じ区間の選び方）。
+    KeyResult(KeyResultSelector),
     Records(Option<&'static str>),
 }
 
@@ -108,24 +108,24 @@ fn find_task(ctx: &Ctx, key: &str) -> Result<crate::model::Task> {
     }
 }
 
-fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static str)> {
+fn parse_heatmap_by(ctx: &Ctx, by: &str) -> Result<(HeatmapBy, String, String, &'static str)> {
     let (head, arg) = match by.split_once(':') {
         Some((h, a)) => (h, Some(a)),
         None => (by, None),
     };
     let bad = || {
         Error::InvalidArgument(format!(
-            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, kr:<成果の指標>, records[:checkin|hassle|abc|reflection])"
+            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, key_result:<成果の指標>, records[:checkin|hassle|abc|reflection])"
         ))
     };
     Ok(match (head, arg) {
-        ("time", None) => (Metric::Time, "time".into(), "作業の時間".into(), "ms"),
+        ("time", None) => (HeatmapBy::Time, "time".into(), "作業の時間".into(), "ms"),
         ("kind", Some(k)) => {
             let kind: SegmentKind = k
                 .parse()
                 .map_err(|_| Error::InvalidArgument(format!("区間の種別が不正です: {k}")))?;
             (
-                Metric::Kind(kind),
+                HeatmapBy::Kind(kind),
                 format!("kind:{kind}"),
                 format!("種別: {}", kind_label(kind)),
                 "ms",
@@ -134,7 +134,7 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
         ("task", Some(k)) if !k.is_empty() => {
             let t = find_task(ctx, k)?;
             (
-                Metric::Task { id: t.id.clone() },
+                HeatmapBy::Task { id: t.id.clone() },
                 format!("task:{}", t.id),
                 format!("タスク: {}", t.title),
                 "ms",
@@ -147,23 +147,23 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
             let mut ids: HashSet<String> = descendants(&all, &s.id).into_iter().collect();
             ids.insert(s.id.clone());
             (
-                Metric::Skill { ids },
+                HeatmapBy::Skill { ids },
                 format!("skill:{}", s.name),
                 format!("スキル: {}（子スキルを含む）", s.name),
                 "ms",
             )
         }
-        ("kr", Some(k)) if !k.is_empty() => {
-            let kr = super::okr::find_kr(ctx, k)?;
+        ("key_result", Some(k)) if !k.is_empty() => {
+            let key_result = super::goal::find_key_result(ctx, k)?;
             (
-                Metric::Kr(KrSelector::new(ctx, &kr.id)?),
-                format!("kr:{}", kr.id),
-                format!("成果の指標: {}", kr.title),
+                HeatmapBy::KeyResult(KeyResultSelector::new(ctx, &key_result.id)?),
+                format!("key_result:{}", key_result.id),
+                format!("成果の指標: {}", key_result.title),
                 "ms",
             )
         }
         ("records", None) => (
-            Metric::Records(None),
+            HeatmapBy::Records(None),
             "records".into(),
             "記録の数".into(),
             "count",
@@ -171,7 +171,7 @@ fn parse_metric(ctx: &Ctx, by: &str) -> Result<(Metric, String, String, &'static
         ("records", Some(k)) => {
             let (name, _, label) = RECORD_KINDS.iter().find(|(n, _, _)| *n == k).ok_or_else(bad)?;
             (
-                Metric::Records(Some(name)),
+                HeatmapBy::Records(Some(name)),
                 format!("records:{name}"),
                 format!("記録の数: {label}"),
                 "count",
@@ -257,12 +257,12 @@ pub(super) fn add_per_day(
 pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
     let tz = ctx.tz()?;
     let (from, to) = resolve_dates(ctx, tz, input)?;
-    let (metric, by, label, unit) = parse_metric(ctx, input.by.as_deref().unwrap_or("time"))?;
+    let (heatmap_by, by, label, unit) = parse_heatmap_by(ctx, input.by.as_deref().unwrap_or("time"))?;
     let range = Range::new(timefmt::day_range(tz, from).start, timefmt::day_range(tz, to).end);
 
     let mut per_day: BTreeMap<NaiveDate, i64> = BTreeMap::new();
-    match &metric {
-        Metric::Records(kind) => {
+    match &heatmap_by {
+        HeatmapBy::Records(kind) => {
             for (name, table, _) in RECORD_KINDS {
                 if kind.is_some_and(|k| k != name) {
                     continue;
@@ -279,8 +279,8 @@ pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
             }
         }
         _ => {
-            let task_ids: Option<HashSet<String>> = match &metric {
-                Metric::Skill { ids } => {
+            let task_ids: Option<HashSet<String>> = match &heatmap_by {
+                HeatmapBy::Skill { ids } => {
                     let mut stmt = ctx.conn.prepare("SELECT task_id, skill_id FROM task_skill")?;
                     let rows: Vec<(String, String)> = stmt
                         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -295,15 +295,15 @@ pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
                 _ => None,
             };
             for s in repo::segment::list(ctx.conn, range)? {
-                if let Metric::Kr(sel) = &metric {
+                if let HeatmapBy::KeyResult(sel) = &heatmap_by {
                     // 無操作・休憩・無視の除外もセレクタが行う。
                     if sel.pick(&s).is_some() {
                         add_per_day(&mut per_day, tz, range, s.start_at, s.end_at);
                     }
                     continue;
                 }
-                let counted = match &metric {
-                    Metric::Kind(k) => s.kind == *k,
+                let counted = match &heatmap_by {
+                    HeatmapBy::Kind(k) => s.kind == *k,
                     // 時間・タスク・スキルは「今日の合計」と同じ数え方（無操作・休憩・無視を除く）。
                     _ => !matches!(
                         s.kind,
@@ -313,9 +313,9 @@ pub fn heatmap(ctx: &Ctx, input: &HeatmapInput) -> Result<Heatmap> {
                 if !counted {
                     continue;
                 }
-                let matches_target = match &metric {
-                    Metric::Task { id } => s.task_id.as_deref() == Some(id.as_str()),
-                    Metric::Skill { .. } => s
+                let matches_target = match &heatmap_by {
+                    HeatmapBy::Task { id } => s.task_id.as_deref() == Some(id.as_str()),
+                    HeatmapBy::Skill { .. } => s
                         .task_id
                         .as_ref()
                         .zip(task_ids.as_ref())
@@ -490,7 +490,7 @@ mod tests {
     }
 
     #[test]
-    fn kind_task_skill_metrics() {
+    fn kind_task_skill_axes() {
         let env = Env::new();
         let c = env.ctx();
         let d = env.day_start();
@@ -594,36 +594,36 @@ mod tests {
     }
 
     #[test]
-    fn kr_metric_counts_linked_tasks_only() {
-        use crate::service::okr::{self, KrInput, ObjectiveInput};
+    fn key_result_axis_counts_linked_tasks_only() {
+        use crate::service::goal::{self, GoalInput, KeyResultInput};
         let env = Env::new();
         let c = env.ctx();
         let d = env.day_start();
-        let o = okr::add_objective(
+        let o = goal::add_goal(
             &c,
-            &ObjectiveInput {
+            &GoalInput {
                 title: "O".into(),
                 from: None,
                 to: None,
             },
         )
         .unwrap();
-        let k = okr::add_kr(
+        let k = goal::add_key_result(
             &c,
-            &KrInput {
-                objective: o.id,
+            &KeyResultInput {
+                goal: o.id,
                 title: "読書".into(),
                 target: None,
                 skills: vec![],
             },
         )
         .unwrap();
-        let mk = |title: &str, kr: Option<&str>| {
+        let mk = |title: &str, key_result: Option<&str>| {
             task::add(
                 &c,
                 &TaskInput {
                     title: Some(title.into()),
-                    key_result: kr.map(Into::into),
+                    key_result: key_result.map(Into::into),
                     ..Default::default()
                 },
             )
@@ -661,12 +661,15 @@ mod tests {
             Some(&a),
             st,
         );
-        let h = heatmap(&c, &input(&format!("kr:{}", &k.id[..12]))).unwrap();
+        let h = heatmap(&c, &input(&format!("key_result:{}", &k.id[..12]))).unwrap();
         assert_eq!(h.total, 40 * MIN);
-        assert_eq!(h.by, format!("kr:{}", k.id));
+        assert_eq!(h.by, format!("key_result:{}", k.id));
         // タイトルでも指定できる。
-        assert_eq!(heatmap(&c, &input("kr:読書")).unwrap().total, 40 * MIN);
-        assert!(matches!(heatmap(&c, &input("kr:無い")), Err(Error::NotFound(_))));
+        assert_eq!(heatmap(&c, &input("key_result:読書")).unwrap().total, 40 * MIN);
+        assert!(matches!(
+            heatmap(&c, &input("key_result:無い")),
+            Err(Error::NotFound(_))
+        ));
     }
 
     #[test]

@@ -32,7 +32,7 @@ describe("モック IPC", () => {
     await m.call("task_list", { filter: { statuses: [] } });
     await m.call("report", { by: "task", range: { date: "this-week" }, include_idle: false });
     await m.call("heatmap", { by: "time" });
-    await m.call("okr_list");
+    await m.call("goal_list");
   });
 
   it("タスクの追加と開始が状態に反映される", async () => {

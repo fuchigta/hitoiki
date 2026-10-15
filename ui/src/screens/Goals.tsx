@@ -1,60 +1,60 @@
 import { Fragment } from "preact";
-import { api, type KeyResult, type ObjectiveView, type SkillView } from "../api";
+import { api, type KeyResult, type GoalView, type SkillView } from "../api";
 import { EmptyState, ErrorBox, InlineNew } from "../components";
-import { splitMeasures } from "../kr-util";
+import { splitMeasures } from "../key-result-util";
 import { hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "../lib";
 import { periodInputs } from "../manage-util";
-import { KrPanel, ObjectiveDetail, OKR_STATUS_LABEL, SkillDetail, useObjectiveDelete } from "../okr-edit";
-import { krMetaText, okrSelection, okrTab, skillTree, type OkrTab } from "../okr-util";
+import { KeyResultPanel, GoalDetail, GOAL_STATUS_LABEL, SkillDetail, useGoalDelete } from "../goal-edit";
+import { keyResultMetaText, goalSelection, goalsTab, skillTree, type GoalsTab } from "../goal-util";
 import { Help, ListDetail, ObjectList, ObjectRow, Tabs } from "../ui/parts";
 
 const TABS = [
-  { id: "okr", label: "目標" },
+  { id: "goals", label: "目標" },
   { id: "skills", label: "スキル" },
 ];
 
-export function Okr() {
+export function Goals() {
   const route = useRoute();
-  const sel = okrSelection(route.path);
-  const tab = okrTab(route.params.get("tab"), sel);
-  const okr = useAsync(() => api.okrList(), []);
+  const sel = goalSelection(route.path);
+  const tab = goalsTab(route.params.get("tab"), sel);
+  const goalsState = useAsync(() => api.goalList(), []);
   const skills = useAsync(() => api.skillList(), []);
   const act = useAction();
-  const objectives = okr.data?.objectives ?? [];
+  const goals = goalsState.data?.goals ?? [];
   const skillList = skills.data?.skills ?? [];
 
-  const goTab = (t: string) => navigate(hrefOf("okr", [], t === "skills" ? { tab: "skills" } : {}));
-  const home = (t: OkrTab) => hrefOf("okr", [], t === "skills" ? { tab: "skills" } : {});
+  const goTab = (t: string) => navigate(hrefOf("goals", [], t === "skills" ? { tab: "skills" } : {}));
+  const home = (t: GoalsTab) => hrefOf("goals", [], t === "skills" ? { tab: "skills" } : {});
 
   const list = (
     <div class="stack">
-      <Tabs tabs={TABS} active={tab} onChange={goTab} idBase="okr" label="目標の一覧" panels={false} />
-      {tab === "okr" ? (
+      <Tabs tabs={TABS} active={tab} onChange={goTab} idBase="goals" label="目標の一覧" panels={false} />
+      {tab === "goals" ? (
         <>
           <div class="list-head">
             <Help>
-              目標と、その達成を測る成果の指標（時間・回数・完了数で数える）を書く場所です。OKR（Objectives and Key Results）という手法の形で、目標の下に成果の指標を並べます。
+              目標と、その達成を測る成果の指標（時間・取り組んだ日数・完了したタスク数で数える）を書く場所です。目標の下に成果の指標を並べます。
             </Help>
             <span class="spacer" />
             <InlineNew
               label="＋ 目標"
               inputLabel="新しい目標"
               onCreate={async (title) => {
-                const o = await api.okrAddObjective(title);
-                okr.reload();
-                navigate(hrefOf("okr", ["o", o.id]));
+                const o = await api.goalAdd(title);
+                goalsState.reload();
+                navigate(hrefOf("goals", ["goal", o.id]));
                 return o;
               }}
             />
           </div>
-          <ErrorBox error={okr.error} />
-          {okr.data && objectives.length === 0 && <EmptyState>目標はまだありません。</EmptyState>}
+          <ErrorBox error={goalsState.error} />
+          {goalsState.data && goals.length === 0 && <EmptyState>目標はまだありません。</EmptyState>}
           <ObjectList label="目標と成果の指標">
-            {objectives.map((o) => (
+            {goals.map((o) => (
               <Fragment key={o.id}>
-                <ObjectiveRow o={o} selected={sel?.kind === "o" && sel.id === o.id} onDeleted={() => deleted(okr.reload, home("okr"))} />
+                <GoalRow o={o} selected={sel?.kind === "goal" && sel.id === o.id} onDeleted={() => deleted(goalsState.reload, home("goals"))} />
                 {o.key_results.map((k) => (
-                  <KrRow key={k.id} k={k} selected={sel?.kind === "kr" && sel.id === k.id} />
+                  <KeyResultRow key={k.id} k={k} selected={sel?.kind === "key-result" && sel.id === k.id} />
                 ))}
               </Fragment>
             ))}
@@ -85,7 +85,7 @@ export function Okr() {
               onCreate={async (name) => {
                 const s = await api.skillAdd(name);
                 skills.reload();
-                navigate(hrefOf("okr", ["skill", s.id], { tab: "skills" }));
+                navigate(hrefOf("goals", ["skill", s.id], { tab: "skills" }));
                 return s;
               }}
             />
@@ -100,7 +100,7 @@ export function Okr() {
                 selected={sel?.kind === "skill" && sel.id === s.id}
                 title={s.name}
                 tags={s.preset ? ["プリセット"] : undefined}
-                onSelect={() => navigate(hrefOf("okr", ["skill", s.id], { tab: "skills" }))}
+                onSelect={() => navigate(hrefOf("goals", ["skill", s.id], { tab: "skills" }))}
               />
             ))}
           </ObjectList>
@@ -109,7 +109,7 @@ export function Okr() {
     </div>
   );
 
-  return <ListDetail list={list} detail={<Detail sel={sel} tab={tab} route={route.params} objectives={objectives} skills={skillList} reloadOkr={okr.reload} reloadSkills={skills.reload} loaded={!!okr.data && !!skills.data} />} />;
+  return <ListDetail list={list} detail={<Detail sel={sel} tab={tab} route={route.params} goals={goals} skills={skillList} reloadGoals={goalsState.reload} reloadSkills={skills.reload} loaded={!!goalsState.data && !!skills.data} />} />;
 }
 
 /** 削除後は一覧を読み直し、選択を外す。 */
@@ -122,22 +122,22 @@ function Detail({
   sel,
   tab,
   route,
-  objectives,
+  goals,
   skills,
-  reloadOkr,
+  reloadGoals,
   reloadSkills,
   loaded,
 }: {
-  sel: ReturnType<typeof okrSelection>;
-  tab: OkrTab;
+  sel: ReturnType<typeof goalSelection>;
+  tab: GoalsTab;
   route: URLSearchParams;
-  objectives: ObjectiveView[];
+  goals: GoalView[];
   skills: SkillView[];
-  reloadOkr: () => void;
+  reloadGoals: () => void;
   reloadSkills: () => void;
   loaded: boolean;
 }) {
-  const home = hrefOf("okr", [], tab === "skills" ? { tab: "skills" } : {});
+  const home = hrefOf("goals", [], tab === "skills" ? { tab: "skills" } : {});
   if (!sel) {
     return (
       <EmptyState>
@@ -148,24 +148,24 @@ function Detail({
     );
   }
   if (!loaded) return <EmptyState>読み込み中…</EmptyState>;
-  if (sel.kind === "o") {
-    const o = objectives.find((x) => x.id === sel.id);
+  if (sel.kind === "goal") {
+    const o = goals.find((x) => x.id === sel.id);
     if (!o) return <EmptyState>目標が見つかりません。</EmptyState>;
     return (
-      <ObjectiveDetail
+      <GoalDetail
         key={`${o.id}?${route.toString()}`}
         o={o}
         initialEditing={route.get("edit") === "1"}
-        initialAdding={route.get("new") === "kr"}
-        onChanged={reloadOkr}
-        onDeleted={() => deleted(reloadOkr, home)}
+        initialAdding={route.get("new") === "key-result"}
+        onChanged={reloadGoals}
+        onDeleted={() => deleted(reloadGoals, home)}
       />
     );
   }
-  if (sel.kind === "kr") {
-    const k = objectives.flatMap((o) => o.key_results).find((x) => x.id === sel.id);
+  if (sel.kind === "key-result") {
+    const k = goals.flatMap((o) => o.key_results).find((x) => x.id === sel.id);
     if (!k) return <EmptyState>成果の指標が見つかりません。</EmptyState>;
-    return <KrPanel key={k.id} k={k} objectives={objectives} onChanged={reloadOkr} onDeleted={() => deleted(reloadOkr, home)} />;
+    return <KeyResultPanel key={k.id} k={k} goals={goals} onChanged={reloadGoals} onDeleted={() => deleted(reloadGoals, home)} />;
   }
   const s = skills.find((x) => x.id === sel.id);
   if (!s) return <EmptyState>スキルが見つかりません。</EmptyState>;
@@ -176,7 +176,7 @@ function Detail({
       all={skills}
       onChanged={() => {
         reloadSkills();
-        reloadOkr();
+        reloadGoals();
       }}
       onDeleted={() => deleted(reloadSkills, home)}
     />
@@ -184,21 +184,21 @@ function Detail({
 }
 
 /** 目標の見出し行。タイトル・期間・状態。「…」に成果の指標の追加・編集・削除。 */
-function ObjectiveRow({ o, selected, onDeleted }: { o: ObjectiveView; selected: boolean; onDeleted: () => void }) {
-  const del = useObjectiveDelete(o.id, onDeleted);
+function GoalRow({ o, selected, onDeleted }: { o: GoalView; selected: boolean; onDeleted: () => void }) {
+  const del = useGoalDelete(o.id, onDeleted);
   const period = o.period_start != null || o.period_end != null ? periodText(o) : undefined;
   return (
     <ObjectRow
       group
       selected={selected}
       title={o.title}
-      tags={o.status !== "active" ? [OKR_STATUS_LABEL[o.status] ?? o.status] : undefined}
+      tags={o.status !== "active" ? [GOAL_STATUS_LABEL[o.status] ?? o.status] : undefined}
       meta={period}
-      onSelect={() => navigate(hrefOf("okr", ["o", o.id]))}
+      onSelect={() => navigate(hrefOf("goals", ["goal", o.id]))}
       menuLabel={`目標「${o.title}」の操作`}
       menu={[
-        { label: "成果の指標を追加", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { new: "kr" })) },
-        { label: "編集", onSelect: () => navigate(hrefOf("okr", ["o", o.id], { edit: "1" })) },
+        { label: "成果の指標を追加", onSelect: () => navigate(hrefOf("goals", ["goal", o.id], { new: "key-result" })) },
+        { label: "編集", onSelect: () => navigate(hrefOf("goals", ["goal", o.id], { edit: "1" })) },
         { label: "削除…", onSelect: del.start, disabled: del.busy },
       ]}
       trailing={del.dialog}
@@ -206,29 +206,29 @@ function ObjectiveRow({ o, selected, onDeleted }: { o: ObjectiveView; selected: 
   );
 }
 
-function periodText(o: ObjectiveView): string {
+function periodText(o: GoalView): string {
   const p = periodInputs(o);
   return `${p.from || "…"} 〜 ${p.to || "…"}`;
 }
 
-/** 成果の指標の行。主軸の値を 1 つ、書いてある目標値と並べるだけ（達成率や評価は出さない）。 */
-function KrRow({ k, selected }: { k: KeyResult; selected: boolean }) {
+/** 成果の指標の行。選んだ数え方の値を 1 つ、書いてある目標値と並べるだけ（達成率や評価は出さない）。 */
+function KeyResultRow({ k, selected }: { k: KeyResult; selected: boolean }) {
   return (
     <ObjectRow
       indent={1}
       selected={selected}
       title={k.title}
-      tags={k.status !== "active" ? [OKR_STATUS_LABEL[k.status] ?? k.status] : undefined}
-      meta={<KrMeta k={k} />}
-      onSelect={() => navigate(hrefOf("okr", ["kr", k.id]))}
+      tags={k.status !== "active" ? [GOAL_STATUS_LABEL[k.status] ?? k.status] : undefined}
+      meta={<KeyResultMeta k={k} />}
+      onSelect={() => navigate(hrefOf("goals", ["key-result", k.id]))}
     />
   );
 }
 
-function KrMeta({ k }: { k: KeyResult }) {
+function KeyResultMeta({ k }: { k: KeyResult }) {
   const tick = useLiveTick(["segments-updated"]);
-  const sum = useAsync(() => api.okrShow(k.id), [k.id, k.measure, k.day_min, tick]);
+  const sum = useAsync(() => api.keyResultShow(k.id), [k.id, k.measure, k.active_day_min, tick]);
   const main = sum.data ? splitMeasures(sum.data).main.text : undefined;
   if (!main) return k.target ? `目標値 ${k.target}` : null;
-  return krMetaText(main, k.target);
+  return keyResultMetaText(main, k.target);
 }

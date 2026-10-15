@@ -1,5 +1,5 @@
 // 編集・削除の画面で使う純粋関数。
-import type { Impact, Millis, Objective, ObjectiveEdit } from "./api";
+import type { Impact, Millis, Goal, GoalEdit } from "./api";
 import { dateInput, toMillis } from "./lib";
 
 /** 確認ダイアログに出す影響の行（「紐付いたタスク 3 件」）。件数 0 の行は core が出さない。 */
@@ -15,7 +15,7 @@ export function hasImpact(impact: Impact): boolean {
 const DAY = 86_400_000;
 
 /** 目標の期間を `<input type="date">` の値に。終了は「その日の終わり（翌日 0 時）」を保存するので 1 ミリ秒戻して日付にする。 */
-export function periodInputs(o: Pick<Objective, "period_start" | "period_end">): { from: string; to: string } {
+export function periodInputs(o: Pick<Goal, "period_start" | "period_end">): { from: string; to: string } {
   return {
     from: o.period_start != null ? dateInput(o.period_start) : "",
     to: o.period_end != null ? dateInput(o.period_end - 1) : "",
@@ -26,8 +26,8 @@ export function periodInputs(o: Pick<Objective, "period_start" | "period_end">):
 export function periodEdit(
   from: string,
   to: string,
-  current: Pick<Objective, "period_start" | "period_end">,
-): Pick<ObjectiveEdit, "from" | "to" | "clear_period"> {
+  current: Pick<Goal, "period_start" | "period_end">,
+): Pick<GoalEdit, "from" | "to" | "clear_period"> {
   const f: Millis | undefined = from ? toMillis(from, "00:00") : undefined;
   const t: Millis | undefined = to ? toMillis(to, "00:00") + DAY : undefined;
   if (f === undefined && t === undefined) {

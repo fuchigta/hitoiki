@@ -499,7 +499,7 @@ pub fn kr_idle_due(cfg: &Push, tz: chrono_tz::Tz, now: Millis, push_log: &[crate
 
 /// kr_idle: 設定の曜日（`push.kr_idle_weekday`。1=月〜7=日、0 で無効）以降の勤務時間内に、今週まだ時間が入っていない
 /// 成果の指標（`ctx.kr_idle`）があれば 1 回だけ事実を伝える。週は月曜始まりで、今週すでに配信していれば出さない。
-/// 対象の成果の指標の選び方（軸・目標の期間・スキルまたは紐付けタスクの有無）は `store::load_kr_idle`。
+/// 対象の成果の指標の選び方（数え方・目標の期間・スキルまたは紐付けタスクの有無）は `store::load_kr_idle`。
 fn kr_idle(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
     if ctx.kr_idle.is_empty() || !in_work_hours(ctx, cfg) || !kr_idle_due(cfg, ctx.tz, ctx.now, &ctx.push_log)
     {

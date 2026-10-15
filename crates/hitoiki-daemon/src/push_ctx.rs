@@ -445,12 +445,12 @@ mod tests {
 
     #[test]
     fn tick_delivers_kr_idle_once_a_week_from_the_weekday() {
-        use hitoiki_core::model::{KeyResult, Objective};
-        use hitoiki_core::repo::okr;
+        use hitoiki_core::model::{Goal, KeyResult};
+        use hitoiki_core::repo::goal;
         let conn = db::open_in_memory().unwrap();
-        okr::insert_objective(
+        goal::insert_goal(
             &conn,
-            &Objective {
+            &Goal {
                 id: "O1".into(),
                 title: "目標".into(),
                 description_md: None,
@@ -460,17 +460,17 @@ mod tests {
             },
         )
         .unwrap();
-        okr::insert_kr(
+        goal::insert_key_result(
             &conn,
             &KeyResult {
                 id: "K1".into(),
-                objective_id: "O1".into(),
+                goal_id: "O1".into(),
                 title: "英語".into(),
                 target: None,
                 current: None,
                 status: "active".into(),
                 measure: "time".into(),
-                day_min: 15,
+                active_day_min: 15,
             },
         )
         .unwrap();

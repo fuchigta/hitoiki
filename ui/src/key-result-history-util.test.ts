@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { KrHistoryWeek } from "./api";
-import { isEmptyHistory, valueLevels, valueSegments, weekValueText } from "./kr-history-util";
+import type { KeyResultHistoryWeek } from "./api";
+import { isEmptyHistory, valueLevels, valueSegments, weekValueText } from "./key-result-history-util";
 
-const week = (over: Partial<KrHistoryWeek> = {}): KrHistoryWeek => ({
+const week = (over: Partial<KeyResultHistoryWeek> = {}): KeyResultHistoryWeek => ({
   week_start: "2026-10-05",
   duration_ms: 0,
   value: null,

@@ -1975,7 +1975,7 @@ fn idle_task_answer_confirms_range_as_offline_work_and_survives_rebuild() {
 
 // ===== kr_idle =====
 
-fn kr_ctx(now: Millis) -> PushContext {
+fn key_result_ctx(now: Millis) -> PushContext {
     let mut ctx = PushContext::new(now, TZ);
     ctx.kr_idle = vec![
         KrIdleNudge {
@@ -1993,8 +1993,8 @@ fn kr_ctx(now: Millis) -> PushContext {
 #[test]
 fn kr_idle_fires_on_or_after_weekday_with_facts_only() {
     // 既定は水曜（14 日）。火曜（13 日）はまだ出ない。
-    assert!(evaluate(&kr_ctx(t(13, 10, 0)), &cfg()).is_empty());
-    let ds = evaluate(&kr_ctx(t(14, 10, 0)), &cfg());
+    assert!(evaluate(&key_result_ctx(t(13, 10, 0)), &cfg()).is_empty());
+    let ds = evaluate(&key_result_ctx(t(14, 10, 0)), &cfg());
     assert_eq!(delivered(&ds), vec![PushTrigger::KrIdle]);
     let PushDecision::Deliver(p) = &ds[0] else {
         panic!()
@@ -2008,14 +2008,14 @@ fn kr_idle_fires_on_or_after_weekday_with_facts_only() {
     assert_eq!(p.open_screen.as_deref(), Some("today/design"));
     // 水曜以降なら金曜でも出る。
     assert_eq!(
-        delivered(&evaluate(&kr_ctx(t(16, 10, 0)), &cfg())),
+        delivered(&evaluate(&key_result_ctx(t(16, 10, 0)), &cfg())),
         vec![PushTrigger::KrIdle]
     );
 }
 
 #[test]
-fn kr_idle_summarizes_many_krs() {
-    let mut ctx = kr_ctx(t(14, 10, 0));
+fn kr_idle_summarizes_many_key_results() {
+    let mut ctx = key_result_ctx(t(14, 10, 0));
     for i in 3..=6 {
         ctx.kr_idle.push(KrIdleNudge {
             id: format!("K{i}"),
@@ -2033,7 +2033,7 @@ fn kr_idle_summarizes_many_krs() {
 
 #[test]
 fn kr_idle_once_a_week_and_weekday_setting() {
-    let mut ctx = kr_ctx(t(16, 10, 0));
+    let mut ctx = key_result_ctx(t(16, 10, 0));
     // 今週すでに配信済み（応答は問わない）。
     ctx.push_log = vec![task_log(
         payload::kr_idle(&["a"]),
@@ -2048,41 +2048,41 @@ fn kr_idle_once_a_week_and_weekday_setting() {
     // 0 で無効、1（月曜）なら月曜から、7（日曜）なら日曜だけ。
     let mut c = cfg();
     c.kr_idle_weekday = 0;
-    assert!(evaluate(&kr_ctx(t(16, 10, 0)), &c).is_empty());
+    assert!(evaluate(&key_result_ctx(t(16, 10, 0)), &c).is_empty());
     c.kr_idle_weekday = 8;
-    assert!(evaluate(&kr_ctx(t(16, 10, 0)), &c).is_empty());
+    assert!(evaluate(&key_result_ctx(t(16, 10, 0)), &c).is_empty());
     c.kr_idle_weekday = 1;
     assert_eq!(
-        delivered(&evaluate(&kr_ctx(t(12, 10, 0)), &c)),
+        delivered(&evaluate(&key_result_ctx(t(12, 10, 0)), &c)),
         vec![PushTrigger::KrIdle]
     );
     c.kr_idle_weekday = 7;
-    assert!(evaluate(&kr_ctx(t(16, 10, 0)), &c).is_empty());
+    assert!(evaluate(&key_result_ctx(t(16, 10, 0)), &c).is_empty());
     // 日曜は週次の振り返りも条件を満たすので、それを無効にして見る。
     c.disabled_triggers = vec!["weekly".into()];
     assert_eq!(
-        delivered(&evaluate(&kr_ctx(t(18, 10, 0)), &c)),
+        delivered(&evaluate(&key_result_ctx(t(18, 10, 0)), &c)),
         vec![PushTrigger::KrIdle]
     );
 }
 
 #[test]
 fn kr_idle_needs_krs_work_hours_and_not_disabled() {
-    let mut ctx = kr_ctx(t(14, 10, 0));
+    let mut ctx = key_result_ctx(t(14, 10, 0));
     ctx.kr_idle.clear();
     assert!(evaluate(&ctx, &cfg()).is_empty());
     for (h, m) in [(7, 0), (18, 30), (22, 0)] {
         // 勤務時間外は kr_idle を出さない（終業の通知など、ほかのトリガーは別）。
         assert!(
-            !delivered(&evaluate(&kr_ctx(t(14, h, m)), &cfg())).contains(&PushTrigger::KrIdle),
+            !delivered(&evaluate(&key_result_ctx(t(14, h, m)), &cfg())).contains(&PushTrigger::KrIdle),
             "{h}:{m}"
         );
     }
     let mut c = cfg();
     c.disabled_triggers = vec!["kr_idle".into()];
-    assert!(evaluate(&kr_ctx(t(14, 10, 0)), &c).is_empty());
+    assert!(evaluate(&key_result_ctx(t(14, 10, 0)), &c).is_empty());
     // 無操作中は出ない。
-    let mut ctx = kr_ctx(t(14, 10, 0));
+    let mut ctx = key_result_ctx(t(14, 10, 0));
     ctx.idle = IdleState {
         is_idle: true,
         since_last_input_sec: 900,
@@ -2094,7 +2094,7 @@ fn kr_idle_needs_krs_work_hours_and_not_disabled() {
 fn kr_idle_obeys_gate_snooze_daily_limit_and_meeting() {
     let now = t(14, 10, 0);
     // スヌーズ中。
-    let mut ctx = kr_ctx(now);
+    let mut ctx = key_result_ctx(now);
     let mut l = log("day_start", t(14, 8, 30), true);
     l.snoozed_until = Some(now + 30 * MIN);
     ctx.push_log = vec![l];
@@ -2102,11 +2102,11 @@ fn kr_idle_obeys_gate_snooze_daily_limit_and_meeting() {
     // 1 日上限。
     let mut c = cfg();
     c.daily_limit = 1;
-    let mut ctx = kr_ctx(now);
+    let mut ctx = key_result_ctx(now);
     ctx.push_log = vec![log("day_start", t(14, 8, 30), true)];
     assert!(delivered(&evaluate(&ctx, &c)).is_empty());
     // 会議中は保留。
-    let mut ctx = kr_ctx(now);
+    let mut ctx = key_result_ctx(now);
     ctx.calendar_events = vec![event(t(14, 9, 30), t(14, 10, 30))];
     let ds = evaluate(&ctx, &cfg());
     assert!(matches!(

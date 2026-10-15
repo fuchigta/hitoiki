@@ -16,10 +16,10 @@ describe("routeFromHash", () => {
   });
 
   it("深いパス・先頭の # や / の有無・末尾の /", () => {
-    expect(routeFromHash("#/okr/kr/K1").path).toEqual(["kr", "K1"]);
-    expect(routeFromHash("okr/skill/S1").path).toEqual(["skill", "S1"]);
-    expect(routeFromHash("#/okr/").path).toEqual([]);
-    expect(routeFromHash("#/okr?tab=skills").params.get("tab")).toBe("skills");
+    expect(routeFromHash("#/goals/key-result/K1").path).toEqual(["key-result", "K1"]);
+    expect(routeFromHash("goals/skill/S1").path).toEqual(["skill", "S1"]);
+    expect(routeFromHash("#/goals/").path).toEqual([]);
+    expect(routeFromHash("#/goals?tab=skills").params.get("tab")).toBe("skills");
   });
 
   it("知らない画面・空は today", () => {
@@ -39,9 +39,9 @@ describe("hrefOf", () => {
   it("組み立てと往復", () => {
     expect(hrefOf("tasks")).toBe("#/tasks");
     expect(hrefOf("tasks", ["01ABC"], { tab: "rules" })).toBe("#/tasks/01ABC?tab=rules");
-    expect(hrefOf("okr", ["kr", "K1"], { tab: undefined, x: "" })).toBe("#/okr/kr/K1");
-    const r = routeFromHash(hrefOf("okr", ["o", "a b/c"], { tab: "skills" }));
-    expect(r.path).toEqual(["o", "a b/c"]);
+    expect(hrefOf("goals", ["key-result", "K1"], { tab: undefined, x: "" })).toBe("#/goals/key-result/K1");
+    const r = routeFromHash(hrefOf("goals", ["goal", "a b/c"], { tab: "skills" }));
+    expect(r.path).toEqual(["goal", "a b/c"]);
     expect(r.params.get("tab")).toBe("skills");
     expect(hrefOf("tasks", [], new URLSearchParams("tab=time&e="))).toBe("#/tasks?tab=time");
   });
@@ -82,7 +82,7 @@ describe("legacyRoute: 計画（P4）", () => {
 describe("画面の並び", () => {
   it("ナビは 今日 / 実績 / タスク / 目標 / 記録 / レポート / 設定（はじめにはナビ外）。旧名は含まない", async () => {
     const { SCREENS } = await import("./lib");
-    expect(SCREENS.map((s) => s.id)).toEqual(["today", "log", "tasks", "okr", "records", "report", "settings", "onboarding"]);
+    expect(SCREENS.map((s) => s.id)).toEqual(["today", "log", "tasks", "goals", "records", "report", "settings", "onboarding"]);
   });
   it("旧名（review・plan・reflect）も受け付けて、画面としては今日・実績・記録に写す", () => {
     const screens = ["#/review", "#/plan", "#/reflect", "#/reflection/weekly"].map((h) => legacyRoute(routeFromHash(h)).screen);

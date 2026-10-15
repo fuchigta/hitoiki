@@ -16,7 +16,7 @@ pub struct ImpactLine {
 /// 削除の影響の一覧。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Impact {
-    /// 対象の種類（`objective` / `key_result` / `skill` / ...）。
+    /// 対象の種類（`goal` / `key_result` / `skill` / ...）。
     pub entity: String,
     pub id: String,
     /// 確認ダイアログに出す名前。

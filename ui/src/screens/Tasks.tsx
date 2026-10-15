@@ -4,9 +4,9 @@ import { Card, Empty, EmptyState, ErrorBox, Field, InlineNew, Section } from "..
 import { useConfirmDelete } from "../confirm-delete";
 import { ListDetail, ObjectList, ObjectRow, OverflowMenu, TabPanel, Tabs, type MenuItem } from "../ui/parts";
 import { tabFromParam } from "../ui/tabs-util";
-import { defaultBodyMode, isDirty, isSaveShortcut, krPatch, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
-import { KrPicker } from "../kr-picker";
-import { krLabel, krOptions } from "../kr-util";
+import { defaultBodyMode, isDirty, isSaveShortcut, keyResultPatch, leaveGuard, parseEstimate, type TaskDraft } from "../edit-util";
+import { KeyResultPicker } from "../key-result-picker";
+import { keyResultLabel, keyResultOptions } from "../key-result-util";
 import { STATUS_LABEL, fmtDateTime, fmtDur, fmtTime, hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "../lib";
 import { Markdown } from "../markdown";
 import { SkillPicker } from "../skill-picker";
@@ -24,7 +24,7 @@ function draftOf(task: TaskView): TaskDraft {
     important: !!task.important,
     est: task.estimate_min != null ? String(task.estimate_min) : "",
     skills: [...task.skills],
-    kr: task.key_result_id ?? "",
+    keyResult: task.key_result_id ?? "",
   };
 }
 
@@ -196,14 +196,14 @@ function TaskDetail({
       {(task.key_result || task.skills.length > 0) && (
         <div class="relations">
           {task.key_result && (
-            <a class="link-chip" href={hrefOf("okr", ["kr", task.key_result.id])} title="この成果の指標の詳細を開く">
-              {krLabel({ title: task.key_result.title, objective_title: task.key_result.objective_title })}
+            <a class="link-chip" href={hrefOf("goals", ["key-result", task.key_result.id])} title="この成果の指標の詳細を開く">
+              {keyResultLabel({ title: task.key_result.title, goal_title: task.key_result.goal_title })}
             </a>
           )}
           {task.skills.map((name) => {
             const sid = skillId(name);
             return sid ? (
-              <a key={name} class="link-chip" href={hrefOf("okr", ["skill", sid])} title="このスキルの詳細を開く">
+              <a key={name} class="link-chip" href={hrefOf("goals", ["skill", sid])} title="このスキルの詳細を開く">
                 {name}
               </a>
             ) : (
@@ -366,8 +366,8 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
   const act = useAction();
   // 補完に使う既知のスキル。取得できなくても他の欄の編集・保存は続けられる。
   const known = useAsync(() => api.skillList(), []);
-  const okr = useAsync(() => api.okrList(), []);
-  const krs = krOptions(okr.data?.objectives ?? [], draft.kr);
+  const goals = useAsync(() => api.goalList(), []);
+  const keyResults = keyResultOptions(goals.data?.goals ?? [], draft.keyResult);
   const formRef = useRef<HTMLFormElement>(null);
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
   const dirty = isDirty(saved, draft);
@@ -411,7 +411,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
         // 空にして保存したら、付いていたスキルを全て外す。
         clear_skills: list.length === 0 && task.skills.length > 0,
         // 成果の指標は選んでいれば紐付け、空にして保存したら外す。
-        ...krPatch(sent.kr, task.key_result_id),
+        ...keyResultPatch(sent.keyResult, task.key_result_id),
       }),
     );
     if (r !== undefined) {
@@ -489,7 +489,7 @@ function EditForm({ task, busy, onSaved }: { task: TaskView; busy: boolean; onSa
       </div>
       <div class="field">
         <span>成果の指標</span>
-        <KrPicker value={draft.kr} options={krs} onChange={(v) => set("kr", v)} ariaLabel="成果の指標を選ぶ" disabled={busy} />
+        <KeyResultPicker value={draft.keyResult} options={keyResults} onChange={(v) => set("keyResult", v)} ariaLabel="成果の指標を選ぶ" disabled={busy} />
       </div>
       <div class="row row-end">
         <label class="check">

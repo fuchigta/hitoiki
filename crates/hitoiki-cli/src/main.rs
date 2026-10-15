@@ -13,8 +13,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, erg, heatmap, log as log_svc, okr, plan, pushlog, quick, record, reflect,
-    report, review, skill, status, task, Ctx, RangeArgs,
+    self, context, correction, erg, heatmap, log as log_svc, plan, pushlog, quick, record, reflect, report,
+    review, skill, status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -677,37 +677,8 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Reflect(r) => reflect_cmd(&ctx, r, json),
         Cmd::Erg(e) => erg_cmd(&ctx, e, json),
-        Cmd::Okr(o) => match o {
-            OkrCmd::AddObjective { title, from, to } => {
-                let now = ctx.now();
-                let from = from.map(|s| timefmt::parse_instant(tz, &s, now)).transpose()?;
-                let to = to.map(|s| service::parse_to(tz, &s, now)).transpose()?;
-                let o = okr::add_objective(&ctx, &okr::ObjectiveInput { title, from, to })?;
-                emit(json, &o, || render::objective_added(&o))
-            }
-            OkrCmd::AddKr {
-                objective,
-                title,
-                target,
-                skill,
-            } => {
-                let k = okr::add_kr(
-                    &ctx,
-                    &okr::KrInput {
-                        objective,
-                        title,
-                        target,
-                        skills: skill,
-                    },
-                )?;
-                emit(json, &k, || render::kr_added(&k))
-            }
-            OkrCmd::List => {
-                let l = okr::list(&ctx)?;
-                emit(json, &l, || render::okr_list(&l))
-            }
-            other => manage::okr_sub(&ctx, json, other),
-        },
+        Cmd::Goal(g) => manage::goal_sub(&ctx, json, g),
+        Cmd::KeyResult(k) => manage::key_result_sub(&ctx, json, k),
         Cmd::Skill(s) => match s {
             SkillCmd::Add { name, parent } => {
                 let s = skill::add(&ctx, &skill::SkillInput { name, parent })?;
@@ -855,8 +826,8 @@ fn task_input(ctx: &Ctx, title: Option<String>, o: TaskOpts) -> Result<task::Tas
             .as_deref()
             .map(timefmt::parse_duration_min)
             .transpose()?,
-        key_result: o.kr,
-        clear_key_result: o.no_kr,
+        key_result: o.key_result,
+        clear_key_result: o.no_key_result,
         skills: o.skill,
         clear_skills: false,
         external_url: o.url,
