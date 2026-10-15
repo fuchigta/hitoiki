@@ -1,7 +1,7 @@
 //! UI 側への通知口。Tauri 常駐アプリはイベント送信・トースト表示を、ヘッドレスはログ出力を実装する。
 
 use hitoiki_agents::ImportStats;
-use hitoiki_core::push::PushPayload;
+use hitoiki_core::nudge::NudgePayload;
 use hitoiki_core::timefmt::Range;
 
 /// 常駐処理からの通知を受ける側。全メソッドは任意のスレッドから呼ばれる。
@@ -9,8 +9,8 @@ use hitoiki_core::timefmt::Range;
 pub trait RuntimeSink: Send + Sync {
     /// 割り当ての再計算が終わり、`range` の区間が更新された。
     fn segments_updated(&self, range: Range);
-    /// プッシュ通知を出す。`push_id` は `push_log.id`（応答の保存に使う）。
-    fn push(&self, push_id: &str, payload: &PushPayload);
+    /// 問いかけを出す。`nudge_id` は `nudge_log.id`（応答の保存に使う）。
+    fn nudge(&self, nudge_id: &str, payload: &NudgePayload);
     /// doing のタスクが変わった（CLI の `task start` 等）。
     fn doing_changed(&self, task_id: Option<&str>);
     /// エージェントログの取り込みが完了した。
@@ -35,8 +35,8 @@ impl RuntimeSink for LogSink {
         tracing::info!(start = range.start, end = range.end, "区間を更新しました");
     }
 
-    fn push(&self, push_id: &str, payload: &PushPayload) {
-        tracing::info!(push_id, trigger = %payload.trigger, "プッシュ通知（ヘッドレスのため表示しません）");
+    fn nudge(&self, nudge_id: &str, payload: &NudgePayload) {
+        tracing::info!(nudge_id, trigger = %payload.trigger, "問いかけ（ヘッドレスのため表示しません）");
     }
 
     fn doing_changed(&self, task_id: Option<&str>) {

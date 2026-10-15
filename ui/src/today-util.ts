@@ -48,7 +48,7 @@ export type SidePanel =
   | { kind: "correct"; span: TimeSpan }
   | { kind: "segment"; id: string }
   | { kind: "design" }
-  | { kind: "push" };
+  | { kind: "nudge" };
 
 /**
  * サイドパネルの状態。デザインのモードは「完了」まで保つので、別のパネル（ブロックの編集など）を閉じると
@@ -83,7 +83,7 @@ export function sideReducer(s: SideState, a: SideAction): SideState {
     case "finishDesign":
       return { design: false, other: null };
     case "dateChanged":
-      return s.other && s.other.kind !== "push" ? { ...s, other: null } : s;
+      return s.other && s.other.kind !== "nudge" ? { ...s, other: null } : s;
   }
 }
 

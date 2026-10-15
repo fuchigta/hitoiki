@@ -1,12 +1,12 @@
-//! 通知（プッシュ）の一覧と、あとからの回答・見送り（docs/dev/architecture.md「プッシュ通知」）。
+//! 問いかけの一覧と、あとからの回答・見送り（docs/dev/architecture.md「問いかけ」）。
 //!
-//! 応答の保存は [`crate::push::store::apply_response_with`] を通す（トーストの応答と同じ処理）。
+//! 応答の保存は [`crate::nudge::store::apply_response_with`] を通す（トーストの応答と同じ処理）。
 //! 記録（checkin / hassle）の `at` は通知の時刻になる。
 
 use super::{Ctx, RangeArgs};
 use crate::model::TaskStatus;
-use crate::push::store::{self, PushResponse, Scales};
-use crate::push::{payload, PushPayload, PushTrigger};
+use crate::nudge::store::{self, NudgeResponse, Scales};
+use crate::nudge::{payload, NudgePayload, NudgeTrigger};
 use crate::repo;
 use crate::service::review::IdlePreset;
 use crate::timefmt::{self, Range};
@@ -16,7 +16,7 @@ use serde::Serialize;
 /// 通知の状態。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PushState {
+pub enum NudgeState {
     /// まだ答えていない。
     Unanswered,
     /// 答えた（スヌーズ・「開く」を含む）。
@@ -26,7 +26,7 @@ pub enum PushState {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct PushView {
+pub struct NudgeView {
     pub id: String,
     pub at: Millis,
     pub at_local: String,
@@ -36,32 +36,32 @@ pub struct PushView {
     pub trigger_label: String,
     pub title: String,
     pub body: String,
-    pub state: PushState,
+    pub state: NudgeState,
     /// 通知の中身（ボタン・入力欄・対象期間を含む）。読み取れなければ None。
-    pub payload: Option<PushPayload>,
+    pub payload: Option<NudgePayload>,
 }
 
-fn state_of(log: &crate::model::PushLog) -> PushState {
+fn state_of(log: &crate::model::NudgeLog) -> NudgeState {
     if log.responded_at.is_some() {
-        return PushState::Answered;
+        return NudgeState::Answered;
     }
     let dismissed = log
         .response_json
         .as_deref()
-        .and_then(|j| serde_json::from_str::<PushResponse>(j).ok())
+        .and_then(|j| serde_json::from_str::<NudgeResponse>(j).ok())
         .is_some_and(|r| r.action.as_deref() == Some("dismiss"));
     if dismissed {
-        PushState::Dismissed
+        NudgeState::Dismissed
     } else {
-        PushState::Unanswered
+        NudgeState::Unanswered
     }
 }
 
-fn view(tz: chrono_tz::Tz, log: crate::model::PushLog) -> PushView {
+fn view(tz: chrono_tz::Tz, log: crate::model::NudgeLog) -> NudgeView {
     let state = state_of(&log);
-    let payload = serde_json::from_str::<PushPayload>(&log.payload_json).ok();
-    let trigger_label = PushTrigger::label_of(&log.trigger);
-    PushView {
+    let payload = serde_json::from_str::<NudgePayload>(&log.payload_json).ok();
+    let trigger_label = NudgeTrigger::label_of(&log.trigger);
+    NudgeView {
         at_local: timefmt::fmt_rfc3339(tz, log.at),
         title: payload
             .as_ref()
@@ -76,44 +76,44 @@ fn view(tz: chrono_tz::Tz, log: crate::model::PushLog) -> PushView {
     }
 }
 
-/// `push list` の出力。
+/// `nudge list` の出力。
 #[derive(Debug, Clone, Serialize)]
-pub struct PushList {
+pub struct NudgeList {
     pub range: super::RangeView,
-    pub pushes: Vec<PushView>,
+    pub nudges: Vec<NudgeView>,
 }
 
 /// 範囲内で配信済みの通知（古い順）。`unanswered` なら未回答だけ。
-pub fn list(ctx: &Ctx, range: &RangeArgs, unanswered: bool) -> Result<PushList> {
+pub fn list(ctx: &Ctx, range: &RangeArgs, unanswered: bool) -> Result<NudgeList> {
     let r = ctx.range(range)?;
     let tz = ctx.tz()?;
-    let logs = repo::push::list_delivered(ctx.conn, r.start, r.end)?;
-    Ok(PushList {
+    let logs = repo::nudge::list_delivered(ctx.conn, r.start, r.end)?;
+    Ok(NudgeList {
         range: super::range_view(tz, r),
-        pushes: logs
+        nudges: logs
             .into_iter()
             .map(|l| view(tz, l))
-            .filter(|v| !unanswered || v.state == PushState::Unanswered)
+            .filter(|v| !unanswered || v.state == NudgeState::Unanswered)
             .collect(),
     })
 }
 
 /// 範囲内の未回答の通知（`hitoiki status` と今日画面用）。
-pub fn list_unanswered(ctx: &Ctx, range: Range) -> Result<Vec<PushView>> {
+pub fn list_unanswered(ctx: &Ctx, range: Range) -> Result<Vec<NudgeView>> {
     let tz = ctx.tz()?;
-    Ok(repo::push::list_unanswered(ctx.conn, range.start, range.end)?
+    Ok(repo::nudge::list_unanswered(ctx.conn, range.start, range.end)?
         .into_iter()
         .map(|l| view(tz, l))
         .collect())
 }
 
-/// `push answer` の入力。`dismiss` と無操作の分類（`idle`）は、ほかの値と同時に指定できない。
+/// `nudge answer` の入力。`dismiss` と無操作の分類（`idle`）は、ほかの値と同時に指定できない。
 #[derive(Debug, Clone, Default)]
 pub struct AnswerInput {
     pub energy: Option<i64>,
     pub mood: Option<i64>,
     pub stress: Option<i64>,
-    pub hassle: Option<String>,
+    pub concern: Option<String>,
     pub idle: Option<IdlePreset>,
     /// タスク通知（urgent_task / important_task / block_start）と、idle_return の「{タスク名}をしていた」への答え。
     pub task: Option<TaskAnswer>,
@@ -129,7 +129,7 @@ pub enum TaskAnswer {
     Later,
     /// 今週は見送る（`task_skip_week`。今週その通知の対象から外す）。
     SkipWeek,
-    /// 今週は見送る（`kr_skip_week`。kr_idle。記録だけ）。
+    /// 今週は見送る（`key_result_skip_week`。key_result_idle。記録だけ）。
     KrSkipWeek,
     /// 無操作の期間を、通知が示したタスクの PC 外の作業として確定する（`idle_task`。idle_return）。
     IdleTask,
@@ -143,7 +143,7 @@ impl TaskAnswer {
             TaskAnswer::Start => payload::TASK_START,
             TaskAnswer::Later => payload::TASK_LATER,
             TaskAnswer::SkipWeek => payload::TASK_SKIP_WEEK,
-            TaskAnswer::KrSkipWeek => payload::KR_SKIP_WEEK,
+            TaskAnswer::KrSkipWeek => payload::KEY_RESULT_SKIP_WEEK,
             TaskAnswer::IdleTask => payload::IDLE_TASK_ACTION,
             TaskAnswer::BlockSkip => payload::BLOCK_SKIP,
         }
@@ -157,11 +157,11 @@ impl std::str::FromStr for TaskAnswer {
             "start" => Ok(TaskAnswer::Start),
             "later" => Ok(TaskAnswer::Later),
             "skip_week" | "skip-week" => Ok(TaskAnswer::SkipWeek),
-            "kr_skip_week" | "kr-skip-week" => Ok(TaskAnswer::KrSkipWeek),
+            "key_result_skip_week" | "kr-skip-week" => Ok(TaskAnswer::KrSkipWeek),
             "idle_task" | "idle-task" => Ok(TaskAnswer::IdleTask),
             "block_skip" | "block-skip" | "skip" => Ok(TaskAnswer::BlockSkip),
             other => Err(Error::InvalidArgument(format!(
-                "不明なタスクの答え: {other}（start / later / skip_week / kr_skip_week / idle_task / block_skip）"
+                "不明なタスクの答え: {other}（start / later / skip_week / key_result_skip_week / idle_task / block_skip）"
             ))),
         }
     }
@@ -169,7 +169,7 @@ impl std::str::FromStr for TaskAnswer {
 
 /// `task_start` の応答で始めるタスクを実際に始める（`service::task::start`）。
 /// 完了・中止済みのタスクは始めずにエラーにする（通知を出したあとで状態が変わっていた場合）。
-pub fn start_pushed_task(ctx: &Ctx, task_id: &str) -> Result<super::task::TaskChange> {
+pub fn start_nudged_task(ctx: &Ctx, task_id: &str) -> Result<super::task::TaskChange> {
     let t = repo::task::get(ctx.conn, task_id)?;
     if !matches!(t.status, TaskStatus::Todo | TaskStatus::Doing) {
         return Err(Error::InvalidArgument(
@@ -182,7 +182,7 @@ pub fn start_pushed_task(ctx: &Ctx, task_id: &str) -> Result<super::task::TaskCh
 #[derive(Debug, Clone, Serialize)]
 pub struct AnswerResult {
     pub id: String,
-    pub state: PushState,
+    pub state: NudgeState,
     pub checkin_id: Option<String>,
     pub hassle_id: Option<String>,
     /// 分類をつけた無操作区間の数。
@@ -193,12 +193,12 @@ pub struct AnswerResult {
 
 /// 通知に答える（または見送る）。回答済み・見送り済みの通知にも、あらためて答えられる。
 pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> {
-    let id = repo::resolve_prefix(ctx.conn, "push_log", id)?;
+    let id = repo::resolve_prefix(ctx.conn, "nudge_log", id)?;
     let log = store::get_log(ctx.conn, &id)?;
     if !log.delivered {
         return Err(Error::NotFound(format!("配信された通知 {id}")));
     }
-    let has_text = input.hassle.as_deref().is_some_and(|t| !t.trim().is_empty());
+    let has_text = input.concern.as_deref().is_some_and(|t| !t.trim().is_empty());
     let has_scale = input.energy.is_some() || input.mood.is_some() || input.stress.is_some();
     if input.task.is_some() && (input.dismiss || has_text || has_scale || input.idle.is_some()) {
         return Err(Error::InvalidArgument(
@@ -217,31 +217,31 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
     }
     if !input.dismiss && input.idle.is_none() && input.task.is_none() && !has_text && !has_scale {
         return Err(Error::InvalidArgument(
-            "回答（--energy / --mood / --stress / --hassle / --idle / --task）か --dismiss を指定してください".into(),
+            "回答（--energy / --mood / --stress / --concern / --idle / --task）か --dismiss を指定してください".into(),
         ));
     }
     let response = if let Some(t) = input.task {
-        PushResponse {
+        NudgeResponse {
             action: Some(t.action_id().into()),
             ..Default::default()
         }
     } else if input.dismiss {
-        PushResponse {
+        NudgeResponse {
             action: Some("dismiss".into()),
             ..Default::default()
         }
     } else if let Some(p) = input.idle {
-        PushResponse {
+        NudgeResponse {
             action: Some(format!(
                 "{}{}",
-                crate::push::payload::IDLE_ACTION_PREFIX,
+                crate::nudge::payload::IDLE_ACTION_PREFIX,
                 p.as_str()
             )),
             ..Default::default()
         }
     } else {
-        PushResponse {
-            text: input.hassle.clone(),
+        NudgeResponse {
+            text: input.concern.clone(),
             ..Default::default()
         }
     };
@@ -253,7 +253,7 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
     let out = store::apply_response_with(ctx.conn, &id, response, scales, ctx.now(), ctx.tz()?)?;
     let started_task = match out.start_task {
         Some(task_id) => {
-            start_pushed_task(ctx, &task_id)?;
+            start_nudged_task(ctx, &task_id)?;
             Some(task_id)
         }
         None => None,
@@ -272,11 +272,11 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::push::{payload, PushDecision};
+    use crate::nudge::{payload, NudgeDecision};
     use crate::service::testutil::Env;
 
-    fn deliver(env: &Env, p: PushPayload, at: Millis) -> String {
-        store::record_decision(&env.conn, &PushDecision::Deliver(p), at)
+    fn deliver(env: &Env, p: NudgePayload, at: Millis) -> String {
+        store::record_decision(&env.conn, &NudgeDecision::Deliver(p), at)
             .unwrap()
             .unwrap()
     }
@@ -292,7 +292,7 @@ mod tests {
             payload::idle_return(d + 1000, d + 20 * 60_000, None),
             d + 7_200_000,
         );
-        let v = list(&ctx, &RangeArgs::default(), true).unwrap().pushes;
+        let v = list(&ctx, &RangeArgs::default(), true).unwrap().nudges;
         assert_eq!(v.len(), 2);
         assert_eq!(
             (v[0].id.as_str(), v[0].trigger_label.as_str()),
@@ -304,7 +304,7 @@ mod tests {
         assert_eq!(p.idle_range, Some((d + 1000, d + 20 * 60_000)));
         assert_eq!(p.actions.len(), 4);
         let s = crate::service::status::status(&ctx).unwrap();
-        assert_eq!(s.unanswered_pushes.len(), 2);
+        assert_eq!(s.unanswered_nudges.len(), 2);
     }
 
     #[test]
@@ -323,7 +323,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(r.state, PushState::Answered);
+        assert_eq!(r.state, NudgeState::Answered);
         let (e, m, a, p): (i64, i64, i64, String) = env
             .conn
             .query_row("SELECT energy, mood, at, push_id FROM checkin", [], |r| {
@@ -331,10 +331,10 @@ mod tests {
             })
             .unwrap();
         assert_eq!((e, m, a, p), (4, 3, at, id));
-        assert!(list(&ctx, &RangeArgs::default(), true).unwrap().pushes.is_empty());
+        assert!(list(&ctx, &RangeArgs::default(), true).unwrap().nudges.is_empty());
         assert_eq!(
-            list(&ctx, &RangeArgs::default(), false).unwrap().pushes[0].state,
-            PushState::Answered
+            list(&ctx, &RangeArgs::default(), false).unwrap().nudges[0].state,
+            NudgeState::Answered
         );
     }
 
@@ -349,7 +349,7 @@ mod tests {
             &id,
             &AnswerInput {
                 stress: Some(4),
-                hassle: Some("チャット".into()),
+                concern: Some("チャット".into()),
                 ..Default::default()
             },
         )
@@ -383,7 +383,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(r.state, PushState::Answered);
+        assert_eq!(r.state, NudgeState::Answered);
         let n: i64 = env
             .conn
             .query_row(
@@ -422,13 +422,13 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(r.state, PushState::Dismissed);
-        assert!(list(&ctx, &RangeArgs::default(), true).unwrap().pushes.is_empty());
-        let all = list(&ctx, &RangeArgs::default(), false).unwrap().pushes;
-        assert_eq!(all[0].state, PushState::Dismissed);
+        assert_eq!(r.state, NudgeState::Dismissed);
+        assert!(list(&ctx, &RangeArgs::default(), true).unwrap().nudges.is_empty());
+        let all = list(&ctx, &RangeArgs::default(), false).unwrap().nudges;
+        assert_eq!(all[0].state, NudgeState::Dismissed);
         assert!(crate::service::status::status(&ctx)
             .unwrap()
-            .unanswered_pushes
+            .unanswered_nudges
             .is_empty());
         let log = store::get_log(&env.conn, &id).unwrap();
         assert!(log.responded_at.is_none(), "応答率の算出では無応答として数える");
@@ -442,10 +442,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(r.state, PushState::Answered);
+        assert_eq!(r.state, NudgeState::Answered);
     }
 
-    fn urgent_task_push(env: &Env, at: Millis) -> (String, String) {
+    fn urgent_task_nudge(env: &Env, at: Millis) -> (String, String) {
         let t = crate::service::task::add(
             &env.ctx(),
             &crate::service::task::TaskInput {
@@ -463,7 +463,7 @@ mod tests {
     fn タスク通知の始めるは対象のタスクをdoingにする() {
         let env = Env::new();
         let ctx = env.ctx();
-        let (id, task_id) = urgent_task_push(&env, env.day_start() + 3_600_000);
+        let (id, task_id) = urgent_task_nudge(&env, env.day_start() + 3_600_000);
         let r = answer(
             &ctx,
             &id,
@@ -473,7 +473,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(r.state, PushState::Answered);
+        assert_eq!(r.state, NudgeState::Answered);
         assert_eq!(r.started_task.as_deref(), Some(task_id.as_str()));
         let t = repo::task::get(&env.conn, &task_id).unwrap();
         assert_eq!(t.status, TaskStatus::Doing);
@@ -488,7 +488,7 @@ mod tests {
             (TaskAnswer::Later, "task_later"),
             (TaskAnswer::SkipWeek, "task_skip_week"),
         ] {
-            let (id, task_id) = urgent_task_push(&env, env.day_start() + 3_600_000);
+            let (id, task_id) = urgent_task_nudge(&env, env.day_start() + 3_600_000);
             let r = answer(
                 &ctx,
                 &id,
@@ -499,7 +499,7 @@ mod tests {
             )
             .unwrap();
             assert!(r.started_task.is_none());
-            assert_eq!(r.state, PushState::Answered);
+            assert_eq!(r.state, NudgeState::Answered);
             assert!(store::get_log(&env.conn, &id)
                 .unwrap()
                 .response_json
@@ -511,7 +511,7 @@ mod tests {
             );
         }
         // ほかの回答とは同時に指定できない。
-        let (id, _) = urgent_task_push(&env, env.day_start() + 3_700_000);
+        let (id, _) = urgent_task_nudge(&env, env.day_start() + 3_700_000);
         let e = answer(
             &ctx,
             &id,
@@ -531,7 +531,7 @@ mod tests {
     fn 完了済みのタスクは通知から始められない() {
         let env = Env::new();
         let ctx = env.ctx();
-        let (id, task_id) = urgent_task_push(&env, env.day_start() + 3_600_000);
+        let (id, task_id) = urgent_task_nudge(&env, env.day_start() + 3_600_000);
         crate::service::task::done(&ctx, &task_id).unwrap();
         let e = answer(
             &ctx,

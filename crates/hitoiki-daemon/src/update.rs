@@ -120,8 +120,8 @@ mod tests {
         fn segments_updated(&self, r: hitoiki_core::timefmt::Range) {
             LogSink.segments_updated(r)
         }
-        fn push(&self, id: &str, p: &hitoiki_core::push::PushPayload) {
-            LogSink.push(id, p)
+        fn nudge(&self, id: &str, p: &hitoiki_core::nudge::NudgePayload) {
+            LogSink.nudge(id, p)
         }
         fn doing_changed(&self, t: Option<&str>) {
             LogSink.doing_changed(t)

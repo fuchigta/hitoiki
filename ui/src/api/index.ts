@@ -79,12 +79,12 @@ export const api = {
   correctionUndo: (id: string) => call<T.CorrectionUndone>("correction_undo", { id }),
 
   // 計画
-  blockAdd: (input: T.BlockInput) => call<T.TimeBlock>("block_add", { input }),
+  blockAdd: (input: T.BlockInput) => call<T.PlanBlock>("block_add", { input }),
   blockList: (range?: T.RangeArgs) => call<T.BlockList>("block_list", { range }),
-  blockUpdate: (id: string, input: T.BlockInput) => call<T.TimeBlock>("block_update", { id, input }),
+  blockUpdate: (id: string, input: T.BlockInput) => call<T.PlanBlock>("block_update", { id, input }),
   blockDelete: (id: string) => call<null>("block_delete", { id }),
 
-  // ブロックのテンプレート
+  // テンプレート
   templateList: () => call<{ templates: T.TemplateView[] }>("block_template_list"),
   templateAdd: (input: T.TemplateInput) => call<T.TemplateView>("block_template_add", { input }),
   templateEdit: (id: string, input: T.TemplateInput) => call<T.TemplateView>("block_template_edit", { id, input }),
@@ -215,27 +215,27 @@ export const api = {
   snooze: (minutes: number) => call<{ snooze_until: number }>("snooze", { minutes }),
   snoozeState: () => call<{ snooze_until: number }>("snooze_state"),
   takeInitialScreen: () => call<string | null>("take_initial_screen"),
-  pendingPush: () => call<T.PushEvent | null>("pending_push"),
-  /** ポップアップからの応答。`push_id` が無ければテスト通知として扱われる。 */
-  pushRespond: (r: {
-    push_id?: string | null;
+  pendingNudge: () => call<T.NudgeEvent | null>("pending_nudge"),
+  /** ポップアップからの応答。`nudge_id` が無ければテスト通知として扱われる。 */
+  nudgeRespond: (r: {
+    nudge_id?: string | null;
     action?: string | null;
     value?: number | null;
     input?: string;
     open_screen?: string | null;
-  }) => call<void>("push_respond", r),
+  }) => call<void>("nudge_respond", r),
   runtimeState: () => call<T.RuntimeMode>("runtime_state"),
   notifyTest: () => call<void>("notify_test"),
 
-  // オンボーディング
-  onboardingStatus: () => call<{ completed: boolean; completed_at: number | null }>("onboarding_status"),
-  onboardingComplete: () => call<{ completed: boolean; completed_at: number | null }>("onboarding_complete"),
-  onboardingReset: () => call<{ completed: boolean; completed_at: number | null }>("onboarding_reset"),
+  // はじめに
+  welcomeStatus: () => call<{ completed: boolean; completed_at: number | null }>("welcome_status"),
+  welcomeComplete: () => call<{ completed: boolean; completed_at: number | null }>("welcome_complete"),
+  welcomeReset: () => call<{ completed: boolean; completed_at: number | null }>("welcome_reset"),
 };
 
 // ===== イベント =====
 
-export type EventName = "segments-updated" | "push" | "doing-changed" | "import-completed" | "open-screen" | "quick-open";
+export type EventName = "segments-updated" | "nudge" | "doing-changed" | "import-completed" | "open-screen" | "quick-open";
 
 export function on<P = unknown>(name: EventName, handler: (payload: P) => void): Promise<UnlistenFn> {
   return listen<P>(name, (e) => handler(e.payload));

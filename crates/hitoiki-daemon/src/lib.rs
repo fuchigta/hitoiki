@@ -5,13 +5,13 @@
 
 pub mod doctor;
 pub mod headless;
-pub mod push_ctx;
+pub mod nudge_ctx;
 pub mod runtime;
 pub mod sink;
 pub mod update;
 
 pub use doctor::{doctor, doctor_with, DoctorItem, DoctorOptions, DoctorReport, Status};
 pub use headless::{init_file_logging, init_logging, run_headless, run_headless_with, LogGuard};
-pub use push_ctx::{build_context, load_snapshot, push_tick, PushSnapshot};
+pub use nudge_ctx::{build_context, load_snapshot, nudge_tick, NudgeSnapshot};
 pub use runtime::{build_judge, AlreadyRunning, Runtime, RuntimeHandle, RuntimeOptions};
 pub use sink::{LogSink, RuntimeSink};

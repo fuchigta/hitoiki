@@ -33,14 +33,14 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 
 | 場所 | 役割 |
 |---|---|
-| `crates/hitoiki-core` | ドメインモデル（`model.rs`）、スキーマ（`migrations/`、`db.rs`）、設定（`config.rs`）、時刻（`timefmt.rs`、`clock.rs`）、割り当てパイプライン（`pipeline/`）、再計算（`rebuild.rs`）、ルール（`rules.rs`）、プッシュ判定（`push/`）、サービス層（`service/`）、リポジトリ（`repo/`）。OS 非依存 |
+| `crates/hitoiki-core` | ドメインモデル（`model.rs`）、スキーマ（`migrations/`、`db.rs`）、設定（`config.rs`）、時刻（`timefmt.rs`、`clock.rs`）、割り当てパイプライン（`pipeline/`）、再計算（`rebuild.rs`）、ルール（`rules.rs`）、問いかけ判定（`push/`）、サービス層（`service/`）、リポジトリ（`repo/`）。OS 非依存 |
 | `crates/hitoiki-collect` | 収集器のトレイト（前面・無操作・セッション）、イベント型、DB へ書く状態機械 `Recorder`、テスト用 `MockCollector` |
 | `crates/hitoiki-collect-win` | Windows 収集器の実装。非 Windows ではビルドは通るが何も収集しない |
 | `crates/hitoiki-agents` | エージェント（Claude Code / Codex）のセッションログ取り込み、ファイル監視 |
 | `crates/hitoiki-calendar` | ICS カレンダーの取得・解析（RRULE/EXDATE/TZID 対応） |
 | `crates/hitoiki-judge` | 自動判定（外部コマンド、OpenAI 互換）、質問セット、パイプラインへのアダプタ。`bin/hitoiki-echo-judge` は動作確認用 |
 | `crates/hitoiki-ipc` | 名前付きパイプ（Windows）/ Unix ドメインソケット（テスト・開発用）による通知 |
-| `crates/hitoiki-daemon` | 常駐ランタイム（収集・取り込み・再計算・カレンダー・プッシュ・IPC の各スレッド）、ヘッドレス実行、`doctor` |
+| `crates/hitoiki-daemon` | 常駐ランタイム（収集・取り込み・再計算・カレンダー・問いかけ・IPC の各スレッド）、ヘッドレス実行、`doctor` |
 | `crates/hitoiki-cli` | `hitoiki` CLI。引数の解釈と出力整形のみで、ロジックは core の `service` を呼ぶ |
 | `crates/hitoiki-app` | Tauri v2 の常駐 GUI（`hitoiki-app.exe`）。トレイ、ウインドウ、トースト、Tauri コマンド |
 | `ui/` | TypeScript + Vite + React のフロントエンド。ビルド結果（`ui/dist`）が `hitoiki-app` に埋め込まれる |
@@ -65,11 +65,11 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 | `hitoiki-recorder` + 収集スレッド | 前面ウインドウ・無操作・ロック/スリープの収集と DB への書き込み |
 | `hitoiki-agent-bridge` | エージェントログの増分取り込み。完了ごとに再計算を要求する |
 | `hitoiki-calendar` | `calendar.fetch_interval_min`（既定 15 分）ごとに ICS を同期 |
-| `hitoiki-push` | 60 秒ごとにプッシュを評価 |
+| `hitoiki-nudge` | 60 秒ごとに問いかけを評価 |
 | `hitoiki-update` | `general.update_check = true` のときだけ、起動の 3 分後と以降 24 時間ごとに最新版を確認（[2.5](#25-更新の確認)） |
 | IPC サーバ | メッセージ受信。`task_changed` / `data_changed` は再計算を要求、`open_ui` は画面を開く |
 
-UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed` / `import_completed` / `open_ui` / `shutdown_requested` / `update_available`）を介して行う。アプリは `TauriSink`、ヘッドレスは `LogSink` を使う。
+UI への通知は `RuntimeSink`（`segments_updated` / `nudge` / `doing_changed` / `import_completed` / `open_ui` / `shutdown_requested` / `update_available`）を介して行う。アプリは `TauriSink`、ヘッドレスは `LogSink` を使う。
 
 ### 2.4 収集器（Windows）
 
@@ -94,13 +94,13 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 - 比較・判定・保存の純粋な部分は core の `service::update`（`v` 接頭辞を除いて数値で比較、プレリリース無視。確認の要否 `is_due`、通知の要否 `should_notify`）。時刻は `Clock` 経由で渡す。
 - `hitoiki-update` スレッドは、起動の 3 分後（最後の確認から 24 時間未満なら残りの時間）に確認し、以降 24 時間ごとに繰り返す。取得に失敗したときは何も保存せず、通知もせず（ログのみ）、1 時間後に再試行する。
 - `setting` テーブルのキー: `update.last_checked_at`（最後に確認した時刻。再起動しても 24 時間以内なら再確認しない）、`update.latest_version`（最後に分かった最新版）、`update.notified_version`（通知済みの版。同じ版は 1 回だけ通知）。
-- 通知は `RuntimeSink::update_available`。アプリ（`TauriSink`）はトーストを出し（一時停止中は出さない）、トレイに「新しいバージョン vX.Y.Z をダウンロード…」を出す。ヘッドレスはログのみ。トーストやメニューを押すとリリースページ（`https://github.com/fuchigta/hitoiki/releases/latest`）を既定のブラウザで開く。プッシュ通知の 1 日の上限などの抑制ルールとは別枠で、会議中・フォーカス中の保留は行わない。
+- 通知は `RuntimeSink::update_available`。アプリ（`TauriSink`）はトーストを出し（一時停止中は出さない）、トレイに「新しいバージョン vX.Y.Z をダウンロード…」を出す。ヘッドレスはログのみ。トーストやメニューを押すとリリースページ（`https://github.com/fuchigta/hitoiki/releases/latest`）を既定のブラウザで開く。問いかけの 1 日の上限などの抑制ルールとは別枠で、会議中・フォーカス中の保留は行わない。
 - `hitoiki status` の `update_available` は保存済みの `update.latest_version` から求める（status 自体はネットワークに出ない）。
 - 自動ダウンロード・自動インストールはしない。
 
 ## 3. データモデル
 
-時刻はすべて UTC の Unix ミリ秒（`INTEGER`）、ID は ULID（`TEXT`）。スキーマは `crates/hitoiki-core/migrations/*.sql` にあり、起動時に自動適用される。既存 DB にマイグレーションを適用する前には、`hitoiki.db.bak-<日時>` へ `VACUUM INTO` でバックアップする。マイグレーションは現在 `0001_init.sql`（初期スキーマ）、`0002_judge_cache.sql`（自動判定キャッシュ）、`0003_block_template.sql`（ブロックのテンプレート）、`0004_correction.sql`（実績の補正）。
+時刻はすべて UTC の Unix ミリ秒（`INTEGER`）、ID は ULID（`TEXT`）。スキーマは `crates/hitoiki-core/migrations/*.sql` にあり、起動時に自動適用される。既存 DB にマイグレーションを適用する前には、`hitoiki.db.bak-<日時>` へ `VACUUM INTO` でバックアップする。マイグレーションは現在 `0001_init.sql`（初期スキーマ）、`0002_judge_cache.sql`（自動判定キャッシュ）、`0003_block_template.sql`（テンプレート）、`0004_correction.sql`（実績の補正）。
 
 ### 3.1 データの 3 層
 
@@ -140,9 +140,9 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `activity_rule` | 行動ログ → 活動のルール（タスク非依存） |
 | `segment_confirmation` | ユーザーによる区間の確定（期間と、`kind` / `task_id` / `activity` の上書き。NULL の項目は元の値を保つ。`task_id` が空文字列なら「タスクなし」に外す）。`off_pc`（PC 外の印）と `correction_id`（作った補正）を持つ（3.6） |
 | `segment_correction` | 実績の補正 1 回分（期間、割り当て先の `task_id` / `kind`（休憩は `break`）/ `activity`、合計と PC 外の時間、区間数）。取り消しの単位（3.6） |
-| `time_block` | 計画（タイムブロッキング）。`focus` が 1 のものは集中ブロック |
-| `block_template` / `block_template_item` | ブロックのテンプレート（働き方のパターン）。`block_template` は名前（一意）・説明・割り当てた曜日（`weekdays`、JSON 配列、1=月 … 7=日）、`block_template_item` はローカル時刻の 0 時からの分（`start_min` 0〜1439、`end_min` 1〜1440）・`label`・`focus`・任意の `task_id` |
-| `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `time_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
+| `plan_block` | 計画ブロック。`focus` が 1 のものは「集中」の印が付いた計画ブロック（その間は問いかけを控える） |
+| `block_template` / `block_template_item` | テンプレート。`block_template` は名前（一意）・説明・割り当てた曜日（`weekdays`、JSON 配列、1=月 … 7=日）、`block_template_item` はローカル時刻の 0 時からの分（`start_min` 0〜1439、`end_min` 1〜1440）・`label`・`focus`・任意の `task_id` |
+| `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `plan_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
 | `goal` / `key_result` | 目標と成果の指標。`key_result.measure`（`time` / `active_days` / `done_tasks`、既定 `time`）は数え方、`active_day_min`（既定 15）は数え方が `active_days` のとき「取り組んだ日」とみなす 1 日の最小分数（マイグレーション 0006）。タスクは `task.key_result_id` で成果の指標を 1 つ持つ |
 | `link_suggestion_reject` | 成果の指標への紐づけの提案で「付けない」を選んだ候補（マイグレーション 0010）。`(key_result_id, kind, target_id)` が主キー、`kind` は `task` / `skill`、`at`。対象（タスク・スキル）への参照制約は付けない（対象が消えても行は無害）。成果の指標 / 目標の削除で一緒に消す |
 | `key_result_progress` | 成果の指標の現在値（`key_result.current`）の変更履歴（マイグレーション 0009）。`id` / `key_result_id` / `value`（REAL。`text` の先頭の数値で、数として読めなければ NULL）/ `text`（入力された現在値。消したときは NULL）/ `note` / `at`。値が変わったとき（`edit_key_result`）と明示の記録（`key_result_progress::record`。同じ値でも 1 行残す）で 1 行追加する。既存成果の指標の現在値は初期行としては入れない。成果の指標 / 目標の削除で一緒に消す |
@@ -152,7 +152,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `hassle` | デイリーハッスル（`text`, `intensity`, `segment_id`） |
 | `abc_record` | ABC 理論の記録（`activating_event`, `belief`, `consequence_*`, `dispute`, `ai_dialog_md`） |
 | `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`, `structured_json`, `answers_json`） |
-| `push_log` | 通知ログ（トリガー、配信済みか、応答、`snoozed_until`、`suppressed_reason`） |
+| `nudge_log` | 問いかけのログ（トリガー、配信済みか、応答、`snoozed_until`、`suppressed_reason`） |
 | `setting` | キー・値の設定（収集器の稼働は `collector.heartbeat` と `collector.runs`） |
 | `judge_cache` | 自動判定の答えのキャッシュ（`key`, `answer_json`, `judge_name`, `created_at`）。保持期間 30 日 |
 
@@ -175,15 +175,15 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 チェックイン・ハッスル・ABC の編集は内容の置き換えで、時刻（`at`）は変えない。reflection の回答は既存の `reflect answer` で上書きできる。
 
-### 3.5 ブロックのテンプレート
+### 3.5 テンプレート
 
 `service::block_template`（CLI の `block template`、Tauri のコマンドはこの薄いラッパー）。
 
 - **データ**: テンプレートは時刻をローカル時刻（0 時からの分）で持ち、日付を持たない。同じ名前は作れない。曜日は複数割り当てられ、同じ曜日に複数のテンプレートがあってもよい（`suggest` は該当するものをすべて返す）。
-- **適用**（`apply`）: 指定日（既定は今日）のローカル日付と時刻を `timefmt::local_minute_to_ms` で UTC に変換して `time_block` を作る。DST で存在しない時刻（春の空白）は存在する最初の時刻まで進め、2 回ある時刻（秋）は早い方を採る。開始と終了が同じ時刻に潰れたブロックは作らない。24:00 は翌日 0 時。
-- **重なり**: 既存の `time_block` と、`is_busy` で終日でないカレンダー予定を重なりとして数える（`preview` が項目ごとに列挙する）。`overlap = skip`（既定）は重なる項目を作らず `skipped` に返し、`overlay` は重ねて作る。
+- **適用**（`apply`）: 指定日（既定は今日）のローカル日付と時刻を `timefmt::local_minute_to_ms` で UTC に変換して `plan_block` を作る。DST で存在しない時刻（春の空白）は存在する最初の時刻まで進め、2 回ある時刻（秋）は早い方を採る。開始と終了が同じ時刻に潰れたブロックは作らない。24:00 は翌日 0 時。
+- **重なり**: 既存の `plan_block` と、`is_busy` で終日でないカレンダー予定を重なりとして数える（`preview` が項目ごとに列挙する）。`overlap = skip`（既定）は重なる項目を作らず `skipped` に返し、`overlay` は重ねて作る。
 - **取り消し**（`undo`）: 取り消していない直近の適用（`--date` ならその日に適用したもののうち直近）で作ったブロックを削除し、履歴に `undone_at` を付ける。すでに消されたブロックや、手で足したブロックは巻き込まない。
-- **保存**（`save_from`）: 指定日の `time_block` からテンプレートを作る。日をまたぐブロックはその日の範囲に切る。
+- **保存**（`save_from`）: 指定日の `plan_block` からテンプレートを作る。日をまたぐブロックはその日の範囲に切る。
 - 画面に 1 回だけ出す案内（閉じたら出さない）は `service::hint` が `setting` の `hint.<名前>.dismissed` に記録する。
 
 ブロックの編集（`service::plan::update`）は、時間・タスク・ラベル・集中をまるごと置き換える。ID は前方一致で指定できる。
@@ -210,8 +210,8 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `segment_confirmation.task_id` | 削除（その時間は未割り当てに戻る） |
 | `segment_correction.task_id` | 補正ごと削除。補正は付け替え先が 1 つのタスクなので「他のタスクも含む補正」は無い。補正が作った確定（`correction_id`）も消す。他のタスクへの補正には触れない |
 | `activity_segment.task_id` | トランザクション内で NULL（確定済みは needs_review）にし、直後の再計算で作り直す |
-| `time_block.task_id` / `block_template_item.task_id` | NULL にして残す。`label` が空ならタスク名を写す |
-| `checkin` / `hassle` / `abc_record` / `reflection` / `push_log` | タスクへの参照列が無い（`reflection.context_json` や `push_log.payload_json` に ID が入ることはあるが、履歴のスナップショットなので触れない） |
+| `plan_block.task_id` / `block_template_item.task_id` | NULL にして残す。`label` が空ならタスク名を写す |
+| `checkin` / `hassle` / `abc_record` / `reflection` / `nudge_log` | タスクへの参照列が無い（`reflection.context_json` や `nudge_log.payload_json` に ID が入ることはあるが、履歴のスナップショットなので触れない） |
 | `activity_rule` / `activity_skill_rule` / `judge_cache` | タスクを指さない（自動判定キャッシュのキーは未完了タスク集合のハッシュを含むので、削除後は自然に引き直される） |
 
 流れは、`impact` で影響（区間数と時間、確定・補正・ルール・スキル・ブロック・テンプレート項目・doing ログの件数、再計算する期間）を見積もる → 計上済み・確定・補正があって `force` が偽ならエラー（引数不正、終了コード 2） → 1 トランザクションで上表を処理しタスクを削除 → 影響期間（区間・確定・補正の最小〜最大）を `rebuild_with_judge` で再計算、の順。doing だったタスクは `task_doing_log` を消すので「doing なし」になり、以後の判定に使われない。`delete_preview` は何も変更しない。
@@ -232,7 +232,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_wait`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、確定（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま（`ignore_exes` の区間は次の無視になる）。`collect.ignore_exes` の exe は通過系としても扱う（和集合）。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と確定 済みの区間は対象外。吸収する区間は自動判定に問い合わせず、吸収先の割り当て（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
    - **無視**（`transient.rs` の `apply_ignore`）: `collect.ignore_exes` の `work` 区間のうち、吸収されなかったもの（`transient_max_sec` 以上続いた、または吸収先が無い）を `kind = ignored`（`decided_by = ignore`、確信度 1.0、`auto`、タスク・ラベルなし、`fixed`）にする。ルールで割り当てが決まった区間と確定 済みの区間は対象外。`ignored` は自動判定・割り込み検出・doing フォールバック・統合での吸収（短い作業を間に挟んで取り込まない）の対象にならず、隣り合う無視は 1 区間にまとまる。
 7. **自動判定**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
-8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに割り当てられない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・自動判定の結果を見るため、doing フォールバックより前に行う。
+8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに割り当てられない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `plan_block` のタスク。ルール・自動判定の結果を見るため、doing フォールバックより前に行う。
 9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing` で付ける。状態は `needs_review`。ただし `actual.trust_doing = true` なら `auto`（始めたタスクを信頼する）。doing の開始・終了時刻で区間を分割する。
    - **ロック中の自動休憩**（`apply_locked_break`）: 判定の決まっていない（`decided_by` なし）無操作区間のうち、重なる `idle_span` の理由が `locked` / `sleep` のものの合計が `actual.auto_break_locked_min`（既定 10 分、0 で無効）以上なら、`break`（`decided_by = rule:locked`、確信度 1.0、`auto`）にする。確定と予定との突き合わせ（会議）は先に適用済みなので影響しない。
 10. **状態付け**: 状態が未決の区間は、確信度が `judge.auto_confidence_threshold`（既定 0.8）以上なら `auto`、未満または確信度なしなら `needs_review`。
@@ -282,7 +282,7 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 - **表現**: 新しい `SegmentKind::Ignored` を追加した。既存の `idle` / `break` は「PC を使っていない」という意味を持ち、通知（`idle_return` など）・自動休憩・実績の補正（PC 外）に絡むため、流用すると意味が混ざる。また `work` + 活動のような擬似表現では、全集計・通知に除外条件を散らす必要がある。専用の種別なら除外は「種別が `ignored`」の 1 条件で済み、`segment_confirmation.kind` でも同じ値で表せる（スキーマ変更なし）。
 - **発生源**: (1) `collect.ignore_exes` による自動の無視（4.1 の 6）。(2) ユーザーの手動（`review::ignore`）: 種別 `ignored`・`task_id = ''` の `segment_confirmation`。取り消し（`review::unignore`）は、その確定を削除して範囲を再計算する。リスト由来の無視は確定ではなく、`ignore remove` で外して再計算する。`apply_confirmations` は `kind = ignored` の確定でタスク・ラベルを外す。
-- **数えない場所**: `report`（どの切り口でも除外し、別枠 `excluded.ignored_ms` に合計）、`status`（`today.ignored_ms`）、`context`（`ignored_minutes`）、タスクの実績（タスクなしなので数えない）、確定（`needs_review` にならない）、実績の補正の候補（付け替え対象にしない）、プッシュ（作業系ではないので `long_focus` / `late_work` / `switch_spike` に数えず、連続も途切れる）。今日のタイムラインには薄く表示する。
+- **数えない場所**: `report`（どの切り口でも除外し、別枠 `excluded.ignored_ms` に合計）、`status`（`today.ignored_ms`）、`context`（`ignored_minutes`）、タスクの実績（タスクなしなので数えない）、確定（`needs_review` にならない）、実績の補正の候補（付け替え対象にしない）、問いかけ（作業系ではないので `long_work` / `late_work` / `switch_spike` に数えず、連続も途切れる）。今日のタイムラインには薄く表示する。
 - **無視リストの管理と提案**（`service/ignore.rs`）: `add` / `remove` は設定ファイルの `collect.ignore_exes` だけを `config::set_value` で書き換え（既定のままなら既定＋追加）、直近 7 日を `rebuild_with_judge` で再計算する。`suggest` は直近 N 日（既定 7）の `window_span` と `activity_segment` から候補を返す。基準は、既知のシステム系 exe（3 区間以上。記録時間が 30 分以上なら理由に明記）、10 秒未満が 7 割以上かつ 20 区間以上、要確認に 10 件以上かつ平均 60 秒未満、ユーザーが「無視」にした確定が 2 回以上、「タスクなし」にした確定が 5 回以上のいずれか。無視リスト済み、`ApplicationFrameHost.exe`、作業アプリ（`terminal_exes` / `agent_host_exes` / `communication_exes` / `meeting_exes`、ブラウザ、Hitoiki 自身）、断って 30 日以内（`setting` の `review.ignore_suggest_dismissed`）は除く。
 
 ## 5. エージェントアダプタ
@@ -313,53 +313,54 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 - **`openai-compatible`**: `{base_url}/chat/completions` に `temperature = 0` で問い合わせる。構造化出力（`json_schema`, strict）を要求し、サーバが 400/422 で拒否したら `json_object` に切り替える。API キーは `api_key_env` が指す環境変数から読み、`Authorization: Bearer` で送る（設定ファイルにキーを書かない）。
 - **確信度**: 回答された質問の確信度の最小値を区間の確信度とする。`auto_confidence_threshold` 未満なら `needs_review` として人が確定する。
 
-## 8. プッシュ通知
+## 8. 問いかけ
 
-通知は「1 アクションで答えられる」ことを基本とし、文言は寄り添うトーンで評価を含めない。判定ロジック（`hitoiki-core/src/push/`）は OS 非依存の純粋関数 `evaluate` で、時計を直接読まない。評価は `hitoiki-daemon` の `push_tick` が 60 秒ごとに行う。
+問いかけは「1 アクションで答えられる」ことを基本とし、文言は寄り添うトーンで評価を含めない。判定ロジック（`hitoiki-core/src/nudge/`）は OS 非依存の純粋関数 `evaluate` で、時計を直接読まない。評価は `hitoiki-daemon` の `nudge_tick` が 60 秒ごとに行う。
 
 ### 8.1 トリガー
 
-同時に満たした場合の優先順は次のとおり（`PushTrigger::ALL` の順。表は条件の説明のため前後する）。`day_start` → `idle_return` → `block_start` → `day_end` → `weekly` → `urgent_task` → `after_interrupt` → `meeting_overrun` → `switch_spike` → `long_focus` → `important_task` → `kr_idle` → `late_work`。`urgent_task` は割り込み・会議・切り替えの通知より前に置く（急ぎのものを示す通知を後回しにしない）。`important_task` は 1 日 1 回の穏やかな提案なので、集中や切り替えへの声かけを優先して `long_focus` の後に置く。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`push.disabled_triggers` で個別に無効化できる。
+同時に満たした場合の優先順は次のとおり（`NudgeTrigger::ALL` の順。表は条件の説明のため前後する）。`day_start` → `idle_return` → `block_start` → `day_end` → `weekly` → `urgent_task` → `after_interrupt` → `meeting_overrun` → `switch_spike` → `long_work` → `important_task` → `key_result_idle` → `late_work`。`urgent_task` は割り込み・会議・切り替えの問いかけより前に置く（急ぎのものを示す問いかけを後回しにしない）。`important_task` は 1 日 1 回の穏やかな提案なので、集中や切り替えへの声かけを優先して `long_work` の後に置く。1 回の評価で配信されるのは最大 1 件。無操作中は `day_end` 以外発火しない。`nudge.disabled_triggers` で個別に無効化できる。
 
 | ID | 条件 |
 |---|---|
-| `day_start` | 今日のロック解除/無操作明けがあり、`push.day_start_after`（既定 08:00）以降 `push.day_end_at` 前で、今日まだ配信していない。通知本体のクリックは今日の画面の「今日のデザイン」モード（`open_screen = today/design`）を開く |
-| `day_end` | `push.day_end_at`（既定 18:30）以降に 10 分以上無操作、または終業時刻ちょうど（±60 秒）。1 日 1 回 |
-| `weekly` | `push.weekly`（既定 金曜 17:00）以降で、今週（月曜始まり）まだ配信していない |
+| `day_start` | 今日のロック解除/無操作明けがあり、`nudge.day_start_after`（既定 08:00）以降 `nudge.day_end_at` 前で、今日まだ配信していない。通知本体のクリックは今日の画面の「今日のデザイン」モード（`open_screen = today/design`）を開く |
+| `day_end` | `nudge.day_end_at`（既定 18:30）以降に 10 分以上無操作、または終業時刻ちょうど（±60 秒）。1 日 1 回 |
+| `weekly` | `nudge.weekly`（既定 金曜 17:00）以降で、今週（月曜始まり）まだ配信していない |
 | `after_interrupt` | 割り込み区間が終わり、終了から 5 分以内で、その割り込み以降に未配信 |
 | `meeting_overrun` | 会議アプリが前面で、予定の終了から 5〜180 分経過（ほかの予定が進行中なら対象外） |
-| `switch_spike` | 直近 `push.switch_spike.window_min`（15）分の切替回数が `count`（20）を超える |
-| `long_focus` | 同一キー（task、エージェントセッション、活動の順）の作業が `push.long_focus_min`（90）分以上連続 |
-| `urgent_task` | 勤務時間内（`push.day_start_after` ≤ 現在 < `push.day_end_at`）に、緊急のしるし（`task.urgent`）が付いた未完了（todo / doing）のタスクがあり、直近の `urgent_task` 配信から `push.urgent_task_interval_min`（既定 120 分、0 で無効）以上経っている。対象から外すもの: いま作業しているタスク（作業系の最終区間の `task_id`、または doing）、今日の `time_block` に割り当てられ終了がまだ先のもの。対象のどれかが doing か作業中なら、そもそも出さない。示すのは「最後に通知した時刻」が最も古いタスク（`push_log` のペイロードの `task_id` で判定。`push_log` は今週分＋直近 10 件なので、それより前の通知は「通知していない」扱い）で、同順なら作成が古いもの。ほかの対象の件数を「（ほかに N 件）」として添える。ボタンは「始める」（`task_start`）と「あとで」（`task_later`）。クリックでタスク画面（`tasks`）を開く |
-| `kr_idle` | 今週（月曜始まり、今日まで）まだ時間が入っていない成果の指標が 1 つ以上あり、`push.kr_idle_weekday`（1=月〜7=日、既定 3 = 水、0 または 8 以上で無効）の曜日以降の勤務時間内で、今週この通知を配信していない。対象の成果の指標は `service::goal::idle_key_results_this_week`（`key_result_summary.rs`）が選ぶ: 成果の指標が `active` で軸が `time` / `days`、目標が `active` で今が期間内（`period_start <= now < period_end`。無い側は制限しない）、スキル（`key_result_skill`）か紐付けたタスク（やめたものを除く）があり、`KeyResultSelector`（`key-result show` と同じ、スキル経由と紐付けタスクの和集合）で選ばれる区間が今週に 1 つも無い。`PushContext::kr_idle` に `store::load_kr_idle` の結果を入れる材料は、常駐側の `push_tick` が `triggers::kr_idle_due`（無効でなく、曜日に達し、今週未配信）のときだけ読む（毎回の評価で集計し直さない）。週 1 回まで（配信済みなら応答を問わず出さない）で、複数の成果の指標は 1 回の通知にまとめる（3 件まで名前を出し、残りは「ほか N 件」）。ボタンは「今日の予定に入れる」（`open`。`open_screen = today/design`）と「今週は見送る」（`kr_skip_week`。記録のみ）。文言は「◯◯に、今週はまだ時間が入っていません」と事実だけ |
-| `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに割り当てられた作業系の区間（work / agent_dialog / agent_wait）の最終 `end_at` と `created_at` の大きいほう）が `push.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `time_block` に割り当て済み、いま取り組み中（作業の割り当て / doing）、今週この通知に「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
-| `late_work` | `push.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
-| `block_start` | 今日の `time_block` でタスク（`task_id`）が付き、開始を過ぎて `tuning.block_start_window_min`（10 分）以内かつ終了前のもの（複数なら開始が最も新しいもの）。そのタスクが todo でない（doing・完了・中止）、いまの作業区間がそのタスク、そのブロックについて配信済み（push_log のペイロードの `block_id`）のいずれかなら出さない。無操作中は出さない。設定項目は持たず、`push.disabled_triggers` に `block_start` を入れて止める。優先順は `idle_return` の次（同時なら `idle_return` が先で、次の評価で出る）。例外の抑制ルールは 8.2 |
-| `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む。ただし下の候補タスクがあるときは、自動の休憩（`decided_by = rule:locked` で未確定）は分類済みとみなさず尋ねる）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次。**候補タスク**: 無操作の期間に (1) 開いていた doing ログのタスク、なければ (2) タスク付きの `time_block` が重なっていたタスクのうち、重なりが最も長い 1 件（`PushContext.doing_spans` / `time_blocks` / `task_refs`）。あれば先頭のボタンに「{タスク名}をしていた」（`idle_task`、ペイロードの `task_id`）を加える（ボタンは最大 5 個に収まる） |
+| `switch_spike` | 直近 `nudge.switch_spike.window_min`（15）分の切替回数が `count`（20）を超える |
+| `long_work` | 同一キー（task、エージェントセッション、活動の順）の作業が `nudge.long_work_min`（90）分以上連続 |
+| `urgent_task` | 勤務時間内（`nudge.day_start_after` ≤ 現在 < `nudge.day_end_at`）に、緊急のしるし（`task.urgent`）が付いた未完了（todo / doing）のタスクがあり、直近の `urgent_task` 配信から `nudge.urgent_task_interval_min`（既定 120 分、0 で無効）以上経っている。対象から外すもの: いま作業しているタスク（作業系の最終区間の `task_id`、または doing）、今日の `plan_block` に割り当てられ終了がまだ先のもの。対象のどれかが doing か作業中なら、そもそも出さない。示すのは「最後に問いかけした時刻」が最も古いタスク（`nudge_log` のペイロードの `task_id` で判定。`nudge_log` は今週分＋直近 10 件なので、それより前の問いかけは「問いかけしていない」扱い）で、同順なら作成が古いもの。ほかの対象の件数を「（ほかに N 件）」として添える。ボタンは「始める」（`task_start`）と「あとで」（`task_later`）。クリックでタスク画面（`tasks`）を開く |
+| `key_result_idle` | 今週（月曜始まり、今日まで）まだ時間が入っていない成果の指標が 1 つ以上あり、`nudge.key_result_idle_weekday`（1=月〜7=日、既定 3 = 水、0 または 8 以上で無効）の曜日以降の勤務時間内で、今週この問いかけを配信していない。対象の成果の指標は `service::goal::idle_key_results_this_week`（`key_result_summary.rs`）が選ぶ: 成果の指標が `active` で軸が `time` / `days`、目標が `active` で今が期間内（`period_start <= now < period_end`。無い側は制限しない）、スキル（`key_result_skill`）か紐付けたタスク（やめたものを除く）があり、`KeyResultSelector`（`key-result show` と同じ、スキル経由と紐付けタスクの和集合）で選ばれる区間が今週に 1 つも無い。`NudgeContext::key_result_idle` に `store::load_key_result_idle` の結果を入れる材料は、常駐側の `nudge_tick` が `triggers::key_result_idle_due`（無効でなく、曜日に達し、今週未配信）のときだけ読む（毎回の評価で集計し直さない）。週 1 回まで（配信済みなら応答を問わず出さない）で、複数の成果の指標は 1 回の問いかけにまとめる（3 件まで名前を出し、残りは「ほか N 件」）。ボタンは「今日の予定に入れる」（`open`。`open_screen = today/design`）と「今週は見送る」（`key_result_skip_week`。記録のみ）。文言は「◯◯に、今週はまだ時間が入っていません」と事実だけ |
+| `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに割り当てられた作業系の区間（work / agent_dialog / agent_wait）の最終 `end_at` と `created_at` の大きいほう）が `nudge.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `plan_block` に割り当て済み、いま取り組み中（作業の割り当て / doing）、今週この問いかけに「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
+| `late_work` | `nudge.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
+| `block_start` | 今日の `plan_block` でタスク（`task_id`）が付き、開始を過ぎて `tuning.block_start_window_min`（10 分）以内かつ終了前のもの（複数なら開始が最も新しいもの）。そのタスクが todo でない（doing・完了・中止）、いまの作業区間がそのタスク、そのブロックについて配信済み（nudge_log のペイロードの `block_id`）のいずれかなら出さない。無操作中は出さない。設定項目は持たず、`nudge.disabled_triggers` に `block_start` を入れて止める。優先順は `idle_return` の次（同時なら `idle_return` が先で、次の評価で出る）。例外の抑制ルールは 8.2 |
+| `idle_return` | 直近で終わった無操作（`NudgeContext.last_idle`。隣り合う `idle_span` はつなぐ）が `nudge.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む。ただし下の候補タスクがあるときは、自動の休憩（`decided_by = rule:locked` で未確定）は分類済みとみなさず尋ねる）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次。**候補タスク**: 無操作の期間に (1) 開いていた doing ログのタスク、なければ (2) タスク付きの `plan_block` が重なっていたタスクのうち、重なりが最も長い 1 件（`NudgeContext.doing_spans` / `plan_blocks` / `task_refs`）。あれば先頭のボタンに「{タスク名}をしていた」（`idle_task`、ペイロードの `task_id`）を加える（ボタンは最大 5 個に収まる） |
 
 ### 8.2 抑制ルール
 
-候補ごとに `gate.rs` の次の順序で判定し、最初に該当したものが結果になる。抑制した場合は `push_log.suppressed_reason` 付きで記録する（同じ理由の連続抑制は記録しない）。
+候補ごとに `gate.rs` の次の順序で判定し、最初に該当したものが結果になる。抑制した場合は `nudge_log.suppressed_reason` 付きで記録する（同じ理由の連続抑制は記録しない）。
 
 1. スヌーズ中（`snoozed`）。「今日はもういい」はローカル 24:00 までのスヌーズ。
-2. 1 日の上限（`push.daily_limit`、既定 6、`daily_limit`）。
-3. どのトリガーでも直前の配信から 10 分未満（`recent_push`）。
-4. 同一トリガーの最小間隔（`push.min_interval_min`、既定 60 分）。直近 5 件のうち配信から 30 分以上経ったものの応答率が低い（3 件以上で評価）と、間隔を最大 4 倍まで延長する（`min_interval` / `min_interval_backoff`）。
-5. 会議中、または `focus` の `time_block` 中は保留（`Defer`。ログは残さず、条件が残っていれば後の評価で出る）。`meeting_overrun` は会議の保留を受けない。
+2. 1 日の上限（`nudge.daily_limit`、既定 6、`daily_limit`）。
+3. どのトリガーでも直前の配信から 10 分未満（`recent_nudge`）。
+4. 同一トリガーの最小間隔（`nudge.min_interval_min`、既定 60 分）。直近 5 件のうち配信から 30 分以上経ったものの応答率が低い（3 件以上で評価）と、間隔を最大 4 倍まで延長する（`min_interval` / `min_interval_backoff`）。
+5. 会議中、または `focus` の `plan_block` 中は保留（`Defer`。ログは残さず、条件が残っていれば後の評価で出る）。`meeting_overrun` は会議の保留を受けない。
 
-例外: `block_start` は計画した時刻に意味があるので、3 と 4 を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。5 のフォーカスブロックの保留は、そのブロック自身の開始通知には適用しない（`gate::check` がペイロードの `block_id` を見る）。
+例外: `block_start` は計画した時刻に意味があるので、3 と 4 を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。5 の集中の計画ブロックの保留は、その計画ブロック自身の開始の問いかけには適用しない（`gate::check` がペイロードの `block_id` を見る）。
 
 ### 8.3 応答と表示
 
-- **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（確定 保存。UI へは `segments_updated` を送り、再計算を要求する）。
+- **応答**: `store::apply_response` が応答を `nudge_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（確定 保存。UI へは `segments_updated` を送り、再計算を要求する）。
 - **`idle_task`**（idle_return の「{タスク名}をしていた」）: ペイロードの `idle_range` を、`task_id` のタスクの PC 外の作業として `service::correction::assign_off_pc_range` で確定する。実績の補正で無操作・記録なしを選んだときと同じ形（種別 work・`off_pc` の確定と `segment_correction`。補正の一覧から取り消せる）で、自動の休憩にも勝つ。自動では確定せず、ボタンを押したときだけ。`block_skip`（block_start の「今回はやめる」）は記録のみ。
-- **タスク通知の応答**（`urgent_task` / `important_task` / `block_start`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::pushlog::start_pushed_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `push answer --task start|later|skip_week`。`kr_idle` の「今週は見送る」（`kr_skip_week`）も記録のみで、CLI は `--task kr_skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
-- **後からの回答と見送り**（`service::pushlog`）: `list`（配信済みの通知を状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `PushTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `push answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/push-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `push_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
-  - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく通知の時刻（`push_log.at`）。あとから答えても、通知時点の状態として時系列に載る。
-  - **見送り**（`dismiss`）: `responded_at` を付けず `response_json` に `{"action":"dismiss"}` を残す（スキーマ変更なし）。未回答の一覧（`repo::push::list_unanswered`）から外れる。応答率（8.2 の 4）は `responded_at` の有無で数えるので、見送りは無応答のまま数える。つまり「答えない通知が続くと間隔を延ばす」ルールは、一覧から外しても効き続ける。見送ったあとでも答え直せる。
-  - **対象期間**: `status` と今日画面の一覧は今日の分だけ。過去は `push list --date`。
-- **トースト**（`hitoiki-app/src/notify.rs`）: WinRT の `ToastNotificationManager` でボタン付きトーストを出す（ボタンは最大 5 個、入力欄は 1 つ）。回答を求める通知（push_log に紐づき、ボタンか入力欄があるもの）は `scenario="reminder"`（`toast_scenario`）で、操作するまで残る（`push.toast_persistent`、false で従来の短い表示）。更新のお知らせとテスト通知は対象外。AUMID は `Hitoiki.App`。起動時に `HKCU\Software\Classes\AppUserModelId\Hitoiki.App` へ `DisplayName` / `IconUri` / `IconBackgroundColor` を書き、`SetCurrentProcessExplicitAppUserModelID` で設定する。起動時に前回のトーストを履歴から消す（受け手がいないため）。ボタンの引数は `action=<id>&value=<値>&push=<push_id>&open=<画面>`。
-- **フォールバック**: トーストを出せない場合は、画面右下の小さなポップアップ窓（ラベル `popup`）に切り替える。UI へは Tauri イベント `push` も送る。
+- **タスクの問いかけの応答**（`urgent_task` / `important_task` / `block_start`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::nudgelog::start_nudged_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `nudge answer --task start|later|skip_week`。`key_result_idle` の「今週は見送る」（`key_result_skip_week`）も記録のみで、CLI は `--task key_result_skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
+- **後からの回答と見送り**（`service::nudgelog`）: `list`（配信済みの問いかけを状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `NudgeTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `nudge answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/nudge-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `nudge_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
+  - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく問いかけの時刻（`nudge_log.at`）。あとから答えても、問いかけ時点の状態として時系列に載る。
+  - **見送り**（`dismiss`）: `responded_at` を付けず `response_json` に `{"action":"dismiss"}` を残す（スキーマ変更なし）。未回答の一覧（`repo::nudge::list_unanswered`）から外れる。応答率（8.2 の 4）は `responded_at` の有無で数えるので、見送りは無応答のまま数える。つまり「答えない問いかけが続くと間隔を延ばす」ルールは、一覧から外しても効き続ける。見送ったあとでも答え直せる。
+  - **対象期間**: `status` と今日画面の一覧は今日の分だけ。過去は `nudge list --date`。
+- **開く画面**（`open_screen`）: ペイロードの値は UI のハッシュと同じ形で、`today/design`、`records/new/day_start` / `day_end` / `weekly` / `condition` / `concern`、`actual?status=review`、`tasks`、`goals` など。アプリの `window::normalize_screen` が検証し、知らない値は `today` にする（旧名は受け付けない）。
+- **トースト**（`hitoiki-app/src/notify.rs`）: WinRT の `ToastNotificationManager` でボタン付きトーストを出す（ボタンは最大 5 個、入力欄は 1 つ）。回答を求める通知（nudge_log に紐づき、ボタンか入力欄があるもの）は `scenario="reminder"`（`toast_scenario`）で、操作するまで残る（`nudge.toast_persistent`、false で従来の短い表示）。更新のお知らせとテスト通知は対象外。AUMID は `Hitoiki.App`。起動時に `HKCU\Software\Classes\AppUserModelId\Hitoiki.App` へ `DisplayName` / `IconUri` / `IconBackgroundColor` を書き、`SetCurrentProcessExplicitAppUserModelID` で設定する。起動時に前回のトーストを履歴から消す（受け手がいないため）。ボタンの引数は `action=<id>&value=<値>&nudge=<nudge_id>&open=<画面>`。
+- **フォールバック**: トーストを出せない場合は、画面右下の小さなポップアップ窓（ラベル `popup`）に切り替える。UI へは Tauri イベント `nudge` も送る。
 - **一時停止**: アプリ側の一時停止中は表示しない。
 
 ## 9. AI 振り返り
@@ -407,7 +408,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 ## 11. GUI
 
-`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today`（計画を含む。日付は `?date=`、右のサイドパネルにブロック・区間・付け替え・今日のデザイン・未回答の問いかけを同時に 1 つ出す。旧名の `plan` は `legacyRoute` が `today` に写す）/ `actual`（実績。要確認の絞り込みは `actual?status=review`）/ `tasks` / `goals` / `records`（チェックイン・ハッスル・ABC・振り返りの時系列。旧名の `reflect`・`checkin`・`hassle` は UI の `legacyRoute` が `records` に写す）/ `report` / `settings`、初回起動時の `onboarding`、通知用の `popup`、クイック入力用の `quick`（ウインドウラベルで切り替える小窓）。オンボーディングの完了は `setting` テーブルの `onboarding.completed_at` で判定し（`service::onboarding`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了に加え、「タスクを素早く入力…」でクイック入力を開く。
+`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today`（計画を含む。日付は `?date=`、右のサイドパネルに計画ブロック・区間・付け替え・今日のデザイン・未回答の問いかけを同時に 1 つ出す）/ `actual`（実績。要確認の絞り込みは `actual?status=review`）/ `tasks` / `goals` / `records`（チェックイン・ハッスル・ABC・振り返りの時系列。旧名の `checkin`・`hassle` は UI の `legacyRoute` が `records` に写す）/ `report` / `settings`、初回起動時の `welcome`、通知用の `popup`、クイック入力用の `quick`（ウインドウラベルで切り替える小窓）。はじめにの完了は `setting` テーブルの `welcome.completed_at` で判定し（`service::welcome`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・問いかけ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了に加え、「タスクを素早く入力…」でクイック入力を開く。
 
 クイック入力（`hitoiki-app/src/quick.rs`）: 設定 `general.quick_entry_shortcut`（既定 `Ctrl+Alt+Space`、`core::shortcut` が検証・正規化）を `tauri-plugin-global-shortcut` で登録する。Windows ではその実体は `RegisterHotKey`（global-hotkey クレート）で、OS から受け取るのは登録した組み合わせの押下通知だけであり、`WH_KEYBOARD_LL` などのフックやキー入力の記録は使わない（登録したキーが離されるまで、そのキー 1 つの押下状態を 50ms 間隔で見る処理はプラグイン内にあるが、離したときの通知は使わず、何も保存しない）。ウインドウ（ラベル `quick`、装飾なし・常に手前・タスクバー非表示）は起動時に非表示で作っておき、ショートカットで画面中央上寄せに出してフォーカスを取り、`quick-open` イベントで UI が入力を初期化する。フォーカスを失うと隠す。登録・解除は main スレッドで行われるため、設定を変えるコマンド（`quick_shortcut_set`）は async にしている。作成または選択して開始する処理と直前の doing の取得は core の `service::quick`（`switch` / `back` / `previous_doing`。直前の doing は `task_doing_log` の閉じたログのうち終了が最も新しい、未完了のタスク）で、CLI の `task switch` / `task back` と共通。ヘッドレスの daemon にはショートカットもウインドウも無い。UI の選択欄は `task-picker.tsx`（絞り込みと候補の組み立ては `task-picker-util.ts` の純粋関数）で、ブロックのフォームとクイック入力が共用する。
 
@@ -437,14 +438,14 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `actual` | `min_sec`（60: 要確認の一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120: 補正の範囲選択の吸着幅）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（false: 補正の初期チェック） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`wait_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`kr_idle_weekday`（3）、`disabled_triggers` |
+| `nudge` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_work_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`key_result_idle_weekday`（3）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
 | `ai` | `command`（`["claude", "-p"]`）、`model`（claude なら `haiku`）、`model_args`、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources`（`name`, `type`, `url`） |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 
-設定の変更は、再計算・カレンダー・プッシュ・自動判定には次回から反映される。収集器とログ監視の設定の変更には再起動が必要。
+設定の変更は、再計算・カレンダー・問いかけ・自動判定には次回から反映される。収集器とログ監視の設定の変更には再起動が必要。
 
 ## 13. 配布とライセンス
 
@@ -458,7 +459,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
   - アンインストールでユーザーデータ（`%APPDATA%\hitoiki`、`%LOCALAPPDATA%\hitoiki`）は消さない。標準の「アプリデータを削除」は `dev.hitoiki.app` フォルダのみが対象。
 - ライセンスは MIT OR Apache-2.0 のデュアル。依存クレートのライセンスは `cargo deny check`（`deny.toml`、CI でも実行）で検査し、permissive 以外を拒否する。
 - 自動更新は無い。ネットワークを使うのは `hitoiki version --check` の実行時と、`general.update_check = true` のときの 1 日 1 回の最新版確認のみ。
-- テストは `cargo test --workspace`。時刻は `Clock` トレイト経由で取得し、パイプライン・プッシュ判定は時刻を引数で受けるので決定的にテストできる。
+- テストは `cargo test --workspace`。時刻は `Clock` トレイト経由で取得し、パイプライン・問いかけ判定は時刻を引数で受けるので決定的にテストできる。
 
 ## 14. 未検証事項
 

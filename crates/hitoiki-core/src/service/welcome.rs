@@ -1,4 +1,4 @@
-//! 初回起動時のオンボーディングの完了状態（`setting` テーブルに保存する）。
+//! 初回起動時のはじめにの完了状態（`setting` テーブルに保存する）。
 
 use super::Ctx;
 use crate::{Millis, Result};
@@ -6,16 +6,16 @@ use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
 
 /// 完了時刻（Unix ミリ秒）を保存する `setting` のキー。
-pub const COMPLETED_KEY: &str = "onboarding.completed_at";
+pub const COMPLETED_KEY: &str = "welcome.completed_at";
 
 #[derive(Debug, Clone, Serialize)]
-pub struct OnboardingStatus {
+pub struct WelcomeStatus {
     pub completed: bool,
     pub completed_at: Option<Millis>,
 }
 
-/// オンボーディングの完了状態を返す。
-pub fn status(ctx: &Ctx) -> Result<OnboardingStatus> {
+/// はじめにの完了状態を返す。
+pub fn status(ctx: &Ctx) -> Result<WelcomeStatus> {
     let v: Option<String> = ctx
         .conn
         .query_row(
@@ -25,14 +25,14 @@ pub fn status(ctx: &Ctx) -> Result<OnboardingStatus> {
         )
         .optional()?;
     let completed_at = v.and_then(|s| s.trim().parse::<i64>().ok());
-    Ok(OnboardingStatus {
+    Ok(WelcomeStatus {
         completed: completed_at.is_some(),
         completed_at,
     })
 }
 
 /// 完了済みにする（すでに完了していれば時刻は更新しない）。
-pub fn complete(ctx: &Ctx) -> Result<OnboardingStatus> {
+pub fn complete(ctx: &Ctx) -> Result<WelcomeStatus> {
     ctx.conn.execute(
         "INSERT INTO setting(key, value_json) VALUES (?1, ?2)
          ON CONFLICT(key) DO NOTHING",
@@ -42,7 +42,7 @@ pub fn complete(ctx: &Ctx) -> Result<OnboardingStatus> {
 }
 
 /// 未完了に戻す（「もう一度見る」用）。
-pub fn reset(ctx: &Ctx) -> Result<OnboardingStatus> {
+pub fn reset(ctx: &Ctx) -> Result<WelcomeStatus> {
     ctx.conn
         .execute("DELETE FROM setting WHERE key = ?1", [COMPLETED_KEY])?;
     status(ctx)

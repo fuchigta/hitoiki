@@ -54,7 +54,7 @@ pub struct PipelineInput {
     pub task_rules: Vec<TaskAssignRule>,
     pub activity_rules: Vec<ActivityRule>,
     pub doing_logs: Vec<TaskDoingLog>,
-    pub time_blocks: Vec<TimeBlock>,
+    pub plan_blocks: Vec<PlanBlock>,
     /// 未完了タスク（現状パイプラインでは参照しない。自動判定への文脈用に保持）。
     pub tasks: Vec<Task>,
     pub idle_threshold: Millis,
@@ -92,7 +92,7 @@ impl PipelineInput {
             task_rules: vec![],
             activity_rules: vec![],
             doing_logs: vec![],
-            time_blocks: vec![],
+            plan_blocks: vec![],
             tasks: vec![],
             idle_threshold: cfg.collect.idle_threshold_sec as Millis * 1000,
             merge_gap: cfg.collect.merge_gap_sec as Millis * 1000,

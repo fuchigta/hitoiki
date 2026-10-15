@@ -361,7 +361,7 @@ export function ApplyTemplate({ date, suggested = [], onChanged }: ApplyProps) {
         </Field>
         <Field label="重なるとき">
           <select value={overlap} onChange={(e) => setOverlap(e.currentTarget.value as Overlap)}>
-            <option value="skip">その枠は作らない</option>
+            <option value="skip">その計画ブロックは作らない</option>
             <option value="overlay">重ねて作る</option>
           </select>
         </Field>

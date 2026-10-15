@@ -65,13 +65,13 @@ describe("サイドパネルの状態遷移", () => {
     s = run(s, { type: "toggleDesign" });
     expect(visiblePanel(s)).toBeNull();
     // 別のパネルが出ているときの切り替えはデザインに戻す。
-    s = run(SIDE_INITIAL, { type: "toggleDesign" }, { type: "open", panel: { kind: "push" } }, { type: "toggleDesign" });
+    s = run(SIDE_INITIAL, { type: "toggleDesign" }, { type: "open", panel: { kind: "nudge" } }, { type: "toggleDesign" });
     expect(visiblePanel(s)?.kind).toBe("design");
     expect(visiblePanel(run(s, { type: "finishDesign" }))).toBeNull();
   });
   it("日付が変わると、ブロック・補正・区間は閉じる（問いかけとデザインは残す）", () => {
     expect(visiblePanel(run(SIDE_INITIAL, { type: "open", panel: { kind: "correct", span: { start: 1, end: 2 } } }, { type: "dateChanged" }))).toBeNull();
-    expect(visiblePanel(run(SIDE_INITIAL, { type: "open", panel: { kind: "push" } }, { type: "dateChanged" }))?.kind).toBe("push");
+    expect(visiblePanel(run(SIDE_INITIAL, { type: "open", panel: { kind: "nudge" } }, { type: "dateChanged" }))?.kind).toBe("nudge");
     const s = run(SIDE_INITIAL, { type: "open", panel: { kind: "design" } }, { type: "open", panel: { kind: "segment", id: "x" } }, { type: "dateChanged" });
     expect(visiblePanel(s)?.kind).toBe("design");
   });

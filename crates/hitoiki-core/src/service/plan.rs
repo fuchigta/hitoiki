@@ -1,8 +1,8 @@
-//! タイムブロッキング（docs/dev/architecture.md「データモデル」、docs/dev/architecture.md「CLI」）。
+//! 計画ブロック（docs/dev/architecture.md「データモデル」、docs/dev/architecture.md「CLI」）。
 
 use super::{range_view, task_titles, Ctx, RangeArgs, RangeView};
 use crate::id::new_id;
-use crate::model::TimeBlock;
+use crate::model::PlanBlock;
 use crate::repo::{self, plan};
 use crate::{Error, Millis, Result};
 use serde::Serialize;
@@ -20,7 +20,7 @@ pub struct BlockInput {
 #[derive(Debug, Clone, Serialize)]
 pub struct BlockView {
     #[serde(flatten)]
-    pub block: TimeBlock,
+    pub block: PlanBlock,
     pub task_title: Option<String>,
 }
 
@@ -30,8 +30,8 @@ pub struct BlockList {
     pub blocks: Vec<BlockView>,
 }
 
-/// 入力を検証して `TimeBlock` を組み立てる（保存はしない）。
-fn build(ctx: &Ctx, id: String, input: &BlockInput) -> Result<TimeBlock> {
+/// 入力を検証して `PlanBlock` を組み立てる（保存はしない）。
+fn build(ctx: &Ctx, id: String, input: &BlockInput) -> Result<PlanBlock> {
     if input.end <= input.start {
         return Err(Error::InvalidArgument("終了は開始より後にしてください".into()));
     }
@@ -44,7 +44,7 @@ fn build(ctx: &Ctx, id: String, input: &BlockInput) -> Result<TimeBlock> {
             "--task か --label のいずれかが必要です".into(),
         ));
     }
-    Ok(TimeBlock {
+    Ok(PlanBlock {
         id,
         start_at: input.start,
         end_at: input.end,
@@ -54,14 +54,14 @@ fn build(ctx: &Ctx, id: String, input: &BlockInput) -> Result<TimeBlock> {
     })
 }
 
-pub fn add(ctx: &Ctx, input: &BlockInput) -> Result<TimeBlock> {
+pub fn add(ctx: &Ctx, input: &BlockInput) -> Result<PlanBlock> {
     let b = build(ctx, new_id(), input)?;
     plan::insert(ctx.conn, &b)?;
     Ok(b)
 }
 
 /// ブロックの内容（時間・タスク・ラベル・集中）をまるごと置き換える。`id` は前方一致可。
-pub fn update(ctx: &Ctx, id: &str, input: &BlockInput) -> Result<TimeBlock> {
+pub fn update(ctx: &Ctx, id: &str, input: &BlockInput) -> Result<PlanBlock> {
     let cur = plan::resolve(ctx.conn, id)?;
     let b = build(ctx, cur.id, input)?;
     plan::update(ctx.conn, &b)?;
@@ -69,7 +69,7 @@ pub fn update(ctx: &Ctx, id: &str, input: &BlockInput) -> Result<TimeBlock> {
 }
 
 /// ID（前方一致可）でブロックを 1 件取得する。
-pub fn find(ctx: &Ctx, id: &str) -> Result<TimeBlock> {
+pub fn find(ctx: &Ctx, id: &str) -> Result<PlanBlock> {
     plan::resolve(ctx.conn, id)
 }
 

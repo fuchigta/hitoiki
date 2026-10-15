@@ -352,7 +352,7 @@ pub struct SegmentConfirmation {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TimeBlock {
+pub struct PlanBlock {
     pub id: String,
     pub start_at: Millis,
     pub end_at: Millis,
@@ -463,7 +463,7 @@ impl Reflection {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PushLog {
+pub struct NudgeLog {
     pub id: String,
     pub at: Millis,
     pub trigger: String,

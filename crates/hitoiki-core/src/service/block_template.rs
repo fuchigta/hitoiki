@@ -1,12 +1,12 @@
-//! ブロックのテンプレート（働き方のパターン。docs/dev/architecture.md「ブロックのテンプレート」）。
+//! テンプレート（docs/dev/architecture.md「テンプレート」）。
 //!
 //! テンプレートはローカル時刻（HH:MM）のブロックの集まりで、曜日を割り当てられる。
-//! 適用すると、指定日の `time_block` を作る。適用は履歴に残り、直前の適用を取り消せる。
+//! 適用すると、指定日の `plan_block` を作る。適用は履歴に残り、直前の適用を取り消せる。
 
 use super::plan::BlockView;
 use super::{range_view, task_titles, Ctx, RangeView};
 use crate::id::new_id;
-use crate::model::TimeBlock;
+use crate::model::PlanBlock;
 use crate::repo::block_template::{self as repo_tpl, Application, Item, Template};
 use crate::repo::{self, calendar, plan};
 use crate::timefmt::{self, Range};
@@ -528,7 +528,7 @@ pub fn preview(ctx: &Ctx, input: &ApplyInput) -> Result<Preview> {
     })
 }
 
-/// 指定日にテンプレートを適用して `time_block` を作る。
+/// 指定日にテンプレートを適用して `plan_block` を作る。
 pub fn apply(ctx: &Ctx, input: &ApplyInput) -> Result<ApplyResult> {
     let t = resolve(ctx, &input.template)?;
     let d = date_of(ctx, &input.date)?;
@@ -540,7 +540,7 @@ pub fn apply(ctx: &Ctx, input: &ApplyInput) -> Result<ApplyResult> {
     let tx = ctx.conn.unchecked_transaction()?;
     let mut created = Vec::new();
     for p in keep {
-        let b = TimeBlock {
+        let b = PlanBlock {
             id: new_id(),
             start_at: p.start_at,
             end_at: p.end_at,

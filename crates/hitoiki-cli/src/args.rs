@@ -34,7 +34,7 @@ pub struct RangeOpts {
 
 #[derive(Debug, Subcommand)]
 pub enum Cmd {
-    /// 現在の doing タスク、直近の区間、今日の集計、未応答のプッシュ
+    /// 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ
     Status,
     /// タスクの操作
     #[command(subcommand)]
@@ -52,12 +52,12 @@ pub enum Cmd {
         #[arg(long)]
         to: Option<String>,
     },
-    /// タイムブロッキング
+    /// 計画ブロック
     #[command(subcommand)]
     Block(BlockCmd),
-    /// 通知（プッシュ）の一覧と、あとからの回答・見送り
+    /// 問いかけの一覧と、あとからの回答・見送り
     #[command(subcommand)]
-    Push(PushCmd),
+    Nudge(NudgeCmd),
     /// コンディションの記録（`check list|edit|delete` で一覧・編集・削除）
     #[command(args_conflicts_with_subcommands = true)]
     Check {
@@ -155,7 +155,7 @@ pub enum Cmd {
     Agent(AgentCmd),
     /// ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止）
     Daemon,
-    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|actual|tasks|goals|records|report|settings|onboarding（旧名: plan・reflect・reflection・checkin・hassle）
+    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|actual|tasks|goals|records|records/new/<kind>|report|settings|welcome（actual は ?status=review などのクエリも可）
     Ui { screen: Option<String> },
     /// 補助コレクタ用の取り込み
     #[command(subcommand)]
@@ -476,7 +476,7 @@ pub enum CalendarCmd {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum PushCmd {
+pub enum NudgeCmd {
     /// 配信された通知の一覧（既定は今日。答えたもの・見送ったものも含む）
     List {
         #[command(flatten)]
@@ -500,7 +500,7 @@ pub enum PushCmd {
         stress: Option<i64>,
         /// 一言（気になったこととして保存）
         #[arg(long)]
-        hassle: Option<String>,
+        concern: Option<String>,
         /// 無操作の分類: break / meeting / thinking / away、または task（通知が示したタスクをしていた。PC 外の作業として確定）（無操作からの復帰の通知のみ）
         #[arg(long)]
         idle: Option<String>,
@@ -664,7 +664,7 @@ pub enum BlockCmd {
         /// ブロックの ID（前方一致）
         id: String,
     },
-    /// ブロックのテンプレート（働き方のパターン）
+    /// テンプレート
     #[command(subcommand)]
     Template(TemplateCmd),
 }

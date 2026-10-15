@@ -5,16 +5,7 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 /// 画面名として受け付ける値（`#/<screen>` に対応）。
 pub const SCREENS: &[&str] = &[
-    "today",
-    "actual",
-    "tasks",
-    "plan",
-    "reflect",
-    "report",
-    "records",
-    "goals",
-    "settings",
-    "onboarding",
+    "today", "actual", "tasks", "goals", "records", "report", "settings", "welcome",
 ];
 
 /// メイン窓を表示して前面に出す。
@@ -26,30 +17,43 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
-/// 振り返りの種別（`reflect/<kind>`）。
-const REFLECT_KINDS: &[&str] = &["day_start", "day_end", "weekly"];
+/// 記録の作成フォーム（`records/new/<kind>`）の種類。
+const RECORD_FORMS: &[&str] = &[
+    "day_start",
+    "day_end",
+    "weekly",
+    "condition",
+    "concern",
+    "reframe",
+];
 
-/// 画面指定を UI のハッシュ（`today`、`reflect/day_end` など）に正規化する。
+/// 画面指定を UI のハッシュ（`today`、`records/new/day_end`、`actual?status=review` など）に正規化する。
 ///
-/// - `reflection/<kind>`（プッシュの `open_screen`）と `reflect/<kind>` は `reflect/<kind>` にそろえる。
-///   `reflect` は旧名で、UI が記録画面（`records/new/<kind>`、種類なしは `records?kind=reflection`）に写す。
-/// - `checkin` / `hassle`（プッシュの `open_screen`）は記録画面の作成フォーム（`records/new/<種類>`）。
+/// - 画面名（`SCREENS`）はそのまま。クエリ（`?...`）は残す。
+/// - `today/design`（今日のデザインモード。始業の問いかけから）と、`records/new/<kind>`（記録の作成フォーム）は
+///   サブパスを残す。
 /// - 未知の画面名は `today`。
 pub fn normalize_screen(screen: &str) -> String {
-    let (base, rest) = match screen.split_once('/') {
-        Some((b, r)) => (b, Some(r)),
+    let (path, query) = match screen.split_once('?') {
+        Some((p, q)) => (p, Some(q)),
         None => (screen, None),
     };
-    match base {
-        "reflection" | "reflect" => match rest {
-            Some(k) if REFLECT_KINDS.contains(&k) => format!("reflect/{k}"),
-            _ => "reflect".to_string(),
+    let (base, rest) = match path.split_once('/') {
+        Some((b, r)) => (b, Some(r)),
+        None => (path, None),
+    };
+    let page = match (base, rest) {
+        ("today", Some("design")) => "today/design".to_string(),
+        ("records", Some(r)) => match r.strip_prefix("new/") {
+            Some(k) if RECORD_FORMS.contains(&k) => format!("records/new/{k}"),
+            _ => "records".to_string(),
         },
-        "checkin" | "hassle" => format!("records/new/{base}"),
-        // 今日のデザインモード（始業の通知から）。
-        "today" if rest == Some("design") => "today/design".to_string(),
-        b if SCREENS.contains(&b) => b.to_string(),
-        _ => "today".to_string(),
+        (b, _) if SCREENS.contains(&b) => b.to_string(),
+        _ => return "today".to_string(),
+    };
+    match query {
+        Some(q) if !q.is_empty() => format!("{page}?{q}"),
+        _ => page,
     }
 }
 
@@ -94,16 +98,31 @@ mod tests {
     #[test]
     fn 画面名の正規化() {
         assert_eq!(normalize_screen("today"), "today");
-        assert_eq!(normalize_screen("reflection/day_end"), "reflect/day_end");
-        assert_eq!(normalize_screen("reflect"), "reflect");
-        assert_eq!(normalize_screen("reflection/xx"), "reflect");
+        assert_eq!(normalize_screen("records/new/day_end"), "records/new/day_end");
+        assert_eq!(normalize_screen("records/new/condition"), "records/new/condition");
+        assert_eq!(normalize_screen("records/new/concern"), "records/new/concern");
+        assert_eq!(normalize_screen("records/new/xx"), "records");
         assert_eq!(normalize_screen("today/design"), "today/design");
         assert_eq!(normalize_screen("today/xx"), "today");
-        assert_eq!(normalize_screen("checkin"), "records/new/checkin");
-        assert_eq!(normalize_screen("hassle"), "records/new/hassle");
         assert_eq!(normalize_screen("records"), "records");
         assert_eq!(normalize_screen("actual"), "actual");
-        assert_eq!(normalize_screen("onboarding"), "onboarding");
+        assert_eq!(normalize_screen("actual?status=review"), "actual?status=review");
+        assert_eq!(normalize_screen("goals"), "goals");
+        assert_eq!(normalize_screen("welcome"), "welcome");
+        // 旧名は受け付けない。
+        for old in [
+            "log",
+            "review",
+            "okr",
+            "plan",
+            "reflect",
+            "reflection/day_end",
+            "checkin",
+            "hassle",
+            "onboarding",
+        ] {
+            assert_eq!(normalize_screen(old), "today", "{old}");
+        }
         assert_eq!(normalize_screen("nope"), "today");
     }
 }

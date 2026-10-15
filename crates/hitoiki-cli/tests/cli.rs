@@ -405,7 +405,7 @@ fn task_lifecycle_with_json_and_exit_codes() {
     );
     assert_eq!(a.code, 0, "{}", a.stderr);
     let v = a.json();
-    assert_eq!(v["version"], 1);
+    assert_eq!(v["version"], 2);
     assert_eq!(v["estimate_min"], 90);
     assert_eq!(v["urgent"], true);
     let id = v["id"].as_str().unwrap().to_string();
@@ -509,7 +509,7 @@ fn report_and_review_flow() {
     );
     assert_eq!(r.code, 0, "{}", r.stderr);
     let v = r.json();
-    assert_eq!(v["version"], 1);
+    assert_eq!(v["version"], 2);
     assert_eq!(v["total_ms"], 90 * 60_000);
     assert_eq!(v["excluded"]["idle_ms"], 30 * 60_000);
     assert_eq!(v["rows"][0]["label"], "実装");
@@ -650,7 +650,7 @@ fn config_doctor_and_reflect() {
     // 振り返り系: context は JSON、存在しない ID は 3
     let c = run(h, &["context", "--kind", "day_start"]);
     assert_eq!(c.code, 0);
-    assert!(c.stdout.contains("\"version\": 1"), "{}", c.stdout);
+    assert!(c.stdout.contains("\"version\": 2"), "{}", c.stdout);
     assert_eq!(run(h, &["context", "--kind", "bogus"]).code, 2);
     assert_eq!(run(h, &["reflect", "list"]).code, 0);
     assert_eq!(run(h, &["abc", "dispute", "X"]).code, 3);
@@ -845,7 +845,7 @@ fn rebuild_on_empty_db() {
     let j = o.json();
     assert_eq!(j["segments"], 0);
     assert_eq!(j["bindings"], 0);
-    assert_eq!(j["version"], 1);
+    assert_eq!(j["version"], 2);
     assert!(j["range"]["start"].is_string());
     assert_eq!(
         run(h, &["rebuild", "--date", "today", "--from", "2026-01-01"]).code,
@@ -1042,7 +1042,7 @@ fn review_list_hides_short_segments_unless_all() {
     assert_eq!(j["count"], 1);
     assert_eq!(j["hidden_short"], 1);
     assert_eq!(j["min_sec"], 60);
-    assert_eq!(j["version"], 1);
+    assert_eq!(j["version"], 2);
     let human = run(h, &["actual", "review", "--date", "2026-01-05"]);
     assert!(
         human
@@ -1596,9 +1596,9 @@ fn ignore_list_add_remove_suggest_and_segments() {
 }
 
 #[test]
-fn push_list_and_answer() {
-    use hitoiki_core::push::{store, PushDecision, PushPayload};
-    let mk = |trigger: &str, title: &str| -> PushPayload {
+fn nudge_list_and_answer() {
+    use hitoiki_core::nudge::{store, NudgeDecision, NudgePayload};
+    let mk = |trigger: &str, title: &str| -> NudgePayload {
         serde_json::from_value(serde_json::json!({
             "trigger": trigger, "title": title, "body": "本文",
             "actions": [{"id": "energy", "label": "3", "value": 3}],
@@ -1613,14 +1613,14 @@ fn push_list_and_answer() {
     let now = hitoiki_core::Clock::now_ms(&hitoiki_core::SystemClock);
     let a = store::record_decision(
         &conn,
-        &PushDecision::Deliver(mk("day_start", "おはようございます")),
+        &NudgeDecision::Deliver(mk("day_start", "おはようございます")),
         now,
     )
     .unwrap()
     .unwrap();
     let b = store::record_decision(
         &conn,
-        &PushDecision::Deliver(mk("after_interrupt", "割り込み")),
+        &NudgeDecision::Deliver(mk("after_interrupt", "割り込み")),
         // 同じ時刻だと並び（at, id）が ULID の乱数部で決まるので 1ms ずらす。
         now + 1,
     )
@@ -1628,42 +1628,42 @@ fn push_list_and_answer() {
     .unwrap();
     drop(conn);
 
-    let l = run(h, &["--json", "push", "list", "--unanswered"]);
+    let l = run(h, &["--json", "nudge", "list", "--unanswered"]);
     assert_eq!(l.code, 0, "{}", l.stderr);
-    assert_eq!(l.json()["pushes"].as_array().unwrap().len(), 2);
-    assert_eq!(l.json()["pushes"][0]["trigger_label"], "始業");
-    let human = run(h, &["push", "list"]);
+    assert_eq!(l.json()["nudges"].as_array().unwrap().len(), 2);
+    assert_eq!(l.json()["nudges"][0]["trigger_label"], "始業");
+    let human = run(h, &["nudge", "list"]);
     assert!(human.stdout.contains("おはようございます"), "{}", human.stdout);
     assert!(run(h, &["status"]).stdout.contains("[始業] おはようございます"));
 
     let ans = run(
         h,
-        &["--json", "push", "answer", &a, "--energy", "4", "--mood", "3"],
+        &["--json", "nudge", "answer", &a, "--energy", "4", "--mood", "3"],
     );
     assert_eq!(ans.code, 0, "{}", ans.stderr);
     assert_eq!(ans.json()["state"], "answered");
-    let dis = run(h, &["--json", "push", "answer", &b, "--dismiss"]);
+    let dis = run(h, &["--json", "nudge", "answer", &b, "--dismiss"]);
     assert_eq!(dis.json()["state"], "dismissed");
-    let l = run(h, &["--json", "push", "list", "--unanswered"]);
-    assert!(l.json()["pushes"].as_array().unwrap().is_empty());
-    let all = run(h, &["--json", "push", "list"]);
-    assert_eq!(all.json()["pushes"].as_array().unwrap().len(), 2);
+    let l = run(h, &["--json", "nudge", "list", "--unanswered"]);
+    assert!(l.json()["nudges"].as_array().unwrap().is_empty());
+    let all = run(h, &["--json", "nudge", "list"]);
+    assert_eq!(all.json()["nudges"].as_array().unwrap().len(), 2);
 
     // 終了コード: 引数不正 2、対象なし 3。
-    assert_eq!(run(h, &["push", "answer", &a]).code, 2);
-    assert_eq!(run(h, &["push", "answer", &a, "--energy", "9"]).code, 2);
-    assert_eq!(run(h, &["push", "answer", &a, "--idle", "x"]).code, 2);
-    assert_eq!(run(h, &["push", "answer", "ZZZZ", "--dismiss"]).code, 3);
+    assert_eq!(run(h, &["nudge", "answer", &a]).code, 2);
+    assert_eq!(run(h, &["nudge", "answer", &a, "--energy", "9"]).code, 2);
+    assert_eq!(run(h, &["nudge", "answer", &a, "--idle", "x"]).code, 2);
+    assert_eq!(run(h, &["nudge", "answer", "ZZZZ", "--dismiss"]).code, 3);
 }
 
 #[test]
-fn push_kr_idle_の見送りに答える() {
-    use hitoiki_core::push::{store, PushDecision, PushPayload};
-    let p: PushPayload = serde_json::from_value(serde_json::json!({
-        "trigger": "kr_idle", "title": "今週、時間が入っていない成果の指標があります",
+fn nudge_key_result_idle_の見送りに答える() {
+    use hitoiki_core::nudge::{store, NudgeDecision, NudgePayload};
+    let p: NudgePayload = serde_json::from_value(serde_json::json!({
+        "trigger": "key_result_idle", "title": "今週、時間が入っていない成果の指標があります",
         "body": "「成果」に、今週はまだ時間が入っていません。",
         "actions": [{"id": "open", "label": "今日の予定に入れる", "value": null},
-                    {"id": "kr_skip_week", "label": "今週は見送る", "value": null}],
+                    {"id": "key_result_skip_week", "label": "今週は見送る", "value": null}],
         "input": null, "open_screen": "today/design"
     }))
     .unwrap();
@@ -1672,19 +1672,22 @@ fn push_kr_idle_の見送りに答える() {
     std::env::set_var("HITOIKI_HOME", h);
     let conn = db::open(&paths::db_file()).unwrap();
     let now = hitoiki_core::Clock::now_ms(&hitoiki_core::SystemClock);
-    let id = store::record_decision(&conn, &PushDecision::Deliver(p), now)
+    let id = store::record_decision(&conn, &NudgeDecision::Deliver(p), now)
         .unwrap()
         .unwrap();
     drop(conn);
-    let l = run(h, &["--json", "push", "list", "--unanswered"]);
+    let l = run(h, &["--json", "nudge", "list", "--unanswered"]);
     assert_eq!(
-        l.json()["pushes"][0]["trigger_label"],
+        l.json()["nudges"][0]["trigger_label"],
         "時間が入っていない成果の指標"
     );
-    let a = run(h, &["--json", "push", "answer", &id, "--task", "kr_skip_week"]);
+    let a = run(
+        h,
+        &["--json", "nudge", "answer", &id, "--task", "key_result_skip_week"],
+    );
     assert_eq!(a.code, 0, "{}", a.stderr);
     assert_eq!(a.json()["state"], "answered");
-    assert_eq!(run(h, &["push", "answer", &id, "--task", "nope"]).code, 2);
+    assert_eq!(run(h, &["nudge", "answer", &id, "--task", "nope"]).code, 2);
 }
 
 #[test]
@@ -1803,7 +1806,7 @@ fn heatmap_日別の濃淡と終了コード() {
     );
     assert_eq!(r.code, 0, "{}", r.stderr);
     let v = r.json();
-    assert_eq!(v["version"], 1);
+    assert_eq!(v["version"], 2);
     assert_eq!(v["by"], "time");
     assert_eq!(v["days"].as_array().unwrap().len(), 7);
     assert_eq!(v["days"][0]["value"], 60 * 60_000);

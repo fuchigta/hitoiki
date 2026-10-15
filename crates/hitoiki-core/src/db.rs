@@ -19,6 +19,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (10, include_str!("../migrations/0010_kr_suggest_reject.sql")),
     (11, include_str!("../migrations/0011_rename_goal.sql")),
     (13, include_str!("../migrations/0013_rename_actual.sql")),
+    (14, include_str!("../migrations/0014_rename_nudge.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -329,6 +330,107 @@ mod tests {
             )
             .unwrap();
         assert_eq!(gone, 0);
+    }
+
+    /// 0014: push_log -> nudge_log、time_block -> plan_block、保存済みの文字列値も新しい名前になる。
+    #[test]
+    fn migration_0014_問いかけと計画ブロックとはじめにの名前が揃う() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        ensure_migration_table(&conn).unwrap();
+        for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v < 14) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO schema_migration(version) VALUES (?1)", [v])
+                .unwrap();
+        }
+        let p1 = r#"{"trigger":"kr_idle","title":"t","body":"b","actions":[{"id":"kr_skip_week","label":"x","value":null},{"id":"open","label":"y","value":null}],"input":{"id":"hassle","placeholder":"p"},"open_screen":"reflection/day_end"}"#;
+        let p2 = r#"{"trigger":"long_focus","title":"t","body":"b","actions":[],"input":null,"open_screen":"checkin"}"#;
+        let p3 = r#"{"trigger":"day_start","title":"t","body":"b","actions":[],"input":{"id":"hassle","placeholder":"p"},"open_screen":"hassle"}"#;
+        let p4 = r#"{"trigger":"idle_return","title":"t","body":"b","actions":[],"input":null,"open_screen":"review"}"#;
+        for (id, trig, payload, resp) in [
+            (
+                "N1",
+                "kr_idle",
+                p1,
+                Some(r#"{"action":"kr_skip_week","value":null,"text":null}"#),
+            ),
+            ("N2", "long_focus", p2, None),
+            ("N3", "day_start", p3, Some(r#"{"action":"open"}"#)),
+            ("N4", "idle_return", p4, None),
+        ] {
+            conn.execute(
+                "INSERT INTO push_log (id, at, trigger, payload_json, delivered, response_json) VALUES (?1, 1000, ?2, ?3, 1, ?4)",
+                rusqlite::params![id, trig, payload, resp],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "INSERT INTO time_block (id, start_at, end_at, label, focus) VALUES ('B1', 1000, 2000, 'x', 1)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO reflection (id, at, kind, context_json, questions_md) VALUES ('R1', 1, 'day_end', '{\"time_blocks\":[]}', 'q')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO setting (key, value_json) VALUES ('onboarding.completed_at', '123')",
+            [],
+        )
+        .unwrap();
+
+        assert!(pending_versions(&conn).unwrap().contains(&14));
+        migrate(&mut conn).unwrap();
+
+        let get = |id: &str| -> (String, String, Option<String>) {
+            conn.query_row(
+                "SELECT trigger, payload_json, response_json FROM nudge_log WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap()
+        };
+        let (t, p, r) = get("N1");
+        assert_eq!(t, "key_result_idle");
+        assert!(p.contains(r#""trigger":"key_result_idle""#));
+        assert!(p.contains(r#""id":"key_result_skip_week""#));
+        assert!(p.contains(r#""id":"open""#));
+        assert!(p.contains(r#""input":{"id":"concern""#));
+        assert!(p.contains(r#""open_screen":"records/new/day_end""#));
+        assert_eq!(
+            r.unwrap(),
+            r#"{"action":"key_result_skip_week","value":null,"text":null}"#
+        );
+        let (t, p, _) = get("N2");
+        assert_eq!(t, "long_work");
+        assert!(p.contains(r#""trigger":"long_work""#));
+        assert!(p.contains(r#""open_screen":"records/new/condition""#));
+        let (t, p, r) = get("N3");
+        assert_eq!(t, "day_start");
+        assert!(p.contains(r#""input":{"id":"concern""#));
+        assert!(p.contains(r#""open_screen":"records/new/concern""#));
+        assert_eq!(r.unwrap(), r#"{"action":"open"}"#);
+        let (_, p, _) = get("N4");
+        assert!(p.contains(r#""open_screen":"actual?status=review""#));
+
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM plan_block WHERE id = 'B1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(n, 1);
+        assert!(conn.prepare("SELECT 1 FROM push_log").is_err());
+        assert!(conn.prepare("SELECT 1 FROM time_block").is_err());
+        let ctx: String = conn
+            .query_row("SELECT context_json FROM reflection WHERE id = 'R1'", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(ctx, r#"{"plan_blocks":[]}"#);
+        let k: String = conn
+            .query_row("SELECT key FROM setting", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(k, "welcome.completed_at");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-// 設定の部品。設定画面のタブとオンボーディングの両方から使う（設定の書き換えは configSet だけ）。
+// 設定の部品。設定画面のタブとはじめにの両方から使う（設定の書き換えは configSet だけ）。
 import type { ComponentChildren } from "preact";
 import { api } from "./api";
 import { ErrorBox } from "./components";
@@ -7,12 +7,12 @@ import { Help } from "./ui/parts";
 
 export interface Cfg {
   general?: { timezone?: string; autostart?: boolean; update_check?: boolean | null };
-  push?: {
+  nudge?: {
     enabled?: boolean;
     idle_return_min?: number;
     urgent_task_interval_min?: number;
     important_stale_days?: number;
-    kr_idle_weekday?: number;
+    key_result_idle_weekday?: number;
   };
   actual?: { trust_doing?: boolean; auto_break_locked_min?: number };
 }
@@ -50,7 +50,7 @@ export function AutostartToggle({ cfg, label = "ログイン時に自動で起�
 const UPDATE_CHECK_LABEL = "新しいバージョンを確認する（1日1回、GitHub に問い合わせます。送る情報はありません）";
 
 /**
- * 新しいバージョンの確認。`radio` は未選択（null）を区別できる「はい／いいえ」（オンボーディング用）、
+ * 新しいバージョンの確認。`radio` は未選択（null）を区別できる「はい／いいえ」（はじめに用）、
  * `check` は設定画面のチェックボックス。
  */
 export function UpdateCheckToggle({

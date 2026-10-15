@@ -321,7 +321,7 @@ pub fn load_input(conn: &Connection, cfg: &Config, range: Range, now: Millis) ->
     input.task_rules = raw::task_assign_rules(conn)?;
     input.activity_rules = raw::activity_rules(conn)?;
     input.doing_logs = raw::task_doing_logs(conn, wide)?;
-    input.time_blocks = raw::time_blocks(conn, wide)?;
+    input.plan_blocks = raw::plan_blocks(conn, wide)?;
     input.tasks = raw::open_tasks(conn)?;
     Ok(input)
 }

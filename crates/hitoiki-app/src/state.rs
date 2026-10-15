@@ -2,7 +2,7 @@
 
 use crate::error::AppError;
 use hitoiki_core::config::Config;
-use hitoiki_core::push::PushPayload;
+use hitoiki_core::nudge::NudgePayload;
 use hitoiki_core::service::Ctx;
 use hitoiki_core::{db, paths, Millis, SystemClock};
 use hitoiki_daemon::RuntimeHandle;
@@ -11,12 +11,12 @@ use serde::Serialize;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
-/// 直近のプッシュ（UI の `push` イベントとポップアップ窓の表示用）。
+/// 直近の問いかけ（UI の `nudge` イベントとポップアップ窓の表示用）。
 #[derive(Debug, Clone, Serialize)]
-pub struct PushEvent {
-    /// `push_log.id`。応答の保存に使う。テスト通知では None。
-    pub push_id: Option<String>,
-    pub payload: PushPayload,
+pub struct NudgeEvent {
+    /// `nudge_log.id`。応答の保存に使う。テスト通知では None。
+    pub nudge_id: Option<String>,
+    pub payload: NudgePayload,
 }
 
 /// 収集・再計算などの常駐処理の状態。
@@ -42,8 +42,8 @@ pub struct AppState {
     conn: Mutex<Connection>,
     /// この時刻まで通知を一時停止する（0 なら停止していない）。ランタイムが参照する。
     snooze_until: AtomicI64,
-    /// 直近のプッシュ（ポップアップ窓が読み出す）。
-    last_push: Mutex<Option<PushEvent>>,
+    /// 直近の問いかけ（ポップアップ窓が読み出す）。
+    last_nudge: Mutex<Option<NudgeEvent>>,
     /// 起動引数 `--screen` で指定された最初の画面（UI の読み込み後に一度だけ取り出す）。
     initial_screen: Mutex<Option<String>>,
 }
@@ -59,7 +59,7 @@ impl AppState {
             mode: Mutex::new(RuntimeMode::Starting),
             conn: Mutex::new(conn),
             snooze_until: AtomicI64::new(0),
-            last_push: Mutex::new(None),
+            last_nudge: Mutex::new(None),
             initial_screen: Mutex::new(None),
         })
     }
@@ -144,8 +144,8 @@ impl AppState {
         }
     }
 
-    pub fn set_last_push(&self, v: Option<PushEvent>) {
-        *self.last_push.lock().unwrap_or_else(|e| e.into_inner()) = v;
+    pub fn set_last_nudge(&self, v: Option<NudgeEvent>) {
+        *self.last_nudge.lock().unwrap_or_else(|e| e.into_inner()) = v;
     }
 
     pub fn set_initial_screen(&self, screen: Option<String>) {
@@ -159,8 +159,8 @@ impl AppState {
             .take()
     }
 
-    pub fn last_push(&self) -> Option<PushEvent> {
-        self.last_push.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    pub fn last_nudge(&self) -> Option<NudgeEvent> {
+        self.last_nudge.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 

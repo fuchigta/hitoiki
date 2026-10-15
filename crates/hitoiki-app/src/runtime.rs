@@ -1,4 +1,4 @@
-//! 常駐処理（収集・取り込み・再計算・プッシュ・IPC）の統合。
+//! 常駐処理（収集・取り込み・再計算・問いかけ・IPC）の統合。
 //!
 //! 実体は `hitoiki-daemon` の [`Runtime`] で、ヘッドレス（`hitoiki daemon`）と共通。
 //! IPC サーバもここ（Runtime 側）が持つので、アプリ側で別に立てない。
@@ -9,8 +9,8 @@ use crate::state::{AppState, RuntimeMode, EXTERNAL_DAEMON_MESSAGE};
 use crate::{events, tray, window};
 use hitoiki_agents::ImportStats;
 use hitoiki_core::config::Config;
-use hitoiki_core::push::{self, PushPayload, PushResponse};
-use hitoiki_core::service::pushlog;
+use hitoiki_core::nudge::{self, NudgePayload, NudgeResponse};
+use hitoiki_core::service::nudgelog;
 use hitoiki_core::service::record::{self, CheckInput};
 use hitoiki_core::timefmt::Range;
 use hitoiki_core::{Clock, SystemClock};
@@ -36,9 +36,9 @@ impl RuntimeSink for TauriSink {
         tray::refresh(&self.app);
     }
 
-    fn push(&self, push_id: &str, payload: &PushPayload) {
+    fn nudge(&self, nudge_id: &str, payload: &NudgePayload) {
         // 一時停止中は deliver が何もしない。
-        notify::deliver(&self.app, push_id, payload);
+        notify::deliver(&self.app, nudge_id, payload);
     }
 
     fn doing_changed(&self, task_id: Option<&str>) {
@@ -63,7 +63,7 @@ impl RuntimeSink for TauriSink {
             // 通知の一時停止中はトーストを出さない（トレイのメニューには出る）。
             return;
         }
-        if let Err(e) = notify::show_push(&self.app, None, &notify::update_payload(version)) {
+        if let Err(e) = notify::show_nudge(&self.app, None, &notify::update_payload(version)) {
             tracing::warn!("更新のトーストを出せませんでした: {e}");
         }
     }
@@ -121,13 +121,13 @@ pub fn quit(app: &AppHandle) {
 
 /// 通知のアクション（トーストのボタン／ポップアップのボタン）を受けたときの処理。
 ///
-/// `push_id` があれば `push::apply_response` に渡す（push_log・checkin・hassle・スヌーズは core が処理）。
+/// `nudge_id` があれば `nudge::apply_response` に渡す（nudge_log・checkin・hassle・スヌーズは core が処理）。
 /// ボタンが `open`、または本体クリックなら、ペイロードの `open_screen` の画面を開く。
-/// `push_id` が無い（テスト通知）場合は、`energy` を直接チェックインとして記録する。
+/// `nudge_id` が無い（テスト通知）場合は、`energy` を直接チェックインとして記録する。
 pub fn handle_activation(app: &AppHandle, act: Activation) {
     tracing::info!("通知のアクティベーション: {act:?}");
     // 更新のトースト: ボタンでも本体クリックでも、リリースページを開く。
-    if act.push_id.is_none()
+    if act.nudge_id.is_none()
         && (act.action.as_deref() == Some(notify::UPDATE_ACTION)
             || act.open_screen.as_deref() == Some(notify::UPDATE_OPEN))
     {
@@ -141,8 +141,8 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
     let opens = act.action.is_none() || action.as_deref() == Some("open");
 
     let mut changed = false;
-    if let Some(push_id) = act.push_id.as_deref() {
-        let resp = PushResponse {
+    if let Some(nudge_id) = act.nudge_id.as_deref() {
+        let resp = NudgeResponse {
             action: action
                 .clone()
                 .or_else(|| act.action.is_none().then(|| "open".to_string())),
@@ -150,12 +150,12 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
             text: note.clone(),
         };
         let applied = state.with_ctx(|c| {
-            let out = push::apply_response(c.conn, push_id, resp, c.now(), c.tz()?)?;
+            let out = nudge::apply_response(c.conn, nudge_id, resp, c.now(), c.tz()?)?;
             // タスク通知の「始める」: 開始は Ctx を持つここで行う（core の応答処理はタスク ID を返すだけ）。
             let started = out
                 .start_task
                 .as_deref()
-                .map(|id| pushlog::start_pushed_task(c, id).map(|_| id.to_string()));
+                .map(|id| nudgelog::start_nudged_task(c, id).map(|_| id.to_string()));
             Ok((out, started))
         });
         match applied {

@@ -590,24 +590,24 @@ button.ghost:hover:not(:disabled) {
   margin: 0;
   color: var(--muted);
 }
-.push-answer {
+.nudge-answer {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
 }
-.push-list > li {
+.nudge-list > li {
   padding: var(--sp-2) 0;
 }
-.push-list p {
+.nudge-list p {
   margin: var(--sp-1) 0;
 }
-.push-answer .actions,
+.nudge-answer .actions,
 .popup .actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
 }
-.push-answer .actions .chip,
+.nudge-answer .actions .chip,
 .popup .actions .chip {
   flex: 1 1 auto;
   padding: var(--sp-2) var(--sp-2);
@@ -989,7 +989,7 @@ button.primary.attn {
   color: var(--warn);
 }
 
-/* オンボーディング */
+/* はじめに */
 .steps {
   display: flex;
   flex-wrap: wrap;
@@ -1213,16 +1213,16 @@ button.primary.attn {
   flex-direction: column;
   gap: var(--sp-1);
 }
-.push-band {
+.nudge-band {
   border: 1px solid var(--border);
   border-radius: var(--r-m);
   background: var(--surface);
   padding: var(--sp-2) var(--sp-3);
 }
-.push-band > summary {
+.nudge-band > summary {
   cursor: pointer;
 }
-.push-band[open] > summary {
+.nudge-band[open] > summary {
   margin-bottom: var(--sp-2);
 }
 .record-text {

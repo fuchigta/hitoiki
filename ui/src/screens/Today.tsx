@@ -6,7 +6,7 @@ import { blockTitle } from "../block-form";
 import { Bars, Card, Empty, ErrorBox, Section } from "../components";
 import { CorrectionPanel } from "../correction";
 import { DayDesigner } from "../day-designer";
-import { showStartGuide } from "../onboarding-util";
+import { showStartGuide } from "../welcome-util";
 import {
   KIND_LABEL,
   dateInput,
@@ -27,7 +27,7 @@ import {
   visibleWindow,
   type TimeSpan,
 } from "../plan-util";
-import { PushList } from "../push-answer";
+import { NudgeList } from "../nudge-answer";
 import { SegmentPanel } from "../segment-panel";
 import { ApplyTemplate, SaveAsTemplate } from "../templates";
 import { suggestionText, weekdayOf } from "../template-util";
@@ -225,7 +225,7 @@ export function Today() {
 
   const suggested = suggest.data?.templates ?? [];
   const dayName = isToday ? "今日" : date;
-  const unanswered = s?.unanswered_pushes ?? [];
+  const unanswered = s?.unanswered_nudges ?? [];
 
   // 内訳。今日は status の集計、それ以外はレポートの集計。
   const kindRows: ReportRow[] | null = isToday ? (s?.today.by_kind ?? null) : (otherKinds.data?.rows ?? null);
@@ -289,7 +289,7 @@ export function Today() {
         ) : (
           <Empty>この区間は見つかりませんでした。</Empty>
         );
-      case "push":
+      case "nudge":
         return (
           <Section
             title="未回答の問いかけ"
@@ -300,7 +300,7 @@ export function Today() {
               </button>
             }
           >
-            {unanswered.length === 0 ? <Empty>未回答の問いかけはありません。</Empty> : <PushList pushes={unanswered} onDone={st.reload} />}
+            {unanswered.length === 0 ? <Empty>未回答の問いかけはありません。</Empty> : <NudgeList nudges={unanswered} onDone={st.reload} />}
           </Section>
         );
       case "design":
@@ -429,7 +429,7 @@ export function Today() {
                 {cur.focus && <span class="tag">集中</span>}
                 <span class="meta">
                   {" "}
-                  {fmtTime(cur.start_at)}–{fmtTime(cur.end_at)} の枠
+                  {fmtTime(cur.start_at)}–{fmtTime(cur.end_at)} の計画ブロック
                 </span>
               </span>
             )}
@@ -443,7 +443,7 @@ export function Today() {
                     <>
                       {cur.focus && <span class="tag">集中</span>}
                       <span class="meta">
-                        {fmtTime(cur.start_at)}–{fmtTime(cur.end_at)} の枠
+                        {fmtTime(cur.start_at)}–{fmtTime(cur.end_at)} の計画ブロック
                       </span>
                     </>
                   )}
@@ -488,7 +488,7 @@ export function Today() {
             <span class="stat-num">{unanswered.length}件</span>
             <span class="stat-sub">
               {unanswered.length > 0 ? (
-                <button type="button" class="link" onClick={() => dispatch({ type: "open", panel: { kind: "push" } })}>
+                <button type="button" class="link" onClick={() => dispatch({ type: "open", panel: { kind: "nudge" } })}>
                   答える
                 </button>
               ) : (
@@ -534,7 +534,7 @@ export function Today() {
               <li>記録はもう始まっています。しばらく使うと、ここにタイムラインが並びます。</li>
             )}
             <li>
-              使い方は<a href="#/onboarding">はじめに</a>でいつでも見られます。
+              使い方は<a href="#/welcome">はじめに</a>でいつでも見られます。
             </li>
           </ul>
         </Card>

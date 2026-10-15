@@ -133,7 +133,7 @@ pub fn kind_label(kind: SegmentKind) -> &'static str {
 }
 
 /// 未完了（todo / doing）のタスクごとの、作業系の区間（work / agent_dialog / agent_wait）に割り当てられた
-/// 最後の終了時刻。一度も割り当てられていないタスクは含まない。プッシュ通知の「最後に手をつけた時刻」の材料。
+/// 最後の終了時刻。一度も割り当てられていないタスクは含まない。問いかけの「最後に手をつけた時刻」の材料。
 pub fn last_worked_by_open_task(
     conn: &Connection,
 ) -> Result<std::collections::HashMap<String, crate::Millis>> {

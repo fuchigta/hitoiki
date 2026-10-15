@@ -236,10 +236,10 @@ export interface TodaySummary {
   top_tasks: ReportRow[];
 }
 
-export type PushState = "unanswered" | "answered" | "dismissed";
+export type NudgeState = "unanswered" | "answered" | "dismissed";
 
-/** 配信された通知（`status` の未回答と `push list`）。 */
-export interface PushView {
+/** 配信された問いかけ（`status` の未回答と `nudge list`）。 */
+export interface NudgeView {
   id: string;
   at: Millis;
   at_local: string;
@@ -248,9 +248,9 @@ export interface PushView {
   trigger_label: string;
   title: string;
   body: string;
-  state: PushState;
-  /** 通知の中身（ボタン・入力欄・対象期間）。読み取れなければ null。 */
-  payload: PushPayload | null;
+  state: NudgeState;
+  /** 問いかけの中身（ボタン・入力欄・対象期間）。読み取れなければ null。 */
+  payload: NudgePayload | null;
 }
 
 export interface Status {
@@ -261,7 +261,7 @@ export interface Status {
   today: TodaySummary;
   needs_review_count: number;
   needs_review_short_count: number;
-  unanswered_pushes: PushView[];
+  unanswered_nudges: NudgeView[];
   update_available?: string | null;
 }
 
@@ -389,7 +389,7 @@ export interface ConfirmResult {
   rule: CreatedRule | null;
 }
 
-export interface TimeBlock {
+export interface PlanBlock {
   id: string;
   start_at: Millis;
   end_at: Millis;
@@ -398,7 +398,7 @@ export interface TimeBlock {
   focus: boolean;
 }
 
-export interface BlockView extends TimeBlock {
+export interface BlockView extends PlanBlock {
   task_title: string | null;
 }
 
@@ -838,28 +838,28 @@ export interface PresetImport {
   [key: string]: unknown;
 }
 
-/** プッシュのボタン（core の `PushAction`）。押すと `{action: id, value}` で応答する。 */
-export interface PushAction {
+/** 問いかけのボタン（core の `NudgeAction`）。押すと `{action: id, value}` で応答する。 */
+export interface NudgeAction {
   /** "energy" | "stress" | "snooze_15" | "snooze_60" | "snooze_today" | "open" など。 */
   id: string;
   label: string;
   value: number | null;
 }
 
-export interface PushInput {
-  /** 入力の保存先を示す ID（"hassle"）。 */
+export interface NudgeInput {
+  /** 入力の保存先を示す ID（"concern"）。 */
   id: string;
   placeholder: string;
 }
 
-/** core の `PushPayload`。 */
-export interface PushPayload {
+/** core の `NudgePayload`。 */
+export interface NudgePayload {
   trigger: string;
   title: string;
   body: string;
-  actions: PushAction[];
-  input: PushInput | null;
-  /** 通知クリックで開く画面（例 "reflection/day_start"）。 */
+  actions: NudgeAction[];
+  input: NudgeInput | null;
+  /** 通知クリックで開く画面（例 "records/new/day_start"）。 */
   open_screen: string | null;
   /** idle_return の対象期間 [開始, 終了]（無ければ省略）。 */
   idle_range?: [Millis, Millis];
@@ -869,10 +869,10 @@ export interface PushPayload {
   block_id?: string;
 }
 
-/** `push` イベント／`pending_push` の中身。`push_id` が無いのはテスト通知。 */
-export interface PushEvent {
-  push_id: string | null;
-  payload: PushPayload;
+/** `nudge` イベント／`pending_nudge` の中身。`nudge_id` が無いのはテスト通知。 */
+export interface NudgeEvent {
+  nudge_id: string | null;
+  payload: NudgePayload;
 }
 
 export type ReflectionKind = "day_start" | "day_end" | "weekly";

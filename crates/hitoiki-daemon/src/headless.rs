@@ -6,8 +6,8 @@ use anyhow::Context;
 use crossbeam_channel::{unbounded, Sender};
 use hitoiki_agents::ImportStats;
 use hitoiki_core::config::Config;
+use hitoiki_core::nudge::NudgePayload;
 use hitoiki_core::paths;
-use hitoiki_core::push::PushPayload;
 use hitoiki_core::timefmt::Range;
 use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
@@ -96,8 +96,8 @@ impl RuntimeSink for HeadlessSink {
     fn segments_updated(&self, range: Range) {
         self.log.segments_updated(range)
     }
-    fn push(&self, push_id: &str, payload: &PushPayload) {
-        self.log.push(push_id, payload)
+    fn nudge(&self, nudge_id: &str, payload: &NudgePayload) {
+        self.log.nudge(nudge_id, payload)
     }
     fn doing_changed(&self, task_id: Option<&str>) {
         self.log.doing_changed(task_id)

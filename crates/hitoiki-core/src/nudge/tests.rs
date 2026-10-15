@@ -1,7 +1,7 @@
-use super::store::{self, PushResponse};
+use super::store::{self, NudgeResponse};
 use super::*;
 use crate::db;
-use crate::model::{ActivitySegment, CalendarEvent, PushLog, SegmentKind, SegmentStatus, TimeBlock};
+use crate::model::{ActivitySegment, CalendarEvent, NudgeLog, PlanBlock, SegmentKind, SegmentStatus};
 use chrono::TimeZone;
 
 const TZ: Tz = chrono_tz::Asia::Tokyo;
@@ -14,8 +14,8 @@ fn t(day: u32, h: u32, m: u32) -> Millis {
         .timestamp_millis()
 }
 
-fn cfg() -> Push {
-    Push::default()
+fn cfg() -> Nudge {
+    Nudge::default()
 }
 
 fn seg(kind: SegmentKind, start: Millis, end: Millis) -> ActivitySegment {
@@ -43,8 +43,8 @@ fn work(task: &str, start: Millis, end: Millis) -> ActivitySegment {
     s
 }
 
-fn log(trigger: &str, at: Millis, delivered: bool) -> PushLog {
-    PushLog {
+fn log(trigger: &str, at: Millis, delivered: bool) -> NudgeLog {
+    NudgeLog {
         id: format!("log{at}{trigger}"),
         at,
         trigger: trigger.into(),
@@ -72,10 +72,10 @@ fn event(start: Millis, end: Millis) -> CalendarEvent {
     }
 }
 
-fn delivered(ds: &[PushDecision]) -> Vec<PushTrigger> {
+fn delivered(ds: &[NudgeDecision]) -> Vec<NudgeTrigger> {
     ds.iter()
         .filter_map(|d| match d {
-            PushDecision::Deliver(p) => Some(p.trigger),
+            NudgeDecision::Deliver(p) => Some(p.trigger),
             _ => None,
         })
         .collect()
@@ -83,11 +83,11 @@ fn delivered(ds: &[PushDecision]) -> Vec<PushTrigger> {
 
 #[test]
 fn day_start_fires_after_resume() {
-    let mut ctx = PushContext::new(t(12, 9, 0), TZ);
+    let mut ctx = NudgeContext::new(t(12, 9, 0), TZ);
     ctx.resumed_at = Some(t(12, 8, 55));
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::DayStart]);
-    let PushDecision::Deliver(p) = &ds[0] else {
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::DayStart]);
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     assert_eq!(p.actions.len(), 5);
@@ -96,24 +96,24 @@ fn day_start_fires_after_resume() {
 
 #[test]
 fn day_start_not_before_threshold_or_twice_or_without_resume() {
-    let mut ctx = PushContext::new(t(12, 7, 30), TZ);
+    let mut ctx = NudgeContext::new(t(12, 7, 30), TZ);
     ctx.resumed_at = Some(t(12, 7, 20));
     assert!(evaluate(&ctx, &cfg()).is_empty());
 
-    let mut ctx = PushContext::new(t(12, 9, 0), TZ);
+    let mut ctx = NudgeContext::new(t(12, 9, 0), TZ);
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 昨日の解除は対象外。
     ctx.resumed_at = Some(t(11, 8, 30));
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 今日すでに配信済み。
     ctx.resumed_at = Some(t(12, 8, 30));
-    ctx.push_log.push(log("day_start", t(12, 8, 31), true));
+    ctx.nudge_log.push(log("day_start", t(12, 8, 31), true));
     assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
 }
 
 #[test]
 fn disabled_trigger_and_global_off() {
-    let mut ctx = PushContext::new(t(12, 9, 0), TZ);
+    let mut ctx = NudgeContext::new(t(12, 9, 0), TZ);
     ctx.resumed_at = Some(t(12, 8, 55));
     let mut c = cfg();
     c.disabled_triggers = vec!["day_start".into()];
@@ -126,17 +126,17 @@ fn disabled_trigger_and_global_off() {
 #[test]
 fn day_end_by_idle_or_exact_once() {
     // 18:35、10 分無操作 → 発火。
-    let mut ctx = PushContext::new(t(12, 18, 45), TZ);
+    let mut ctx = NudgeContext::new(t(12, 18, 45), TZ);
     ctx.idle = IdleState {
         is_idle: true,
         since_last_input_sec: 11 * 60,
     };
     ctx.needs_review_count = 3;
     let ds = evaluate(&ctx, &cfg());
-    let PushDecision::Deliver(p) = &ds[0] else {
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!("{ds:?}")
     };
-    assert_eq!(p.trigger, PushTrigger::DayEnd);
+    assert_eq!(p.trigger, NudgeTrigger::DayEnd);
     assert!(p.body.contains("3 件"));
 
     // 無操作が短ければ出ない。
@@ -145,15 +145,15 @@ fn day_end_by_idle_or_exact_once() {
     assert!(evaluate(&ctx, &cfg()).is_empty());
 
     // ちょうど（18:30:30 など ±1 分）。
-    let mut ctx = PushContext::new(t(12, 18, 30) + 30_000, TZ);
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::DayEnd]);
+    let mut ctx = NudgeContext::new(t(12, 18, 30) + 30_000, TZ);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::DayEnd]);
     // 1 日 1 回。
-    ctx.push_log.push(log("day_end", t(12, 18, 30), true));
+    ctx.nudge_log.push(log("day_end", t(12, 18, 30), true));
     ctx.now = t(12, 19, 30);
     ctx.idle.since_last_input_sec = 3600;
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 終業時刻前は出ない。
-    let mut ctx = PushContext::new(t(12, 17, 0), TZ);
+    let mut ctx = NudgeContext::new(t(12, 17, 0), TZ);
     ctx.idle.since_last_input_sec = 3600;
     assert!(evaluate(&ctx, &cfg()).is_empty());
 }
@@ -161,40 +161,40 @@ fn day_end_by_idle_or_exact_once() {
 #[test]
 fn weekly_fires_from_configured_time_once_per_week() {
     // 金曜 17:00（既定）。
-    let ctx = PushContext::new(t(16, 17, 5), TZ);
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::Weekly]);
+    let ctx = NudgeContext::new(t(16, 17, 5), TZ);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::Weekly]);
     // 木曜は出ない。
-    let ctx = PushContext::new(t(15, 17, 5), TZ);
+    let ctx = NudgeContext::new(t(15, 17, 5), TZ);
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 金曜 16:59 は出ない。
-    let ctx = PushContext::new(t(16, 16, 59), TZ);
+    let ctx = NudgeContext::new(t(16, 16, 59), TZ);
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 週末に持ち越し（今週まだ出ていない）。
-    let ctx = PushContext::new(t(17, 10, 0), TZ);
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::Weekly]);
+    let ctx = NudgeContext::new(t(17, 10, 0), TZ);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::Weekly]);
     // 今週配信済みなら出ない。
-    let mut ctx = PushContext::new(t(17, 10, 0), TZ);
-    ctx.push_log.push(log("weekly", t(16, 17, 5), true));
+    let mut ctx = NudgeContext::new(t(17, 10, 0), TZ);
+    ctx.nudge_log.push(log("weekly", t(16, 17, 5), true));
     assert!(evaluate(&ctx, &cfg()).is_empty());
 }
 
 #[test]
-fn long_focus_fires_on_continuous_same_task() {
+fn long_work_fires_on_continuous_same_task() {
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = vec![
         work("T1", t(12, 9, 0), t(12, 10, 0)),
         work("T1", t(12, 10, 0), now),
     ];
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::LongFocus]);
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::LongWork]);
 }
 
 #[test]
-fn long_focus_not_fired_when_short_broken_or_other_task() {
+fn long_work_not_fired_when_short_broken_or_other_task() {
     let now = t(12, 11, 0);
     // 60 分だけ。
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = vec![work("T1", t(12, 10, 0), now)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // idle で途切れている。
@@ -222,45 +222,45 @@ fn long_focus_not_fired_when_short_broken_or_other_task() {
 }
 
 #[test]
-fn long_focus_uses_agent_session_and_label() {
+fn long_work_uses_agent_session_and_label() {
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     let mut a = seg(SegmentKind::AgentDialog, t(12, 9, 0), t(12, 10, 0));
     a.agent_session_id = Some("S".into());
     let mut b = seg(SegmentKind::AgentWait, t(12, 10, 0), now);
     b.agent_session_id = Some("S".into());
     ctx.recent_segments = vec![a, b];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LongFocus]);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::LongWork]);
 
     let mut a = seg(SegmentKind::Work, t(12, 9, 0), t(12, 10, 0));
     a.activity = Some("開発".into());
     let mut b = seg(SegmentKind::Work, t(12, 10, 0), now);
     b.activity = Some("開発".into());
     ctx.recent_segments = vec![a, b];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LongFocus]);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::LongWork]);
 }
 
 #[test]
-fn long_focus_renotify_needs_another_period() {
+fn long_work_renotify_needs_another_period() {
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = vec![work("T1", t(12, 9, 0), now)];
-    ctx.push_log.push(log("long_focus", t(12, 10, 30), true));
+    ctx.nudge_log.push(log("long_work", t(12, 10, 30), true));
     // 90 分経っていない。
     assert!(evaluate(&ctx, &cfg()).is_empty());
 }
 
 #[test]
 fn switch_spike_threshold() {
-    let mut ctx = PushContext::new(t(12, 11, 0), TZ);
+    let mut ctx = NudgeContext::new(t(12, 11, 0), TZ);
     ctx.recent_switches = Some(20);
     assert!(evaluate(&ctx, &cfg()).is_empty());
     ctx.recent_switches = Some(21);
     let ds = evaluate(&ctx, &cfg());
-    let PushDecision::Deliver(p) = &ds[0] else {
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
-    assert_eq!(p.trigger, PushTrigger::SwitchSpike);
+    assert_eq!(p.trigger, NudgeTrigger::SwitchSpike);
     assert!(p.input.is_some());
     assert_eq!(p.actions[0].id, "stress");
 
@@ -273,14 +273,14 @@ fn switch_spike_threshold() {
 #[test]
 fn switch_spike_counted_from_segments() {
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     // 直近 15 分に 1 分ずつ 15 区間 → 境界 14。
     ctx.recent_segments = (0..15)
         .map(|i| work(&format!("T{}", i % 2), now - (15 - i) * MIN, now - (14 - i) * MIN))
         .collect();
     let mut c = cfg();
     c.switch_spike.count = 13;
-    assert_eq!(delivered(&evaluate(&ctx, &c)), vec![PushTrigger::SwitchSpike]);
+    assert_eq!(delivered(&evaluate(&ctx, &c)), vec![NudgeTrigger::SwitchSpike]);
     c.switch_spike.count = 14;
     assert!(evaluate(&ctx, &c).is_empty());
 }
@@ -288,7 +288,7 @@ fn switch_spike_counted_from_segments() {
 #[test]
 fn after_interrupt_fires_within_five_minutes_once() {
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     let after = |from: Millis| work("T1", from, now);
     ctx.recent_segments = vec![
         seg(SegmentKind::Interrupt, now - 10 * MIN, now - 2 * MIN),
@@ -296,7 +296,7 @@ fn after_interrupt_fires_within_five_minutes_once() {
     ];
     assert_eq!(
         delivered(&evaluate(&ctx, &cfg())),
-        vec![PushTrigger::AfterInterrupt]
+        vec![NudgeTrigger::AfterInterrupt]
     );
     // 6 分前に終了 → 対象外。
     ctx.recent_segments = vec![
@@ -309,14 +309,14 @@ fn after_interrupt_fires_within_five_minutes_once() {
         seg(SegmentKind::Interrupt, now - 10 * MIN, now - 2 * MIN),
         after(now - 2 * MIN),
     ];
-    ctx.push_log.push(log("after_interrupt", now - MIN, true));
+    ctx.nudge_log.push(log("after_interrupt", now - MIN, true));
     assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
 }
 
 #[test]
 fn after_interrupt_not_while_ongoing_and_only_once() {
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     // 進行中の割り込み（終了が now に追従している）では出ない。
     ctx.recent_segments = vec![seg(SegmentKind::Interrupt, now - 10 * MIN, now)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
@@ -327,9 +327,9 @@ fn after_interrupt_not_while_ongoing_and_only_once() {
     ];
     assert_eq!(
         delivered(&evaluate(&ctx, &cfg())),
-        vec![PushTrigger::AfterInterrupt]
+        vec![NudgeTrigger::AfterInterrupt]
     );
-    ctx.push_log.push(log("after_interrupt", now, true));
+    ctx.nudge_log.push(log("after_interrupt", now, true));
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 61 分後も同じ割り込みなら出ない（5 分の窓を過ぎ、配信済みでもある）。
     ctx.now = now + 61 * MIN;
@@ -341,14 +341,14 @@ fn after_interrupt_not_while_ongoing_and_only_once() {
 fn late_work_spans_midnight() {
     // 12 日 20:00 以降の遅い時間帯が 13 日の朝まで続く。
     let now = t(13, 0, 30);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = vec![work("T1", t(13, 0, 0), now)];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LateWork]);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::LateWork]);
     // 同じ時間帯（12 日 21:00 に配信済み）なら出ない。
-    ctx.push_log.push(log("late_work", t(12, 21, 0), true));
+    ctx.nudge_log.push(log("late_work", t(12, 21, 0), true));
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 朝（08:00 以降、20:00 前）は対象外。
-    ctx.push_log.clear();
+    ctx.nudge_log.clear();
     ctx.now = t(13, 9, 0);
     ctx.recent_segments = vec![work("T1", t(13, 8, 30), ctx.now)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
@@ -357,14 +357,14 @@ fn late_work_spans_midnight() {
 #[test]
 fn meeting_overrun_fires_even_during_meeting() {
     let now = t(12, 14, 10);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.calendar_events = vec![event(t(12, 13, 0), t(12, 14, 0))];
     ctx.meeting_exes = vec!["Zoom.exe".into()];
     ctx.foreground_exe = Some("zoom.exe".into());
     ctx.recent_segments = vec![seg(SegmentKind::Meeting, t(12, 13, 0), now)];
     assert_eq!(
         delivered(&evaluate(&ctx, &cfg())),
-        vec![PushTrigger::MeetingOverrun]
+        vec![NudgeTrigger::MeetingOverrun]
     );
     // 3 分超過ではまだ。
     ctx.now = t(12, 14, 3);
@@ -382,9 +382,9 @@ fn meeting_overrun_fires_even_during_meeting() {
 #[test]
 fn late_work_once_a_day() {
     let now = t(12, 20, 30);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = vec![work("T1", t(12, 20, 0), now)];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LateWork]);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::LateWork]);
     // 20:00 前は出ない。
     ctx.now = t(12, 19, 0);
     ctx.recent_segments = vec![work("T1", t(12, 18, 50), t(12, 19, 0))];
@@ -392,16 +392,16 @@ fn late_work_once_a_day() {
     // 配信済み。
     ctx.now = now;
     ctx.recent_segments = vec![work("T1", t(12, 20, 0), now)];
-    ctx.push_log.push(log("late_work", t(12, 20, 5), true));
+    ctx.nudge_log.push(log("late_work", t(12, 20, 5), true));
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 作業が続いていなければ出ない。
-    ctx.push_log.clear();
+    ctx.nudge_log.clear();
     ctx.recent_segments = vec![work("T1", t(12, 20, 0), now - 10 * MIN)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
 }
 
-fn spike_ctx(now: Millis) -> PushContext {
-    let mut ctx = PushContext::new(now, TZ);
+fn spike_ctx(now: Millis) -> NudgeContext {
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_switches = Some(99);
     ctx
 }
@@ -413,8 +413,8 @@ fn defer_during_calendar_meeting_until_end() {
     ctx.calendar_events = vec![event(t(12, 10, 30), t(12, 11, 30))];
     assert_eq!(
         evaluate(&ctx, &cfg()),
-        vec![PushDecision::Defer {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Defer {
+            trigger: NudgeTrigger::SwitchSpike,
             until: t(12, 11, 30)
         }]
     );
@@ -427,8 +427,8 @@ fn defer_when_meeting_segment_or_app_without_event() {
     ctx.recent_segments = vec![seg(SegmentKind::Meeting, now - 10 * MIN, now)];
     assert_eq!(
         evaluate(&ctx, &cfg()),
-        vec![PushDecision::Defer {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Defer {
+            trigger: NudgeTrigger::SwitchSpike,
             until: now + 5 * MIN
         }]
     );
@@ -438,7 +438,7 @@ fn defer_when_meeting_segment_or_app_without_event() {
 fn defer_during_focus_block_until_end() {
     let now = t(12, 11, 0);
     let mut ctx = spike_ctx(now);
-    let block = |focus| TimeBlock {
+    let block = |focus| PlanBlock {
         id: "b".into(),
         start_at: t(12, 10, 0),
         end_at: t(12, 12, 0),
@@ -446,17 +446,20 @@ fn defer_during_focus_block_until_end() {
         label: None,
         focus,
     };
-    ctx.time_blocks = vec![block(true)];
+    ctx.plan_blocks = vec![block(true)];
     assert_eq!(
         evaluate(&ctx, &cfg()),
-        vec![PushDecision::Defer {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Defer {
+            trigger: NudgeTrigger::SwitchSpike,
             until: t(12, 12, 0)
         }]
     );
     // フォーカスでないブロックは抑制しない。
-    ctx.time_blocks = vec![block(false)];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::SwitchSpike]);
+    ctx.plan_blocks = vec![block(false)];
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![NudgeTrigger::SwitchSpike]
+    );
 }
 
 #[test]
@@ -464,60 +467,66 @@ fn daily_limit_suppresses_with_reason_once() {
     let now = t(12, 15, 0);
     let mut ctx = spike_ctx(now);
     for i in 0..6 {
-        ctx.push_log
-            .push(log("long_focus", t(12, 9, 0) + i * 20 * MIN, true));
+        ctx.nudge_log
+            .push(log("long_work", t(12, 9, 0) + i * 20 * MIN, true));
     }
     let ds = evaluate(&ctx, &cfg());
     assert_eq!(
         ds,
-        vec![PushDecision::Suppress {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Suppress {
+            trigger: NudgeTrigger::SwitchSpike,
             reason: "daily_limit".into()
         }]
     );
     // 記録後は、同じ理由の連続抑制は返さない。
     let mut logged = log("switch_spike", now, false);
     logged.suppressed_reason = Some("daily_limit".into());
-    ctx.push_log.push(logged);
+    ctx.nudge_log.push(logged);
     ctx.now = now + 5 * MIN;
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 昨日の配信は数えない。
     let mut ctx = spike_ctx(now);
     for i in 0..6 {
-        ctx.push_log
-            .push(log("long_focus", t(11, 9, 0) + i * 20 * MIN, true));
+        ctx.nudge_log
+            .push(log("long_work", t(11, 9, 0) + i * 20 * MIN, true));
     }
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::SwitchSpike]);
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![NudgeTrigger::SwitchSpike]
+    );
 }
 
 #[test]
 fn min_interval_per_trigger() {
     let now = t(12, 15, 0);
     let mut ctx = spike_ctx(now);
-    ctx.push_log.push(log("switch_spike", now - 30 * MIN, true));
+    ctx.nudge_log.push(log("switch_spike", now - 30 * MIN, true));
     assert_eq!(
         evaluate(&ctx, &cfg()),
-        vec![PushDecision::Suppress {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Suppress {
+            trigger: NudgeTrigger::SwitchSpike,
             reason: "min_interval".into()
         }]
     );
     // 61 分前なら通る。
-    ctx.push_log.clear();
-    ctx.push_log.push(log("switch_spike", now - 61 * MIN, true));
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::SwitchSpike]);
+    ctx.nudge_log.clear();
+    ctx.nudge_log.push(log("switch_spike", now - 61 * MIN, true));
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![NudgeTrigger::SwitchSpike]
+    );
 }
 
 #[test]
-fn recent_push_of_other_trigger_suppresses_briefly() {
+fn recent_nudge_of_other_trigger_suppresses_briefly() {
     let now = t(12, 15, 0);
     let mut ctx = spike_ctx(now);
-    ctx.push_log.push(log("long_focus", now - 3 * MIN, true));
+    ctx.nudge_log.push(log("long_work", now - 3 * MIN, true));
     assert_eq!(
         evaluate(&ctx, &cfg()),
-        vec![PushDecision::Suppress {
-            trigger: PushTrigger::SwitchSpike,
-            reason: "recent_push".into()
+        vec![NudgeDecision::Suppress {
+            trigger: NudgeTrigger::SwitchSpike,
+            reason: "recent_nudge".into()
         }]
     );
 }
@@ -526,18 +535,21 @@ fn recent_push_of_other_trigger_suppresses_briefly() {
 fn snooze_suppresses_all_until_expiry() {
     let now = t(12, 15, 0);
     let mut ctx = spike_ctx(now);
-    let mut l = log("long_focus", now - 30 * MIN, true);
+    let mut l = log("long_work", now - 30 * MIN, true);
     l.snoozed_until = Some(now + 10 * MIN);
-    ctx.push_log.push(l);
+    ctx.nudge_log.push(l);
     assert_eq!(
         evaluate(&ctx, &cfg()),
-        vec![PushDecision::Suppress {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Suppress {
+            trigger: NudgeTrigger::SwitchSpike,
             reason: "snoozed".into()
         }]
     );
     ctx.now = now + 11 * MIN;
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::SwitchSpike]);
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![NudgeTrigger::SwitchSpike]
+    );
 }
 
 #[test]
@@ -546,26 +558,26 @@ fn unresponsive_history_extends_interval_up_to_4x() {
     let mut ctx = spike_ctx(now);
     // 無応答の配信が 5 件（いずれも 30 分以上前）。
     for i in 0..5 {
-        ctx.push_log
-            .push(log("long_focus", t(12, 9, 0) + i * 70 * MIN, true));
+        ctx.nudge_log
+            .push(log("long_work", t(12, 9, 0) + i * 70 * MIN, true));
     }
     assert!((gate::interval_factor(&ctx) - 4.0).abs() < 1e-9);
     // 直近の switch_spike は 2 時間前（基本間隔 60 分は超えているが 240 分未満）。
-    ctx.push_log.push(log("switch_spike", now - 120 * MIN, true));
-    // 件数が増えると窓は直近 5 件: long_focus 4 件 + switch_spike 1 件、すべて無応答。
+    ctx.nudge_log.push(log("switch_spike", now - 120 * MIN, true));
+    // 件数が増えると窓は直近 5 件: long_work 4 件 + switch_spike 1 件、すべて無応答。
     assert_eq!(
         evaluate(&ctx, &big_cfg()),
-        vec![PushDecision::Suppress {
-            trigger: PushTrigger::SwitchSpike,
+        vec![NudgeDecision::Suppress {
+            trigger: NudgeTrigger::SwitchSpike,
             reason: "min_interval_backoff".into()
         }]
     );
     // 4 時間以上空けば通る。
-    ctx.push_log.retain(|l| l.trigger != "switch_spike");
-    ctx.push_log.push(log("switch_spike", now - 250 * MIN, true));
+    ctx.nudge_log.retain(|l| l.trigger != "switch_spike");
+    ctx.nudge_log.push(log("switch_spike", now - 250 * MIN, true));
     assert_eq!(
         delivered(&evaluate(&ctx, &big_cfg())),
-        vec![PushTrigger::SwitchSpike]
+        vec![NudgeTrigger::SwitchSpike]
     );
 }
 
@@ -574,38 +586,38 @@ fn responsive_history_does_not_extend() {
     let now = t(12, 20, 0);
     let mut ctx = spike_ctx(now);
     for i in 0..5 {
-        let mut l = log("long_focus", t(12, 9, 0) + i * 70 * MIN, true);
+        let mut l = log("long_work", t(12, 9, 0) + i * 70 * MIN, true);
         l.responded_at = Some(l.at + MIN);
-        ctx.push_log.push(l);
+        ctx.nudge_log.push(l);
     }
     assert!((gate::interval_factor(&ctx) - 1.0).abs() < 1e-9);
     // 少ない件数では延長しない。
     let mut ctx = spike_ctx(now);
-    ctx.push_log.push(log("long_focus", t(12, 9, 0), true));
+    ctx.nudge_log.push(log("long_work", t(12, 9, 0), true));
     assert!((gate::interval_factor(&ctx) - 1.0).abs() < 1e-9);
     // 応答率 25%（4 件中 1 件）→ 係数 2.5。
     let mut ctx = spike_ctx(now);
     for i in 0..4 {
-        let mut l = log("long_focus", t(12, 9, 0) + i * 70 * MIN, true);
+        let mut l = log("long_work", t(12, 9, 0) + i * 70 * MIN, true);
         if i == 0 {
             l.responded_at = Some(l.at + MIN);
         }
-        ctx.push_log.push(l);
+        ctx.nudge_log.push(l);
     }
     assert!((gate::interval_factor(&ctx) - 2.5).abs() < 1e-9);
 }
 
 #[test]
-fn dismissed_pushes_count_as_unresponded_for_backoff() {
+fn dismissed_nudges_count_as_unresponded_for_backoff() {
     // 「答えない」で見送った通知は応答とは数えず、無応答が続くときと同じく頻度を下げる。
     let now = t(12, 20, 0);
     let mut ctx = spike_ctx(now);
     for i in 0..4 {
-        let mut l = log("long_focus", t(12, 9, 0) + i * 70 * MIN, true);
+        let mut l = log("long_work", t(12, 9, 0) + i * 70 * MIN, true);
         if i > 0 {
             l.response_json = Some(r#"{"action":"dismiss","value":null,"text":null}"#.into());
         }
-        ctx.push_log.push(l);
+        ctx.nudge_log.push(l);
     }
     assert!(gate::interval_factor(&ctx) > 1.0);
 }
@@ -613,12 +625,12 @@ fn dismissed_pushes_count_as_unresponded_for_backoff() {
 #[test]
 fn only_one_deliver_per_evaluation() {
     let now = t(16, 17, 5);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_switches = Some(99);
     ctx.resumed_at = Some(t(16, 9, 0));
     ctx.idle.since_last_input_sec = 0;
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::DayStart]);
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::DayStart]);
 }
 
 #[test]
@@ -634,7 +646,7 @@ fn payloads_are_gentle_and_actionable() {
         payload::day_start(),
         payload::day_end(0),
         payload::weekly(),
-        payload::long_focus(95, None),
+        payload::long_work(95, None),
         payload::switch_spike(15, 21),
         payload::after_interrupt(),
         payload::meeting_overrun(),
@@ -647,12 +659,12 @@ fn payloads_are_gentle_and_actionable() {
 
 // ===== store / apply_response =====
 
-fn deliver_log(conn: &rusqlite::Connection, trigger: PushTrigger, at: Millis) -> String {
+fn deliver_log(conn: &rusqlite::Connection, trigger: NudgeTrigger, at: Millis) -> String {
     let payload = match trigger {
-        PushTrigger::SwitchSpike => payload::switch_spike(15, 21),
+        NudgeTrigger::SwitchSpike => payload::switch_spike(15, 21),
         _ => payload::day_start(),
     };
-    store::record_decision(conn, &PushDecision::Deliver(payload), at)
+    store::record_decision(conn, &NudgeDecision::Deliver(payload), at)
         .unwrap()
         .unwrap()
 }
@@ -660,14 +672,14 @@ fn deliver_log(conn: &rusqlite::Connection, trigger: PushTrigger, at: Millis) ->
 #[test]
 fn record_decision_deliver_suppress_defer() {
     let conn = db::open_in_memory().unwrap();
-    let id = deliver_log(&conn, PushTrigger::DayStart, 1000);
+    let id = deliver_log(&conn, NudgeTrigger::DayStart, 1000);
     let l = store::get_log(&conn, &id).unwrap();
     assert!(l.delivered && l.trigger == "day_start" && l.suppressed_reason.is_none());
 
     let sid = store::record_decision(
         &conn,
-        &PushDecision::Suppress {
-            trigger: PushTrigger::LongFocus,
+        &NudgeDecision::Suppress {
+            trigger: NudgeTrigger::LongWork,
             reason: "daily_limit".into(),
         },
         2000,
@@ -680,8 +692,8 @@ fn record_decision_deliver_suppress_defer() {
 
     assert!(store::record_decision(
         &conn,
-        &PushDecision::Defer {
-            trigger: PushTrigger::LongFocus,
+        &NudgeDecision::Defer {
+            trigger: NudgeTrigger::LongWork,
             until: 5
         },
         3000
@@ -696,11 +708,11 @@ fn record_decision_deliver_suppress_defer() {
 #[test]
 fn apply_energy_creates_checkin() {
     let conn = db::open_in_memory().unwrap();
-    let id = deliver_log(&conn, PushTrigger::DayStart, 1000);
+    let id = deliver_log(&conn, NudgeTrigger::DayStart, 1000);
     let out = store::apply_response(
         &conn,
         &id,
-        PushResponse {
+        NudgeResponse {
             action: Some("energy".into()),
             value: Some(4),
             text: None,
@@ -710,7 +722,7 @@ fn apply_energy_creates_checkin() {
     )
     .unwrap();
     let cid = out.checkin_id.unwrap();
-    let (energy, stress, push_id, at): (Option<i64>, Option<i64>, String, i64) = conn
+    let (energy, stress, nudge_id, at): (Option<i64>, Option<i64>, String, i64) = conn
         .query_row(
             "SELECT energy, stress, push_id, at FROM checkin WHERE id = ?1",
             [&cid],
@@ -718,7 +730,7 @@ fn apply_energy_creates_checkin() {
         )
         .unwrap();
     assert_eq!(
-        (energy, stress, push_id.as_str(), at),
+        (energy, stress, nudge_id.as_str(), at),
         (Some(4), None, id.as_str(), 1000)
     );
     let l = store::get_log(&conn, &id).unwrap();
@@ -729,11 +741,11 @@ fn apply_energy_creates_checkin() {
 #[test]
 fn apply_stress_with_text_creates_checkin_and_hassle() {
     let conn = db::open_in_memory().unwrap();
-    let id = deliver_log(&conn, PushTrigger::SwitchSpike, 1000);
+    let id = deliver_log(&conn, NudgeTrigger::SwitchSpike, 1000);
     let out = store::apply_response(
         &conn,
         &id,
-        PushResponse {
+        NudgeResponse {
             action: Some("stress".into()),
             value: Some(5),
             text: Some("  チャットが多すぎる ".into()),
@@ -743,7 +755,7 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
     )
     .unwrap();
     assert!(out.checkin_id.is_some());
-    let (text, intensity, push_id): (String, i64, String) = conn
+    let (text, intensity, nudge_id): (String, i64, String) = conn
         .query_row(
             "SELECT text, intensity, push_id FROM hassle WHERE id = ?1",
             [out.hassle_id.unwrap()],
@@ -751,16 +763,16 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
         )
         .unwrap();
     assert_eq!(
-        (text.as_str(), intensity, push_id.as_str()),
+        (text.as_str(), intensity, nudge_id.as_str()),
         ("チャットが多すぎる", 5, id.as_str())
     );
 
     // テキストだけなら hassle のみ（強度 3）。空文字は無視。
-    let id2 = deliver_log(&conn, PushTrigger::SwitchSpike, 6000);
+    let id2 = deliver_log(&conn, NudgeTrigger::SwitchSpike, 6000);
     let out = store::apply_response(
         &conn,
         &id2,
-        PushResponse {
+        NudgeResponse {
             text: Some("割り込み".into()),
             ..Default::default()
         },
@@ -769,11 +781,11 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
     )
     .unwrap();
     assert!(out.checkin_id.is_none() && out.hassle_id.is_some());
-    let id3 = deliver_log(&conn, PushTrigger::SwitchSpike, 8000);
+    let id3 = deliver_log(&conn, NudgeTrigger::SwitchSpike, 8000);
     let out = store::apply_response(
         &conn,
         &id3,
-        PushResponse {
+        NudgeResponse {
             text: Some("   ".into()),
             ..Default::default()
         },
@@ -788,11 +800,11 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
 fn apply_snooze_sets_until_and_suppresses() {
     let conn = db::open_in_memory().unwrap();
     let now = t(12, 15, 0);
-    let id = deliver_log(&conn, PushTrigger::DayStart, now - 30 * MIN);
+    let id = deliver_log(&conn, NudgeTrigger::DayStart, now - 30 * MIN);
     let out = store::apply_response(
         &conn,
         &id,
-        PushResponse {
+        NudgeResponse {
             action: Some("snooze_60".into()),
             ..Default::default()
         },
@@ -806,11 +818,11 @@ fn apply_snooze_sets_until_and_suppresses() {
         Some(now + 60 * MIN)
     );
 
-    let id = deliver_log(&conn, PushTrigger::DayStart, now);
+    let id = deliver_log(&conn, NudgeTrigger::DayStart, now);
     let out = store::apply_response(
         &conn,
         &id,
-        PushResponse {
+        NudgeResponse {
             action: Some("snooze_today".into()),
             ..Default::default()
         },
@@ -822,21 +834,21 @@ fn apply_snooze_sets_until_and_suppresses() {
 
     // evaluate がスヌーズを読む。
     let mut ctx = spike_ctx(now + 3 * 3600 * 1000);
-    ctx.push_log = store::load_recent(&conn, 0, 0).unwrap();
+    ctx.nudge_log = store::load_recent(&conn, 0, 0).unwrap();
     assert!(matches!(
         evaluate(&ctx, &cfg()).as_slice(),
-        [PushDecision::Suppress { reason, .. }] if reason == "snoozed"
+        [NudgeDecision::Suppress { reason, .. }] if reason == "snoozed"
     ));
 }
 
 #[test]
 fn apply_dismiss_does_not_count_as_response_and_errors() {
     let conn = db::open_in_memory().unwrap();
-    let id = deliver_log(&conn, PushTrigger::DayStart, 1000);
+    let id = deliver_log(&conn, NudgeTrigger::DayStart, 1000);
     store::apply_response(
         &conn,
         &id,
-        PushResponse {
+        NudgeResponse {
             action: Some("dismiss".into()),
             ..Default::default()
         },
@@ -848,7 +860,7 @@ fn apply_dismiss_does_not_count_as_response_and_errors() {
     assert_eq!(l.responded_at, None);
     assert!(l.response_json.is_some());
 
-    let bad = |a: &str, v| PushResponse {
+    let bad = |a: &str, v| NudgeResponse {
         action: Some(a.into()),
         value: v,
         text: None,
@@ -866,18 +878,18 @@ fn apply_dismiss_does_not_count_as_response_and_errors() {
     assert_eq!(n, 0);
 }
 
-fn big_cfg() -> Push {
-    Push {
+fn big_cfg() -> Nudge {
+    Nudge {
         daily_limit: 50,
-        ..Push::default()
+        ..Nudge::default()
     }
 }
 
 // ===== idle_return =====
 
-fn idle_ctx() -> PushContext {
+fn idle_ctx() -> NudgeContext {
     // 10:00-10:30 の無操作から 10:32 に復帰した状況。
-    let mut ctx = PushContext::new(t(12, 10, 32), TZ);
+    let mut ctx = NudgeContext::new(t(12, 10, 32), TZ);
     ctx.last_idle = Some(ClosedIdle {
         start_at: t(12, 10, 0),
         end_at: t(12, 10, 30),
@@ -888,8 +900,8 @@ fn idle_ctx() -> PushContext {
 #[test]
 fn idle_return_fires_after_long_unplanned_idle() {
     let ds = evaluate(&idle_ctx(), &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::IdleReturn]);
-    let PushDecision::Deliver(p) = &ds[0] else {
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::IdleReturn]);
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     assert!(p.body.contains("30 分"));
@@ -906,7 +918,7 @@ fn idle_return_is_not_fired_when_short_old_planned_or_classified() {
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // ちょうど 15 分は発火
     ctx.last_idle.as_mut().unwrap().start_at = t(12, 10, 15);
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::IdleReturn]);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::IdleReturn]);
     // 復帰から時間が経っている
     let mut ctx = idle_ctx();
     ctx.now = t(12, 10, 45);
@@ -934,7 +946,7 @@ fn idle_return_is_not_fired_when_short_old_planned_or_classified() {
     let mut s = seg(SegmentKind::Idle, t(12, 10, 0), t(12, 10, 30));
     s.status = SegmentStatus::NeedsReview;
     ctx.recent_segments = vec![s];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::IdleReturn]);
+    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![NudgeTrigger::IdleReturn]);
 }
 
 #[test]
@@ -947,16 +959,16 @@ fn idle_return_can_be_disabled_and_is_not_repeated() {
     assert!(evaluate(&idle_ctx(), &c).is_empty());
     // 同じ無操作について配信済みなら出さない。
     let mut ctx = idle_ctx();
-    ctx.push_log.push(log("idle_return", t(12, 10, 31), true));
+    ctx.nudge_log.push(log("idle_return", t(12, 10, 31), true));
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 通知の一時停止中は抑制される（ログには抑制として残る）。
     let mut ctx = idle_ctx();
-    let mut l = log("long_focus", t(12, 9, 0), true);
+    let mut l = log("long_work", t(12, 9, 0), true);
     l.snoozed_until = Some(t(12, 11, 0));
-    ctx.push_log.push(l);
+    ctx.nudge_log.push(l);
     let ds = evaluate(&ctx, &cfg());
     assert!(delivered(&ds).is_empty());
-    assert!(matches!(&ds[0], PushDecision::Suppress { reason, .. } if reason == "snoozed"));
+    assert!(matches!(&ds[0], NudgeDecision::Suppress { reason, .. } if reason == "snoozed"));
 }
 
 #[test]
@@ -971,7 +983,7 @@ fn idle_return_button_saves_confirmation_and_labels_segment() {
     .unwrap();
     let id = store::record_decision(
         &conn,
-        &PushDecision::Deliver(payload::idle_return(s, e, None)),
+        &NudgeDecision::Deliver(payload::idle_return(s, e, None)),
         t(12, 10, 31),
     )
     .unwrap()
@@ -979,7 +991,7 @@ fn idle_return_button_saves_confirmation_and_labels_segment() {
     let out = store::apply_response(
         &conn,
         &id,
-        PushResponse {
+        NudgeResponse {
             action: Some("idle_thinking".into()),
             value: None,
             text: None,
@@ -1007,11 +1019,11 @@ fn idle_return_button_saves_confirmation_and_labels_segment() {
     assert!(store::get_log(&conn, &id).unwrap().responded_at.is_some());
 
     // 期間を持たない通知への idle_* は不正。
-    let other = deliver_log(&conn, PushTrigger::DayStart, 1000);
+    let other = deliver_log(&conn, NudgeTrigger::DayStart, 1000);
     let r = store::apply_response(
         &conn,
         &other,
-        PushResponse {
+        NudgeResponse {
             action: Some("idle_break".into()),
             ..Default::default()
         },
@@ -1022,22 +1034,22 @@ fn idle_return_button_saves_confirmation_and_labels_segment() {
 }
 
 #[test]
-fn ignored_segments_do_not_count_as_work_for_push() {
+fn ignored_segments_do_not_count_as_work_for_nudge() {
     let now = t(12, 11, 0);
-    // long_focus: 無視の区間は作業として数えない（最後が無視なら発火しない、間にあれば途切れる）
-    let mut ctx = PushContext::new(now, TZ);
+    // long_work: 無視の区間は作業として数えない（最後が無視なら発火しない、間にあれば途切れる）
+    let mut ctx = NudgeContext::new(now, TZ);
     let mut ign = seg(SegmentKind::Ignored, t(12, 10, 0), now);
     ign.task_id = Some("T1".into());
     ctx.recent_segments = vec![work("T1", t(12, 8, 0), t(12, 10, 0)), ign.clone()];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // late_work: 遅い時間帯でも無視の区間だけなら発火しない
     let now = t(12, 21, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = vec![seg(SegmentKind::Ignored, t(12, 20, 30), now)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // switch_spike: 無視の区間は切替に数えない
     let now = t(12, 11, 0);
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.recent_segments = (0..15)
         .map(|i| seg(SegmentKind::Ignored, now - (15 - i) * MIN, now - (14 - i) * MIN))
         .collect();
@@ -1062,8 +1074,8 @@ fn nudge(id: &str, urgent: bool, important: bool, created_at: Millis) -> TaskNud
     }
 }
 
-fn block(task: Option<&str>, start: Millis, end: Millis) -> TimeBlock {
-    TimeBlock {
+fn block(task: Option<&str>, start: Millis, end: Millis) -> PlanBlock {
+    PlanBlock {
         id: format!("b{start}"),
         start_at: start,
         end_at: end,
@@ -1074,8 +1086,8 @@ fn block(task: Option<&str>, start: Millis, end: Millis) -> TimeBlock {
 }
 
 /// 配信済みのタスク通知のログ。ペイロードに task_id を持つ。
-fn task_log(payload: PushPayload, at: Millis, response: Option<&str>) -> PushLog {
-    PushLog {
+fn task_log(payload: NudgePayload, at: Millis, response: Option<&str>) -> NudgeLog {
+    NudgeLog {
         id: format!("tl{at}"),
         at,
         trigger: payload.trigger.as_str().into(),
@@ -1088,13 +1100,13 @@ fn task_log(payload: PushPayload, at: Millis, response: Option<&str>) -> PushLog
     }
 }
 
-fn urgent_ctx(now: Millis) -> PushContext {
-    let mut ctx = PushContext::new(now, TZ);
+fn urgent_ctx(now: Millis) -> NudgeContext {
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.tasks = vec![nudge("A", true, false, t(1, 9, 0))];
     ctx
 }
 
-fn urgent_delivered(ctx: &PushContext, c: &Push) -> Vec<PushTrigger> {
+fn urgent_delivered(ctx: &NudgeContext, c: &Nudge) -> Vec<NudgeTrigger> {
     delivered(&evaluate(ctx, c))
 }
 
@@ -1102,8 +1114,8 @@ fn urgent_delivered(ctx: &PushContext, c: &Push) -> Vec<PushTrigger> {
 fn urgent_task_fires_with_payload() {
     let ctx = urgent_ctx(t(12, 10, 0));
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::UrgentTask]);
-    let PushDecision::Deliver(p) = &ds[0] else {
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::UrgentTask]);
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     assert_eq!(p.title, "緊急のタスクがあります");
@@ -1118,7 +1130,7 @@ fn urgent_task_fires_with_payload() {
     let mut ctx = urgent_ctx(t(12, 10, 0));
     ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
     ctx.tasks.push(nudge("C", true, true, t(3, 9, 0)));
-    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+    let NudgeDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
         panic!()
     };
     assert!(p.body.contains("（ほかに 2 件）"));
@@ -1126,7 +1138,7 @@ fn urgent_task_fires_with_payload() {
 
 #[test]
 fn urgent_task_not_without_target_or_outside_hours_or_idle() {
-    let mut ctx = PushContext::new(t(12, 10, 0), TZ);
+    let mut ctx = NudgeContext::new(t(12, 10, 0), TZ);
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 重要だけ・緊急でないものは対象外。
     ctx.tasks = vec![nudge("A", false, true, t(11, 9, 0))];
@@ -1135,7 +1147,7 @@ fn urgent_task_not_without_target_or_outside_hours_or_idle() {
     for (h, m) in [(7, 59), (18, 30), (21, 0)] {
         let c = urgent_ctx(t(12, h, m));
         assert!(
-            !urgent_delivered(&c, &cfg()).contains(&PushTrigger::UrgentTask),
+            !urgent_delivered(&c, &cfg()).contains(&NudgeTrigger::UrgentTask),
             "{h}:{m}"
         );
     }
@@ -1167,7 +1179,7 @@ fn urgent_task_skipped_while_working_on_a_target() {
     // 緊急でない別のタスクをしているだけなら出る。
     let mut ctx = urgent_ctx(now);
     ctx.recent_segments = vec![work("Z", t(12, 9, 30), now)];
-    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![NudgeTrigger::UrgentTask]);
 }
 
 #[test]
@@ -1176,25 +1188,25 @@ fn urgent_task_skips_tasks_with_upcoming_block() {
     let mut ctx = urgent_ctx(now);
     ctx.tasks.push(nudge("B", true, false, t(2, 9, 0)));
     // A は午後に予定済み、B は未予定。
-    ctx.time_blocks = vec![block(Some("A"), t(12, 14, 0), t(12, 15, 0))];
-    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 14, 0), t(12, 15, 0))];
+    let NudgeDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
         panic!()
     };
     assert_eq!(p.task_id.as_deref(), Some("B"));
     assert!(!p.body.contains("ほかに"));
     // 進行中のブロックも対象外。全部予定済みなら出ない。
-    ctx.time_blocks = vec![
+    ctx.plan_blocks = vec![
         block(Some("A"), t(12, 9, 30), t(12, 10, 30)),
         block(Some("B"), t(12, 16, 0), t(12, 17, 0)),
     ];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 終わったブロックは予定済みと数えない。
-    ctx.time_blocks = vec![block(Some("A"), t(12, 8, 30), t(12, 9, 30))];
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 8, 30), t(12, 9, 30))];
     ctx.tasks.truncate(1);
-    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![NudgeTrigger::UrgentTask]);
     // タスクのないブロックは無関係。
-    ctx.time_blocks = vec![block(None, t(12, 11, 0), t(12, 12, 0))];
-    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    ctx.plan_blocks = vec![block(None, t(12, 11, 0), t(12, 12, 0))];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![NudgeTrigger::UrgentTask]);
 }
 
 #[test]
@@ -1202,11 +1214,11 @@ fn urgent_task_interval_and_disable() {
     let now = t(12, 14, 0);
     let mut ctx = urgent_ctx(now);
     // 100 分前に配信 → 既定 120 分未満なので出ない。
-    ctx.push_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 100 * MIN, None)];
+    ctx.nudge_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 100 * MIN, None)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 125 分前 → 出る。
-    ctx.push_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 125 * MIN, None)];
-    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![PushTrigger::UrgentTask]);
+    ctx.nudge_log = vec![task_log(payload::urgent_task("A", "x", 0), now - 125 * MIN, None)];
+    assert_eq!(urgent_delivered(&ctx, &cfg()), vec![NudgeTrigger::UrgentTask]);
     // 間隔の設定を伸ばせば出ない。
     let mut c = cfg();
     c.urgent_task_interval_min = 180;
@@ -1226,20 +1238,20 @@ fn urgent_task_is_also_gated_by_common_rules() {
     let now = t(12, 14, 0);
     // 直前（5 分前）に別トリガーを配信している。
     let mut ctx = urgent_ctx(now);
-    ctx.push_log = vec![log("weekly", now - 5 * MIN, true)];
+    ctx.nudge_log = vec![log("weekly", now - 5 * MIN, true)];
     let ds = evaluate(&ctx, &cfg());
     assert!(delivered(&ds).is_empty());
     assert!(ds.iter().any(|d| matches!(
         d,
-        PushDecision::Suppress { trigger: PushTrigger::UrgentTask, reason } if reason == "recent_push"
+        NudgeDecision::Suppress { trigger: NudgeTrigger::UrgentTask, reason } if reason == "recent_nudge"
     )));
     // 会議中は保留。
     let mut ctx = urgent_ctx(now);
     ctx.calendar_events = vec![event(t(12, 13, 30), t(12, 14, 30))];
     assert!(matches!(
         evaluate(&ctx, &cfg())[0],
-        PushDecision::Defer {
-            trigger: PushTrigger::UrgentTask,
+        NudgeDecision::Defer {
+            trigger: NudgeTrigger::UrgentTask,
             ..
         }
     ));
@@ -1248,14 +1260,14 @@ fn urgent_task_is_also_gated_by_common_rules() {
 #[test]
 fn urgent_task_picks_longest_unnotified_then_oldest() {
     let now = t(12, 14, 0);
-    let pick = |ctx: &PushContext| {
+    let pick = |ctx: &NudgeContext| {
         let ds = evaluate(ctx, &cfg());
-        let PushDecision::Deliver(p) = ds.into_iter().next().unwrap() else {
+        let NudgeDecision::Deliver(p) = ds.into_iter().next().unwrap() else {
             panic!()
         };
         p.task_id.unwrap()
     };
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.tasks = vec![
         nudge("A", true, false, t(5, 9, 0)),
         nudge("B", true, false, t(3, 9, 0)),
@@ -1264,21 +1276,21 @@ fn urgent_task_picks_longest_unnotified_then_oldest() {
     // 同順（まだ誰にも通知していない）なら作成が古い B。
     assert_eq!(pick(&ctx), "B");
     // B に通知済み → 次に作成が古い C。
-    ctx.push_log = vec![task_log(
+    ctx.nudge_log = vec![task_log(
         payload::urgent_task("B", "x", 2),
         now - 5 * 60 * MIN,
         Some("task_later"),
     )];
     assert_eq!(pick(&ctx), "C");
     // B, C に通知済み → A。
-    ctx.push_log.push(task_log(
+    ctx.nudge_log.push(task_log(
         payload::urgent_task("C", "x", 2),
         now - 4 * 60 * MIN - 10,
         Some("task_later"),
     ));
     assert_eq!(pick(&ctx), "A");
     // 全員に通知済みなら、通知が最も古い B。
-    ctx.push_log.push(task_log(
+    ctx.nudge_log.push(task_log(
         payload::urgent_task("A", "x", 2),
         now - 3 * 60 * MIN,
         Some("task_later"),
@@ -1286,8 +1298,8 @@ fn urgent_task_picks_longest_unnotified_then_oldest() {
     assert_eq!(pick(&ctx), "B");
 }
 
-fn important_ctx(now: Millis) -> PushContext {
-    let mut ctx = PushContext::new(now, TZ);
+fn important_ctx(now: Millis) -> NudgeContext {
+    let mut ctx = NudgeContext::new(now, TZ);
     // 5 日前に作られ、一度も時間が入っていない。
     ctx.tasks = vec![nudge("I1", false, true, now - 5 * DAY)];
     ctx
@@ -1298,8 +1310,8 @@ fn important_task_fires_when_stale() {
     let now = t(12, 10, 0);
     let ctx = important_ctx(now);
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::ImportantTask]);
-    let PushDecision::Deliver(p) = &ds[0] else {
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::ImportantTask]);
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     assert_eq!(p.title, "重要なタスクに少し時間を取りませんか");
@@ -1314,7 +1326,7 @@ fn important_task_fires_when_stale() {
     // 時間が入っていれば、最後に手をつけてからの日数を本文に出す。
     let mut ctx = important_ctx(now);
     ctx.tasks[0].last_worked_at = Some(now - 4 * DAY - 3 * 60 * MIN);
-    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+    let NudgeDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
         panic!()
     };
     assert!(p.body.contains("ここ 4 日ほど時間が入っていません"));
@@ -1337,7 +1349,7 @@ fn important_task_threshold_uses_latest_of_work_and_creation() {
     ctx.tasks[0].created_at = now - 3 * DAY;
     assert_eq!(
         delivered(&evaluate(&ctx, &cfg())),
-        vec![PushTrigger::ImportantTask]
+        vec![NudgeTrigger::ImportantTask]
     );
     // 日数の設定を変える・0 で無効。
     let mut c = cfg();
@@ -1359,11 +1371,11 @@ fn important_task_excludes_urgent_blocked_and_active() {
     ctx.tasks[0].urgent = true;
     ctx.tasks[0].doing = true; // urgent_task も出さない
     assert!(evaluate(&ctx, &cfg()).is_empty());
-    // 今日の time_block に割り当て済み（終わったブロックでも）。
+    // 今日の plan_block に割り当て済み（終わったブロックでも）。
     let mut ctx = important_ctx(now);
-    ctx.time_blocks = vec![block(Some("I1"), t(12, 8, 30), t(12, 9, 0))];
+    ctx.plan_blocks = vec![block(Some("I1"), t(12, 8, 30), t(12, 9, 0))];
     assert!(evaluate(&ctx, &cfg()).is_empty());
-    ctx.time_blocks = vec![block(Some("I1"), t(12, 15, 0), t(12, 16, 0))];
+    ctx.plan_blocks = vec![block(Some("I1"), t(12, 15, 0), t(12, 16, 0))];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // いま取り組み中（作業の割り当て / doing）。
     let mut ctx = important_ctx(now);
@@ -1379,7 +1391,7 @@ fn important_task_work_hours_idle_and_once_a_day() {
     for (h, m) in [(7, 0), (18, 30), (22, 0)] {
         let ctx = important_ctx(t(12, h, m));
         assert!(
-            !delivered(&evaluate(&ctx, &cfg())).contains(&PushTrigger::ImportantTask),
+            !delivered(&evaluate(&ctx, &cfg())).contains(&NudgeTrigger::ImportantTask),
             "{h}:{m}"
         );
     }
@@ -1394,37 +1406,37 @@ fn important_task_work_hours_idle_and_once_a_day() {
     let now = t(12, 15, 0);
     let mut ctx = important_ctx(now);
     ctx.tasks.push(nudge("I2", false, true, now - 9 * DAY));
-    ctx.push_log = vec![task_log(
+    ctx.nudge_log = vec![task_log(
         payload::important_task("I2", "x", None),
         t(12, 9, 0),
         None,
     )];
     assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
     // 昨日の配信なら、1 日 1 回の制限にはかからない。
-    ctx.push_log = vec![task_log(
+    ctx.nudge_log = vec![task_log(
         payload::important_task("I2", "x", None),
         t(11, 9, 0),
         None,
     )];
     assert_eq!(
         delivered(&evaluate(&ctx, &cfg())),
-        vec![PushTrigger::ImportantTask]
+        vec![NudgeTrigger::ImportantTask]
     );
 }
 
 #[test]
 fn important_task_skip_week_and_selection_order() {
     let now = t(14, 10, 0); // 水曜
-    let mut ctx = PushContext::new(now, TZ);
+    let mut ctx = NudgeContext::new(now, TZ);
     ctx.tasks = vec![
         nudge("I1", false, true, now - 6 * DAY),
         nudge("I2", false, true, now - 9 * DAY),
         nudge("I3", false, true, now - 20 * DAY),
     ];
     ctx.tasks[0].last_worked_at = Some(now - 4 * DAY);
-    let pick = |ctx: &PushContext| {
+    let pick = |ctx: &NudgeContext| {
         let ds = evaluate(ctx, &cfg());
-        let Some(PushDecision::Deliver(p)) = ds.into_iter().find(|d| matches!(d, PushDecision::Deliver(_)))
+        let Some(NudgeDecision::Deliver(p)) = ds.into_iter().find(|d| matches!(d, NudgeDecision::Deliver(_)))
         else {
             return None;
         };
@@ -1433,28 +1445,28 @@ fn important_task_skip_week_and_selection_order() {
     // 最後に手をつけた時刻が最も古いもの（I3）。
     assert_eq!(pick(&ctx).as_deref(), Some("I3"));
     // 今週（月曜 = 12 日以降）に I3 を「今週は見送る」→ 次は I2。
-    ctx.push_log = vec![task_log(
+    ctx.nudge_log = vec![task_log(
         payload::important_task("I3", "x", None),
         t(12, 10, 0),
         Some("task_skip_week"),
     )];
     assert_eq!(pick(&ctx).as_deref(), Some("I2"));
     // 見送り以外の応答は除外しない。
-    ctx.push_log = vec![task_log(
+    ctx.nudge_log = vec![task_log(
         payload::important_task("I3", "x", None),
         t(12, 10, 0),
         Some("open"),
     )];
     assert_eq!(pick(&ctx).as_deref(), Some("I3"));
     // 先週の見送りは今週に持ち越さない。
-    ctx.push_log = vec![task_log(
+    ctx.nudge_log = vec![task_log(
         payload::important_task("I3", "x", None),
         t(9, 10, 0),
         Some("task_skip_week"),
     )];
     assert_eq!(pick(&ctx).as_deref(), Some("I3"));
     // 全部見送り済みなら出ない。
-    ctx.push_log = ["I1", "I2", "I3"]
+    ctx.nudge_log = ["I1", "I2", "I3"]
         .iter()
         .enumerate()
         .map(|(i, id)| {
@@ -1470,28 +1482,28 @@ fn important_task_skip_week_and_selection_order() {
 
 #[test]
 fn task_triggers_priority_order() {
-    let ids: Vec<&str> = PushTrigger::ALL.iter().map(|t| t.as_str()).collect();
+    let ids: Vec<&str> = NudgeTrigger::ALL.iter().map(|t| t.as_str()).collect();
     let pos = |s: &str| ids.iter().position(|x| *x == s).unwrap();
     assert!(pos("urgent_task") < pos("after_interrupt"));
-    assert!(pos("long_focus") < pos("important_task"));
-    assert_eq!(PushTrigger::label_of("urgent_task"), "緊急のタスク");
-    assert_eq!(PushTrigger::label_of("important_task"), "重要なタスク");
+    assert!(pos("long_work") < pos("important_task"));
+    assert_eq!(NudgeTrigger::label_of("urgent_task"), "緊急のタスク");
+    assert_eq!(NudgeTrigger::label_of("important_task"), "重要なタスク");
     assert_eq!(
-        PushTrigger::parse("important_task"),
-        Some(PushTrigger::ImportantTask)
+        NudgeTrigger::parse("important_task"),
+        Some(NudgeTrigger::ImportantTask)
     );
 }
 
 // ----- 応答 -----
 
-fn deliver_payload(conn: &rusqlite::Connection, p: PushPayload, at: Millis) -> String {
-    store::record_decision(conn, &PushDecision::Deliver(p), at)
+fn deliver_payload(conn: &rusqlite::Connection, p: NudgePayload, at: Millis) -> String {
+    store::record_decision(conn, &NudgeDecision::Deliver(p), at)
         .unwrap()
         .unwrap()
 }
 
-fn act(action: &str) -> PushResponse {
-    PushResponse {
+fn act(action: &str) -> NudgeResponse {
+    NudgeResponse {
         action: Some(action.into()),
         ..Default::default()
     }
@@ -1527,7 +1539,7 @@ fn payload_task_id_serde_is_optional() {
     // task_id の無い従来のペイロードも読める。出さないときは JSON にも出ない。
     let s = serde_json::to_string(&payload::day_start()).unwrap();
     assert!(!s.contains("task_id"));
-    let p: PushPayload = serde_json::from_str(&s).unwrap();
+    let p: NudgePayload = serde_json::from_str(&s).unwrap();
     assert_eq!(p.task_id, None);
     let s = serde_json::to_string(&payload::urgent_task("T", "x", 0)).unwrap();
     assert!(s.contains(r#""task_id":"T""#));
@@ -1544,22 +1556,22 @@ fn task_ref(id: &str, status: crate::model::TaskStatus) -> TaskRef {
 }
 
 /// 10:00-11:00 に A のブロックがあり、指定時刻の状況。
-fn block_ctx(now: Millis) -> PushContext {
-    let mut ctx = PushContext::new(now, TZ);
-    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 0), t(12, 11, 0))];
+fn block_ctx(now: Millis) -> NudgeContext {
+    let mut ctx = NudgeContext::new(now, TZ);
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 10, 0), t(12, 11, 0))];
     ctx.task_refs = vec![task_ref("A", crate::model::TaskStatus::Todo)];
     ctx
 }
 
-fn block_delivered(ctx: &PushContext, c: &Push) -> Vec<PushTrigger> {
+fn block_delivered(ctx: &NudgeContext, c: &Nudge) -> Vec<NudgeTrigger> {
     delivered(&evaluate(ctx, c))
 }
 
 #[test]
 fn block_start_fires_within_window_with_payload() {
     let ds = evaluate(&block_ctx(t(12, 10, 3)), &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::BlockStart]);
-    let PushDecision::Deliver(p) = &ds[0] else {
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::BlockStart]);
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     assert_eq!(p.title, "計画の時間です");
@@ -1574,11 +1586,11 @@ fn block_start_fires_within_window_with_payload() {
     // 開始ちょうどと、窓の終わり（10 分）ちょうどは出る。
     assert_eq!(
         block_delivered(&block_ctx(t(12, 10, 0)), &cfg()),
-        vec![PushTrigger::BlockStart]
+        vec![NudgeTrigger::BlockStart]
     );
     assert_eq!(
         block_delivered(&block_ctx(t(12, 10, 10)), &cfg()),
-        vec![PushTrigger::BlockStart]
+        vec![NudgeTrigger::BlockStart]
     );
 }
 
@@ -1589,11 +1601,11 @@ fn block_start_not_outside_window_or_for_other_blocks() {
     assert!(evaluate(&block_ctx(t(12, 10, 11)), &cfg()).is_empty());
     // ブロックがすでに終わっている。
     let mut ctx = block_ctx(t(12, 10, 3));
-    ctx.time_blocks = vec![block(Some("A"), t(12, 9, 58), t(12, 10, 2))];
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 9, 58), t(12, 10, 2))];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // タスクの無いブロック、タスク情報の無いブロック。
     let mut ctx = block_ctx(t(12, 10, 3));
-    ctx.time_blocks = vec![block(None, t(12, 10, 0), t(12, 11, 0))];
+    ctx.plan_blocks = vec![block(None, t(12, 10, 0), t(12, 11, 0))];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     let mut ctx = block_ctx(t(12, 10, 3));
     ctx.task_refs.clear();
@@ -1619,20 +1631,20 @@ fn block_start_not_when_doing_working_or_closed() {
     assert!(evaluate(&ctx, &cfg()).is_empty());
     let mut ctx = block_ctx(t(12, 10, 3));
     ctx.recent_segments = vec![work("B", t(12, 9, 50), t(12, 10, 3))];
-    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![NudgeTrigger::BlockStart]);
 }
 
 #[test]
 fn block_start_not_when_already_delivered_for_that_block() {
     let mut ctx = block_ctx(t(12, 10, 3));
     let p = payload::block_start(&format!("b{}", t(12, 10, 0)), "A", "タスクA", "10:00", "11:00");
-    ctx.push_log.push(task_log(p, t(12, 10, 1), Some("block_skip")));
+    ctx.nudge_log.push(task_log(p, t(12, 10, 1), Some("block_skip")));
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 別のブロックの配信済みは影響しない。
     let mut ctx = block_ctx(t(12, 10, 3));
     let p = payload::block_start("other", "A", "タスクA", "09:00", "09:30");
-    ctx.push_log.push(task_log(p, t(12, 9, 1), None));
-    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+    ctx.nudge_log.push(task_log(p, t(12, 9, 1), None));
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![NudgeTrigger::BlockStart]);
 }
 
 #[test]
@@ -1643,83 +1655,83 @@ fn block_start_not_while_idle_and_can_be_disabled() {
     let mut c = cfg();
     c.disabled_triggers = vec!["block_start".into()];
     assert!(evaluate(&block_ctx(t(12, 10, 3)), &c).is_empty());
-    assert_eq!(PushTrigger::label_of("block_start"), "計画ブロックの開始");
+    assert_eq!(NudgeTrigger::label_of("block_start"), "計画ブロックの開始");
 }
 
 #[test]
 fn block_start_ignores_interval_rules() {
     // 直前（2 分前）に別の通知が配信され、同じトリガーも 30 分前に配信済み（別ブロック）でも出る。
     let mut ctx = block_ctx(t(12, 10, 3));
-    ctx.push_log.push(log("long_focus", t(12, 10, 1), true));
+    ctx.nudge_log.push(log("long_work", t(12, 10, 1), true));
     let p = payload::block_start("older", "A", "タスクA", "09:30", "09:40");
-    ctx.push_log.push(task_log(p, t(12, 9, 33), None));
-    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
-    // ほかのトリガーは同じ状況で recent_push に抑制される（比較）。
-    let mut other = PushContext::new(t(12, 10, 3), TZ);
+    ctx.nudge_log.push(task_log(p, t(12, 9, 33), None));
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![NudgeTrigger::BlockStart]);
+    // ほかのトリガーは同じ状況で recent_nudge に抑制される（比較）。
+    let mut other = NudgeContext::new(t(12, 10, 3), TZ);
     other.resumed_at = Some(t(12, 9, 0));
-    other.push_log.push(log("long_focus", t(12, 10, 1), true));
+    other.nudge_log.push(log("long_work", t(12, 10, 1), true));
     let ds = evaluate(&other, &cfg());
-    assert!(matches!(&ds[0], PushDecision::Suppress { reason, .. } if reason == "recent_push"));
+    assert!(matches!(&ds[0], NudgeDecision::Suppress { reason, .. } if reason == "recent_nudge"));
 }
 
 #[test]
 fn block_start_still_obeys_snooze_daily_limit_and_meeting() {
     let mut ctx = block_ctx(t(12, 10, 3));
-    let mut l = log("long_focus", t(12, 9, 0), true);
+    let mut l = log("long_work", t(12, 9, 0), true);
     l.snoozed_until = Some(t(12, 11, 0));
-    ctx.push_log.push(l);
+    ctx.nudge_log.push(l);
     let ds = evaluate(&ctx, &cfg());
     assert!(
-        matches!(&ds[0], PushDecision::Suppress { trigger: PushTrigger::BlockStart, reason } if reason == "snoozed")
+        matches!(&ds[0], NudgeDecision::Suppress { trigger: NudgeTrigger::BlockStart, reason } if reason == "snoozed")
     );
 
     let mut ctx = block_ctx(t(12, 10, 3));
     for i in 0..6 {
-        ctx.push_log.push(log("long_focus", t(12, 8, i), true));
+        ctx.nudge_log.push(log("long_work", t(12, 8, i), true));
     }
     let ds = evaluate(&ctx, &cfg());
-    assert!(matches!(&ds[0], PushDecision::Suppress { reason, .. } if reason == "daily_limit"));
+    assert!(matches!(&ds[0], NudgeDecision::Suppress { reason, .. } if reason == "daily_limit"));
 
     // 会議中は保留される。
     let mut ctx = block_ctx(t(12, 10, 3));
     ctx.calendar_events = vec![event(t(12, 10, 0), t(12, 10, 30))];
     let ds = evaluate(&ctx, &cfg());
     assert!(
-        matches!(&ds[0], PushDecision::Defer { trigger: PushTrigger::BlockStart, until } if *until == t(12, 10, 30))
+        matches!(&ds[0], NudgeDecision::Defer { trigger: NudgeTrigger::BlockStart, until } if *until == t(12, 10, 30))
     );
 }
 
 #[test]
 fn block_start_not_deferred_by_its_own_focus_block_but_by_others() {
-    // 自分自身がフォーカスブロックなら保留されない。
+    // 自分自身が「集中」の計画ブロックなら保留されない。
     let mut ctx = block_ctx(t(12, 10, 3));
-    ctx.time_blocks[0].focus = true;
-    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
-    // 別のフォーカスブロックの最中なら保留される。
+    ctx.plan_blocks[0].focus = true;
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![NudgeTrigger::BlockStart]);
+    // 別の「集中」の計画ブロックの最中なら保留される。
     let mut ctx = block_ctx(t(12, 10, 3));
     let mut other = block(None, t(12, 9, 30), t(12, 10, 30));
     other.focus = true;
-    ctx.time_blocks.push(other);
+    ctx.plan_blocks.push(other);
     let ds = evaluate(&ctx, &cfg());
-    assert!(matches!(&ds[0], PushDecision::Defer { until, .. } if *until == t(12, 10, 30)));
+    assert!(matches!(&ds[0], NudgeDecision::Defer { until, .. } if *until == t(12, 10, 30)));
 }
 
 #[test]
 fn block_start_priority_after_idle_return() {
-    let ids: Vec<&str> = PushTrigger::ALL.iter().map(|t| t.as_str()).collect();
+    let ids: Vec<&str> = NudgeTrigger::ALL.iter().map(|t| t.as_str()).collect();
     let pos = |s: &str| ids.iter().position(|x| *x == s).unwrap();
     assert!(pos("idle_return") < pos("block_start") && pos("block_start") < pos("day_end"));
     // 同時に満たしたら idle_return が先、block_start は次の評価で出る（間隔ルールを受けない）。
     let mut ctx = block_ctx(t(12, 10, 32));
-    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 30), t(12, 11, 30))];
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 10, 30), t(12, 11, 30))];
     ctx.last_idle = Some(ClosedIdle {
         start_at: t(12, 10, 0),
         end_at: t(12, 10, 30),
     });
-    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::IdleReturn]);
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![NudgeTrigger::IdleReturn]);
     ctx.now = t(12, 10, 33);
-    ctx.push_log.push(log("idle_return", t(12, 10, 32), true));
-    assert_eq!(block_delivered(&ctx, &cfg()), vec![PushTrigger::BlockStart]);
+    ctx.nudge_log.push(log("idle_return", t(12, 10, 32), true));
+    assert_eq!(block_delivered(&ctx, &cfg()), vec![NudgeTrigger::BlockStart]);
 }
 
 #[test]
@@ -1755,8 +1767,8 @@ fn doing_span(task: &str, start: Millis, end: Option<Millis>) -> DoingSpan {
     }
 }
 
-fn idle_task_label(ds: &[PushDecision]) -> Option<(String, Option<String>)> {
-    let PushDecision::Deliver(p) = ds.iter().find(|d| matches!(d, PushDecision::Deliver(_)))? else {
+fn idle_task_label(ds: &[NudgeDecision]) -> Option<(String, Option<String>)> {
+    let NudgeDecision::Deliver(p) = ds.iter().find(|d| matches!(d, NudgeDecision::Deliver(_)))? else {
         return None;
     };
     let first = p.actions.first()?;
@@ -1771,12 +1783,12 @@ fn idle_return_candidate_from_doing_log() {
     // 無操作の前から開いたまま（進行中）。
     ctx.doing_spans = vec![doing_span("A", t(12, 9, 0), None)];
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::IdleReturn]);
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::IdleReturn]);
     assert_eq!(
         idle_task_label(&ds),
         Some(("タスクAをしていた".into(), Some("A".into())))
     );
-    let PushDecision::Deliver(p) = &ds[0] else {
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     let ids: Vec<&str> = p.actions.iter().map(|a| a.id.as_str()).collect();
@@ -1803,7 +1815,7 @@ fn idle_return_candidate_from_block_and_doing_wins() {
     let mut ctx = idle_ctx();
     ctx.task_refs = vec![task_ref("A", Todo), task_ref("B", Doing), task_ref("C", Todo)];
     // ブロックだけ: 重なりが最も長いもの（A は 10 分、C は 20 分）。
-    ctx.time_blocks = vec![
+    ctx.plan_blocks = vec![
         block(Some("A"), t(12, 9, 50), t(12, 10, 10)),
         block(Some("C"), t(12, 10, 10), t(12, 10, 40)),
         block(None, t(12, 10, 0), t(12, 10, 30)),
@@ -1835,11 +1847,11 @@ fn idle_return_without_candidate_is_unchanged() {
     assert_eq!(idle_task_label(&ds), None);
     // 重ならないブロック、タスク情報の無いブロックは候補にならない。
     let mut ctx = idle_ctx();
-    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 30), t(12, 11, 0))];
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 10, 30), t(12, 11, 0))];
     ctx.task_refs = vec![task_ref("A", crate::model::TaskStatus::Todo)];
     assert_eq!(idle_task_label(&evaluate(&ctx, &cfg())), None);
     let mut ctx = idle_ctx();
-    ctx.time_blocks = vec![block(Some("A"), t(12, 10, 0), t(12, 10, 30))];
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 10, 0), t(12, 10, 30))];
     assert_eq!(idle_task_label(&evaluate(&ctx, &cfg())), None);
 }
 
@@ -1853,10 +1865,10 @@ fn idle_return_asks_after_locked_auto_break_only_with_candidate() {
     ctx.recent_segments = vec![locked.clone()];
     assert!(evaluate(&ctx, &cfg()).is_empty());
     // 候補があれば尋ねる。
-    ctx.time_blocks = vec![block(Some("A"), t(12, 9, 30), t(12, 11, 0))];
+    ctx.plan_blocks = vec![block(Some("A"), t(12, 9, 30), t(12, 11, 0))];
     ctx.task_refs = vec![task_ref("A", crate::model::TaskStatus::Todo)];
     let ds = evaluate(&ctx, &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::IdleReturn]);
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::IdleReturn]);
     assert_eq!(idle_task_label(&ds).unwrap().1.as_deref(), Some("A"));
     // ユーザーが確定した休憩・会議は、候補があっても尋ねない。
     for mutate in 0..3 {
@@ -1973,16 +1985,16 @@ fn idle_task_answer_confirms_range_as_off_pc_work_and_survives_rebuild() {
     assert_eq!(err.exit_code(), 2);
 }
 
-// ===== kr_idle =====
+// ===== key_result_idle =====
 
-fn key_result_ctx(now: Millis) -> PushContext {
-    let mut ctx = PushContext::new(now, TZ);
-    ctx.kr_idle = vec![
-        KrIdleNudge {
+fn key_result_ctx(now: Millis) -> NudgeContext {
+    let mut ctx = NudgeContext::new(now, TZ);
+    ctx.key_result_idle = vec![
+        KeyResultIdleNudge {
             id: "K1".into(),
             title: "英語の勉強".into(),
         },
-        KrIdleNudge {
+        KeyResultIdleNudge {
             id: "K2".into(),
             title: "運動".into(),
         },
@@ -1991,12 +2003,12 @@ fn key_result_ctx(now: Millis) -> PushContext {
 }
 
 #[test]
-fn kr_idle_fires_on_or_after_weekday_with_facts_only() {
+fn key_result_idle_fires_on_or_after_weekday_with_facts_only() {
     // 既定は水曜（14 日）。火曜（13 日）はまだ出ない。
     assert!(evaluate(&key_result_ctx(t(13, 10, 0)), &cfg()).is_empty());
     let ds = evaluate(&key_result_ctx(t(14, 10, 0)), &cfg());
-    assert_eq!(delivered(&ds), vec![PushTrigger::KrIdle]);
-    let PushDecision::Deliver(p) = &ds[0] else {
+    assert_eq!(delivered(&ds), vec![NudgeTrigger::KeyResultIdle]);
+    let NudgeDecision::Deliver(p) = &ds[0] else {
         panic!()
     };
     assert_eq!(
@@ -2004,25 +2016,25 @@ fn kr_idle_fires_on_or_after_weekday_with_facts_only() {
         "「英語の勉強」「運動」に、今週はまだ時間が入っていません。"
     );
     let ids: Vec<&str> = p.actions.iter().map(|a| a.id.as_str()).collect();
-    assert_eq!(ids, vec!["open", "kr_skip_week"]);
+    assert_eq!(ids, vec!["open", "key_result_skip_week"]);
     assert_eq!(p.open_screen.as_deref(), Some("today/design"));
     // 水曜以降なら金曜でも出る。
     assert_eq!(
         delivered(&evaluate(&key_result_ctx(t(16, 10, 0)), &cfg())),
-        vec![PushTrigger::KrIdle]
+        vec![NudgeTrigger::KeyResultIdle]
     );
 }
 
 #[test]
-fn kr_idle_summarizes_many_key_results() {
+fn key_result_idle_summarizes_many_key_results() {
     let mut ctx = key_result_ctx(t(14, 10, 0));
     for i in 3..=6 {
-        ctx.kr_idle.push(KrIdleNudge {
+        ctx.key_result_idle.push(KeyResultIdleNudge {
             id: format!("K{i}"),
             title: format!("k{i}"),
         });
     }
-    let PushDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
+    let NudgeDecision::Deliver(p) = &evaluate(&ctx, &cfg())[0] else {
         panic!()
     };
     assert_eq!(
@@ -2032,54 +2044,58 @@ fn kr_idle_summarizes_many_key_results() {
 }
 
 #[test]
-fn kr_idle_once_a_week_and_weekday_setting() {
+fn key_result_idle_once_a_week_and_weekday_setting() {
     let mut ctx = key_result_ctx(t(16, 10, 0));
     // 今週すでに配信済み（応答は問わない）。
-    ctx.push_log = vec![task_log(
-        payload::kr_idle(&["a"]),
+    ctx.nudge_log = vec![task_log(
+        payload::key_result_idle(&["a"]),
         t(14, 10, 0),
-        Some("kr_skip_week"),
+        Some("key_result_skip_week"),
     )];
     assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
     // 先週の配信は今週に持ち越さない。
-    ctx.push_log = vec![task_log(payload::kr_idle(&["a"]), t(9, 10, 0), None)];
-    assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::KrIdle]);
+    ctx.nudge_log = vec![task_log(payload::key_result_idle(&["a"]), t(9, 10, 0), None)];
+    assert_eq!(
+        delivered(&evaluate(&ctx, &cfg())),
+        vec![NudgeTrigger::KeyResultIdle]
+    );
 
     // 0 で無効、1（月曜）なら月曜から、7（日曜）なら日曜だけ。
     let mut c = cfg();
-    c.kr_idle_weekday = 0;
+    c.key_result_idle_weekday = 0;
     assert!(evaluate(&key_result_ctx(t(16, 10, 0)), &c).is_empty());
-    c.kr_idle_weekday = 8;
+    c.key_result_idle_weekday = 8;
     assert!(evaluate(&key_result_ctx(t(16, 10, 0)), &c).is_empty());
-    c.kr_idle_weekday = 1;
+    c.key_result_idle_weekday = 1;
     assert_eq!(
         delivered(&evaluate(&key_result_ctx(t(12, 10, 0)), &c)),
-        vec![PushTrigger::KrIdle]
+        vec![NudgeTrigger::KeyResultIdle]
     );
-    c.kr_idle_weekday = 7;
+    c.key_result_idle_weekday = 7;
     assert!(evaluate(&key_result_ctx(t(16, 10, 0)), &c).is_empty());
     // 日曜は週次の振り返りも条件を満たすので、それを無効にして見る。
     c.disabled_triggers = vec!["weekly".into()];
     assert_eq!(
         delivered(&evaluate(&key_result_ctx(t(18, 10, 0)), &c)),
-        vec![PushTrigger::KrIdle]
+        vec![NudgeTrigger::KeyResultIdle]
     );
 }
 
 #[test]
-fn kr_idle_needs_krs_work_hours_and_not_disabled() {
+fn key_result_idle_needs_key_results_work_hours_and_not_disabled() {
     let mut ctx = key_result_ctx(t(14, 10, 0));
-    ctx.kr_idle.clear();
+    ctx.key_result_idle.clear();
     assert!(evaluate(&ctx, &cfg()).is_empty());
     for (h, m) in [(7, 0), (18, 30), (22, 0)] {
-        // 勤務時間外は kr_idle を出さない（終業の通知など、ほかのトリガーは別）。
+        // 勤務時間外は key_result_idle を出さない（終業の通知など、ほかのトリガーは別）。
         assert!(
-            !delivered(&evaluate(&key_result_ctx(t(14, h, m)), &cfg())).contains(&PushTrigger::KrIdle),
+            !delivered(&evaluate(&key_result_ctx(t(14, h, m)), &cfg()))
+                .contains(&NudgeTrigger::KeyResultIdle),
             "{h}:{m}"
         );
     }
     let mut c = cfg();
-    c.disabled_triggers = vec!["kr_idle".into()];
+    c.disabled_triggers = vec!["key_result_idle".into()];
     assert!(evaluate(&key_result_ctx(t(14, 10, 0)), &c).is_empty());
     // 無操作中は出ない。
     let mut ctx = key_result_ctx(t(14, 10, 0));
@@ -2091,19 +2107,19 @@ fn kr_idle_needs_krs_work_hours_and_not_disabled() {
 }
 
 #[test]
-fn kr_idle_obeys_gate_snooze_daily_limit_and_meeting() {
+fn key_result_idle_obeys_gate_snooze_daily_limit_and_meeting() {
     let now = t(14, 10, 0);
     // スヌーズ中。
     let mut ctx = key_result_ctx(now);
     let mut l = log("day_start", t(14, 8, 30), true);
     l.snoozed_until = Some(now + 30 * MIN);
-    ctx.push_log = vec![l];
+    ctx.nudge_log = vec![l];
     assert!(delivered(&evaluate(&ctx, &cfg())).is_empty());
     // 1 日上限。
     let mut c = cfg();
     c.daily_limit = 1;
     let mut ctx = key_result_ctx(now);
-    ctx.push_log = vec![log("day_start", t(14, 8, 30), true)];
+    ctx.nudge_log = vec![log("day_start", t(14, 8, 30), true)];
     assert!(delivered(&evaluate(&ctx, &c)).is_empty());
     // 会議中は保留。
     let mut ctx = key_result_ctx(now);
@@ -2111,18 +2127,18 @@ fn kr_idle_obeys_gate_snooze_daily_limit_and_meeting() {
     let ds = evaluate(&ctx, &cfg());
     assert!(matches!(
         ds[0],
-        PushDecision::Defer {
-            trigger: PushTrigger::KrIdle,
+        NudgeDecision::Defer {
+            trigger: NudgeTrigger::KeyResultIdle,
             ..
         }
     ));
 }
 
 #[test]
-fn kr_skip_week_only_records() {
+fn key_result_skip_week_only_records() {
     let conn = db::open_in_memory().unwrap();
-    let id = deliver_payload(&conn, payload::kr_idle(&["a"]), t(14, 10, 0));
-    let out = store::apply_response(&conn, &id, act("kr_skip_week"), t(14, 10, 5), TZ).unwrap();
+    let id = deliver_payload(&conn, payload::key_result_idle(&["a"]), t(14, 10, 0));
+    let out = store::apply_response(&conn, &id, act("key_result_skip_week"), t(14, 10, 5), TZ).unwrap();
     assert_eq!(out.start_task, None);
     assert!(store::get_log(&conn, &id).unwrap().responded_at.is_some());
 }

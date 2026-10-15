@@ -13,7 +13,7 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, actual as actual_svc, context, correction, erg, heatmap, plan, pushlog, quick, record, reflect,
+    self, actual as actual_svc, context, correction, erg, heatmap, nudgelog, plan, quick, record, reflect,
     report, review, skill, status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
@@ -41,7 +41,7 @@ fn main() -> ExitCode {
     }
 }
 
-/// JSON を `{"version": 1, ...}` の形で出力する。
+/// JSON を `{"version": 2, ...}` の形で出力する。
 fn print_json<T: Serialize>(v: &T) -> Result<()> {
     let mut value = serde_json::to_value(v).map_err(anyhow::Error::from)?;
     match value.as_object_mut() {
@@ -290,17 +290,17 @@ fn run(cli: Cli) -> Result<()> {
             emit(json, &st, || render::status(tz, &st))
         }
         Cmd::Task(t) => task_cmd(&ctx, t, json),
-        Cmd::Push(p) => match p {
-            PushCmd::List { range, unanswered } => {
-                let l = pushlog::list(&ctx, &range_args(&range), unanswered)?;
-                emit(json, &l, || render::push_list(tz, &l))
+        Cmd::Nudge(p) => match p {
+            NudgeCmd::List { range, unanswered } => {
+                let l = nudgelog::list(&ctx, &range_args(&range), unanswered)?;
+                emit(json, &l, || render::nudge_list(tz, &l))
             }
-            PushCmd::Answer {
+            NudgeCmd::Answer {
                 id,
                 energy,
                 mood,
                 stress,
-                hassle,
+                concern,
                 idle,
                 task,
                 dismiss,
@@ -312,15 +312,15 @@ fn run(cli: Cli) -> Result<()> {
                 };
                 let idle_task = task.as_deref() == Some("idle_task");
                 let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
-                let task = task.map(|s| s.parse::<pushlog::TaskAnswer>()).transpose()?;
-                let r = pushlog::answer(
+                let task = task.map(|s| s.parse::<nudgelog::TaskAnswer>()).transpose()?;
+                let r = nudgelog::answer(
                     &ctx,
                     &id,
-                    &pushlog::AnswerInput {
+                    &nudgelog::AnswerInput {
                         energy,
                         mood,
                         stress,
-                        hassle,
+                        concern,
                         idle,
                         task,
                         dismiss,
@@ -338,7 +338,7 @@ fn run(cli: Cli) -> Result<()> {
                 if let Some(id) = r.started_task.as_deref() {
                     ext::notify_task(Some(id));
                 }
-                emit(json, &r, || render::push_answered(&r))
+                emit(json, &r, || render::nudge_answered(&r))
             }
         },
         Cmd::Actual(r) => match r {

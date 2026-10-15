@@ -47,7 +47,7 @@ pub struct CalendarEventView {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct TimeBlockView {
+pub struct PlanBlockView {
     pub start: String,
     pub end: String,
     pub minutes: i64,
@@ -59,7 +59,7 @@ pub struct TimeBlockView {
 #[derive(Debug, Clone, Serialize)]
 pub struct Plan {
     pub calendar_events: Vec<CalendarEventView>,
-    pub time_blocks: Vec<TimeBlockView>,
+    pub plan_blocks: Vec<PlanBlockView>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -301,9 +301,9 @@ fn plan_view(ctx: &Ctx, range: Range, tz: Tz) -> Result<Plan> {
             is_busy: e.is_busy,
         })
         .collect();
-    let time_blocks = plan::list(ctx.conn, range)?
+    let plan_blocks = plan::list(ctx.conn, range)?
         .into_iter()
-        .map(|b| TimeBlockView {
+        .map(|b| PlanBlockView {
             start: timefmt::fmt_rfc3339(tz, b.start_at),
             end: timefmt::fmt_rfc3339(tz, b.end_at),
             minutes: (b.end_at - b.start_at) / 60_000,
@@ -314,7 +314,7 @@ fn plan_view(ctx: &Ctx, range: Range, tz: Tz) -> Result<Plan> {
         .collect();
     Ok(Plan {
         calendar_events,
-        time_blocks,
+        plan_blocks,
     })
 }
 
@@ -650,7 +650,7 @@ mod tests {
         assert_eq!(v["summary"]["by"]["kind"][0]["minutes"], 120);
         assert!(v["summary"]["by"]["agent"].is_array());
         assert!(v["plan"]["calendar_events"].is_array());
-        assert!(v["plan"]["time_blocks"].is_array());
+        assert!(v["plan"]["plan_blocks"].is_array());
         assert!(v["doing_tasks"].is_array());
         assert_eq!(v["checkins"].as_array().unwrap().len(), 1);
         assert!(v.get("interrupts").is_none());

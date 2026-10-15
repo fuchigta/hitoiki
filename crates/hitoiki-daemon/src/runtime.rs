@@ -1,9 +1,9 @@
-//! 常駐ランタイム（docs/dev/architecture.md「クレート構成とプロセスモデル」）。収集・ログ取り込み・再計算・カレンダー・プッシュ・IPC の各スレッドを束ねる。
+//! 常駐ランタイム（docs/dev/architecture.md「クレート構成とプロセスモデル」）。収集・ログ取り込み・再計算・カレンダー・問いかけ・IPC の各スレッドを束ねる。
 //!
 //! スレッドごとに別の SQLite 接続を持つ（WAL + busy_timeout）。収集データの書き込みは
 //! このランタイム（Recorder）だけが行う。ネットワークポートは開かない。
 
-use crate::push_ctx::push_tick;
+use crate::nudge_ctx::nudge_tick;
 use crate::sink::RuntimeSink;
 use anyhow::{anyhow, Context};
 use crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender};
@@ -53,8 +53,8 @@ pub struct RuntimeOptions {
     pub rebuild_interval: Duration,
     /// 即時再計算要求のデバウンス（既定 3 秒）。
     pub rebuild_debounce: Duration,
-    /// プッシュ評価の間隔（既定 60 秒）。
-    pub push_interval: Duration,
+    /// 問いかけ評価の間隔（既定 60 秒）。
+    pub nudge_interval: Duration,
     /// None なら `calendar.fetch_interval_min`。
     pub calendar_interval: Option<Duration>,
 }
@@ -70,7 +70,7 @@ impl RuntimeOptions {
             clock: Arc::new(SystemClock),
             rebuild_interval: Duration::from_secs(60),
             rebuild_debounce: Duration::from_secs(3),
-            push_interval: Duration::from_secs(60),
+            nudge_interval: Duration::from_secs(60),
             calendar_interval: None,
         }
     }
@@ -130,7 +130,7 @@ impl RuntimeHandle {
         self.shared.request_rebuild();
     }
 
-    /// 設定を差し替える。再計算・カレンダー・プッシュ・自動判定に次回から反映される
+    /// 設定を差し替える。再計算・カレンダー・問いかけ・自動判定に次回から反映される
     /// （収集器とログ監視の設定は再起動が必要）。
     pub fn set_config(&self, cfg: Config) {
         if let Ok(mut w) = self.shared.cfg.write() {
@@ -204,8 +204,9 @@ impl Runtime {
         }
         {
             let sh = shared.clone();
-            let iv = opts.push_interval;
-            h.threads.push(spawn("hitoiki-push", move || push_loop(sh, iv))?);
+            let iv = opts.nudge_interval;
+            h.threads
+                .push(spawn("hitoiki-nudge", move || nudge_loop(sh, iv))?);
         }
         {
             let sh = shared.clone();
@@ -387,20 +388,20 @@ fn calendar_loop(sh: Arc<Shared>, override_interval: Option<Duration>) {
     }
 }
 
-// ---- プッシュ ----
+// ---- 問いかけ ----
 
-fn push_loop(sh: Arc<Shared>, interval: Duration) {
+fn nudge_loop(sh: Arc<Shared>, interval: Duration) {
     let conn = match sh.open_db() {
         Ok(c) => c,
         Err(e) => {
-            tracing::error!(error = %e, "プッシュ評価を開始できません");
+            tracing::error!(error = %e, "問いかけ評価を開始できません");
             return;
         }
     };
     while !sh.stop.sleep(interval) {
         let cfg = sh.cfg();
-        if let Err(e) = push_tick(&conn, &cfg, sh.clock.now_ms(), sh.sink.as_ref()) {
-            tracing::warn!(error = %e, "プッシュ評価に失敗しました");
+        if let Err(e) = nudge_tick(&conn, &cfg, sh.clock.now_ms(), sh.sink.as_ref()) {
+            tracing::warn!(error = %e, "問いかけ評価に失敗しました");
         }
     }
 }

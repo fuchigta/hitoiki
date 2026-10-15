@@ -1,6 +1,6 @@
 //! `hitoiki status`: 現在の状況の要約（docs/dev/architecture.md「CLI」）。
 
-use super::pushlog::PushView;
+use super::nudgelog::NudgeView;
 use super::report::{self, ReportBy, ReportInput, ReportRow};
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};
 use crate::model::SegmentStatus;
@@ -43,8 +43,8 @@ pub struct Status {
     pub needs_review_count: i64,
     /// 全期間の needs_review のうち、`actual.min_sec` 未満で既定では隠れている件数。
     pub needs_review_short_count: i64,
-    /// 当日の配信済みで未応答のプッシュ（見送りにしたものは除く）。
-    pub unanswered_pushes: Vec<PushView>,
+    /// 当日の配信済みで未応答の問いかけ（見送りにしたものは除く）。
+    pub unanswered_nudges: Vec<NudgeView>,
     /// 保存済みの確認結果で、現在より新しい版があればそのバージョン（`v` なし）。
     /// `general.update_check = true` のときだけ。ネットワークには出ない。
     pub update_available: Option<String>,
@@ -117,7 +117,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         ctx.cfg.actual.min_sec as i64 * 1000,
     )?;
 
-    let unanswered_pushes = super::pushlog::list_unanswered(ctx, today_range)?;
+    let unanswered_nudges = super::nudgelog::list_unanswered(ctx, today_range)?;
 
     let update_available = if ctx.cfg.general.update_check == Some(true) {
         super::update::available(ctx.conn, env!("CARGO_PKG_VERSION"))?
@@ -133,7 +133,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
         today,
         needs_review_count,
         needs_review_short_count,
-        unanswered_pushes,
+        unanswered_nudges,
         update_available,
     })
 }
@@ -191,7 +191,7 @@ mod tests {
         let ins = |id: &str, at: i64, resp: Option<i64>| {
             ctx.conn
                 .execute(
-                    "INSERT INTO push_log (id, at, trigger, payload_json, delivered, responded_at) VALUES (?1,?2,'t','{}',1,?3)",
+                    "INSERT INTO nudge_log (id, at, trigger, payload_json, delivered, responded_at) VALUES (?1,?2,'t','{}',1,?3)",
                     rusqlite::params![id, at, resp],
                 )
                 .unwrap();
@@ -210,7 +210,7 @@ mod tests {
         assert_eq!(s.today.top_tasks[0].label, "A");
         assert_eq!(s.needs_review_count, 1);
         assert_eq!(s.needs_review_short_count, 0);
-        assert_eq!(s.unanswered_pushes.len(), 1);
-        assert_eq!(s.unanswered_pushes[0].id, "P1");
+        assert_eq!(s.unanswered_nudges.len(), 1);
+        assert_eq!(s.unanswered_nudges[0].id, "P1");
     }
 }

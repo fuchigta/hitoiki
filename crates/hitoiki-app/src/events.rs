@@ -1,11 +1,11 @@
 //! UI へ送る Tauri イベント（docs/dev/architecture.md「GUI」）。発火は `emit_*` 経由に統一する。
 
-use crate::state::PushEvent;
+use crate::state::NudgeEvent;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter};
 
 pub const SEGMENTS_UPDATED: &str = "segments-updated";
-pub const PUSH: &str = "push";
+pub const NUDGE: &str = "nudge";
 pub const DOING_CHANGED: &str = "doing-changed";
 pub const IMPORT_COMPLETED: &str = "import-completed";
 /// `hitoiki ui <screen>` などで画面を切り替える。ペイロードは `{ "screen": "today" }`。
@@ -22,9 +22,9 @@ pub fn emit_segments_updated(app: &AppHandle) {
     emit(app, SEGMENTS_UPDATED, json!({}));
 }
 
-/// プッシュ通知が発生した。ペイロードは `{ push_id, payload }`。
-pub fn emit_push(app: &AppHandle, ev: &PushEvent) {
-    emit(app, PUSH, serde_json::to_value(ev).unwrap_or(Value::Null));
+/// 問いかけが発生した。ペイロードは `{ nudge_id, payload }`。
+pub fn emit_nudge(app: &AppHandle, ev: &NudgeEvent) {
+    emit(app, NUDGE, serde_json::to_value(ev).unwrap_or(Value::Null));
 }
 
 /// doing タスクが変わった。

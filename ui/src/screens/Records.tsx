@@ -1,12 +1,12 @@
 import { useMemo, useState } from "preact/hooks";
-import { api, type AbcRecord, type ErgDistribution, type PushView } from "../api";
+import { api, type AbcRecord, type ErgDistribution, type NudgeView } from "../api";
 import { EmptyState, ErrorBox } from "../components";
 import { ErgLine } from "../erg-label";
 import { ERG_LEGEND, classifyMessage, labelMap } from "../erg-util";
 import { fmtDateTime, fmtTime, hrefOf, navigate, useAction, useAsync, useLiveTick, useRoute } from "../lib";
 import { Markdown } from "../markdown";
-import { PushAnswer } from "../push-answer";
-import { periodLabel } from "../push-answer-util";
+import { NudgeAnswer } from "../nudge-answer";
+import { periodLabel } from "../nudge-answer-util";
 import { AbcDetail, CheckinDetail, HassleDetail } from "../record-edit";
 import { NewRecord } from "../records-new";
 import {
@@ -47,8 +47,8 @@ export function Records() {
   const abcs = useAsync(() => api.abcList(range), [period]);
   const reflections = useAsync(() => api.reflectList(undefined, REFLECTION_LIMIT), []);
   const erg = useAsync(() => api.ergOverview(range), [period]);
-  const pushTick = useLiveTick(["push"]);
-  const status = useAsync(() => api.status(), [pushTick]);
+  const nudgeTick = useLiveTick(["nudge"]);
+  const status = useAsync(() => api.status(), [nudgeTick]);
   // 作ったばかりの記録。一覧を読み直すまでの間も、詳細に出せるようにしておく。
   const [fresh, setFresh] = useState<RecordSource | null>(null);
 
@@ -92,7 +92,7 @@ export function Records() {
     hrefOf("records", path, { ...filters, ...over });
   const setFilter = (over: Record<string, string | undefined>) => navigate(hrefFor(route.path, over));
 
-  const unanswered = status.data?.unanswered_pushes ?? [];
+  const unanswered = status.data?.unanswered_nudges ?? [];
 
   const created = (src: RecordSource) => {
     setFresh(src);
@@ -149,7 +149,7 @@ export function Records() {
       {erg.data && <ErgBar distribution={erg.data.distribution} range={range} onChanged={erg.reload} />}
       <ErrorBox error={erg.error} />
 
-      {unanswered.length > 0 && <UnansweredPushes pushes={unanswered} onDone={status.reload} />}
+      {unanswered.length > 0 && <UnansweredNudges nudges={unanswered} onDone={status.reload} />}
 
       <ListDetail
         list={
@@ -255,15 +255,15 @@ function ErgBar({
   );
 }
 
-/** 未回答の問いかけ（通知への答え）。帯を開くと、その場で答えられる。 */
-function UnansweredPushes({ pushes, onDone }: { pushes: PushView[]; onDone: () => void }) {
+/** 未回答の問いかけ（問いかけへの答え）。帯を開くと、その場で答えられる。 */
+function UnansweredNudges({ nudges, onDone }: { nudges: NudgeView[]; onDone: () => void }) {
   return (
-    <details class="push-band">
+    <details class="nudge-band">
       <summary>
-        未回答の問いかけ {pushes.length} 件<Help label="未回答の問いかけの説明">答えなくても大丈夫です。「答えない」で一覧から外せます。</Help>
+        未回答の問いかけ {nudges.length} 件<Help label="未回答の問いかけの説明">答えなくても大丈夫です。「答えない」で一覧から外せます。</Help>
       </summary>
-      <ul class="plain push-list">
-        {pushes.map((p) => (
+      <ul class="plain nudge-list">
+        {nudges.map((p) => (
           <li key={p.id}>
             <div>
               <span class="meta">
@@ -273,7 +273,7 @@ function UnansweredPushes({ pushes, onDone }: { pushes: PushView[]; onDone: () =
             </div>
             {p.body && <p class="hint">{p.body}</p>}
             {periodLabel(p.payload, fmtTime) && <p class="meta">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
-            {p.payload && <PushAnswer pushId={p.id} payload={p.payload} onDone={onDone} />}
+            {p.payload && <NudgeAnswer nudgeId={p.id} payload={p.payload} onDone={onDone} />}
           </li>
         ))}
       </ul>

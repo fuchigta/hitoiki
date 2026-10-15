@@ -1057,7 +1057,7 @@ fn no_interrupt_without_doing_or_focus_block() {
     ];
     assert!(of_kind(&build(&i, None), Interrupt).is_empty());
 
-    i.time_blocks = vec![TimeBlock {
+    i.plan_blocks = vec![PlanBlock {
         id: "B".into(),
         start_at: 0,
         end_at: 30 * M,

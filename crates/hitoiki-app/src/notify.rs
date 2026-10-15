@@ -1,6 +1,6 @@
-use crate::state::{AppState, PushEvent};
+use crate::state::{AppState, NudgeEvent};
 use crate::{events, runtime, window};
-use hitoiki_core::push::{PushAction, PushInput, PushPayload, PushTrigger};
+use hitoiki_core::nudge::{NudgeAction, NudgeInput, NudgePayload, NudgeTrigger};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager};
 
@@ -9,37 +9,37 @@ pub const AUMID: &str = "Hitoiki.App";
 
 /// 通知のアクティベーション（ボタン押下／本体クリック）。
 ///
-/// トーストの引数 `action=<id>&value=<value>&push=<push_id>&open=<screen>` から作る。
+/// トーストの引数 `action=<id>&value=<value>&nudge=<nudge_id>&open=<screen>` から作る。
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Activation {
-    /// 押されたボタンの `PushAction.id`（本体クリックは None）。
+    /// 押されたボタンの `NudgeAction.id`（本体クリックは None）。
     pub action: Option<String>,
     pub value: Option<i64>,
     /// 入力欄のテキスト。
     pub input: Option<String>,
-    pub push_id: Option<String>,
+    pub nudge_id: Option<String>,
     /// ペイロードの `open_screen`。
     pub open_screen: Option<String>,
 }
 
-/// 入力欄だけで答える通知（ボタン無し）用の、テキスト送信ボタンの `PushAction.id`。
+/// 入力欄だけで答える通知（ボタン無し）用の、テキスト送信ボタンの `NudgeAction.id`。
 pub const TEXT_ACTION: &str = "text";
 
-/// 設定画面の動作確認用のテスト通知（チェックイン相当。push_log には紐付かない）。
-pub fn test_payload() -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::LongFocus,
+/// 設定画面の動作確認用のテスト通知（チェックイン相当。nudge_log には紐付かない）。
+pub fn test_payload() -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::LongWork,
         title: "ひといき".into(),
         body: "いまのエネルギーは？".into(),
         actions: (1..=5)
-            .map(|n| PushAction {
+            .map(|n| NudgeAction {
                 id: "energy".into(),
                 label: n.to_string(),
                 value: Some(n),
             })
             .collect(),
-        input: Some(PushInput {
-            id: "hassle".into(),
+        input: Some(NudgeInput {
+            id: "concern".into(),
             placeholder: "一言メモ（任意）".into(),
         }),
         open_screen: Some("records".into()),
@@ -49,19 +49,19 @@ pub fn test_payload() -> PushPayload {
     }
 }
 
-/// 更新のトーストのボタン `PushAction.id`。押すとリリースページをブラウザで開く。
+/// 更新のトーストのボタン `NudgeAction.id`。押すとリリースページをブラウザで開く。
 pub const UPDATE_ACTION: &str = "update";
 /// 更新のトーストの本体クリックを表す `open_screen` の値（画面名ではない）。
 pub const UPDATE_OPEN: &str = "update";
 
 /// 「新しいバージョンがあります」のトースト用ペイロード。`trigger` は型を満たすための値で、
-/// プッシュ通知（push_log）とは無関係。
-pub fn update_payload(version: &str) -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::LongFocus,
+/// 問いかけ（nudge_log）とは無関係。
+pub fn update_payload(version: &str) -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::LongWork,
         title: "ひといき".into(),
         body: format!("新しいバージョン v{version} があります"),
-        actions: vec![PushAction {
+        actions: vec![NudgeAction {
             id: UPDATE_ACTION.into(),
             label: "ダウンロードページを開く".into(),
             value: None,
@@ -95,32 +95,32 @@ pub fn init() {
 }
 
 /// トースト通知を出す。ボタン押下は `runtime::handle_activation` に渡る。
-pub fn show_push(app: &AppHandle, push_id: Option<&str>, payload: &PushPayload) -> Result<(), String> {
+pub fn show_nudge(app: &AppHandle, nudge_id: Option<&str>, payload: &NudgePayload) -> Result<(), String> {
     let handle = app.clone();
     let persistent = hitoiki_core::config::Config::load()
-        .map(|c| c.push.toast_persistent)
+        .map(|c| c.nudge.toast_persistent)
         .unwrap_or(true);
-    let scenario = toast_scenario(push_id, payload, persistent);
-    platform::show(push_id, payload, scenario, move |act| {
+    let scenario = toast_scenario(nudge_id, payload, persistent);
+    platform::show(nudge_id, payload, scenario, move |act| {
         runtime::handle_activation(&handle, act)
     })
 }
 
-/// プッシュを届ける: UI へ `push` イベントを送り、トーストを試し、失敗したらポップアップ窓に切り替える。
+/// 問いかけを届ける: UI へ `nudge` イベントを送り、トーストを試し、失敗したらポップアップ窓に切り替える。
 /// 通知の一時停止中は何もしない（`false` を返す）。
-pub fn deliver(app: &AppHandle, push_id: &str, payload: &PushPayload) -> bool {
+pub fn deliver(app: &AppHandle, nudge_id: &str, payload: &NudgePayload) -> bool {
     let state = app.state::<AppState>();
     if state.is_snoozed(hitoiki_core::Clock::now_ms(&hitoiki_core::SystemClock)) {
-        tracing::info!(push_id, "通知の一時停止中のため表示しません");
+        tracing::info!(nudge_id, "通知の一時停止中のため表示しません");
         return false;
     }
-    let ev = PushEvent {
-        push_id: Some(push_id.to_string()),
+    let ev = NudgeEvent {
+        nudge_id: Some(nudge_id.to_string()),
         payload: payload.clone(),
     };
-    state.set_last_push(Some(ev.clone()));
-    events::emit_push(app, &ev);
-    if let Err(e) = show_push(app, Some(push_id), payload) {
+    state.set_last_nudge(Some(ev.clone()));
+    events::emit_nudge(app, &ev);
+    if let Err(e) = show_nudge(app, Some(nudge_id), payload) {
         tracing::warn!("トーストを出せないためポップアップに切り替えます: {e}");
         if let Err(e) = window::open_popup(app) {
             tracing::warn!("ポップアップも開けませんでした: {e}");
@@ -129,19 +129,19 @@ pub fn deliver(app: &AppHandle, push_id: &str, payload: &PushPayload) -> bool {
     true
 }
 
-/// トーストの `scenario` 属性。回答を求める通知（push_log に紐づき、ボタンか入力欄があるもの）は、
+/// トーストの `scenario` 属性。回答を求める通知（nudge_log に紐づき、ボタンか入力欄があるもの）は、
 /// `persistent` のとき `reminder`（操作するまで画面に残る）にする。更新のお知らせやテスト通知
-/// （push_log に紐づかない）、ボタンの無い通知は既定のまま（None）。
+/// （nudge_log に紐づかない）、ボタンの無い通知は既定のまま（None）。
 /// なお `reminder` はボタンが 1 つ以上必要で、入力欄だけの通知にはここの [`toast_actions`] が送信ボタンを足す。
-pub fn toast_scenario(push_id: Option<&str>, p: &PushPayload, persistent: bool) -> Option<&'static str> {
-    (persistent && push_id.is_some() && !toast_actions(p).is_empty()).then_some("reminder")
+pub fn toast_scenario(nudge_id: Option<&str>, p: &NudgePayload, persistent: bool) -> Option<&'static str> {
+    (persistent && nudge_id.is_some() && !toast_actions(p).is_empty()).then_some("reminder")
 }
 
 /// トーストに出すボタンの一覧。入力欄だけの通知には送信ボタンを足す。
-pub fn toast_actions(p: &PushPayload) -> Vec<PushAction> {
-    let mut v: Vec<PushAction> = p.actions.iter().take(5).cloned().collect();
+pub fn toast_actions(p: &NudgePayload) -> Vec<NudgeAction> {
+    let mut v: Vec<NudgeAction> = p.actions.iter().take(5).cloned().collect();
     if v.is_empty() && p.input.is_some() {
-        v.push(PushAction {
+        v.push(NudgeAction {
             id: TEXT_ACTION.into(),
             label: "ひとこと残す".into(),
             value: None,
@@ -155,7 +155,7 @@ pub fn toast_actions(p: &PushPayload) -> Vec<PushAction> {
 #[cfg(windows)]
 mod platform {
     use super::{toast_actions, Activation, AUMID};
-    use hitoiki_core::push::{PushAction, PushPayload};
+    use hitoiki_core::nudge::{NudgeAction, NudgePayload};
     use std::sync::{Arc, Mutex};
     use windows::core::{Interface, HSTRING, PCWSTR};
     use windows::Data::Xml::Dom::XmlDocument;
@@ -254,7 +254,7 @@ mod platform {
         String::from_utf8_lossy(&out).into_owned()
     }
 
-    fn args(action: Option<&PushAction>, push: Option<&str>, open: Option<&str>) -> String {
+    fn args(action: Option<&NudgeAction>, nudge: Option<&str>, open: Option<&str>) -> String {
         let mut v = Vec::new();
         if let Some(a) = action {
             v.push(format!("action={}", enc(&a.id)));
@@ -262,8 +262,8 @@ mod platform {
                 v.push(format!("value={n}"));
             }
         }
-        if let Some(p) = push {
-            v.push(format!("push={}", enc(p)));
+        if let Some(p) = nudge {
+            v.push(format!("nudge={}", enc(p)));
         }
         if let Some(o) = open {
             v.push(format!("open={}", enc(o)));
@@ -277,7 +277,7 @@ mod platform {
             match kv.split_once('=') {
                 Some(("action", v)) => a.action = Some(dec(v)),
                 Some(("value", v)) => a.value = dec(v).parse().ok(),
-                Some(("push", v)) => a.push_id = Some(dec(v)),
+                Some(("nudge", v)) => a.nudge_id = Some(dec(v)),
                 Some(("open", v)) => a.open_screen = Some(dec(v)),
                 _ => {}
             }
@@ -285,12 +285,12 @@ mod platform {
         a
     }
 
-    pub(super) fn build_xml(push_id: Option<&str>, p: &PushPayload, scenario: Option<&str>) -> String {
+    pub(super) fn build_xml(nudge_id: Option<&str>, p: &NudgePayload, scenario: Option<&str>) -> String {
         let open = p.open_screen.as_deref();
         let scenario = scenario.map_or_else(String::new, |s| format!(" scenario=\"{}\"", esc(s)));
         let mut x = format!(
             "<toast{scenario} launch=\"{}\" activationType=\"foreground\"><visual><binding template=\"ToastGeneric\">             <text>{}</text><text>{}</text></binding></visual><actions>",
-            esc(&args(None, push_id, open)),
+            esc(&args(None, nudge_id, open)),
             esc(&p.title),
             esc(&p.body)
         );
@@ -305,7 +305,7 @@ mod platform {
             x.push_str(&format!(
                 "<action content=\"{}\" arguments=\"{}\" activationType=\"foreground\"/>",
                 esc(&a.label),
-                esc(&args(Some(&a), push_id, open))
+                esc(&args(Some(&a), nudge_id, open))
             ));
         }
         x.push_str("</actions></toast>");
@@ -313,13 +313,13 @@ mod platform {
     }
 
     pub fn show(
-        push_id: Option<&str>,
-        payload: &PushPayload,
+        nudge_id: Option<&str>,
+        payload: &NudgePayload,
         scenario: Option<&str>,
         on_activated: impl Fn(Activation) + Send + Sync + 'static,
     ) -> Result<(), String> {
         let e = |e: windows::core::Error| e.to_string();
-        let xml = build_xml(push_id, payload, scenario);
+        let xml = build_xml(nudge_id, payload, scenario);
         let doc = XmlDocument::new().map_err(e)?;
         doc.LoadXml(&HSTRING::from(xml)).map_err(e)?;
         let toast = ToastNotification::CreateToastNotification(&doc).map_err(e)?;
@@ -397,21 +397,21 @@ mod platform {
     mod tests {
         use super::*;
         use crate::notify::test_payload;
-        use hitoiki_core::push::PushInput;
+        use hitoiki_core::nudge::NudgeInput;
 
         #[test]
         fn 引数の往復() {
-            let act = PushAction {
+            let act = NudgeAction {
                 id: "energy".into(),
                 label: "3".into(),
                 value: Some(3),
             };
-            let a = args(Some(&act), Some("01 AB&x"), Some("reflection/day_end"));
+            let a = args(Some(&act), Some("01 AB&x"), Some("records/new/day_end"));
             let p = parse_args(&a);
             assert_eq!(p.action.as_deref(), Some("energy"));
             assert_eq!(p.value, Some(3));
-            assert_eq!(p.push_id.as_deref(), Some("01 AB&x"));
-            assert_eq!(p.open_screen.as_deref(), Some("reflection/day_end"));
+            assert_eq!(p.nudge_id.as_deref(), Some("01 AB&x"));
+            assert_eq!(p.open_screen.as_deref(), Some("records/new/day_end"));
         }
 
         #[test]
@@ -423,15 +423,15 @@ mod platform {
             assert!(!x.contains("scenario"));
             assert!(x.contains("<input id=\"note\""));
             assert!(x.contains("a&lt;b"));
-            assert!(x.contains("action=energy&amp;value=3&amp;push=P1"));
+            assert!(x.contains("action=energy&amp;value=3&amp;nudge=P1"));
         }
 
         #[test]
         fn 入力欄だけの通知には送信ボタンが付く() {
             let mut p = test_payload();
             p.actions.clear();
-            p.input = Some(PushInput {
-                id: "hassle".into(),
+            p.input = Some(NudgeInput {
+                id: "concern".into(),
                 placeholder: "x".into(),
             });
             let x = build_xml(Some("P1"), &p, Some("reminder"));
@@ -449,15 +449,15 @@ mod platform {
 #[cfg(not(windows))]
 mod platform {
     use super::Activation;
-    use hitoiki_core::push::PushPayload;
+    use hitoiki_core::nudge::NudgePayload;
 
     pub fn register() -> Result<(), String> {
         Ok(())
     }
 
     pub fn show(
-        _push_id: Option<&str>,
-        _payload: &PushPayload,
+        _nudge_id: Option<&str>,
+        _payload: &NudgePayload,
         _scenario: Option<&str>,
         _on_activated: impl Fn(Activation) + Send + Sync + 'static,
     ) -> Result<(), String> {
@@ -475,7 +475,7 @@ mod tests {
         assert_eq!(toast_scenario(Some("P1"), &ask, true), Some("reminder"));
         // 設定で切れる。
         assert_eq!(toast_scenario(Some("P1"), &ask, false), None);
-        // 更新のお知らせ・テスト通知（push_log に紐づかない）は対象外。
+        // 更新のお知らせ・テスト通知（nudge_log に紐づかない）は対象外。
         assert_eq!(toast_scenario(None, &update_payload("1.0.0"), true), None);
         assert_eq!(toast_scenario(None, &ask, true), None);
         // 入力欄だけの通知は送信ボタンが付くので対象。ボタンも入力欄も無ければ対象外。

@@ -416,7 +416,7 @@ fn impact(ctx: &Ctx, t: &Task) -> Result<(DeletePreview, Option<Range>)> {
         corrections,
         rules: count(c, "SELECT COUNT(*) FROM task_assign_rule WHERE task_id = ?1", id)?,
         skills: count(c, "SELECT COUNT(*) FROM task_skill WHERE task_id = ?1", id)?,
-        blocks: count(c, "SELECT COUNT(*) FROM time_block WHERE task_id = ?1", id)?,
+        blocks: count(c, "SELECT COUNT(*) FROM plan_block WHERE task_id = ?1", id)?,
         template_items: count(
             c,
             "SELECT COUNT(*) FROM block_template_item WHERE task_id = ?1",
@@ -443,7 +443,7 @@ pub fn delete_preview(ctx: &Ctx, id: &str) -> Result<DeletePreview> {
 /// - タスク本体・タスクの割り当てルール・スキルの紐付け・doing の履歴を削除する。
 /// - このタスクへの `segment_confirmation` を削除する。補正（`segment_correction`）は付け替え先が 1 つのタスクなので、
 ///   このタスクへの補正は補正ごと（補正が作った確定も含めて）削除する。他のタスクへの補正には触れない。
-/// - `time_block` / `block_template_item` の `task_id` は NULL にして残す（ラベルが空ならタスク名を写す）。
+/// - `plan_block` / `block_template_item` の `task_id` は NULL にして残す（ラベルが空ならタスク名を写す）。
 ///
 /// 計上済み時間・確定済みの割り当て・補正があるとき、`force` が偽ならエラー（引数不正）で影響を知らせる。
 pub fn delete(ctx: &Ctx, id: &str, force: bool, judge: Option<&dyn SegmentJudge>) -> Result<DeleteResult> {
@@ -472,7 +472,7 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool, judge: Option<&dyn SegmentJudge>
         [tid],
     )?;
     c.execute(
-        "UPDATE time_block SET label = CASE WHEN label IS NULL OR TRIM(label) = '' THEN ?2 ELSE label END, \
+        "UPDATE plan_block SET label = CASE WHEN label IS NULL OR TRIM(label) = '' THEN ?2 ELSE label END, \
          task_id = NULL WHERE task_id = ?1",
         params![tid, t.title],
     )?;
@@ -766,7 +766,7 @@ mod tests {
         skill::set_task_skills(ctx.conn, &t, &["sk1".to_string()]).unwrap();
         ctx.conn
             .execute_batch(&format!(
-                "INSERT INTO time_block (id, start_at, end_at, task_id, label) VALUES ('b1', 1, 2, '{t}', NULL),                    ('b2', 3, 4, '{t}', '集中'), ('b3', 5, 6, '{other}', NULL);                  INSERT INTO block_template (id, name, created_at, updated_at) VALUES ('tp', 'T', 0, 0);                  INSERT INTO block_template_item (id, template_id, start_min, end_min, label, task_id) VALUES                    ('i1', 'tp', 0, 60, '', '{t}'), ('i2', 'tp', 60, 120, '午後', '{t}');"
+                "INSERT INTO plan_block (id, start_at, end_at, task_id, label) VALUES ('b1', 1, 2, '{t}', NULL),                    ('b2', 3, 4, '{t}', '集中'), ('b3', 5, 6, '{other}', NULL);                  INSERT INTO block_template (id, name, created_at, updated_at) VALUES ('tp', 'T', 0, 0);                  INSERT INTO block_template_item (id, template_id, start_min, end_min, label, task_id) VALUES                    ('i1', 'tp', 0, 60, '', '{t}'), ('i2', 'tp', 60, 120, '午後', '{t}');"
             ))
             .unwrap();
         start(&ctx, &t).unwrap();
@@ -797,7 +797,7 @@ mod tests {
             "SELECT COUNT(*) FROM task_assign_rule",
             "SELECT COUNT(*) FROM task_skill",
             "SELECT COUNT(*) FROM task_doing_log",
-            "SELECT COUNT(*) FROM time_block WHERE task_id = (SELECT id FROM task WHERE title = '誤入力')",
+            "SELECT COUNT(*) FROM plan_block WHERE task_id = (SELECT id FROM task WHERE title = '誤入力')",
         ] {
             assert_eq!(n(&ctx, q), 0, "{q}");
         }
@@ -832,9 +832,9 @@ mod tests {
                 )
                 .unwrap()
         };
-        assert_eq!(lbl("time_block", "b1"), (Some("誤入力".into()), None));
-        assert_eq!(lbl("time_block", "b2"), (Some("集中".into()), None));
-        assert_eq!(lbl("time_block", "b3").1.as_deref(), Some(other.as_str()));
+        assert_eq!(lbl("plan_block", "b1"), (Some("誤入力".into()), None));
+        assert_eq!(lbl("plan_block", "b2"), (Some("集中".into()), None));
+        assert_eq!(lbl("plan_block", "b3").1.as_deref(), Some(other.as_str()));
         assert_eq!(lbl("block_template_item", "i1"), (Some("誤入力".into()), None));
         assert_eq!(lbl("block_template_item", "i2"), (Some("午後".into()), None));
         // 再計算後、0〜30 分の区間はタスクなし（要確認）に戻る。別タスクへの補正（10〜20 分）は維持される。

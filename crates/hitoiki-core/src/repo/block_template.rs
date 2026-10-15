@@ -1,4 +1,4 @@
-//! ブロックのテンプレート（`block_template` / `block_template_item` / `block_template_application`）。
+//! テンプレート（`block_template` / `block_template_item` / `block_template_application`）。
 
 use crate::{Millis, Result};
 use rusqlite::{params, Connection, OptionalExtension};

@@ -1,11 +1,12 @@
-//! push_log の読み書きと、通知への応答の反映（checkin / hassle / スヌーズ）。
+//! nudge_log の読み書きと、通知への応答の反映（checkin / hassle / スヌーズ）。
 
 use super::payload::{
-    BLOCK_SKIP, IDLE_ACTION_PREFIX, IDLE_TASK_ACTION, KR_SKIP_WEEK, TASK_LATER, TASK_SKIP_WEEK, TASK_START,
+    BLOCK_SKIP, IDLE_ACTION_PREFIX, IDLE_TASK_ACTION, KEY_RESULT_SKIP_WEEK, TASK_LATER, TASK_SKIP_WEEK,
+    TASK_START,
 };
-use super::{PushDecision, PushPayload, PushTrigger};
+use super::{NudgeDecision, NudgePayload, NudgeTrigger};
 use crate::id::new_id;
-use crate::model::PushLog;
+use crate::model::NudgeLog;
 use crate::service::correction;
 use crate::service::review::{self, IdlePreset};
 use crate::timefmt::{day_range, local_date_of};
@@ -14,8 +15,8 @@ use chrono_tz::Tz;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
-fn row_to_log(r: &Row<'_>) -> rusqlite::Result<PushLog> {
-    Ok(PushLog {
+fn row_to_log(r: &Row<'_>) -> rusqlite::Result<NudgeLog> {
+    Ok(NudgeLog {
         id: r.get(0)?,
         at: r.get(1)?,
         trigger: r.get(2)?,
@@ -31,9 +32,9 @@ fn row_to_log(r: &Row<'_>) -> rusqlite::Result<PushLog> {
 const COLS: &str =
     "id, at, trigger, payload_json, delivered, responded_at, response_json, snoozed_until, suppressed_reason";
 
-pub fn insert_log(conn: &Connection, log: &PushLog) -> Result<()> {
+pub fn insert_log(conn: &Connection, log: &NudgeLog) -> Result<()> {
     conn.execute(
-        "INSERT INTO push_log (id, at, trigger, payload_json, delivered, responded_at, response_json, snoozed_until, suppressed_reason)
+        "INSERT INTO nudge_log (id, at, trigger, payload_json, delivered, responded_at, response_json, snoozed_until, suppressed_reason)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             log.id,
@@ -50,11 +51,11 @@ pub fn insert_log(conn: &Connection, log: &PushLog) -> Result<()> {
     Ok(())
 }
 
-/// 判定結果を push_log に残す。Deliver は配信済み、Suppress は `suppressed_reason` 付きで記録し、
+/// 判定結果を nudge_log に残す。Deliver は配信済み、Suppress は `suppressed_reason` 付きで記録し、
 /// 追加した行の ID を返す。Defer は記録しない（None）。
-pub fn record_decision(conn: &Connection, decision: &PushDecision, now: Millis) -> Result<Option<String>> {
+pub fn record_decision(conn: &Connection, decision: &NudgeDecision, now: Millis) -> Result<Option<String>> {
     let log = match decision {
-        PushDecision::Deliver(p) => PushLog {
+        NudgeDecision::Deliver(p) => NudgeLog {
             id: new_id(),
             at: now,
             trigger: p.trigger.as_str().into(),
@@ -65,7 +66,7 @@ pub fn record_decision(conn: &Connection, decision: &PushDecision, now: Millis) 
             snoozed_until: None,
             suppressed_reason: None,
         },
-        PushDecision::Suppress { trigger, reason } => PushLog {
+        NudgeDecision::Suppress { trigger, reason } => NudgeLog {
             id: new_id(),
             at: now,
             trigger: trigger.as_str().into(),
@@ -76,19 +77,19 @@ pub fn record_decision(conn: &Connection, decision: &PushDecision, now: Millis) 
             snoozed_until: None,
             suppressed_reason: Some(reason.clone()),
         },
-        PushDecision::Defer { .. } => return Ok(None),
+        NudgeDecision::Defer { .. } => return Ok(None),
     };
     insert_log(conn, &log)?;
     Ok(Some(log.id))
 }
 
-/// `since` 以降の push_log を古い順に返す。`PushContext::push_log` の材料。
+/// `since` 以降の nudge_log を古い順に返す。`NudgeContext::nudge_log` の材料。
 /// 応答率の算出用に、`since` より前の配信済み直近 `extra_delivered` 件も含める。
-pub fn load_recent(conn: &Connection, since: Millis, extra_delivered: usize) -> Result<Vec<PushLog>> {
+pub fn load_recent(conn: &Connection, since: Millis, extra_delivered: usize) -> Result<Vec<NudgeLog>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {COLS} FROM push_log
+        "SELECT {COLS} FROM nudge_log
          WHERE at >= ?1
-            OR id IN (SELECT id FROM push_log WHERE at < ?1 AND delivered = 1 ORDER BY at DESC LIMIT ?2)
+            OR id IN (SELECT id FROM nudge_log WHERE at < ?1 AND delivered = 1 ORDER BY at DESC LIMIT ?2)
          ORDER BY at"
     ))?;
     let rows = stmt
@@ -97,7 +98,7 @@ pub fn load_recent(conn: &Connection, since: Millis, extra_delivered: usize) -> 
     Ok(rows)
 }
 
-/// 緊急・重要のしるしが付いた未完了のタスクを、通知の判定用に読む。`PushContext::tasks` の材料。
+/// 緊急・重要のしるしが付いた未完了のタスクを、通知の判定用に読む。`NudgeContext::tasks` の材料。
 pub fn load_task_nudges(conn: &Connection) -> Result<Vec<super::TaskNudge>> {
     let last = crate::repo::segment::last_worked_by_open_task(conn)?;
     Ok(crate::repo::raw::open_tasks(conn)?
@@ -115,23 +116,27 @@ pub fn load_task_nudges(conn: &Connection) -> Result<Vec<super::TaskNudge>> {
         .collect())
 }
 
-/// 今週まだ時間が入っていない成果の指標を、通知の判定用に読む。`PushContext::kr_idle` の材料。
+/// 今週まだ時間が入っていない成果の指標を、通知の判定用に読む。`NudgeContext::key_result_idle` の材料。
 /// 対象の選び方は [`crate::service::goal::idle_key_results_this_week`]。
-pub fn load_kr_idle(conn: &Connection, tz: Tz, now: Millis) -> Result<Vec<super::KrIdleNudge>> {
+pub fn load_key_result_idle(
+    conn: &Connection,
+    tz: Tz,
+    now: Millis,
+) -> Result<Vec<super::KeyResultIdleNudge>> {
     Ok(crate::service::goal::idle_key_results_this_week(conn, tz, now)?
         .into_iter()
-        .map(|k| super::KrIdleNudge {
+        .map(|k| super::KeyResultIdleNudge {
             id: k.id,
             title: k.title,
         })
         .collect())
 }
 
-/// 今日の time_block と doing ログが指すタスクを、状態を問わず読む（`PushContext::task_refs` の材料）。
+/// 今日の plan_block と doing ログが指すタスクを、状態を問わず読む（`NudgeContext::task_refs` の材料）。
 /// 存在しない ID は無視する。
 pub fn load_task_refs(
     conn: &Connection,
-    blocks: &[crate::model::TimeBlock],
+    blocks: &[crate::model::PlanBlock],
     doing: &[super::DoingSpan],
 ) -> Result<Vec<super::TaskRef>> {
     let mut ids: Vec<&str> = blocks
@@ -156,14 +161,14 @@ pub fn load_task_refs(
     Ok(out)
 }
 
-pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
+pub fn get_log(conn: &Connection, id: &str) -> Result<NudgeLog> {
     conn.query_row(
-        &format!("SELECT {COLS} FROM push_log WHERE id = ?1"),
+        &format!("SELECT {COLS} FROM nudge_log WHERE id = ?1"),
         [id],
         row_to_log,
     )
     .optional()?
-    .ok_or_else(|| Error::NotFound(format!("push_log の ID {id}")))
+    .ok_or_else(|| Error::NotFound(format!("nudge_log の ID {id}")))
 }
 
 /// 通知への応答。ボタン（`action` + `value`）とテキスト入力（`text`）のどちらか、または両方。
@@ -174,11 +179,11 @@ pub fn get_log(conn: &Connection, id: &str) -> Result<PushLog> {
 /// `block_skip`（block_start の「今回はやめる」。記録だけ）、
 /// `task_start`（urgent_task / important_task の対象タスクを始める。開始そのものは `ResponseOutcome::start_task`
 /// を受けた呼び出し側が行う）、`task_later` / `task_skip_week`（記録だけ。後者は今週その通知の対象から外す）、
-/// `kr_skip_week`（kr_idle の「今週は見送る」。記録だけ）、
+/// `key_result_skip_week`（key_result_idle の「今週は見送る」。記録だけ）、
 /// `open`（アプリを開いた）、`dismiss`（見送り。応答とは数えず `responded_at` を付けない。
 /// `response_json` には残るので未回答の一覧からは外れるが、応答率の算出では無応答のまま）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PushResponse {
+pub struct NudgeResponse {
     pub action: Option<String>,
     pub value: Option<i64>,
     pub text: Option<String>,
@@ -193,7 +198,7 @@ pub struct ResponseOutcome {
     /// idle_return への応答で分類をつけた無操作区間の数。
     pub idle_labeled: usize,
     /// `task_start` の応答で始めるタスクの ID。実際の開始は `Ctx` を持つ呼び出し側が
-    /// `service::pushlog::start_pushed_task` で行う。
+    /// `service::nudgelog::start_nudged_task` で行う。
     pub start_task: Option<String>,
 }
 
@@ -204,7 +209,7 @@ fn check_scale(v: Option<i64>) -> Result<i64> {
     }
 }
 
-/// 通知のボタン以外で与える、チェックインの値（CLI の `push answer` など）。
+/// 通知のボタン以外で与える、チェックインの値（CLI の `nudge answer` など）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Scales {
     pub energy: Option<i64>,
@@ -214,35 +219,35 @@ pub struct Scales {
 
 /// 応答を反映する。
 ///
-/// - 記録（checkin / hassle）の `at` は、応答時刻ではなく **通知の時刻**（`push_log.at`）にする。
+/// - 記録（checkin / hassle）の `at` は、応答時刻ではなく **通知の時刻**（`nudge_log.at`）にする。
 ///   通知の時点の状態への答えなので、あとから答えても時系列がずれない。
-/// - push_log: `response_json` に応答を保存。`responded_at = now`（`dismiss` のみ設定しない）。
-/// - `energy` / `stress`: checkin を作成（`push_id` 付き）。
-/// - `text`（空白のみは無視）: hassle を作成（`push_id` 付き）。強度は `stress` の値、なければ 3。
+/// - nudge_log: `response_json` に応答を保存。`responded_at = now`（`dismiss` のみ設定しない）。
+/// - `energy` / `stress`: checkin を作成（`nudge_id` 付き）。
+/// - `text`（空白のみは無視）: hassle を作成（`nudge_id` 付き）。強度は `stress` の値、なければ 3。
 ///   `stress` と `text` が同時なら、checkin と hassle の両方を作る。
 /// - `snooze_15` / `snooze_60`: now + 15 分 / 60 分。`snooze_today`: ローカルの翌日 0 時（`tz` で決まる）。
-///   `snoozed_until` を当該 push_log に設定する（以後の `evaluate` が全トリガーを抑制）。
+///   `snoozed_until` を当該 nudge_log に設定する（以後の `evaluate` が全トリガーを抑制）。
 pub fn apply_response(
     conn: &Connection,
-    push_id: &str,
-    response: PushResponse,
+    nudge_id: &str,
+    response: NudgeResponse,
     now: Millis,
     tz: Tz,
 ) -> Result<ResponseOutcome> {
-    apply_response_with(conn, push_id, response, Scales::default(), now, tz)
+    apply_response_with(conn, nudge_id, response, Scales::default(), now, tz)
 }
 
 /// [`apply_response`] に、ボタン以外のチェックイン値（`scales`）を加えたもの。値は 1〜5。
 /// ボタン（`energy` / `stress`）と同じ項目が重なったときはボタンの値を優先する。
 pub fn apply_response_with(
     conn: &Connection,
-    push_id: &str,
-    response: PushResponse,
+    nudge_id: &str,
+    response: NudgeResponse,
     scales: Scales,
     now: Millis,
     tz: Tz,
 ) -> Result<ResponseOutcome> {
-    let log = get_log(conn, push_id)?;
+    let log = get_log(conn, nudge_id)?;
     let action = response.action.as_deref();
     let mut out = ResponseOutcome::default();
     let opt_scale = |v: Option<i64>| v.map(|v| check_scale(Some(v))).transpose();
@@ -259,15 +264,15 @@ pub fn apply_response_with(
             out.snoozed_until = Some(day_range(tz, local_date_of(tz, now)).end);
         }
         Some(TASK_START) => {
-            let task_id = serde_json::from_str::<PushPayload>(&log.payload_json)
+            let task_id = serde_json::from_str::<NudgePayload>(&log.payload_json)
                 .ok()
                 .and_then(|p| p.task_id)
                 .ok_or_else(|| Error::InvalidArgument("この通知には対象のタスクがありません".into()))?;
             out.start_task = Some(task_id);
         }
-        Some(TASK_LATER) | Some(TASK_SKIP_WEEK) | Some(BLOCK_SKIP) | Some(KR_SKIP_WEEK) => {}
+        Some(TASK_LATER) | Some(TASK_SKIP_WEEK) | Some(BLOCK_SKIP) | Some(KEY_RESULT_SKIP_WEEK) => {}
         Some(IDLE_TASK_ACTION) => {
-            let p = serde_json::from_str::<PushPayload>(&log.payload_json).ok();
+            let p = serde_json::from_str::<NudgePayload>(&log.payload_json).ok();
             let range = p
                 .as_ref()
                 .and_then(|p| p.idle_range)
@@ -280,7 +285,7 @@ pub fn apply_response_with(
         Some("open") | Some("dismiss") | None => {}
         Some(other) if other.starts_with(IDLE_ACTION_PREFIX) => {
             let preset: IdlePreset = other[IDLE_ACTION_PREFIX.len()..].parse()?;
-            let range = serde_json::from_str::<PushPayload>(&log.payload_json)
+            let range = serde_json::from_str::<NudgePayload>(&log.payload_json)
                 .ok()
                 .and_then(|p| p.idle_range)
                 .ok_or_else(|| Error::InvalidArgument("この通知には無操作の期間がありません".into()))?;
@@ -293,7 +298,7 @@ pub fn apply_response_with(
         let id = new_id();
         conn.execute(
             "INSERT INTO checkin (id, at, energy, mood, stress, push_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, log.at, energy, mood, stress, push_id],
+            params![id, log.at, energy, mood, stress, nudge_id],
         )?;
         out.checkin_id = Some(id);
     }
@@ -305,7 +310,7 @@ pub fn apply_response_with(
         };
         conn.execute(
             "INSERT INTO hassle (id, at, text, intensity, push_id) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, log.at, text, intensity, push_id],
+            params![id, log.at, text, intensity, nudge_id],
         )?;
         out.hassle_id = Some(id);
     }
@@ -323,16 +328,16 @@ pub fn apply_response_with(
     }
     let json = json.to_string();
     conn.execute(
-        "UPDATE push_log SET responded_at = ?2, response_json = ?3, snoozed_until = COALESCE(?4, snoozed_until) WHERE id = ?1",
+        "UPDATE nudge_log SET responded_at = ?2, response_json = ?3, snoozed_until = COALESCE(?4, snoozed_until) WHERE id = ?1",
         params![log.id, responded, json, out.snoozed_until],
     )?;
     Ok(out)
 }
 
 /// 指定トリガーの今日の配信件数など、簡易な確認用。
-pub fn count_delivered(conn: &Connection, trigger: PushTrigger, since: Millis) -> Result<i64> {
+pub fn count_delivered(conn: &Connection, trigger: NudgeTrigger, since: Millis) -> Result<i64> {
     Ok(conn.query_row(
-        "SELECT COUNT(*) FROM push_log WHERE trigger = ?1 AND delivered = 1 AND at >= ?2",
+        "SELECT COUNT(*) FROM nudge_log WHERE trigger = ?1 AND delivered = 1 AND at >= ?2",
         params![trigger.as_str(), since],
         |r| r.get(0),
     )?)

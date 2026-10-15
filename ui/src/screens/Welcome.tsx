@@ -3,23 +3,23 @@ import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
 import { useAction } from "../lib";
 import { AutostartToggle, TrustDoingToggle, UpdateCheckToggle, useConfig } from "../settings-parts";
-import { ONBOARDING_STEPS, clampStep, isLastStep } from "../onboarding-util";
+import { WELCOME_STEPS, clampStep, isLastStep } from "../welcome-util";
 
-export function Onboarding() {
+export function Welcome() {
   const [step, setStep] = useState(0);
   const act = useAction();
-  const cur = ONBOARDING_STEPS[clampStep(step)];
+  const cur = WELCOME_STEPS[clampStep(step)];
   const last = isLastStep(step);
 
   const finish = async () => {
-    const r = await act.run(() => api.onboardingComplete());
+    const r = await act.run(() => api.welcomeComplete());
     if (r) location.hash = "#/today";
   };
 
   return (
-    <div class="stack onboarding">
+    <div class="stack welcome">
       <ol class="steps" aria-label="進み具合">
-        {ONBOARDING_STEPS.map((s, i) => (
+        {WELCOME_STEPS.map((s, i) => (
           <li key={s.id} class={i === step ? "on" : i < step ? "done" : ""} aria-current={i === step ? "step" : undefined}>
             {i + 1}. {s.label}
           </li>
@@ -27,7 +27,7 @@ export function Onboarding() {
       </ol>
       <ErrorBox error={act.error} />
 
-      {cur.id === "welcome" && <Welcome />}
+      {cur.id === "welcome" && <WelcomeIntro />}
       {cur.id === "task" && <TaskStep />}
       {cur.id === "startup" && <StartupStep />}
       {cur.id === "calendar" && <CalendarStep />}
@@ -58,7 +58,7 @@ export function Onboarding() {
   );
 }
 
-function Welcome() {
+function WelcomeIntro() {
   return (
     <Card title="Hitoiki へようこそ">
       <div class="stack">
@@ -136,7 +136,7 @@ function StartupStep() {
           variant="radio"
           help="選ばずに進むと確認しません。あとから「設定」画面で変えられます。自動でダウンロードやインストールはしません。"
         />
-        <p>Hitoiki は、ときどき通知で「いま何してた？」と聞きます。1 タップで答えられます。</p>
+        <p>Hitoiki は、ときどき通知で「いま何してた？」と問いかけます。1 タップで答えられます。</p>
         <div class="row">
           <button
             onClick={async () => {
@@ -178,7 +178,7 @@ function DailyStep() {
         <li>
           <a href="#/actual?status=review">実績</a>: 要確認の区間を、タスクなどに確定します。
         </li>
-        <li>通知に 1 タップで答えると、記録の精度が上がります。</li>
+        <li>問いかけに 1 タップで答えると、記録の精度が上がります。</li>
         <li>
           終業時に<a href="#/records/new/day_end">振り返り</a>をすると、一日を軽く締められます。
         </li>

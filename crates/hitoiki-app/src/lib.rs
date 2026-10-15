@@ -211,13 +211,13 @@ pub fn run() {
             commands::open_screen,
             commands::snooze,
             commands::snooze_state,
-            commands::pending_push,
+            commands::pending_nudge,
             commands::take_initial_screen,
-            commands::push_respond,
+            commands::nudge_respond,
             commands::notify_test,
-            commands::onboarding_status,
-            commands::onboarding_complete,
-            commands::onboarding_reset,
+            commands::welcome_status,
+            commands::welcome_complete,
+            commands::welcome_reset,
             quick::quick_previous,
             quick::quick_switch,
             quick::quick_back,
@@ -258,16 +258,16 @@ pub fn run() {
                 window::show_main(&handle);
             }
             // UI の読み込み前にイベントを送っても届かないので、状態に積んで UI が取りに来る。
-            // 画面指定が無く、オンボーディング未完了なら案内画面から始める。
+            // 画面指定が無く、はじめに未完了なら案内画面から始める。
             let mut initial = arg_value(&args, "--screen").map(|s| window::normalize_screen(&s));
             if initial.is_none() {
                 let state = handle.state::<AppState>();
                 let done = state
-                    .with_ctx(hitoiki_core::service::onboarding::status)
+                    .with_ctx(hitoiki_core::service::welcome::status)
                     .map(|s| s.completed)
                     .unwrap_or(true);
                 if !done {
-                    initial = Some("onboarding".to_string());
+                    initial = Some("welcome".to_string());
                     window::show_main(&handle);
                 }
             }
@@ -277,7 +277,7 @@ pub fn run() {
                 let h = handle.clone();
                 std::thread::spawn(move || {
                     std::thread::sleep(std::time::Duration::from_secs(2));
-                    let r = notify::show_push(&h, None, &notify::test_payload());
+                    let r = notify::show_nudge(&h, None, &notify::test_payload());
                     tracing::info!("テスト通知の結果: {r:?}");
                 });
             }

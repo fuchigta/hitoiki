@@ -37,7 +37,7 @@ export interface State {
   doingSince: Record<string, number>;
   previousDoing: string | null;
   segments: SegRec[];
-  blocks: T.TimeBlock[];
+  blocks: T.PlanBlock[];
   templates: T.TemplateView[];
   appliedTemplates: Record<string, string[]>;
   checkins: T.Checkin[];
@@ -59,11 +59,11 @@ export interface State {
   ignoreCustomized: boolean;
   ruleSuggestions: T.RuleSuggestion[];
   ignoreSuggestions: T.IgnoreSuggestion[];
-  pushes: T.PushView[];
-  pendingPush: T.PushEvent | null;
+  nudges: T.NudgeView[];
+  pendingNudge: T.NudgeEvent | null;
   snoozeUntil: number;
   hints: Set<string>;
-  onboarding: { completed: boolean; completed_at: number | null };
+  welcome: { completed: boolean; completed_at: number | null };
   config: Record<string, unknown>;
   quickShortcut: string;
 }
@@ -90,12 +90,12 @@ function rng(seed: number): () => number {
 function baseConfig(): Record<string, unknown> {
   return {
     general: { timezone: "Asia/Tokyo", autostart: true, update_check: null, quick_entry_shortcut: "Ctrl+Alt+Space" },
-    push: {
+    nudge: {
       enabled: true,
       idle_return_min: 15,
       urgent_task_interval_min: 120,
       important_stale_days: 3,
-      kr_idle_weekday: 3,
+      key_result_idle_weekday: 3,
     },
     actual: { trust_doing: false, auto_break_locked_min: 10, min_sec: 60, snap_sec: 120 },
     collect: { ignore_exes: DEFAULT_IGNORE_EXES },
@@ -136,11 +136,11 @@ export function emptyState(scenario: Scenario): State {
     ignoreCustomized: false,
     ruleSuggestions: [],
     ignoreSuggestions: [],
-    pushes: [],
-    pendingPush: null,
+    nudges: [],
+    pendingNudge: null,
     snoozeUntil: 0,
     hints: new Set(),
-    onboarding: { completed: false, completed_at: null },
+    welcome: { completed: false, completed_at: null },
     config: baseConfig(),
     quickShortcut: "Ctrl+Alt+Space",
   };
@@ -477,16 +477,16 @@ function seedCommon(s: State, busy: boolean) {
   });
 
   // 通知
-  const payload: T.PushPayload = {
-    trigger: "checkin",
+  const payload: T.NudgePayload = {
+    trigger: "day_start",
     title: "いまの調子はどうですか",
     body: "元気度をひとつ選んでください。答えなくても大丈夫です。",
     actions: [1, 2, 3, 4, 5].map((n) => ({ id: "energy", label: String(n), value: n })),
-    input: { id: "hassle", placeholder: "困っていることがあれば一言" },
+    input: { id: "concern", placeholder: "困っていることがあれば一言" },
     open_screen: null,
   };
-  s.pushes.push({ id: nid(s, "push"), at: at(0, "10:00"), at_local: "10:00", trigger: "checkin", trigger_label: "調子", title: payload.title, body: payload.body, state: "unanswered", payload });
-  s.pendingPush = { push_id: s.pushes[0].id, payload };
+  s.nudges.push({ id: nid(s, "nudge"), at: at(0, "10:00"), at_local: "10:00", trigger: "day_start", trigger_label: "始業", title: payload.title, body: payload.body, state: "unanswered", payload });
+  s.pendingNudge = { nudge_id: s.nudges[0].id, payload };
 
   s.ruleSuggestions.push({ task_id: t4.id, task_title: t4.title, field: "url", pattern: "doc.rust-lang.org", pattern_type: "contains", count: 3, target: "doc.rust-lang.org" });
   s.ignoreSuggestions.push({
@@ -502,7 +502,7 @@ function seedCommon(s: State, busy: boolean) {
     summary: "PowerToys.Run.exe は短い区間が 24 回あり、合計 4 分です。",
   });
 
-  s.onboarding = { completed: true, completed_at: at(-30, "09:00") };
+  s.welcome = { completed: true, completed_at: at(-30, "09:00") };
   s.hints.add("calendar");
   s.config.general = { ...(s.config.general as object), update_check: false };
   return { t1, t2, t3, t4, t8, k1, k2, k3, k4 };
@@ -510,7 +510,7 @@ function seedCommon(s: State, busy: boolean) {
 
 function seedBusy(s: State, ctx: ReturnType<typeof seedCommon>) {
   const names = [
-    "新入社員向けオンボーディング資料の改訂（セキュリティ・開発環境・申請手続き・社内ツールの使い方を含む全体の見直しと、旧資料との差分の洗い出し）",
+    "新入社員向けはじめに資料の改訂（セキュリティ・開発環境・申請手続き・社内ツールの使い方を含む全体の見直しと、旧資料との差分の洗い出し）",
     "クラウド費用の月次レビュー準備",
     "顧客 A 社向けの提案書の叩き台",
     "テスト自動化の方針整理",
@@ -558,9 +558,9 @@ function seedBusy(s: State, ctx: ReturnType<typeof seedCommon>) {
         { id: "thinking", label: "考えごと", value: null },
       ],
       input: null,
-      open_screen: "review",
-    } satisfies T.PushPayload;
-    s.pushes.push({ id: nid(s, "push"), at: at(0, `${String(8 + (i % 3)).padStart(2, "0")}:${String(10 * i).padStart(2, "0")}`), at_local: "", trigger: "idle_return", trigger_label: "席に戻ったとき", title: p.title, body: p.body, state: "unanswered", payload: p });
+      open_screen: "actual?status=review",
+    } satisfies T.NudgePayload;
+    s.nudges.push({ id: nid(s, "nudge"), at: at(0, `${String(8 + (i % 3)).padStart(2, "0")}:${String(10 * i).padStart(2, "0")}`), at_local: "", trigger: "idle_return", trigger_label: "席に戻ったとき", title: p.title, body: p.body, state: "unanswered", payload: p });
   }
   for (let i = 0; i < 8; i++) {
     const c: T.Checkin = { push_id: null, id: nid(s, "chk"), at: at(-i, "17:30"), energy: 1 + (i % 5), mood: 1 + ((i + 2) % 5), stress: 1 + ((i + 3) % 5), erg_tag: null, note: i % 2 ? "長い一日だった。" : null };

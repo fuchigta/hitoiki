@@ -5,7 +5,7 @@ beforeAll(() => {
   vi.stubGlobal("window", { dispatchEvent: () => true, addEventListener: () => {}, removeEventListener: () => {} });
 });
 
-const { hrefOf, legacyRoute, routeFromHash } = await import("./lib");
+const { hrefOf, routeFromHash } = await import("./lib");
 
 describe("routeFromHash", () => {
   it("画面・パス・クエリに分ける", () => {
@@ -45,66 +45,17 @@ describe("hrefOf", () => {
   });
 });
 
-describe("legacyRoute", () => {
-  it("他の画面は恒等", () => {
-    const t = routeFromHash("#/tasks/01ABC?tab=time");
-    expect(legacyRoute(t)).toEqual(t);
-  });
-});
-
-describe("legacyRoute: 計画（P4）", () => {
-  const map = (hash: string) => {
-    const r = legacyRoute(routeFromHash(hash));
-    return hrefOf(r.screen, r.path, r.params);
-  };
-  it("plan は today に写す（date は引き継ぐ）", () => {
-    expect(map("#/plan")).toBe("#/today");
-    expect(map("#/plan?date=2026-10-13")).toBe("#/today?date=2026-10-13");
-  });
-  it("today とそのサブルートはそのまま", () => {
-    expect(map("#/today")).toBe("#/today");
-    expect(map("#/today/design")).toBe("#/today/design");
-    expect(map("#/today?date=2026-10-13")).toBe("#/today?date=2026-10-13");
+describe("旧ルートは受け付けない", () => {
+  it("旧い画面名は today になる", () => {
+    for (const old of ["plan", "reflect", "reflection/weekly", "log", "review", "okr", "onboarding", "checkin", "hassle"]) {
+      expect(routeFromHash(`#/${old}`)).toMatchObject({ screen: "today", path: [] });
+    }
   });
 });
 
 describe("画面の並び", () => {
   it("ナビは 今日 / 実績 / タスク / 目標 / 記録 / レポート / 設定（はじめにはナビ外）。旧名は含まない", async () => {
     const { SCREENS } = await import("./lib");
-    expect(SCREENS.map((s) => s.id)).toEqual(["today", "actual", "tasks", "goals", "records", "report", "settings", "onboarding"]);
-  });
-  it("旧名（plan・reflect）も受け付けて、画面としては今日・記録に写す", () => {
-    const screens = ["#/plan", "#/reflect", "#/reflection/weekly"].map((h) => legacyRoute(routeFromHash(h)).screen);
-    expect(screens).toEqual(["today", "records", "records"]);
-  });
-});
-
-describe("legacyRoute: 記録・振り返り（P5）", () => {
-  const map = (hash: string) => {
-    const r = legacyRoute(routeFromHash(hash));
-    return hrefOf(r.screen, r.path, r.params);
-  };
-  it("reflect は記録の振り返りの絞り込みに写す", () => {
-    expect(map("#/reflect")).toBe("#/records?kind=reflection");
-    expect(map("#/reflect/bogus")).toBe("#/records?kind=reflection");
-  });
-  it("reflect/<kind> と reflection/<kind> は作成フォームに写す", () => {
-    expect(map("#/reflect/day_start")).toBe("#/records/new/day_start");
-    expect(map("#/reflect/day_end")).toBe("#/records/new/day_end");
-    expect(map("#/reflect/weekly")).toBe("#/records/new/weekly");
-    expect(map("#/reflection/day_end")).toBe("#/records/new/day_end");
-    expect(map("#/reflection/weekly")).toBe("#/records/new/weekly");
-  });
-  it("reflection だけ（種類なし）は記録の振り返りの絞り込み", () => {
-    expect(map("#/reflection")).toBe("#/records?kind=reflection");
-  });
-  it("checkin と hassle は作成フォームに写す", () => {
-    expect(map("#/checkin")).toBe("#/records/new/checkin");
-    expect(map("#/hassle")).toBe("#/records/new/hassle");
-  });
-  it("記録の新しいルートはそのまま", () => {
-    expect(map("#/records")).toBe("#/records");
-    expect(map("#/records/checkin/C1?period=today")).toBe("#/records/checkin/C1?period=today");
-    expect(map("#/records/new/abc")).toBe("#/records/new/abc");
+    expect(SCREENS.map((s) => s.id)).toEqual(["today", "actual", "tasks", "goals", "records", "report", "settings", "welcome"]);
   });
 });

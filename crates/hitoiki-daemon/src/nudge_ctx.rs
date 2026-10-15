@@ -1,4 +1,4 @@
-//! プッシュ評価の入力組み立てと 1 回分の評価（docs/dev/architecture.md「プッシュ通知」）。
+//! 問いかけ評価の入力組み立てと 1 回分の評価（docs/dev/architecture.md「問いかけ」）。
 //!
 //! `build_context` は DB を触らない純粋関数で、時刻は引数で受ける。
 
@@ -6,11 +6,11 @@ use crate::sink::RuntimeSink;
 use chrono_tz::Tz;
 use hitoiki_core::config::Config;
 use hitoiki_core::model::{
-    ActivitySegment, CalendarEvent, IdleSpan, PushLog, SegmentStatus, TimeBlock, WindowSpan,
+    ActivitySegment, CalendarEvent, IdleSpan, NudgeLog, PlanBlock, SegmentStatus, WindowSpan,
 };
-use hitoiki_core::push::{
-    evaluate, store, ClosedIdle, DoingSpan, IdleState, KrIdleNudge, PushContext, PushDecision, TaskNudge,
-    TaskRef,
+use hitoiki_core::nudge::{
+    evaluate, store, ClosedIdle, DoingSpan, IdleState, KeyResultIdleNudge, NudgeContext, NudgeDecision,
+    TaskNudge, TaskRef,
 };
 use hitoiki_core::repo::{calendar, raw, segment};
 use hitoiki_core::timefmt::{day_range, local_date_of, week_range, Range};
@@ -19,36 +19,36 @@ use rusqlite::Connection;
 
 const HOUR_MS: Millis = 3_600_000;
 
-/// `PushContext` の材料（DB から読んだ生の行）。
+/// `NudgeContext` の材料（DB から読んだ生の行）。
 #[derive(Debug, Clone, Default)]
-pub struct PushSnapshot {
+pub struct NudgeSnapshot {
     /// 当日分（少なくとも直近 3 時間）の区間。
     pub segments: Vec<ActivitySegment>,
     /// 直近の無操作区間（進行中を含む）。
     pub idle_spans: Vec<IdleSpan>,
     /// 直近の前面ウインドウ区間（進行中を含む）。
     pub window_spans: Vec<WindowSpan>,
-    pub time_blocks: Vec<TimeBlock>,
+    pub plan_blocks: Vec<PlanBlock>,
     pub calendar_events: Vec<CalendarEvent>,
-    pub push_log: Vec<PushLog>,
+    pub nudge_log: Vec<NudgeLog>,
     pub needs_review_count: u32,
     /// 緊急・重要のしるしが付いた未完了のタスク。
     pub tasks: Vec<TaskNudge>,
-    /// 今週まだ時間が入っていない成果の指標（kr_idle の材料。`push_tick` が曜日に達したときだけ読む）。
-    pub kr_idle: Vec<KrIdleNudge>,
-    /// 今日の time_block と直近の doing ログが指すタスク。
+    /// 今週まだ時間が入っていない成果の指標（key_result_idle の材料。`nudge_tick` が曜日に達したときだけ読む）。
+    pub key_result_idle: Vec<KeyResultIdleNudge>,
+    /// 今日の plan_block と直近の doing ログが指すタスク。
     pub task_refs: Vec<TaskRef>,
     /// 直近の doing ログ（進行中を含む）。
     pub doing_spans: Vec<DoingSpan>,
 }
 
-/// スナップショットから `PushContext` を作る（純粋関数）。
+/// スナップショットから `NudgeContext` を作る（純粋関数）。
 ///
 /// - idle: 進行中（end_at なし）の無操作区間があれば無操作中。経過は区間の開始（最終入力）から。
 /// - resumed_at: 終了済みの無操作区間（ロック・スリープ含む）の最も新しい終了時刻。
 /// - 前面 exe: 進行中の window_span のうち最も新しいものの exe 名。
-pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> PushContext {
-    let mut ctx = PushContext::new(now, tz);
+pub fn build_context(snap: NudgeSnapshot, cfg: &Config, now: Millis, tz: Tz) -> NudgeContext {
+    let mut ctx = NudgeContext::new(now, tz);
 
     let open_idle = snap
         .idle_spans
@@ -77,12 +77,12 @@ pub fn build_context(snap: PushSnapshot, cfg: &Config, now: Millis, tz: Tz) -> P
         .and_then(|w| w.exe_name.clone());
     ctx.meeting_exes = cfg.collect.meeting_exes.clone();
     ctx.recent_segments = snap.segments;
-    ctx.time_blocks = snap.time_blocks;
+    ctx.plan_blocks = snap.plan_blocks;
     ctx.calendar_events = snap.calendar_events;
-    ctx.push_log = snap.push_log;
+    ctx.nudge_log = snap.nudge_log;
     ctx.needs_review_count = snap.needs_review_count;
     ctx.tasks = snap.tasks;
-    ctx.kr_idle = snap.kr_idle;
+    ctx.key_result_idle = snap.key_result_idle;
     ctx.task_refs = snap.task_refs;
     ctx.doing_spans = snap.doing_spans;
     ctx
@@ -113,7 +113,7 @@ fn last_closed_idle(spans: &[IdleSpan], now: Millis) -> Option<ClosedIdle> {
 
 /// DB から評価に必要な行を読む。
 /// `review_min_sec` 未満の短い要確認区間は `needs_review_count` に含めない（要確認の一覧の既定表示と同じ数え方）。
-pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64) -> Result<PushSnapshot> {
+pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64) -> Result<NudgeSnapshot> {
     let today = day_range(tz, local_date_of(tz, now));
     // 「当日分」かつ少なくとも直近 3 時間。
     let seg_range = Range::new(today.start.min(now - 3 * HOUR_MS), now + 1);
@@ -124,7 +124,7 @@ pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64
         .filter(|s| s.end_at - s.start_at >= review_min_ms)
         .count() as u32;
     let week = week_range(tz, local_date_of(tz, now));
-    let time_blocks = raw::time_blocks(conn, today)?;
+    let plan_blocks = raw::plan_blocks(conn, today)?;
     let doing_spans: Vec<DoingSpan> = raw::task_doing_logs(conn, Range::new(now - 24 * HOUR_MS, now + 1))?
         .into_iter()
         .map(|d| DoingSpan {
@@ -133,50 +133,50 @@ pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64
             end_at: d.end_at,
         })
         .collect();
-    let task_refs = store::load_task_refs(conn, &time_blocks, &doing_spans)?;
-    Ok(PushSnapshot {
+    let task_refs = store::load_task_refs(conn, &plan_blocks, &doing_spans)?;
+    Ok(NudgeSnapshot {
         segments,
         idle_spans: raw::idle_spans(conn, Range::new(now - 24 * HOUR_MS, now + 1))?,
         window_spans: raw::window_spans(conn, Range::new(now - HOUR_MS, now + 1))?,
-        time_blocks,
+        plan_blocks,
         calendar_events: calendar::list(conn, Range::new(today.start - HOUR_MS, today.end + HOUR_MS))?,
-        push_log: store::load_recent(conn, week.start, 10)?,
+        nudge_log: store::load_recent(conn, week.start, 10)?,
         needs_review_count,
         tasks: store::load_task_nudges(conn)?,
-        kr_idle: vec![],
+        key_result_idle: vec![],
         task_refs,
         doing_spans,
     })
 }
 
-/// kr_idle の材料を読む必要があるか（無効でなく、設定の曜日に達していて、今週まだ配信していない）。
+/// key_result_idle の材料を読む必要があるか（無効でなく、設定の曜日に達していて、今週まだ配信していない）。
 /// 毎回の評価で集計し直さないための絞り込みで、最終的な判定は `evaluate`（トリガー側）が行う。
-fn kr_idle_due(cfg: &Config, now: Millis, tz: Tz, push_log: &[PushLog]) -> bool {
-    hitoiki_core::push::kr_idle_due(&cfg.push, tz, now, push_log)
+fn key_result_idle_due(cfg: &Config, now: Millis, tz: Tz, nudge_log: &[NudgeLog]) -> bool {
+    hitoiki_core::nudge::key_result_idle_due(&cfg.nudge, tz, now, nudge_log)
 }
 
-/// 評価を 1 回行い、結果を push_log に残し、Deliver を sink に渡す。
+/// 評価を 1 回行い、結果を nudge_log に残し、Deliver を sink に渡す。
 /// Defer は記録せず、次回の評価で再判定される（`evaluate` は毎回再判定する）。
-pub fn push_tick(
+pub fn nudge_tick(
     conn: &Connection,
     cfg: &Config,
     now: Millis,
     sink: &dyn RuntimeSink,
-) -> Result<Vec<PushDecision>> {
-    if !cfg.push.enabled {
+) -> Result<Vec<NudgeDecision>> {
+    if !cfg.nudge.enabled {
         return Ok(vec![]);
     }
     let tz = cfg.tz()?;
     let mut snap = load_snapshot(conn, now, tz, cfg.actual.min_sec)?;
-    if kr_idle_due(cfg, now, tz, &snap.push_log) {
-        snap.kr_idle = store::load_kr_idle(conn, tz, now)?;
+    if key_result_idle_due(cfg, now, tz, &snap.nudge_log) {
+        snap.key_result_idle = store::load_key_result_idle(conn, tz, now)?;
     }
     let ctx = build_context(snap, cfg, now, tz);
-    let decisions = evaluate(&ctx, &cfg.push);
+    let decisions = evaluate(&ctx, &cfg.nudge);
     for d in &decisions {
         let id = store::record_decision(conn, d, now)?;
-        if let (PushDecision::Deliver(payload), Some(id)) = (d, id) {
-            sink.push(&id, payload);
+        if let (NudgeDecision::Deliver(payload), Some(id)) = (d, id) {
+            sink.nudge(&id, payload);
         }
     }
     Ok(decisions)
@@ -188,7 +188,7 @@ mod tests {
     use crate::sink::LogSink;
     use hitoiki_core::db;
     use hitoiki_core::model::{IdleReason, SegmentKind, Task, TaskKind, TaskStatus};
-    use hitoiki_core::push::PushPayload;
+    use hitoiki_core::nudge::NudgePayload;
     use hitoiki_core::repo::collect as rc;
     use hitoiki_core::repo::segment;
     use std::sync::Mutex;
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn idle_open_span_means_idle() {
-        let snap = PushSnapshot {
+        let snap = NudgeSnapshot {
             idle_spans: vec![idle("a", DAY0 + 10 * MIN, None)],
             ..Default::default()
         };
@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn closed_idle_gives_resumed_at_latest() {
-        let snap = PushSnapshot {
+        let snap = NudgeSnapshot {
             idle_spans: vec![
                 idle("a", DAY0, Some(DAY0 + 5 * MIN)),
                 idle("b", DAY0 + 20 * MIN, Some(DAY0 + 30 * MIN)),
@@ -258,7 +258,7 @@ mod tests {
     fn last_idle_joins_adjacent_spans_and_ignores_open_and_future() {
         let mut lock = idle("b", DAY0 + 13 * MIN, Some(DAY0 + 40 * MIN));
         lock.reason = IdleReason::Locked;
-        let snap = PushSnapshot {
+        let snap = NudgeSnapshot {
             idle_spans: vec![
                 idle("old", DAY0, Some(DAY0 + 2 * MIN)),
                 idle("a", DAY0 + 10 * MIN, Some(DAY0 + 13 * MIN)),
@@ -272,14 +272,14 @@ mod tests {
         let li = ctx.last_idle.unwrap();
         assert_eq!((li.start_at, li.end_at), (DAY0 + 10 * MIN, DAY0 + 40 * MIN));
         assert_eq!(
-            build_context(PushSnapshot::default(), &cfg(), DAY0, chrono_tz::UTC).last_idle,
+            build_context(NudgeSnapshot::default(), &cfg(), DAY0, chrono_tz::UTC).last_idle,
             None
         );
     }
 
     #[test]
     fn foreground_is_newest_open_window() {
-        let snap = PushSnapshot {
+        let snap = NudgeSnapshot {
             window_spans: vec![
                 win("a", DAY0, Some(DAY0 + MIN), "old.exe"),
                 win("b", DAY0 + 2 * MIN, None, "Zoom.exe"),
@@ -295,7 +295,7 @@ mod tests {
     struct Rec(Mutex<Vec<(String, String)>>);
     impl RuntimeSink for Rec {
         fn segments_updated(&self, _: Range) {}
-        fn push(&self, id: &str, p: &PushPayload) {
+        fn nudge(&self, id: &str, p: &NudgePayload) {
             self.0.lock().unwrap().push((id.into(), p.trigger.to_string()));
         }
         fn doing_changed(&self, _: Option<&str>) {}
@@ -313,17 +313,17 @@ mod tests {
         let sink = Rec::default();
         let now = DAY0 + 9 * 60 * MIN + 5 * MIN;
 
-        let d = push_tick(&conn, &cfg(), now, &sink).unwrap();
-        assert!(d.iter().any(|d| matches!(d, PushDecision::Deliver(_))));
+        let d = nudge_tick(&conn, &cfg(), now, &sink).unwrap();
+        assert!(d.iter().any(|d| matches!(d, NudgeDecision::Deliver(_))));
         let got = sink.0.lock().unwrap().clone();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].1, "day_start");
-        // push_log に配信済みで残り、push_id で引ける。
+        // nudge_log に配信済みで残り、nudge_id で引ける。
         assert!(store::get_log(&conn, &got[0].0).unwrap().delivered);
 
         // 直後の再評価では出ない。
         let before = sink.0.lock().unwrap().len();
-        push_tick(&conn, &cfg(), now + MIN, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), now + MIN, &sink).unwrap();
         assert_eq!(sink.0.lock().unwrap().len(), before);
     }
 
@@ -431,20 +431,20 @@ mod tests {
         hitoiki_core::repo::task::insert(&conn, &task("u1", TaskStatus::Todo, Some(true), None)).unwrap();
         let sink = Rec::default();
         let now = DAY0 + 10 * 60 * MIN;
-        push_tick(&conn, &cfg(), now, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), now, &sink).unwrap();
         let got = sink.0.lock().unwrap().clone();
         assert_eq!(got.len(), 1);
         assert_eq!(got[0].1, "urgent_task");
         let log = store::get_log(&conn, &got[0].0).unwrap();
-        let p: PushPayload = serde_json::from_str(&log.payload_json).unwrap();
+        let p: NudgePayload = serde_json::from_str(&log.payload_json).unwrap();
         assert_eq!(p.task_id.as_deref(), Some("u1"));
         // 間隔内の再評価では出ない。
-        push_tick(&conn, &cfg(), now + 5 * MIN, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), now + 5 * MIN, &sink).unwrap();
         assert_eq!(sink.0.lock().unwrap().len(), 1);
     }
 
     #[test]
-    fn tick_delivers_kr_idle_once_a_week_from_the_weekday() {
+    fn tick_delivers_key_result_idle_once_a_week_from_the_weekday() {
         use hitoiki_core::model::{Goal, KeyResult};
         use hitoiki_core::repo::goal;
         let conn = db::open_in_memory().unwrap();
@@ -483,19 +483,19 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|(_, t)| t == "kr_idle")
+                .filter(|(_, t)| t == "key_result_idle")
                 .count()
         };
         // 月曜（DAY0）・火曜はまだ出ない。
-        push_tick(&conn, &cfg(), DAY0 + 10 * 60 * MIN, &sink).unwrap();
-        push_tick(&conn, &cfg(), DAY0 + 24 * 60 * MIN + 10 * 60 * MIN, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), DAY0 + 10 * 60 * MIN, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), DAY0 + 24 * 60 * MIN + 10 * 60 * MIN, &sink).unwrap();
         assert_eq!(delivered(&sink), 0);
         // 水曜に 1 回。
         let wed = DAY0 + 2 * 24 * 60 * MIN + 10 * 60 * MIN;
-        push_tick(&conn, &cfg(), wed, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), wed, &sink).unwrap();
         assert_eq!(delivered(&sink), 1);
         // 木曜以降も、今週はもう出ない。
-        push_tick(&conn, &cfg(), wed + 24 * 60 * MIN, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), wed + 24 * 60 * MIN, &sink).unwrap();
         assert_eq!(delivered(&sink), 1);
         // 今週時間が入っていれば（来週の水曜でも）出ない。
         segment::replace_range(
@@ -510,15 +510,15 @@ mod tests {
             )],
         )
         .unwrap();
-        push_tick(&conn, &cfg(), wed + 7 * 24 * 60 * MIN, &sink).unwrap();
+        nudge_tick(&conn, &cfg(), wed + 7 * 24 * 60 * MIN, &sink).unwrap();
         assert_eq!(delivered(&sink), 1);
     }
 
     #[test]
-    fn disabled_push_does_nothing() {
+    fn disabled_nudge_does_nothing() {
         let conn = db::open_in_memory().unwrap();
         let mut c = cfg();
-        c.push.enabled = false;
-        assert!(push_tick(&conn, &c, DAY0, &LogSink).unwrap().is_empty());
+        c.nudge.enabled = false;
+        assert!(nudge_tick(&conn, &c, DAY0, &LogSink).unwrap().is_empty());
     }
 }

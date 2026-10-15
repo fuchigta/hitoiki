@@ -159,7 +159,7 @@ export const SCREENS = [
   { id: "records", label: "記録" },
   { id: "report", label: "レポート" },
   { id: "settings", label: "設定" },
-  { id: "onboarding", label: "はじめに" },
+  { id: "welcome", label: "はじめに" },
 ] as const;
 
 export type ScreenId = (typeof SCREENS)[number]["id"];
@@ -179,12 +179,8 @@ function safeDecode(s: string): string {
   }
 }
 
-/** 画面としては無くなったが、ハッシュとしては受け付ける旧い ID（`legacyRoute` で新しいルートに写す）。 */
-const LEGACY_IDS: string[] = ["plan", "reflect"];
-
 /**
  * `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。
- * 記録の旧名（`checkin` / `hassle` / `reflection/<kind>`）は、ここで受け付けて記録・振り返りに寄せる（`legacyRoute` が仕上げる）。
  */
 export function routeFromHash(hash: string): Route {
   const body = hash.replace(/^#\/?/, "");
@@ -192,9 +188,7 @@ export function routeFromHash(hash: string): Route {
   const pathPart = q >= 0 ? body.slice(0, q) : body;
   const params = new URLSearchParams(q >= 0 ? body.slice(q + 1) : "");
   const segs = pathPart.split("/").filter((x) => x !== "");
-  if (segs[0] === "checkin" || segs[0] === "hassle") return { screen: "records", path: ["new", segs[0]], params };
-  if (segs[0] === "reflection") return { screen: "reflect" as ScreenId, path: segs.slice(1).map(safeDecode), params };
-  if (!SCREENS.some((s) => s.id === segs[0]) && !LEGACY_IDS.includes(segs[0])) return { screen: "today", path: [], params };
+  if (!SCREENS.some((s) => s.id === segs[0])) return { screen: "today", path: [], params };
   return { screen: segs[0] as ScreenId, path: segs.slice(1).map(safeDecode), params };
 }
 
@@ -211,32 +205,9 @@ export function hrefOf(
   return `#/${[screen, ...path.map((x) => encodeURIComponent(x))].join("/")}${qs ? `?${qs}` : ""}`;
 }
 
-/**
- * 旧い画面 ID のルートを、いまのルートへ写す（`hitoiki ui <画面>`・通知の `open_screen`・起動引数が旧名を使うため）。
- * 画面を統合する段階で、ここに足す。
- * - `plan` → `today`（`date` などのクエリは残す。計画は今日の画面に統合された）
- * - `reflect` → `records?kind=reflection`
- * - `reflect/<kind>`（day_start・day_end・weekly）→ `records/new/<kind>`（振り返りの作成フォーム）
- */
-export function legacyRoute(route: Route): Route {
-  if ((route.screen as string) === "plan") {
-    return { screen: "today", path: route.path, params: route.params };
-  }
-  if ((route.screen as string) === "reflect") {
-    const kind = route.path[0];
-    if (kind === "day_start" || kind === "day_end" || kind === "weekly") {
-      return { screen: "records", path: ["new", kind], params: route.params };
-    }
-    const params = new URLSearchParams(route.params);
-    params.set("kind", "reflection");
-    return { screen: "records", path: [], params };
-  }
-  return route;
-}
-
 /** `#/today` 形式のハッシュから画面を得る。 */
 export function screenFromHash(hash: string): ScreenId {
-  return legacyRoute(routeFromHash(hash)).screen;
+  return routeFromHash(hash).screen;
 }
 
 /**
@@ -250,8 +221,6 @@ export function navigate(href: string, opts: { replace?: boolean } = {}): void {
     else location.hash = href;
   });
 }
-
-const hashOf = (r: Route) => hrefOf(r.screen, r.path, r.params);
 
 // ===== 戻る・進むのガード =====
 // 未保存の変更があるときにブラウザの戻る・進むでハッシュが変わったら、元のハッシュに戻してから離脱の確認を出す。
@@ -276,18 +245,12 @@ if (typeof window !== "undefined" && typeof location !== "undefined") {
   window.addEventListener("hashchange", onGuardedHashChange);
 }
 
-/** 現在のルート。ハッシュが変わると更新する。旧名のハッシュは、履歴を増やさず正規のルートに置き換える。 */
+/** 現在のルート。ハッシュが変わると更新する。 */
 export function useRoute(): Route {
-  const [r, setR] = useState<Route>(() => legacyRoute(routeFromHash(location.hash)));
+  const [r, setR] = useState<Route>(() => routeFromHash(location.hash));
   useEffect(() => {
     const h = () => {
-      const raw = routeFromHash(location.hash);
-      const next = legacyRoute(raw);
-      if (hashOf(next) !== hashOf(raw)) {
-        location.replace(hashOf(next));
-        return;
-      }
-      setR(next);
+      setR(routeFromHash(location.hash));
     };
     h();
     window.addEventListener("hashchange", h);

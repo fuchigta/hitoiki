@@ -11,7 +11,7 @@ pub struct Config {
     pub general: General,
     pub collect: Collect,
     pub agent: Agent,
-    pub push: Push,
+    pub nudge: Nudge,
     pub activity: Activity,
     pub judge: Judge,
     pub ai: Ai,
@@ -238,14 +238,14 @@ impl Default for Agent {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Push {
+pub struct Nudge {
     pub enabled: bool,
     pub daily_limit: u32,
     pub min_interval_min: u64,
     pub day_start_after: String,
     pub day_end_at: String,
     pub weekly: Weekly,
-    pub long_focus_min: u64,
+    pub long_work_min: u64,
     pub switch_spike: SwitchSpike,
     pub late_work_after: String,
     /// idle_return: 予定外の無操作がこの分数以上続いたあとの復帰で「さっきの N 分は？」と尋ねる。
@@ -257,9 +257,9 @@ pub struct Push {
     /// important_task: 重要（緊急でない）な未完了のタスクに、最後に手をつけてからこの日数以上経っているとき、
     /// 1 日 1 回まで通知する。0 で無効。
     pub important_stale_days: u64,
-    /// kr_idle: 今週まだ時間が入っていない成果の指標を知らせる曜日（1=月 2=火 3=水 4=木 5=金 6=土 7=日）。
+    /// key_result_idle: 今週まだ時間が入っていない成果の指標を知らせる曜日（1=月 2=火 3=水 4=木 5=金 6=土 7=日）。
     /// その曜日以降、週に 1 回まで通知する。0（または 8 以上）で無効。
-    pub kr_idle_weekday: u32,
+    pub key_result_idle_weekday: u32,
     /// 無効にするトリガー ID。
     pub disabled_triggers: Vec<String>,
     /// 回答を求めるトースト（ボタンや入力欄のあるもの）を、操作するまで画面に残す（Windows の
@@ -267,7 +267,7 @@ pub struct Push {
     pub toast_persistent: bool,
 }
 
-impl Default for Push {
+impl Default for Nudge {
     fn default() -> Self {
         Self {
             enabled: true,
@@ -276,13 +276,13 @@ impl Default for Push {
             day_start_after: "08:00".into(),
             day_end_at: "18:30".into(),
             weekly: Weekly::default(),
-            long_focus_min: 90,
+            long_work_min: 90,
             switch_spike: SwitchSpike::default(),
             late_work_after: "20:00".into(),
             idle_return_min: 15,
             urgent_task_interval_min: 120,
             important_stale_days: 3,
-            kr_idle_weekday: 3,
+            key_result_idle_weekday: 3,
             disabled_triggers: vec![],
             toast_persistent: true,
         }
@@ -778,7 +778,7 @@ command = ["python", "x.py"]
     }
 
     #[test]
-    fn actual_と_push_の新しいキーの既定値() {
+    fn actual_と_nudge_の新しいキーの既定値() {
         let c = Config::default();
         assert_eq!(c.actual.auto_break_locked_min, 10);
         assert!(!c.actual.trust_doing);
@@ -786,10 +786,10 @@ command = ["python", "x.py"]
             (c.actual.rule_suggest_min_count, c.actual.rule_suggest_snooze_days),
             (3, 14)
         );
-        assert_eq!(c.push.idle_return_min, 15);
-        assert_eq!(c.push.urgent_task_interval_min, 120);
-        assert_eq!(c.push.important_stale_days, 3);
-        assert_eq!(c.push.kr_idle_weekday, 3);
+        assert_eq!(c.nudge.idle_return_min, 15);
+        assert_eq!(c.nudge.urgent_task_interval_min, 120);
+        assert_eq!(c.nudge.important_stale_days, 3);
+        assert_eq!(c.nudge.key_result_idle_weekday, 3);
         assert_eq!(c.actual.snap_sec, 120);
         assert!(
             !c.actual.correct_include_confirmed

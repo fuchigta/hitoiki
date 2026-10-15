@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { PushPayload } from "./api";
-import { buildForm, dismissArgs, periodLabel, respondArgs } from "./push-answer-util";
+import type { NudgePayload } from "./api";
+import { buildForm, dismissArgs, periodLabel, respondArgs } from "./nudge-answer-util";
 
-const base: PushPayload = {
+const base: NudgePayload = {
   trigger: "day_start",
   title: "おはようございます",
   body: "b",
@@ -54,7 +54,7 @@ describe("respondArgs", () => {
   it("ボタンと一言（空白除去）を渡す", () => {
     const f = buildForm({ ...base, input: { id: "hassle", placeholder: "x" } });
     expect(respondArgs("P1", base, f.buttons[3], "  会議が長い ")).toEqual({
-      push_id: "P1",
+      nudge_id: "P1",
       action: "energy",
       value: 4,
       input: "会議が長い",
@@ -70,7 +70,7 @@ describe("respondArgs", () => {
   });
 
   it("見送りは dismiss", () => {
-    expect(dismissArgs("P1")).toEqual({ push_id: "P1", action: "dismiss", value: null, open_screen: null });
+    expect(dismissArgs("P1")).toEqual({ nudge_id: "P1", action: "dismiss", value: null, open_screen: null });
   });
 });
 

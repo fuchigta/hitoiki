@@ -5,7 +5,7 @@ import { LeaveConfirm, RuntimeBanner } from "./components";
 import { leaveGuard } from "./edit-util";
 import { SCREENS, hrefOf, loadTimeZone, navigate, useAsync, useLiveTick, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
 import { Actual } from "./screens/Actual";
-import { Onboarding } from "./screens/Onboarding";
+import { Welcome } from "./screens/Welcome";
 import { Goals } from "./screens/Goals";
 import { Popup } from "./screens/Popup";
 import { Quick } from "./screens/Quick";
@@ -23,7 +23,7 @@ const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   records: Records,
   goals: Goals,
   settings: Settings,
-  onboarding: Onboarding,
+  welcome: Welcome,
 };
 
 /** 画面を切り替える。未保存の変更があれば確認してから。 */
@@ -85,7 +85,7 @@ function Main() {
     <div class="shell">
       <nav class="nav" aria-label="画面">
         <div class="brand">Hitoiki</div>
-        {SCREENS.filter((s) => s.id !== "onboarding").map((s) => (
+        {SCREENS.filter((s) => s.id !== "welcome").map((s) => (
           <a
             key={s.id}
             href={hrefOf(s.id)}

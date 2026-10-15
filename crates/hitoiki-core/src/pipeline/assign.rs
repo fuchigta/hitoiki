@@ -188,14 +188,14 @@ pub(crate) fn apply_judge(pieces: &mut [Piece], judge: &dyn SegmentJudge, absorb
     }
 }
 
-/// その時点の「元のタスク」。doing タスク、無ければフォーカス time_block のタスク。
+/// その時点の「元のタスク」。doing タスク、無ければフォーカス plan_block のタスク。
 /// 外側の None は文脈なし、内側の None は「文脈はあるがタスク未指定」。
 fn context(input: &PipelineInput, t: crate::Millis) -> Option<Option<String>> {
     if let Some(tid) = doing_at(&input.doing_logs, t) {
         return Some(Some(tid.to_string()));
     }
     input
-        .time_blocks
+        .plan_blocks
         .iter()
         .find(|b| b.focus && b.start_at <= t && t < b.end_at)
         .map(|b| b.task_id.clone())

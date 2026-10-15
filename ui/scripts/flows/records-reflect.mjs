@@ -1,5 +1,5 @@
 // 記録（振り返り）: 「＋ 記録」→ 終業の振り返り → 問いを生成（モックの AI 応答）→ 選択された詳細で回答 → 保存
-// → 回答で作られた気になったことが記録の一覧にも出る。旧い入口（#/reflect/day_end）も作成フォームに写る。
+// → 回答で作られた気になったことが記録の一覧にも出る。
 import { mockState, until } from "../lib/flow.mjs";
 
 const hashOf = (page) => new URL(page.url()).hash;
@@ -35,9 +35,5 @@ export default {
     await list.getByRole("button", { name: /振り返りで書いた気になったこと/ }).waitFor();
     await list.getByRole("button", { name: /終業の振り返り・回答あり/ }).first().waitFor();
 
-    // 旧い入口は、作成フォームに写る（履歴は増やさず置き換える）。
-    await page.evaluate(() => (location.hash = "#/reflect/weekly"));
-    await until(() => hashOf(page) === "#/records/new/weekly", "旧い入口が作成フォームに写りません");
-    await page.getByRole("heading", { name: "週次の振り返りを始める", level: 2 }).waitFor();
   },
 };

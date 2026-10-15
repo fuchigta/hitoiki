@@ -1,6 +1,6 @@
 use hitoiki_agents::ImportStats;
 use hitoiki_core::config::Config;
-use hitoiki_core::push::PushPayload;
+use hitoiki_core::nudge::NudgePayload;
 use hitoiki_core::timefmt::Range;
 use hitoiki_core::{db, Clock, SystemClock};
 use hitoiki_daemon::{Runtime, RuntimeOptions, RuntimeSink};
@@ -20,7 +20,7 @@ impl RuntimeSink for TestSink {
     fn segments_updated(&self, range: Range) {
         self.segments.lock().unwrap().push(range);
     }
-    fn push(&self, _: &str, _: &PushPayload) {}
+    fn nudge(&self, _: &str, _: &NudgePayload) {}
     fn doing_changed(&self, id: Option<&str>) {
         self.doing.lock().unwrap().push(id.map(String::from));
     }
@@ -53,7 +53,7 @@ fn opts(dir: &std::path::Path, tag: &str) -> (RuntimeOptions, PipeName) {
     o.db_path = Some(dir.join("hitoiki.db"));
     o.rebuild_debounce = Duration::from_millis(100);
     o.rebuild_interval = Duration::from_secs(3600);
-    o.push_interval = Duration::from_secs(3600);
+    o.nudge_interval = Duration::from_secs(3600);
     o.calendar_interval = Some(Duration::from_secs(3600));
     (o, pipe)
 }

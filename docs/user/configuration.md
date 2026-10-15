@@ -18,7 +18,7 @@
 ```powershell
 hitoiki config set collect.idle_threshold_sec 300
 hitoiki config set general.timezone '"UTC"'
-hitoiki config get push.daily_limit
+hitoiki config get nudge.daily_limit
 ```
 
 設定の変更は、再計算・カレンダー・通知・自動判定には次回から反映されます。**収集器とログ監視の設定の変更には、常駐アプリの再起動が必要**です。
@@ -31,7 +31,7 @@ hitoiki config get push.daily_limit
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
 | `actual` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
 | `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`wait_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
-| `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`kr_idle_weekday`（3）、`toast_persistent`（true）、`disabled_triggers` |
+| `nudge` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_work_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`key_result_idle_weekday`（3）、`toast_persistent`（true）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
 | `ai` | `command`（`["claude", "-p"]`）、`model`（claude なら `haiku`）、`model_args`、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
@@ -47,7 +47,7 @@ hitoiki config get push.daily_limit
 - `agent.bind_unlisted`: true（既定）なら、プロンプトを送った時に前面だったアプリが `terminal_exes` / `agent_host_exes` に無くても、そのウインドウで対話していたものとして数えます。ブラウザ、`explorer.exe` などの通過系、コミュニケーション・会議系、Hitoiki 自身、除外したウインドウ、入力が無い（無操作・ロック中の）時刻の送信は数えません。別のアプリで作業している裏でエージェントが動く使い方で、その作業が対話時間に混ざるときは false にして、一覧のアプリだけにします。
 - `collect.interrupt_min_sec`: コミュニケーション系アプリの後に別の作業が続いたとき、割り込みとみなす最小の長さ。
 - `collect.transient_exes` / `collect.transient_max_sec`: タスクバー、スタートメニュー、Alt+Tab などを担う「通過系」アプリの exe 名（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellExperienceHost.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`）と、通過とみなす最大の連続時間（秒）。通過系アプリが前面だった時間がこの長さ未満なら、独立した区間にせず直前の作業（無ければ直後の作業）に含めます。この長さ以上続いたとき（ファイラーで作業したときなど）は通常の区間のままです。記録（`window_span`）は変えないので、値を変えて `hitoiki rebuild` すると過去分にも反映できます。
-- `collect.ignore_exes`: 「無視する」アプリの exe 名（大文字小文字を区別しない。既定は `explorer.exe`、`ShellExperienceHost.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`。`ApplicationFrameHost.exe` は UWP アプリの実体なので入れません）。ここに入れたアプリは `transient_exes` にも入っているものとして扱い、前面の時間が `transient_max_sec` 未満なら前後の作業に含めます（時間は保たれます）。それ以上続いたものは「無視」の区間になり、集計・実績の要確認・レポート・タスクの実績・通知（長時間の集中など）に数えません。ルールでタスクや活動が決まった区間と、手で確定た区間は無視しません。`transient_exes` との違いは、長く続いた分を通常の作業として残すか（`transient_exes` だけ）、数えない時間にするか（`ignore_exes`）です。記録（`window_span`）は消えず、リストから外して再計算（`hitoiki rebuild`。`hitoiki ignore remove` は直近 7 日を自動で再計算）すると元に戻ります。設定画面の「ルール」タブ（種類「無視」）、`hitoiki ignore list|add|remove`、実績画面の「今後も無視」から変更できます。既定のままの設定に追加するときは、既定の一覧に追記した形で `config.toml` に書き込みます。
+- `collect.ignore_exes`: 「無視する」アプリの exe 名（大文字小文字を区別しない。既定は `explorer.exe`、`ShellExperienceHost.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`。`ApplicationFrameHost.exe` は UWP アプリの実体なので入れません）。ここに入れたアプリは `transient_exes` にも入っているものとして扱い、前面の時間が `transient_max_sec` 未満なら前後の作業に含めます（時間は保たれます）。それ以上続いたものは「無視」の区間になり、集計・実績の要確認・レポート・タスクの実績・通知（長時間の作業など）に数えません。ルールでタスクや活動が決まった区間と、手で確定た区間は無視しません。`transient_exes` との違いは、長く続いた分を通常の作業として残すか（`transient_exes` だけ）、数えない時間にするか（`ignore_exes`）です。記録（`window_span`）は消えず、リストから外して再計算（`hitoiki rebuild`。`hitoiki ignore remove` は直近 7 日を自動で再計算）すると元に戻ります。設定画面の「ルール」タブ（種類「無視」）、`hitoiki ignore list|add|remove`、実績画面の「今後も無視」から変更できます。既定のままの設定に追加するときは、既定の一覧に追記した形で `config.toml` に書き込みます。
 - `actual.min_sec`: 実績の「要確認」の一覧で既定表示する区間の最小の長さ（秒）。これ未満の短い要確認区間は既定で隠します（削除はしません）。「確認待ち」の件数も同じ基準で数えます。
 - `actual.auto_break_locked_min`: 画面ロック・スリープによる無操作がこの分数以上なら、自動で休憩（根拠 `rule:locked`）にします。`0` で無効。ユーザーが確定した区間は変えません。
 - `actual.trust_doing`: true にすると、進行中（doing）のタスクを仮で当てた区間を、確認待ちにせず自動（根拠 `doing`）にします。既定は false（確認待ち）。
@@ -164,25 +164,25 @@ timeout_sec = 10
 
 自動判定には、区間のアプリ名・ウインドウタイトル・作業ディレクトリ、進行中のタスクなどが渡されます。`openai-compatible` や、外部に通信する `external-command` を使うと、これらが接続先に送られます。会社の PC では、接続先が許可されているか確認してください（[プライバシー](./privacy.md)）。
 
-## 通知
+## 問いかけ
 
-`push` セクションで通知の頻度と時刻を調整します。
+`nudge` セクションで問いかけの頻度と時刻を調整します。
 
-- `push.enabled`: false にすると通知を出しません。
-- `push.daily_limit`: 1 日に出す通知の上限。`push.min_interval_min`: 同じ種類の通知の最小間隔（分）。
-- `push.day_start_after` / `push.day_end_at`: 始業の通知を出し始める時刻と、終業の時刻。
-- `push.weekly.weekday` / `push.weekly.at`: 週次の振り返りの曜日（`fri` など）と時刻。
-- `push.long_focus_min`: 同じ作業が続いたときに声をかけるまでの時間（分）。
-- `push.switch_spike.window_min` / `push.switch_spike.count`: 切り替えが多いと判断する、期間（分）と回数。
-- `push.late_work_after`: 遅い時間の作業に声をかけ始める時刻。
-- `push.idle_return_min`: 予定外の無操作がこの分数以上続いたあと復帰したときに、「さっきの時間は？」と尋ねます（トリガー `idle_return`）。`0` で無効。`push.disabled_triggers` に `idle_return` を入れても止められます。
-- `push.urgent_task_interval_min`: 緊急のしるしが付いた未完了のタスクがあるとき、勤務時間内（`push.day_start_after`〜`push.day_end_at`）に、この分数以上の間隔で「いま取りかかりますか？」と知らせます（トリガー `urgent_task`、既定 120 分）。`0` で無効。そのタスクに取り組み中のとき、今日の計画でそのタスクの枠がこれから先にあるときは知らせません。
-- `push.important_stale_days`: 重要（緊急ではない）な未完了のタスクに、この日数以上時間が入っていないとき、勤務時間内に 1 日 1 回まで「少し時間を取りませんか」と知らせます（トリガー `important_task`、既定 3 日）。`0` で無効。今日の計画に入っているタスク、取り組み中のタスク、今週「今週は見送る」を押したタスクは対象外です。
-- `push.toast_persistent`: 回答を求める通知（ボタンや入力欄のあるトースト）を、操作するまで画面に残します（Windows のトーストの `scenario="reminder"`）。`false` にすると一定時間で自動的に消えます。更新のお知らせやテスト通知は常に自動で消えます。見逃した通知は今日画面の「未回答の問いかけ」から答えられます。
-- `push.kr_idle_weekday`: 今週まだ時間が入っていない成果の指標を知らせる曜日（トリガー `kr_idle`）。`1` = 月、`2` = 火、`3` = 水（既定）、`4` = 木、`5` = 金、`6` = 土、`7` = 日、`0`（または 8 以上）で無効。その曜日以降の勤務時間内に、**週に 1 回まで**「今週、時間が入っていない成果の指標があります」と事実だけを知らせます（週は月曜始まり）。対象は、軸が時間または回数で、目標が有効かつ期間内（期間が無ければ対象）の成果の指標のうち、スキルか紐付けたタスクがあって今週（月曜から今まで）その時間が 1 分も入っていないものです。期間が終わった・まだ始まっていない目標の成果の指標、完了数の軸の成果の指標、スキルも紐付けたタスクも無い成果の指標、完了・やめた成果の指標は対象外です。複数あるときは 1 回の通知にまとめます（3 件まで名前を出し、残りは件数）。ボタンは「今日の予定に入れる」（今日のデザインを開きます）と「今週は見送る」（記録だけ）。スヌーズ・1 日の上限・会議中の保留は他の通知と同じです。
-- `push.disabled_triggers`: 無効にする通知の種類。`day_start`、`idle_return`、`block_start`（計画ブロックの開始。これ専用の設定項目はなく、止めるにはここに入れる）、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_focus`、`important_task`、`kr_idle`、`late_work` のいずれか。
+- `nudge.enabled`: false にすると問いかけを出しません。
+- `nudge.daily_limit`: 1 日に出す問いかけの上限。`nudge.min_interval_min`: 同じきっかけの問いかけの最小間隔（分）。
+- `nudge.day_start_after` / `nudge.day_end_at`: 始業の問いかけを出し始める時刻と、終業の時刻。
+- `nudge.weekly.weekday` / `nudge.weekly.at`: 週次の振り返りの曜日（`fri` など）と時刻。
+- `nudge.long_work_min`: 同じ作業が続いたときに声をかけるまでの時間（分）。
+- `nudge.switch_spike.window_min` / `nudge.switch_spike.count`: 切り替えが多いと判断する、期間（分）と回数。
+- `nudge.late_work_after`: 遅い時間の作業に声をかけ始める時刻。
+- `nudge.idle_return_min`: 予定外の無操作がこの分数以上続いたあと復帰したときに、「さっきの時間は？」と尋ねます（きっかけ `idle_return`）。`0` で無効。`nudge.disabled_triggers` に `idle_return` を入れても止められます。
+- `nudge.urgent_task_interval_min`: 緊急のしるしが付いた未完了のタスクがあるとき、勤務時間内（`nudge.day_start_after`〜`nudge.day_end_at`）に、この分数以上の間隔で「いま取りかかりますか？」と知らせます（きっかけ `urgent_task`、既定 120 分）。`0` で無効。そのタスクに取り組み中のとき、今日の計画でそのタスクの計画ブロックがこれから先にあるときは知らせません。
+- `nudge.important_stale_days`: 重要（緊急ではない）な未完了のタスクに、この日数以上時間が入っていないとき、勤務時間内に 1 日 1 回まで「少し時間を取りませんか」と知らせます（きっかけ `important_task`、既定 3 日）。`0` で無効。今日の計画に入っているタスク、取り組み中のタスク、今週「今週は見送る」を押したタスクは対象外です。
+- `nudge.toast_persistent`: 回答を求める通知（ボタンや入力欄のあるトースト）を、操作するまで画面に残します（Windows のトーストの `scenario="reminder"`）。`false` にすると一定時間で自動的に消えます。更新のお知らせやテスト通知は常に自動で消えます。見逃した通知は今日画面の「未回答の問いかけ」から答えられます。
+- `nudge.key_result_idle_weekday`: 今週まだ時間が入っていない成果の指標を知らせる曜日（きっかけ `key_result_idle`）。`1` = 月、`2` = 火、`3` = 水（既定）、`4` = 木、`5` = 金、`6` = 土、`7` = 日、`0`（または 8 以上）で無効。その曜日以降の勤務時間内に、**週に 1 回まで**「今週、時間が入っていない成果の指標があります」と事実だけを知らせます（週は月曜始まり）。対象は、軸が時間または回数で、目標が有効かつ期間内（期間が無ければ対象）の成果の指標のうち、スキルか紐付けたタスクがあって今週（月曜から今まで）その時間が 1 分も入っていないものです。期間が終わった・まだ始まっていない目標の成果の指標、完了数の軸の成果の指標、スキルも紐付けたタスクも無い成果の指標、完了・やめた成果の指標は対象外です。複数あるときは 1 回の通知にまとめます（3 件まで名前を出し、残りは件数）。ボタンは「今日の予定に入れる」（今日のデザインを開きます）と「今週は見送る」（記録だけ）。スヌーズ・1 日の上限・会議中の保留は他の通知と同じです。
+- `nudge.disabled_triggers`: 無効にする問いかけのきっかけ。`day_start`、`idle_return`、`block_start`（計画ブロックの開始。これ専用の設定項目はなく、止めるにはここに入れる）、`day_end`、`weekly`、`urgent_task`、`after_interrupt`、`meeting_overrun`、`switch_spike`、`long_work`、`important_task`、`key_result_idle`、`late_work` のいずれか。
 
-通知の仕組みは [日々の使い方](./daily-use.md#通知) を参照してください。
+通知の仕組みは [日々の使い方](./daily-use.md#問いかけ) を参照してください。
 
 ## 更新の確認
 

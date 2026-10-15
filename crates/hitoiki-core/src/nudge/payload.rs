@@ -1,13 +1,13 @@
-//! 通知の中身。「1 アクションで答えられる」ことを基本にする（docs/dev/architecture.md「プッシュ通知」）。
+//! 通知の中身。「1 アクションで答えられる」ことを基本にする（docs/dev/architecture.md「問いかけ」）。
 //! 文言は押し付けない寄り添うトーンで、評価や良し悪しの断定をしない（docs/dev/architecture.md「設計原則」）。
 
-use super::PushTrigger;
+use super::NudgeTrigger;
 use crate::Millis;
 use serde::{Deserialize, Serialize};
 
-/// 通知のボタン。押すと [`super::PushResponse`] の `action` / `value` になる。
+/// 通知のボタン。押すと [`super::NudgeResponse`] の `action` / `value` になる。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PushAction {
+pub struct NudgeAction {
     /// "energy" | "stress" | "snooze_15" | "snooze_60" | "snooze_today" | "open" など。
     pub id: String,
     pub label: String,
@@ -17,20 +17,20 @@ pub struct PushAction {
 
 /// 任意のテキスト入力欄（一言メモ）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PushInput {
-    /// 入力の保存先を示す ID（"hassle"）。
+pub struct NudgeInput {
+    /// 入力の保存先を示す ID（"concern"）。
     pub id: String,
     pub placeholder: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PushPayload {
-    pub trigger: PushTrigger,
+pub struct NudgePayload {
+    pub trigger: NudgeTrigger,
     pub title: String,
     pub body: String,
-    pub actions: Vec<PushAction>,
-    pub input: Option<PushInput>,
-    /// 通知クリックで開くアプリの画面（例 "reflection/day_start"）。
+    pub actions: Vec<NudgeAction>,
+    pub input: Option<NudgeInput>,
+    /// 通知クリックで開くアプリの画面（例 "records/new/day_start"）。
     pub open_screen: Option<String>,
     /// idle_return: 「さっきの無操作は？」の対象の期間 (開始, 終了)。ボタンの応答でこの期間に分類をつける。
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -38,14 +38,14 @@ pub struct PushPayload {
     /// urgent_task / important_task: 対象のタスク。`task_start` の応答でこのタスクを始める。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub task_id: Option<String>,
-    /// block_start: 対象の time_block。同じブロックに二度通知しないための目印（push_log のペイロードで見る）。
+    /// block_start: 対象の plan_block。同じブロックに二度通知しないための目印（nudge_log のペイロードで見る）。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub block_id: Option<String>,
 }
 
-fn scale(id: &str) -> Vec<PushAction> {
+fn scale(id: &str) -> Vec<NudgeAction> {
     (1..=5)
-        .map(|v| PushAction {
+        .map(|v| NudgeAction {
             id: id.into(),
             label: v.to_string(),
             value: Some(v),
@@ -53,24 +53,24 @@ fn scale(id: &str) -> Vec<PushAction> {
         .collect()
 }
 
-fn open_action(label: &str) -> PushAction {
-    PushAction {
+fn open_action(label: &str) -> NudgeAction {
+    NudgeAction {
         id: "open".into(),
         label: label.into(),
         value: None,
     }
 }
 
-fn hassle_input() -> Option<PushInput> {
-    Some(PushInput {
-        id: "hassle".into(),
+fn concern_input() -> Option<NudgeInput> {
+    Some(NudgeInput {
+        id: "concern".into(),
         placeholder: "ひとこと（気になったことなど）".into(),
     })
 }
 
-pub(crate) fn day_start() -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::DayStart,
+pub(crate) fn day_start() -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::DayStart,
         title: "おはようございます".into(),
         body: "今日のはじまりに、いまの元気度を教えてください（1 = ゆったり 〜 5 = 元気いっぱい）。".into(),
         actions: scale("energy"),
@@ -83,7 +83,7 @@ pub(crate) fn day_start() -> PushPayload {
     }
 }
 
-pub(crate) fn day_end(needs_review: u32) -> PushPayload {
+pub(crate) fn day_end(needs_review: u32) -> NudgePayload {
     let body = if needs_review > 0 {
         format!(
             "おつかれさまでした。確認待ちの区間が {needs_review} 件あります。よければ振り返りで見ていきませんか。"
@@ -91,102 +91,102 @@ pub(crate) fn day_end(needs_review: u32) -> PushPayload {
     } else {
         "おつかれさまでした。よければ今日を一緒に振り返りませんか。".into()
     };
-    PushPayload {
-        trigger: PushTrigger::DayEnd,
+    NudgePayload {
+        trigger: NudgeTrigger::DayEnd,
         title: "今日の終わりに".into(),
         body,
         actions: vec![open_action("振り返りを開く")],
         input: None,
-        open_screen: Some("reflection/day_end".into()),
+        open_screen: Some("records/new/day_end".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
     }
 }
 
-pub(crate) fn weekly() -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::Weekly,
+pub(crate) fn weekly() -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::Weekly,
         title: "今週をふりかえる時間です".into(),
         body: "一週間の時間の使い方を、ゆっくり眺めてみませんか。".into(),
         actions: vec![open_action("週次の振り返りを開く")],
         input: None,
-        open_screen: Some("reflection/weekly".into()),
+        open_screen: Some("records/new/weekly".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
     }
 }
 
-pub(crate) fn long_focus(minutes: u64, label: Option<&str>) -> PushPayload {
+pub(crate) fn long_work(minutes: u64, label: Option<&str>) -> NudgePayload {
     let what = label.unwrap_or("同じ作業");
-    PushPayload {
-        trigger: PushTrigger::LongFocus,
+    NudgePayload {
+        trigger: NudgeTrigger::LongWork,
         title: "一息つきませんか".into(),
         body: format!(
             "{what}に {minutes} 分ほど続けて取り組んでいます。いまの元気度はどのくらいですか（1 〜 5）。"
         ),
         actions: scale("energy"),
         input: None,
-        open_screen: Some("checkin".into()),
+        open_screen: Some("records/new/condition".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
     }
 }
 
-pub(crate) fn switch_spike(window_min: u64, count: u32) -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::SwitchSpike,
+pub(crate) fn switch_spike(window_min: u64, count: u32) -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::SwitchSpike,
         title: "切り替えが続いています".into(),
         body: format!(
             "直近 {window_min} 分で画面の切り替えが {count} 回ありました。いまのストレス感を教えてください（1 = 穏やか 〜 5 = 強め）。"
         ),
         actions: scale("stress"),
-        input: hassle_input(),
-        open_screen: Some("hassle".into()),
+        input: concern_input(),
+        open_screen: Some("records/new/concern".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
     }
 }
 
-pub(crate) fn after_interrupt() -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::AfterInterrupt,
+pub(crate) fn after_interrupt() -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::AfterInterrupt,
         title: "割り込みの対応、おつかれさまでした".into(),
         body: "よければ、何があったかをひとこと残しませんか。気持ちの強さも選べます（1 〜 5）。".into(),
         actions: scale("stress"),
-        input: hassle_input(),
-        open_screen: Some("hassle".into()),
+        input: concern_input(),
+        open_screen: Some("records/new/concern".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
     }
 }
 
-pub(crate) fn meeting_overrun() -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::MeetingOverrun,
+pub(crate) fn meeting_overrun() -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::MeetingOverrun,
         title: "会議が予定の時間を過ぎています".into(),
         body: "気になったことがあれば、あとで思い出せるようにひとこと残せます。".into(),
         actions: vec![],
-        input: hassle_input(),
-        open_screen: Some("hassle".into()),
+        input: concern_input(),
+        open_screen: Some("records/new/concern".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
     }
 }
 
-pub(crate) fn late_work() -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::LateWork,
+pub(crate) fn late_work() -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::LateWork,
         title: "遅い時間ですね".into(),
         body: "いまの元気度を教えてください（1 〜 5）。無理のない範囲で。".into(),
         actions: scale("energy"),
         input: None,
-        open_screen: Some("checkin".into()),
+        open_screen: Some("records/new/condition".into()),
         idle_range: None,
         task_id: None,
         block_id: None,
@@ -197,11 +197,11 @@ pub(crate) fn late_work() -> PushPayload {
 /// ボタンの `id` は `idle_<分類>`（`service::review::IdlePreset` の ID）。
 /// `candidate`（タスク ID, タイトル）があれば、先頭に「{タスク名}をしていた」（`idle_task`）を加える。
 /// ボタンの数は最大 5（トーストの上限）に収まる。
-pub(crate) fn idle_return(start: Millis, end: Millis, candidate: Option<(&str, &str)>) -> PushPayload {
+pub(crate) fn idle_return(start: Millis, end: Millis, candidate: Option<(&str, &str)>) -> NudgePayload {
     let minutes = ((end - start) / 60_000).max(1);
     let mut actions = Vec::new();
     if let Some((_, title)) = candidate {
-        actions.push(PushAction {
+        actions.push(NudgeAction {
             id: IDLE_TASK_ACTION.into(),
             label: format!("{}をしていた", shorten(title, 16)),
             value: None,
@@ -210,19 +210,19 @@ pub(crate) fn idle_return(start: Millis, end: Millis, candidate: Option<(&str, &
     actions.extend(
         crate::service::review::IdlePreset::ALL
             .iter()
-            .map(|p| PushAction {
+            .map(|p| NudgeAction {
                 id: format!("{IDLE_ACTION_PREFIX}{}", p.as_str()),
                 label: p.label().into(),
                 value: None,
             }),
     );
-    PushPayload {
-        trigger: PushTrigger::IdleReturn,
+    NudgePayload {
+        trigger: NudgeTrigger::IdleReturn,
         title: "おかえりなさい".into(),
         body: format!("さっきの {minutes} 分は、どう過ごしていましたか？ 答えなくても大丈夫です。"),
         actions,
         input: None,
-        open_screen: Some("review".into()),
+        open_screen: Some("actual?status=review".into()),
         idle_range: Some((start, end)),
         task_id: candidate.map(|(id, _)| id.to_string()),
         block_id: None,
@@ -240,9 +240,15 @@ fn shorten(s: &str, max: usize) -> String {
 
 /// block_start: 計画したブロックの時間になったとき、そのタスクを始めるか尋ねる。
 /// `start` / `end` は表示用の時刻（`HH:MM`）。
-pub(crate) fn block_start(block_id: &str, task_id: &str, title: &str, start: &str, end: &str) -> PushPayload {
-    PushPayload {
-        trigger: PushTrigger::BlockStart,
+pub(crate) fn block_start(
+    block_id: &str,
+    task_id: &str,
+    title: &str,
+    start: &str,
+    end: &str,
+) -> NudgePayload {
+    NudgePayload {
+        trigger: NudgeTrigger::BlockStart,
         title: "計画の時間です".into(),
         body: format!("今から「{title}」の時間（{start}–{end}）です。始めますか？"),
         actions: vec![
@@ -269,19 +275,19 @@ pub const TASK_START: &str = "task_start";
 pub const TASK_LATER: &str = "task_later";
 pub const TASK_SKIP_WEEK: &str = "task_skip_week";
 
-fn task_button(id: &str, label: &str) -> PushAction {
-    PushAction {
+fn task_button(id: &str, label: &str) -> NudgeAction {
+    NudgeAction {
         id: id.into(),
         label: label.into(),
         value: None,
     }
 }
 
-/// kr_idle の「今週は見送る」（記録だけ。kr_idle は週 1 回までなので、今週はもう出ない）。
-pub const KR_SKIP_WEEK: &str = "kr_skip_week";
+/// key_result_idle の「今週は見送る」（記録だけ。key_result_idle は週 1 回までなので、今週はもう出ない）。
+pub const KEY_RESULT_SKIP_WEEK: &str = "key_result_skip_week";
 
-/// kr_idle: 今週まだ時間が入っていない成果の指標を、事実だけ伝える（評価や促しはしない）。
-pub(crate) fn kr_idle(titles: &[&str]) -> PushPayload {
+/// key_result_idle: 今週まだ時間が入っていない成果の指標を、事実だけ伝える（評価や促しはしない）。
+pub(crate) fn key_result_idle(titles: &[&str]) -> NudgePayload {
     const SHOWN: usize = 3;
     let names: String = titles.iter().take(SHOWN).map(|t| format!("「{t}」")).collect();
     let more = if titles.len() > SHOWN {
@@ -289,14 +295,14 @@ pub(crate) fn kr_idle(titles: &[&str]) -> PushPayload {
     } else {
         String::new()
     };
-    PushPayload {
-        trigger: PushTrigger::KrIdle,
+    NudgePayload {
+        trigger: NudgeTrigger::KeyResultIdle,
         title: "今週、時間が入っていない成果の指標があります".into(),
         body: format!("{names}{more}に、今週はまだ時間が入っていません。"),
         actions: vec![
             // 押すと今日のデザイン画面（open_screen）を開く。
             open_action("今日の予定に入れる"),
-            task_button(KR_SKIP_WEEK, "今週は見送る"),
+            task_button(KEY_RESULT_SKIP_WEEK, "今週は見送る"),
         ],
         input: None,
         open_screen: Some("today/design".into()),
@@ -307,14 +313,14 @@ pub(crate) fn kr_idle(titles: &[&str]) -> PushPayload {
 }
 
 /// urgent_task: 緊急のしるしが付いたタスクを 1 件示す。`others` は同じしるしの付いたほかのタスクの数。
-pub(crate) fn urgent_task(task_id: &str, title: &str, others: usize) -> PushPayload {
+pub(crate) fn urgent_task(task_id: &str, title: &str, others: usize) -> NudgePayload {
     let more = if others > 0 {
         format!("（ほかに {others} 件）")
     } else {
         String::new()
     };
-    PushPayload {
-        trigger: PushTrigger::UrgentTask,
+    NudgePayload {
+        trigger: NudgeTrigger::UrgentTask,
         title: "緊急のタスクがあります".into(),
         body: format!("「{title}」に緊急のしるしが付いています。いま取りかかりますか？{more}"),
         actions: vec![
@@ -331,13 +337,13 @@ pub(crate) fn urgent_task(task_id: &str, title: &str, others: usize) -> PushPayl
 
 /// important_task: 重要だが緊急でないタスクに、少し時間を取ることを提案する。`days` は最後に手をつけてからの日数
 /// （一度も時間が入っていなければ None）。
-pub(crate) fn important_task(task_id: &str, title: &str, days: Option<u64>) -> PushPayload {
+pub(crate) fn important_task(task_id: &str, title: &str, days: Option<u64>) -> NudgePayload {
     let since = match days {
         Some(n) => format!("ここ {n} 日ほど時間が入っていません"),
         None => "まだ時間が入っていません".to_string(),
     };
-    PushPayload {
-        trigger: PushTrigger::ImportantTask,
+    NudgePayload {
+        trigger: NudgeTrigger::ImportantTask,
         title: "重要なタスクに少し時間を取りませんか".into(),
         body: format!("「{title}」に、{since}。今日どこかで少し時間を取りますか？"),
         actions: vec![

@@ -594,11 +594,11 @@ function correctionView(s: State, c: CorrectionRec): T.CorrectionView {
 
 // ===== 計画 =====
 
-function blockView(s: State, b: T.TimeBlock): T.BlockView {
+function blockView(s: State, b: T.PlanBlock): T.BlockView {
   return { ...b, task_title: s.tasks.find((t) => t.id === b.task_id)?.title ?? null };
 }
 
-function blockFromInput(s: State, i: T.BlockInput, id: string): T.TimeBlock {
+function blockFromInput(s: State, i: T.BlockInput, id: string): T.PlanBlock {
   return { id, start_at: i.start, end_at: i.end, task_id: i.task ? needTask(s, i.task).id : null, label: i.label || null, focus: !!i.focus };
 }
 
@@ -755,7 +755,7 @@ const H: Record<string, Handler> = {
       today: todaySummary(s),
       needs_review_count: needs.filter((x) => x.end_at - x.start_at >= minMs).length,
       needs_review_short_count: needs.filter((x) => x.end_at - x.start_at < minMs).length,
-      unanswered_pushes: s.pushes.filter((p) => p.state === "unanswered"),
+      unanswered_nudges: s.nudges.filter((p) => p.state === "unanswered"),
       update_available: null,
     };
     return status;
@@ -1063,7 +1063,7 @@ const H: Record<string, Handler> = {
         skipped.push(p);
         continue;
       }
-      const b: T.TimeBlock = { id: nid(s, "blk"), start_at: p.start_at, end_at: p.end_at, task_id: p.task_id, label: p.label, focus: p.focus };
+      const b: T.PlanBlock = { id: nid(s, "blk"), start_at: p.start_at, end_at: p.end_at, task_id: p.task_id, label: p.label, focus: p.focus };
       s.blocks.push(b);
       created.push(blockView(s, b));
     }
@@ -1561,29 +1561,29 @@ const H: Record<string, Handler> = {
   },
   snooze_state: (s) => ({ snooze_until: s.snoozeUntil }),
   take_initial_screen: () => null,
-  pending_push: (s) => s.pendingPush,
-  push_respond: (s, a) => {
-    const p = s.pushes.find((x) => x.id === a.push_id);
+  pending_nudge: (s) => s.pendingNudge,
+  nudge_respond: (s, a) => {
+    const p = s.nudges.find((x) => x.id === a.nudge_id);
     if (p) p.state = a.action === "dismiss" ? "dismissed" : "answered";
     if (a.action === "energy" && a.value) {
-      s.checkins.unshift({ id: nid(s, "chk"), at: s.now, energy: a.value, mood: null, stress: null, erg_tag: null, note: a.input || null, push_id: a.push_id ?? null });
+      s.checkins.unshift({ id: nid(s, "chk"), at: s.now, energy: a.value, mood: null, stress: null, erg_tag: null, note: a.input || null, push_id: a.nudge_id ?? null });
     }
-    if (a.input && a.action !== "energy") s.hassles.unshift({ id: nid(s, "has"), at: s.now, text: a.input, intensity: 3, segment_id: null, push_id: a.push_id ?? null });
-    s.pendingPush = null;
+    if (a.input && a.action !== "energy") s.hassles.unshift({ id: nid(s, "has"), at: s.now, text: a.input, intensity: 3, segment_id: null, push_id: a.nudge_id ?? null });
+    s.pendingNudge = null;
     return null;
   },
   runtime_state: () => ({ mode: "own" }) satisfies T.RuntimeMode,
   notify_test: () => null,
 
-  // オンボーディング
-  onboarding_status: (s) => s.onboarding,
-  onboarding_complete: (s) => {
-    s.onboarding = { completed: true, completed_at: s.now };
-    return s.onboarding;
+  // はじめに
+  welcome_status: (s) => s.welcome,
+  welcome_complete: (s) => {
+    s.welcome = { completed: true, completed_at: s.now };
+    return s.welcome;
   },
-  onboarding_reset: (s) => {
-    s.onboarding = { completed: false, completed_at: null };
-    return s.onboarding;
+  welcome_reset: (s) => {
+    s.welcome = { completed: false, completed_at: null };
+    return s.welcome;
   },
 };
 

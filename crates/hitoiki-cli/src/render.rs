@@ -2,7 +2,7 @@
 
 use crate::table::{pad, table, truncate};
 use chrono_tz::Tz;
-use hitoiki_core::model::{Checkin, Goal, Hassle, KeyResult, TaskAssignRule, TimeBlock};
+use hitoiki_core::model::{Checkin, Goal, Hassle, KeyResult, PlanBlock, TaskAssignRule};
 use hitoiki_core::repo::segment::kind_label;
 use hitoiki_core::service::{
     actual::ActualList,
@@ -527,11 +527,11 @@ pub fn status(tz: Tz, st: &Status) -> String {
         );
     }
     s += "\n";
-    if st.unanswered_pushes.is_empty() {
+    if st.unanswered_nudges.is_empty() {
         s += "未応答の問いかけ: なし";
     } else {
-        s += "未応答の問いかけ（`hitoiki push answer <ID>` で答える／--dismiss で見送る）:";
-        for p in &st.unanswered_pushes {
+        s += "未応答の問いかけ（`hitoiki nudge answer <ID>` で答える／--dismiss で見送る）:";
+        for p in &st.unanswered_nudges {
             s += &format!(
                 "\n  {} [{}] {} ({})",
                 fmt_hm(tz, p.at),
@@ -574,7 +574,7 @@ pub fn blocks(tz: Tz, l: &BlockList) -> String {
     table(&["ID", "時刻", "集中", "タスク", "ラベル"], &rows)
 }
 
-pub fn block_added(tz: Tz, b: &TimeBlock) -> String {
+pub fn block_added(tz: Tz, b: &PlanBlock) -> String {
     format!(
         "ブロックを追加しました: {} {}-{}{}",
         short(&b.id),
@@ -1048,7 +1048,7 @@ pub fn abc_dispute(a: &hitoiki_core::model::AbcRecord) -> String {
     )
 }
 
-// ===== ブロックのテンプレート =====
+// ===== テンプレート =====
 
 use hitoiki_core::service::block_template::{
     ApplyResult, Preview, PreviewBlock, Suggestion, TemplateList, TemplateView, UndoResult,
@@ -1346,18 +1346,18 @@ pub fn unignored(r: &hitoiki_core::service::review::UnignoreResult) -> String {
     )
 }
 
-/// `hitoiki push list` の人間向け表示。
-pub fn push_list(tz: Tz, l: &hitoiki_core::service::pushlog::PushList) -> String {
-    use hitoiki_core::service::pushlog::PushState;
-    if l.pushes.is_empty() {
+/// `hitoiki nudge list` の人間向け表示。
+pub fn nudge_list(tz: Tz, l: &hitoiki_core::service::nudgelog::NudgeList) -> String {
+    use hitoiki_core::service::nudgelog::NudgeState;
+    if l.nudges.is_empty() {
         return "通知はありません".into();
     }
     let mut out = Vec::new();
-    for p in &l.pushes {
+    for p in &l.nudges {
         let state = match p.state {
-            PushState::Unanswered => "未回答",
-            PushState::Answered => "回答済み",
-            PushState::Dismissed => "見送り",
+            NudgeState::Unanswered => "未回答",
+            NudgeState::Answered => "回答済み",
+            NudgeState::Dismissed => "見送り",
         };
         let mut line = format!(
             "{} {} [{}] {} ({})",
@@ -1378,11 +1378,11 @@ pub fn push_list(tz: Tz, l: &hitoiki_core::service::pushlog::PushList) -> String
     out.join("\n")
 }
 
-/// `hitoiki push answer` の人間向け表示。
-pub fn push_answered(r: &hitoiki_core::service::pushlog::AnswerResult) -> String {
-    use hitoiki_core::service::pushlog::PushState;
+/// `hitoiki nudge answer` の人間向け表示。
+pub fn nudge_answered(r: &hitoiki_core::service::nudgelog::AnswerResult) -> String {
+    use hitoiki_core::service::nudgelog::NudgeState;
     match r.state {
-        PushState::Dismissed => format!("見送りました: {}", short(&r.id)),
+        NudgeState::Dismissed => format!("見送りました: {}", short(&r.id)),
         _ => {
             let mut parts = Vec::new();
             if r.checkin_id.is_some() {

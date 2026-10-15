@@ -1,4 +1,4 @@
-// ブロックのテンプレートまわりの純粋なロジック。
+// テンプレートまわりの純粋なロジック。
 
 import type { Overlap, PreviewBlock, TemplateInput, TemplateItemInput, TemplateView } from "./api";
 

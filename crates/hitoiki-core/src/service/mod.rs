@@ -17,9 +17,8 @@ pub mod ingest;
 pub mod key_result_progress;
 mod key_result_summary;
 pub mod link_suggestion;
-pub mod onboarding;
+pub mod nudgelog;
 pub mod plan;
-pub mod pushlog;
 pub mod quick;
 pub mod record;
 pub mod reflect;
@@ -32,6 +31,7 @@ pub mod status;
 pub mod structured;
 pub mod task;
 pub mod update;
+pub mod welcome;
 
 use crate::config::Config;
 use crate::model::{ActivitySegment, SegmentKind, SegmentStatus};
@@ -43,7 +43,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 /// JSON 出力のスキーマ版。
-pub const SCHEMA_VERSION: u32 = 1;
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// サービス呼び出しの共通コンテキスト。
 pub struct Ctx<'a> {

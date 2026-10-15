@@ -57,7 +57,7 @@ checks:
       - paths: 'crates/hitoiki-core/migrations/*.sql'
         doc: docs/dev/architecture.md
       # 通知の判定 -> アーキテクチャ
-      - paths: 'crates/hitoiki-core/src/push/**'
+      - paths: 'crates/hitoiki-core/src/nudge/**'
         doc: docs/dev/architecture.md
         exclude: ['**/tests.rs']
       # UI の画面 -> 日々の使い方

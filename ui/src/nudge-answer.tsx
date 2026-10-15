@@ -1,24 +1,24 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import { api } from "./api";
-import type { PushPayload, PushView } from "./api";
+import type { NudgePayload, NudgeView } from "./api";
 import { ErrorBox } from "./components";
 import { fmtTime, useAction } from "./lib";
-import { buildForm, dismissArgs, periodLabel, respondArgs } from "./push-answer-util";
+import { buildForm, dismissArgs, periodLabel, respondArgs } from "./nudge-answer-util";
 
 /**
- * 通知への回答 UI（選択肢のボタン・一言入力・開く・答えない）。今日画面のサイドパネルと
- * ポップアップ窓で共有する。応答は core が処理する（`push_respond`）。
- * `pushId` が無い（テスト通知）ときは「答えない」を出さない。`children` は下段の行に並べる。
+ * 問いかけへの回答 UI（選択肢のボタン・一言入力・開く・答えない）。今日画面のサイドパネルと
+ * ポップアップ窓で共有する。応答は core が処理する（`nudge_respond`）。
+ * `nudgeId` が無い（テスト通知）ときは「答えない」を出さない。`children` は下段の行に並べる。
  */
-export function PushAnswer({
-  pushId,
+export function NudgeAnswer({
+  nudgeId,
   payload,
   onDone,
   children,
 }: {
-  pushId: string | null;
-  payload: PushPayload;
+  nudgeId: string | null;
+  payload: NudgePayload;
   onDone: () => void;
   children?: ComponentChildren;
 }) {
@@ -27,10 +27,10 @@ export function PushAnswer({
   const form = buildForm(payload);
 
   const send = (args: ReturnType<typeof respondArgs>) =>
-    act.run(() => api.pushRespond(args).then(() => true)).then((ok) => ok && onDone());
+    act.run(() => api.nudgeRespond(args).then(() => true)).then((ok) => ok && onDone());
 
   return (
-    <div class="push-answer">
+    <div class="nudge-answer">
       {form.buttons.length > 0 && (
         <div class="actions">
           {form.buttons.map((b) => (
@@ -38,7 +38,7 @@ export function PushAnswer({
               key={b.key}
               class="chip"
               disabled={act.busy}
-              onClick={() => send(respondArgs(pushId, payload, b, note))}
+              onClick={() => send(respondArgs(nudgeId, payload, b, note))}
             >
               {b.label}
             </button>
@@ -56,14 +56,14 @@ export function PushAnswer({
       <ErrorBox error={act.error} />
       <div class="row">
         {form.canOpen && (
-          <button class="ghost" disabled={act.busy} onClick={() => send(respondArgs(pushId, payload, null, note))}>
+          <button class="ghost" disabled={act.busy} onClick={() => send(respondArgs(nudgeId, payload, null, note))}>
             開く
           </button>
         )}
         <span class="spacer" />
         {children}
-        {pushId && (
-          <button class="ghost" disabled={act.busy} onClick={() => send(dismissArgs(pushId))}>
+        {nudgeId && (
+          <button class="ghost" disabled={act.busy} onClick={() => send(dismissArgs(nudgeId))}>
             答えない
           </button>
         )}
@@ -73,10 +73,10 @@ export function PushAnswer({
 }
 
 /** 未回答の問いかけの一覧（今日の画面のサイドパネル）。 */
-export function PushList({ pushes, onDone }: { pushes: PushView[]; onDone: () => void }) {
+export function NudgeList({ nudges, onDone }: { nudges: NudgeView[]; onDone: () => void }) {
   return (
-    <ul class="plain push-list">
-      {pushes.map((p) => (
+    <ul class="plain nudge-list">
+      {nudges.map((p) => (
         <li key={p.id}>
           <div>
             <span class="meta">
@@ -86,7 +86,7 @@ export function PushList({ pushes, onDone }: { pushes: PushView[]; onDone: () =>
           </div>
           {p.body && <p class="hint">{p.body}</p>}
           {periodLabel(p.payload, fmtTime) && <p class="meta">対象の時間帯: {periodLabel(p.payload, fmtTime)}</p>}
-          {p.payload && <PushAnswer pushId={p.id} payload={p.payload} onDone={onDone} />}
+          {p.payload && <NudgeAnswer nudgeId={p.id} payload={p.payload} onDone={onDone} />}
         </li>
       ))}
     </ul>

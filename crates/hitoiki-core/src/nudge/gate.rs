@@ -1,17 +1,17 @@
-//! 抑制ルール（docs/dev/architecture.md「プッシュ通知」）。トリガー条件を満たした候補に対して、出す / 抑制 / 保留を決める。
+//! 抑制ルール（docs/dev/architecture.md「問いかけ」）。トリガー条件を満たした候補に対して、出す / 抑制 / 保留を決める。
 //!
 //! 適用順（最初に該当したものが結果になる）:
-//! 1. **スヌーズ**: push_log のいずれかの `snoozed_until` が now より先なら `snoozed`。
+//! 1. **スヌーズ**: nudge_log のいずれかの `snoozed_until` が now より先なら `snoozed`。
 //!    「今日はもういい」は `apply_response` がその日の終わり（ローカル 24:00）を入れる。
 //! 2. **1 日上限**: 今日（ローカル日付）の配信済み件数が `daily_limit` 以上なら `daily_limit`。
-//! 3. **全体の最小間隔**: どのトリガーでも直前の配信から `tuning.min_gap_any_min` 分未満なら `recent_push`。
+//! 3. **全体の最小間隔**: どのトリガーでも直前の配信から `tuning.min_gap_any_min` 分未満なら `recent_nudge`。
 //! 4. **同一トリガーの最小間隔**: 直前の同トリガー配信から `min_interval_min × 係数` 分未満なら
 //!    `min_interval`（係数による延長分で止まった場合は `min_interval_backoff`）。
-//! 5. **会議中 / フォーカス time_block 中**は `Defer`（会議の予定終了、なければ now + `meeting_defer_min`、
-//!    フォーカスブロックの終了まで）。meeting_overrun は会議中に出すためのものなので会議の保留は受けない。
+//! 5. **会議中 / フォーカス plan_block 中**は `Defer`（会議の予定終了、なければ now + `meeting_defer_min`、
+//!    「集中」の計画ブロックの終了まで）。meeting_overrun は会議中に出すためのものなので会議の保留は受けない。
 //!
 //! 例外: `block_start`（計画ブロックの開始）は時刻に意味があるので、3・4（間隔）を受けない。また、
-//! 自分自身のフォーカスブロックでは 5 の保留を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。
+//! 自分自身の「集中」の計画ブロックでは 5 の保留を受けない（スヌーズ・1 日上限・会議中の保留は受ける）。
 //!
 //! ## 応答率による間隔延長
 //! 配信済みの直近 `response_window`（5）件のうち、配信から `response_grace_min`（30）分以上経った
@@ -19,8 +19,8 @@
 //! 未満なら係数 1。応答率 ≥ 0.5 なら係数 1、それ未満は線形に伸ばし、応答率 0 で係数 4（上限）。
 //! `係数 = 1 + 3 × (0.5 − 応答率) / 0.5`。
 
-use super::{PushContext, PushPayload, PushTrigger};
-use crate::config::Push;
+use super::{NudgeContext, NudgePayload, NudgeTrigger};
+use crate::config::Nudge;
 use crate::timefmt::{day_range, local_date_of};
 use crate::Millis;
 
@@ -33,11 +33,11 @@ pub(crate) enum Gate {
 }
 
 /// 応答率に応じた最小間隔の係数（1.0〜4.0）。
-pub(crate) fn interval_factor(ctx: &PushContext) -> f64 {
+pub(crate) fn interval_factor(ctx: &NudgeContext) -> f64 {
     let t = &ctx.tuning;
     let grace = t.response_grace_min as Millis * MIN_MS;
     let mut sent: Vec<_> = ctx
-        .push_log
+        .nudge_log
         .iter()
         .filter(|l| l.delivered && ctx.now - l.at >= grace)
         .collect();
@@ -54,11 +54,11 @@ pub(crate) fn interval_factor(ctx: &PushContext) -> f64 {
     }
 }
 
-pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger, payload: &PushPayload) -> Gate {
+pub(crate) fn check(ctx: &NudgeContext, cfg: &Nudge, trigger: NudgeTrigger, payload: &NudgePayload) -> Gate {
     let sup = |r: &str| Gate::Suppress(r.to_string());
 
     if ctx
-        .push_log
+        .nudge_log
         .iter()
         .any(|l| l.snoozed_until.is_some_and(|u| u > ctx.now))
     {
@@ -67,7 +67,7 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger, payload
 
     let today = day_range(ctx.tz, local_date_of(ctx.tz, ctx.now));
     let delivered_today = ctx
-        .push_log
+        .nudge_log
         .iter()
         .filter(|l| l.delivered && l.at >= today.start && l.at < today.end)
         .count();
@@ -77,14 +77,14 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger, payload
 
     // block_start は「計画した時刻」に意味がある通知なので、間隔のルール（3・4）は受けない。
     // 配信済みのブロックには重ねて出さない（トリガー側が見る）。
-    let timed = trigger == PushTrigger::BlockStart;
-    let last_any = ctx.push_log.iter().filter(|l| l.delivered).map(|l| l.at).max();
+    let timed = trigger == NudgeTrigger::BlockStart;
+    let last_any = ctx.nudge_log.iter().filter(|l| l.delivered).map(|l| l.at).max();
     if !timed && last_any.is_some_and(|at| ctx.now - at < ctx.tuning.min_gap_any_min as Millis * MIN_MS) {
-        return sup("recent_push");
+        return sup("recent_nudge");
     }
 
     let last_same = ctx
-        .push_log
+        .nudge_log
         .iter()
         .filter(|l| l.delivered && l.trigger == trigger.as_str())
         .map(|l| l.at)
@@ -101,16 +101,16 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger, payload
         }
     }
 
-    if trigger != PushTrigger::MeetingOverrun {
+    if trigger != NudgeTrigger::MeetingOverrun {
         if let Some(until) = meeting_until(ctx) {
             return Gate::Defer(until);
         }
     }
     if let Some(b) = ctx
-        .time_blocks
+        .plan_blocks
         .iter()
         .filter(|b| b.focus && b.start_at <= ctx.now && ctx.now < b.end_at)
-        // そのブロック自身の開始通知は、自分のフォーカスブロックでは保留しない。
+        // その計画ブロック自身の開始の問いかけは、自分の「集中」の計画ブロックでは保留しない。
         .filter(|b| payload.block_id.as_deref() != Some(b.id.as_str()))
         .max_by_key(|b| b.end_at)
     {
@@ -121,7 +121,7 @@ pub(crate) fn check(ctx: &PushContext, cfg: &Push, trigger: PushTrigger, payload
 
 /// 会議中なら、保留の終了時刻。会議中の判定: 進行中の busy 予定（終日を除く）、
 /// 現在の meeting 区間、会議アプリが前面。
-fn meeting_until(ctx: &PushContext) -> Option<Millis> {
+fn meeting_until(ctx: &NudgeContext) -> Option<Millis> {
     let event_end = ctx
         .calendar_events
         .iter()
@@ -142,10 +142,10 @@ fn meeting_until(ctx: &PushContext) -> Option<Millis> {
     (in_segment || fg_meeting).then(|| ctx.now + ctx.tuning.meeting_defer_min as Millis * MIN_MS)
 }
 
-/// 同じトリガーの直近の push_log 行が、同じ理由の抑制ログなら true（連続抑制は記録しない）。
+/// 同じトリガーの直近の nudge_log 行が、同じ理由の抑制ログなら true（連続抑制は記録しない）。
 /// 間に配信や別理由の抑制が入れば false になり、再び記録される。
-pub(crate) fn is_repeat_suppression(ctx: &PushContext, trigger: PushTrigger, reason: &str) -> bool {
-    ctx.push_log
+pub(crate) fn is_repeat_suppression(ctx: &NudgeContext, trigger: NudgeTrigger, reason: &str) -> bool {
+    ctx.nudge_log
         .iter()
         .filter(|l| l.trigger == trigger.as_str())
         .max_by_key(|l| l.at)

@@ -173,14 +173,14 @@ pub fn task_doing_logs(conn: &Connection, range: Range) -> Result<Vec<TaskDoingL
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 範囲と重なる `time_block`。
-pub fn time_blocks(conn: &Connection, range: Range) -> Result<Vec<TimeBlock>> {
+/// 範囲と重なる `plan_block`。
+pub fn plan_blocks(conn: &Connection, range: Range) -> Result<Vec<PlanBlock>> {
     let mut stmt = conn.prepare(
-        "SELECT id, start_at, end_at, task_id, label, focus FROM time_block
+        "SELECT id, start_at, end_at, task_id, label, focus FROM plan_block
          WHERE start_at < ?2 AND end_at > ?1 ORDER BY start_at, id",
     )?;
     let rows = stmt.query_map(params![range.start, range.end], |r| {
-        Ok(TimeBlock {
+        Ok(PlanBlock {
             id: r.get(0)?,
             start_at: r.get(1)?,
             end_at: r.get(2)?,

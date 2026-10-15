@@ -3,11 +3,11 @@
 
 use crate::dto::*;
 use crate::error::{AppError, AppResult};
-use crate::state::{AppState, PushEvent, RuntimeMode};
+use crate::state::{AppState, NudgeEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{
-    AbcRecord, CalendarEvent, Checkin, ErgChoice, ErgLabel, ErgRecordKind, Hassle, Reflection, TimeBlock,
+    AbcRecord, CalendarEvent, Checkin, ErgChoice, ErgLabel, ErgRecordKind, Hassle, PlanBlock, Reflection,
 };
 use hitoiki_core::service::actual::{self as actual_svc, ActualList, ActualListInput};
 use hitoiki_core::service::block_template::{
@@ -25,7 +25,6 @@ use hitoiki_core::service::heatmap::{self, Heatmap, HeatmapInput};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
 use hitoiki_core::service::link_suggestion;
-use hitoiki_core::service::onboarding::{self, OnboardingStatus};
 use hitoiki_core::service::plan::{self, BlockList};
 use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
 use hitoiki_core::service::reflect;
@@ -37,6 +36,7 @@ use hitoiki_core::service::review::{
 use hitoiki_core::service::skill::{self, PresetImport, SkillList};
 use hitoiki_core::service::status::{self, Status};
 use hitoiki_core::service::task::{self, RuleList, TaskChange, TaskInput, TaskList, TaskShow, TaskView};
+use hitoiki_core::service::welcome::{self, WelcomeStatus};
 use hitoiki_core::service::RangeArgs;
 use hitoiki_core::{paths, Clock, SystemClock};
 use serde_json::{json, Value};
@@ -334,7 +334,7 @@ pub fn correction_undo(app: AppHandle, state: S, id: String) -> AppResult<Correc
 // ===== 計画（ブロック） =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn block_add(state: S, input: BlockInputDto) -> AppResult<TimeBlock> {
+pub fn block_add(state: S, input: BlockInputDto) -> AppResult<PlanBlock> {
     let input = input.into();
     let v = state.with_ctx(|c| plan::add(c, &input))?;
     state.request_rebuild();
@@ -355,14 +355,14 @@ pub fn block_delete(state: S, id: String) -> AppResult<()> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn block_update(state: S, id: String, input: BlockInputDto) -> AppResult<TimeBlock> {
+pub fn block_update(state: S, id: String, input: BlockInputDto) -> AppResult<PlanBlock> {
     let input = input.into();
     let v = state.with_ctx(|c| plan::update(c, &id, &input))?;
     state.request_rebuild();
     Ok(v)
 }
 
-// ===== ブロックのテンプレート =====
+// ===== テンプレート =====
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn block_template_list(state: S) -> AppResult<TemplateList> {
@@ -680,7 +680,7 @@ pub fn config_get(key: String) -> AppResult<Value> {
 pub fn config_set(app: AppHandle, state: S, key: String, value: String) -> AppResult<Value> {
     let path = paths::config_file();
     config::set_value(&path, &key, &value)?;
-    // 再計算・カレンダー・プッシュ・自動判定に反映する（収集器の設定は再起動が必要）。
+    // 再計算・カレンダー・問いかけ・自動判定に反映する（収集器の設定は再起動が必要）。
     state.apply_config();
     if key == "general.autostart" {
         crate::apply_autostart(&app);
@@ -733,17 +733,17 @@ pub fn take_initial_screen(state: S) -> Option<String> {
     state.take_initial_screen()
 }
 
-/// ポップアップ窓用: 直近のプッシュを返す。
+/// ポップアップ窓用: 直近の問いかけを返す。
 #[tauri::command(rename_all = "snake_case")]
-pub fn pending_push(state: S) -> Option<PushEvent> {
-    state.last_push()
+pub fn pending_nudge(state: S) -> Option<NudgeEvent> {
+    state.last_nudge()
 }
 
-/// ポップアップ／通知のボタン押下相当（UI から応答する）。`push_id` は `pending_push` が返した値。
+/// ポップアップ／通知のボタン押下相当（UI から応答する）。`nudge_id` は `pending_nudge` が返した値。
 #[tauri::command(rename_all = "snake_case")]
-pub fn push_respond(
+pub fn nudge_respond(
     app: AppHandle,
-    push_id: Option<String>,
+    nudge_id: Option<String>,
     action: Option<String>,
     value: Option<i64>,
     input: Option<String>,
@@ -755,7 +755,7 @@ pub fn push_respond(
             action,
             value,
             input,
-            push_id,
+            nudge_id,
             open_screen,
         },
     );
@@ -767,26 +767,26 @@ pub fn runtime_state(state: S) -> RuntimeMode {
     state.runtime_mode()
 }
 
-/// オンボーディングの完了状態。
+/// はじめにの完了状態。
 #[tauri::command(rename_all = "snake_case")]
-pub fn onboarding_status(state: S) -> AppResult<OnboardingStatus> {
-    state.with_ctx(onboarding::status)
+pub fn welcome_status(state: S) -> AppResult<WelcomeStatus> {
+    state.with_ctx(welcome::status)
 }
 
-/// オンボーディングを完了済みにする。
+/// はじめにを完了済みにする。
 #[tauri::command(rename_all = "snake_case")]
-pub fn onboarding_complete(state: S) -> AppResult<OnboardingStatus> {
-    state.with_ctx(onboarding::complete)
+pub fn welcome_complete(state: S) -> AppResult<WelcomeStatus> {
+    state.with_ctx(welcome::complete)
 }
 
-/// オンボーディングを未完了に戻す（設定画面の「もう一度見る」）。
+/// はじめにを未完了に戻す（設定画面の「もう一度見る」）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn onboarding_reset(state: S) -> AppResult<OnboardingStatus> {
-    state.with_ctx(onboarding::reset)
+pub fn welcome_reset(state: S) -> AppResult<WelcomeStatus> {
+    state.with_ctx(welcome::reset)
 }
 
 /// テスト通知（アクションボタン付きトースト）を出す。設定画面の動作確認用。
 #[tauri::command(rename_all = "snake_case")]
 pub fn notify_test(app: AppHandle) -> AppResult<()> {
-    crate::notify::show_push(&app, None, &crate::notify::test_payload()).map_err(AppError::internal)
+    crate::notify::show_nudge(&app, None, &crate::notify::test_payload()).map_err(AppError::internal)
 }

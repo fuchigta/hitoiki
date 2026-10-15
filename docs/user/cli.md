@@ -4,7 +4,7 @@
 
 ## 共通の仕様
 
-- **`--json`**: 参照系コマンドを機械可読な JSON で出力します（全コマンド共通のオプション）。
+- **`--json`**: 参照系コマンドを機械可読な JSON で出力します（全コマンド共通のオプション）。外枠の `version`（現在は 2）は、キー名などの形が変わるたびに上がります。
 - **対話しない**: プロンプトは出しません。不足している引数はエラーになります。
 - **終了コード**: 0 成功、1 一般エラー、2 引数エラー、3 対象なし、4 曖昧（ID の前方一致が複数あるなど）。
 - **常駐していなくても動く**: CLI は DB を直接読み書きします。変更したときは、常駐処理が動いていれば名前付きパイプで通知します（失敗しても無視します）。
@@ -18,8 +18,8 @@
 | コマンド | 内容 |
 |---|---|
 | `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ（時刻・種類・タイトル・ID）、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
-| `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
-| `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|kr_skip_week\|skip] [--dismiss]` | 通知に答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない成果の指標」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`kr_skip_week` は「時間が入っていない成果の指標」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
+| `hitoiki nudge list [--unanswered] [--date D] [--from F] [--to T]` | 配信された問いかけの一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `nudges` |
+| `hitoiki nudge answer <ID> [--energy N] [--mood N] [--stress N] [--concern TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|key_result_skip_week\|skip] [--dismiss]` | 問いかけに答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない成果の指標」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`key_result_skip_week` は「時間が入っていない成果の指標」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki actual list [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `uncollected`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
 | `hitoiki heatmap [--by 集計の軸] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `key_result:<ID またはタイトル>`（`key-result show` と同じ成果の指標の時間。成果の指標のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 集計の軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `urgent_important` / `key_result` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
@@ -62,11 +62,11 @@
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki block add <START> <END> [--task T] [--label L] [--focus]` | 計画ブロックを追加（`--focus` は集中ブロック） |
+| `hitoiki block add <START> <END> [--task T] [--label L] [--focus]` | 計画ブロックを追加（`--focus` は「集中」を付ける） |
 | `hitoiki block list [--date D] [--from F] [--to T]` | 計画ブロックの一覧 |
 | `hitoiki block edit <ID> [--start S] [--end E] [--task T] [--label L] [--focus \| --no-focus]` | 計画ブロックを編集（指定した項目だけ変える） |
 | `hitoiki block delete <ID>` | 計画ブロックを削除 |
-| `hitoiki block template add <NAME> [--description D] [--weekdays W] [--block SPEC]...` | ブロックのテンプレートを作る（下記） |
+| `hitoiki block template add <NAME> [--description D] [--weekdays W] [--block SPEC]...` | テンプレートを作る（下記） |
 | `hitoiki block template list` / `show <NAME>` | テンプレートの一覧 / 中身 |
 | `hitoiki block template edit <NAME> [--new-name N] [--description D] [--weekdays W] [--block SPEC]...` | 指定した項目だけ変える。`--block` を付けるとブロックを置き換える。`--weekdays ""` で曜日の割り当てを外す |
 | `hitoiki block template delete <NAME>` | テンプレートを削除（作成済みのブロックは消えない） |
@@ -90,7 +90,7 @@
 
 削除コマンドは共通で、影響（紐付いているタスクの数など）があるときは `--force` を付けないと失敗します（終了コード 2）。`--dry-run` を付けると何も消さず、影響だけを表示します。`--json` では `{"dry_run": ..., "deleted": ..., "impact": {"lines": [{"label": ..., "count": ...}]}}` を返します。
 
-#### ブロックのテンプレート
+#### テンプレート
 
 `<NAME>` はテンプレートの名前、または ID の前方一致です。
 
@@ -192,7 +192,7 @@ ERG は、記録の内容から AI が判定します（存在 = 体や生活の
 
 ## `hitoiki ui` の画面名
 
-`today`、`actual`、`tasks`、`goals`、`records`、`report`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「実績」「タスク」「目標」「記録」「レポート」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。旧名として `plan`、`reflect` も受け付けます。`plan` は「計画」の画面の旧名で、いまは計画が入った今日の画面（`today`）を開きます。`reflect` は、記録画面に統合される前の「振り返り」の呼び名で、いまは記録画面で振り返りだけに絞った一覧（`reflect/day_start` のように種別まで指定すると、その種別の振り返りの作成フォーム）を開きます。`reflection`（通知が使う名前）も同じです。`checkin` / `hassle` は記録画面の調子・気になったことの作成フォームを開きます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
+`today`、`actual`、`tasks`、`goals`、`records`、`report`、`settings`、`welcome`。それぞれ画面の名前は「今日」「実績」「タスク」「目標」「記録」「レポート」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の問いかけの本体をクリックしたときも同じ）。`records/new/<kind>`（`kind` は `day_start`・`day_end`・`weekly`・`condition`・`concern`・`reframe`）は記録の作成フォーム、`actual?status=review` は実績の「要確認」の絞り込みを開きます。旧い名前は受け付けず、未知の名前は `today` になります。
 
 ## エージェントからの利用
 

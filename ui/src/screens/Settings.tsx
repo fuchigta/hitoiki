@@ -60,7 +60,7 @@ function GeneralTab() {
             <button
               class="ghost"
               onClick={async () => {
-                if (await act.run(() => api.onboardingReset())) navigate("#/onboarding");
+                if (await act.run(() => api.welcomeReset())) navigate("#/welcome");
               }}
             >
               はじめにをもう一度見る
@@ -75,20 +75,20 @@ function GeneralTab() {
 function NotifyTab() {
   const cfg = useConfig();
   const act = useAction();
-  const p = cfg.c.push;
+  const p = cfg.c.nudge;
   return (
     <>
       <ErrorBox error={cfg.error ?? act.error} />
-      <Card title="通知">
+      <Card title="問いかけ">
         <div class="stack">
           <label class="check">
             <input
               type="checkbox"
               checked={p?.enabled !== false}
               disabled={cfg.busy}
-              onChange={(e) => cfg.set("push.enabled", String(e.currentTarget.checked))}
+              onChange={(e) => cfg.set("nudge.enabled", String(e.currentTarget.checked))}
             />
-            問いかけの通知を受け取る
+            問いかけを受け取る
           </label>
           <div class="row">
             <button onClick={() => act.run(() => api.notifyTest())}>テスト通知を出す</button>
@@ -101,11 +101,11 @@ function NotifyTab() {
           </div>
         </div>
       </Card>
-      <Card title="通知のタイミング">
+      <Card title="問いかけのタイミング">
         <div class="stack">
           <NumberSetting
             cfg={cfg}
-            k="push.idle_return_min"
+            k="nudge.idle_return_min"
             label="戻ったときの確認"
             help="無操作がこの分数以上続いて戻ったら「さっきは？」と尋ねます。"
             value={p?.idle_return_min ?? 15}
@@ -114,7 +114,7 @@ function NotifyTab() {
           />
           <NumberSetting
             cfg={cfg}
-            k="push.urgent_task_interval_min"
+            k="nudge.urgent_task_interval_min"
             label="緊急タスクの間隔"
             help="緊急のしるしが付いたタスクを、この分数おきに知らせます。"
             value={p?.urgent_task_interval_min ?? 120}
@@ -123,7 +123,7 @@ function NotifyTab() {
           />
           <NumberSetting
             cfg={cfg}
-            k="push.important_stale_days"
+            k="nudge.important_stale_days"
             label="重要タスクの日数"
             help="重要なタスクに、この日数以上時間が入っていなければ知らせます。"
             value={p?.important_stale_days ?? 3}
@@ -132,10 +132,10 @@ function NotifyTab() {
           />
           <NumberSetting
             cfg={cfg}
-            k="push.kr_idle_weekday"
+            k="nudge.key_result_idle_weekday"
             label="成果の指標を知らせる曜日"
             help="今週まだ時間が入っていない成果の指標を知らせる曜日です。1=月 2=火 3=水 4=木 5=金 6=土 7=日。"
-            value={p?.kr_idle_weekday ?? 3}
+            value={p?.key_result_idle_weekday ?? 3}
             unit="（1〜7）"
             zeroOff
             max={7}
@@ -173,7 +173,7 @@ function TemplatesTab() {
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), []);
   return (
     <Card
-      title="テンプレート（働き方のパターン）"
+      title="テンプレート"
       help="よく使う 1 日の配置を保存しておき、曜日の既定にすると、今日の画面の「今日のデザイン」で提案されます。今日の配置からの保存は、今日の画面の「デザイン」から行えます。"
     >
       <TemplateManager tasks={tasks.data?.tasks ?? []} />
@@ -205,7 +205,7 @@ function DataTab() {
           }}
         >
           <Field label="キー">
-            <input value={key} onInput={(e) => setKey(e.currentTarget.value)} placeholder="push.daily_limit" />
+            <input value={key} onInput={(e) => setKey(e.currentTarget.value)} placeholder="nudge.daily_limit" />
           </Field>
           <Field label="値（TOML）">
             <input value={value} onInput={(e) => setValue(e.currentTarget.value)} placeholder='6 / true / "08:00"' />
