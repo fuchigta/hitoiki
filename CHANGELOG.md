@@ -4,15 +4,31 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-16
+
+用語を整理し、画面・CLI・設定・DB・`--json` の名前を 1 つの用語集（[GLOSSARY.md](./GLOSSARY.md)）に揃えました。**旧い名前は受け付けない破壊的変更です。** DB は初回の起動時に自動で移行されますが、設定ファイルとスクリプトは書き直しが必要です。
+
 ### 変更
 
-- 画面・CLI の表示で、記録の種類と時間の種別の呼び名を平易にしました。ハッスルは「気になったこと」、チェックインは「調子」、ABC は「捉え直し（ABC）」（画面の「?」で出来事・受け止め方・感情を分けて考える方法だと説明します）、レポートの「象限」は「緊急・重要」、「エージェント」は「AI エージェント」、時間の種別の「エージェント対話」は「AI との対話」、「エージェント待機」は「AI の作業待ち」になりました。コマンド名・フラグ・設定キー・JSON のキーは変わりません。
-- 目標画面まわりの用語を言い換えました。「OKR」を「目標」、「Objective」を「目標」、「Key Result」「KR」を「成果の指標」とし、成果の指標に書く「目標」は「目標値」にしました。紐づけの候補の出どころ「手元」は「名前の近さ」です。画面、CLI の表示、通知、文書が対象で、コマンド名（`hitoiki okr ...`）、オプション、設定キー、JSON のキーは変わりません。目標画面の入口とスキルの一覧には、それぞれ短い説明（？）を足しました。
-- 画面に出ていた内部の名前を、日本語の表示名にしました。ルールの「対象」「種類」の選択肢は「アプリ（実行ファイル名）」「ウインドウ名」「ワイルドカード（* と ?）」「正規表現」などになります（保存される値や CLI の指定は変わりません）。「帰属ルール」は「タスクの割り当てルール」、「判定器に渡す活動」は「自動判定（AI）に渡す活動」、「オンボーディング」は画面名の「はじめに」に言い換え、はじめに画面の「仕分け」のリンクは実績の「要確認」を開くようにしました。
-- 破壊的変更: 目標・成果の指標・集計の軸の名前を用語集に揃えました。CLI の `hitoiki okr ...` は `hitoiki goal add|list|show|edit|delete` と `hitoiki key-result add|show|edit|delete|link|unlink|suggest|suggest-accept|suggest-reject|progress|history` に分かれ、`--kr` は `--key-result`、`--no-kr` は `--no-key-result`、`--day-min` は `--active-day-min` になりました。状態の `done` は `achieved` に、成果の指標の数え方（`--measure`）の `days` / `done` は `active_days` / `done_tasks` に、レポートの `--by` の `quadrant` / `okr` は `urgent_important` / `key_result` に、活動量の `--by kr:<…>` は `key_result:<…>` に変わりました。`--json` の出力と AI に渡すコンテキストのキー（`objective` は `goal`、`kr` 系は `key_result` 系、`okr` は `goals`）、画面のアドレス（`#/okr/...` は `#/goals/...`）、`hitoiki ui okr` の画面名（`goals`）も変わりました。旧名は受け付けません。DB はマイグレーション 0011 で表・列・保存済みの値を書き換えます（適用前にバックアップを取ります）。
-- **破壊的変更**: 実績まわりの名前（CLI・UI のルート・Tauri コマンド・設定・DB・JSON のキー）を用語集に揃え、旧名の別名は残しません。CLI は `hitoiki log` を `hitoiki actual list`、`hitoiki review list` を `hitoiki actual review`、`hitoiki review set <区間>...` を `hitoiki actual confirm`、`hitoiki review set --from --to` を `hitoiki actual correct`、`hitoiki review corrections|undo-correction|idle|ignore|unignore|suggest` を `hitoiki actual ...`、`hitoiki activity-label` を `hitoiki activity` に改め、画面のルートは `log` を `actual`（要確認の絞り込みは `actual?status=review`）にしました（旧ルート `review` は受け付けません）。設定は `[review]` を `[actual]`、`agent.watch_max_min` を `agent.wait_max_min` に改めます（旧キーは読み飛ばされるので書き直してください）。`--json` では、区間の種別 `agent_watch` が `agent_wait`、`watch_ms` が `wait_ms`、`offline` が `off_pc`（補正の `offline_ms` は `off_pc_ms`）、`activity_label` が `activity`、記録なしの `gaps` が `uncollected`（除外 ID の接頭辞も `gap:` から `uncollected:`）、判定の根拠 `decided_by` の `user` が `confirmation`、`override_ids` が `confirmation_ids` になります。DB は起動時に自動で移行します（`segment_override` を `segment_confirmation`、`task_match_rule` を `task_assign_rule` に改名し、タスクの割り当てルールの種類の既定値を `glob` に揃えます。自動判定のキャッシュは作り直します）。画面と文書の「判定器」は「自動判定」「判定の接続先」に言い換えました。
-- 破壊的変更として、問いかけ・計画ブロック・はじめにの名前を用語集に揃えました（互換の別名はありません）。コマンド `hitoiki push list|answer` は `hitoiki nudge list|answer`（回答の `--hassle` は `--concern`）に、設定の `[push]`（`push.*`）は `[nudge]`（`nudge.*`）に、きっかけ `kr_idle` は `key_result_idle`、`long_focus` は `long_work`（設定 `kr_idle_weekday` は `key_result_idle_weekday`、`long_focus_min` は `long_work_min`）になりました。`nudge.disabled_triggers` の値も新しい名前です。`hitoiki ui` の画面名も `welcome` などの新しい名前だけを受け付け、旧名（`onboarding`・`plan`・`reflect`・`reflection`）は使えなくなりました。`--json` の外枠の `version` は 2 になりました。保存済みの問いかけ・計画ブロック・はじめにの完了状態は、起動時のマイグレーションで新しい名前に書き換わります。設定ファイルの旧キーは読み飛ばされるので、書き直してください。画面の「通知」「長時間の集中」は「問いかけ」「長時間の作業」に、「タイムブロック」「枠」は「計画ブロック」になりました。
-- **破壊的変更**: 記録まわりの名前を用語集に揃えました。CLI は `hitoiki check` を `hitoiki condition` に、`hitoiki abc` を `hitoiki reframe` に変えました（`abc dispute` は `reframe deepen`、`--a` `--b` `--c-emotion` `--c-intensity` `--from-hassle` `--dispute` は `--event` `--belief` `--emotion` `--emotion-intensity` `--from-concern` `--alternative`）。`hitoiki hassle` は `hitoiki concern` に、`hitoiki reflect day_start` `day_end` は `day-start` `day-end` になりました。画面の呼び名は「調子」「気になったこと」「捉え直し」「未確定（ERG）」に統一し、`#/checkin` などの古いアドレスは受け付けません。設定 `ai.templates_dir` は `ai.prompts_dir`、既定の置き場 `%APPDATA%\hitoiki\templates` は `prompts` になり、`abc_dispute.md` は `reframe_deepen.md` になりました（置いている場合は設定・ファイル名・ディレクトリを書き直してください。旧キーは読み飛ばされます）。DB は起動時に自動で書き換えます（表 `checkin` `hassle` `abc_record` は `condition` `concern` `reframe`、ERG の種類と出所の値、振り返りに保存した問いと回答の種類）。`--json` の項目名も変わるので、`hitoiki context` の `checkins` `hassles` `abc_records` は `conditions` `concerns` `reframes`、`activating_event` `dispute` などは `event` `alternative` などになりました。
+- 画面の呼び名を平易にしました。
+  - 目標まわり: 「OKR」「Objective」は「目標」、「Key Result」「KR」は「成果の指標」、成果の指標の「目標」は「目標値」、「何を軸に見るか」は「数え方」（時間・取り組んだ日数・完了したタスク数）です。目標の一覧とスキルの一覧には「?」の説明を足しました。
+  - 記録: 「チェックイン」は「調子」、「ハッスル」は「気になったこと」、「ABC」は「捉え直し」（「?」で出来事・受け止め方・感情を分けて考える方法だと説明します）、「反論」は「別の捉え方」、ERG の「確認待ち」は「未確定」です。
+  - 実績: 「エージェント対話」「エージェント待機」は「AI との対話」「AI の作業待ち」、「記録なし」は「未収集」、「活動ラベル」は「活動」、「帰属ルール」は「タスクの割り当てルール」、「判定器」は「自動判定」です。ルールの「対象」「種類」の選択肢は「アプリ（実行ファイル名）」「ウインドウ名」「ワイルドカード（* と ?）」「正規表現」などの表示になりました。
+  - その他: 通知で尋ねるものは「問いかけ」、「長時間の集中」は「長時間の作業」、「タイムブロック」は「計画ブロック」、「オンボーディング」は「はじめに」、レポートの「象限」は「緊急・重要」、「エージェント」は「AI エージェント」です。
+- CLI のコマンドを新しい名前にしました。
+  - `okr` は `goal`（目標）と `key-result`（成果の指標）に分かれました。`--kr` は `--key-result`、`--day-min` は `--active-day-min` です。目標の 1 件表示 `goal show` を足しました。
+  - `log` と `review` は `actual` の下にまとめました（`actual list` / `review` / `confirm` / `correct` / `corrections` / `undo-correction` / `idle` / `ignore` / `unignore` / `suggest`）。区間を指定する確定は `confirm`、時間帯の範囲を指定する補正は `correct` です。`activity-label` は `activity` です。
+  - `check` は `condition`、`hassle` は `concern`、`abc` は `reframe`（`abc dispute` は `reframe deepen`、`--a` `--b` `--c-emotion` `--c-intensity` `--dispute` `--from-hassle` は `--event` `--belief` `--emotion` `--emotion-intensity` `--alternative` `--from-concern`）、`reflect day_start` / `day_end` は `day-start` / `day-end` です。
+  - `push` は `nudge`（`--hassle` は `--concern`）です。
+  - 値も変わりました: 目標・成果の指標の状態 `done` は `achieved`、数え方の `days` / `done` は `active_days` / `done_tasks`、レポートの `--by quadrant` / `okr` は `urgent_important` / `key_result`、活動量の `--by kr:` は `key_result:` です。
+  - `hitoiki ui` の画面名は `today`・`actual`・`tasks`・`goals`・`records`・`report`・`settings`・`welcome` だけを受け付けます（`log`・`review`・`okr`・`onboarding`・`plan`・`reflect`・`checkin`・`hassle` などの旧名は使えません）。画面のアドレスも `#/goals/...`、`#/actual` などに変わりました。
+- 設定キーを新しい名前にしました。旧いキーは読み飛ばされるので、`config.toml` を書き直してください: `[review]` は `[actual]`、`[push]` は `[nudge]`（`kr_idle_weekday` は `key_result_idle_weekday`、`long_focus_min` は `long_work_min`、`disabled_triggers` の値の `kr_idle` / `long_focus` は `key_result_idle` / `long_work`）、`agent.watch_max_min` は `agent.wait_max_min`、`ai.templates_dir` は `ai.prompts_dir` です。振り返りのプロンプトを置いている場合は、既定の置き場が `%APPDATA%\hitoiki\templates` から `%APPDATA%\hitoiki\prompts` に、`abc_dispute.md` が `reframe_deepen.md` に変わったので、移してください。
+- `--json` の外枠の `version` を 2 に上げ、項目名と値を新しい名前にしました（例: `objective` は `goal`、`kr` 系は `key_result` 系、`checkins` / `hassles` / `abc_records` は `conditions` / `concerns` / `reframes`、`agent_watch` は `agent_wait`、`offline` は `off_pc`、`activity_label` は `activity`、`gaps` は `uncollected`、`override_ids` は `confirmation_ids`、判定の根拠 `user` は `confirmation`）。AI に渡すコンテキストのキーも同様です。
+- DB は起動時のマイグレーション（0011〜0015）で、表・列の名前と保存済みの値（区間の種別、ERG、振り返りの問いと回答、問いかけの履歴、はじめにの完了状態など）を新しい名前に書き換えます。自動判定のキャッシュは作り直します。タスクの割り当てルールの種類の既定値は `glob` に揃えました。
+
+### 修正
+
+- はじめに画面の「仕分け」のリンクが、今は無い画面を指していたので、実績の「要確認」を開くようにしました。
 
 ## [0.8.0] - 2026-10-15
 
