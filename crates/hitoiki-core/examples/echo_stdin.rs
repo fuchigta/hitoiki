@@ -9,9 +9,9 @@
 use std::io::{Read, Write};
 
 const QUESTIONS: &str = r#"{"summary":"今日の要約","questions":[
-{"kind":"checkin","prompt":"いまの調子は？","scales":["energy","mood"],"erg_candidates":["growth"]},
-{"kind":"hassle","prompt":"今日引っかかったことは？","examples":["会議が長い"]},
-{"kind":"abc","prompt":"場面を選んでください","activating_event":"レビューで指摘された","belief_prompt":"何がよぎりましたか"},
+{"kind":"condition","prompt":"いまの調子は？","scales":["energy","mood"],"erg_candidates":["growth"]},
+{"kind":"concern","prompt":"今日引っかかったことは？","examples":["会議が長い"]},
+{"kind":"reframe","prompt":"場面を選んでください","event":"レビューで指摘された","belief_prompt":"何がよぎりましたか"},
 {"kind":"free","prompt":"ひとことで言うと？"}]}"#;
 
 fn main() {

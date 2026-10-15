@@ -21,7 +21,7 @@
 | `hitoiki nudge list [--unanswered] [--date D] [--from F] [--to T]` | 配信された問いかけの一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `nudges` |
 | `hitoiki nudge answer <ID> [--energy N] [--mood N] [--stress N] [--concern TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|key_result_skip_week\|skip] [--dismiss]` | 問いかけに答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない成果の指標」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`key_result_skip_week` は「時間が入っていない成果の指標」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
 | `hitoiki actual list [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `uncollected`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
-| `hitoiki heatmap [--by 集計の軸] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `key_result:<ID またはタイトル>`（`key-result show` と同じ成果の指標の時間。成果の指標のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
+| `hitoiki heatmap [--by 集計の軸] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `key_result:<ID またはタイトル>`（`key-result show` と同じ成果の指標の時間。成果の指標のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:condition` / `concern` / `reframe` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 集計の軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `urgent_important` / `key_result` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
 ### タスク
@@ -74,17 +74,17 @@
 | `hitoiki block template undo [--date D]` | 直前の適用で作ったブロックを削除 |
 | `hitoiki block template save-from --name N [--date D] [--description D] [--weekdays W]` | 指定日のブロックからテンプレートを作る |
 | `hitoiki block template suggest [--date D]` | 指定日の曜日に割り当てたテンプレート |
-| `hitoiki check [-e 1-5] [-m 1-5] [-s 1-5] [--erg TAG] [--note TEXT]` | コンディション（エネルギー・気分・ストレス）の記録 |
-| `hitoiki hassle <TEXT> [-i 1-5]` | 気になったこと（ハッスル）の記録（強度の既定は 3） |
-| `hitoiki abc add [--a A] [--b B] [--c-emotion E] [--c-intensity 1-5] [--from-hassle ID]` | 捉え直し（ABC 理論）の記録。出来事・受け止め方・感情を分けて書く |
-| `hitoiki abc dispute <ID>` | AI で受け止め方を掘り下げる問いを生成 |
-| `hitoiki check list` / `hassle list` / `abc list` `[--date D] [--from F] [--to T]` | 記録の一覧（ID 付き。既定は今日） |
-| `hitoiki check edit <ID> [-e N] [-m N] [-s N] [--erg TAG] [--note TEXT]` | 調子（チェックイン）を編集（指定した項目だけ変える。`-e` `-m` `-s` に 0 でその項目を消す、`--note ""` でメモを消す） |
-| `hitoiki hassle edit <ID> [--text T] [-i 1-5]` | 気になったことを編集 |
-| `hitoiki abc edit <ID> [--a A] [--b B] [--c-emotion E] [--c-intensity N] [--dispute D]` | 捉え直しを編集（文字列は `""` で消す、`--c-intensity 0` で強度を消す） |
-| `hitoiki check delete <ID>` / `hassle delete <ID>` / `abc delete <ID>` `[--force] [--dry-run]` | 記録を削除。気になったことを元にした捉え直しがあるか、振り返りの回答から参照されていると `--force` が必要（捉え直しは残り、気になったこととの紐付けだけ外れる。参照されているときは「振り返り（日付・種類）の回答から参照されています」と表示）。削除したことは、記録の種類と ID だけをログに残す |
+| `hitoiki condition [-e 1-5] [-m 1-5] [-s 1-5] [--erg TAG] [--note TEXT]` | 調子（エネルギー・気分・ストレス）の記録 |
+| `hitoiki concern <TEXT> [-i 1-5]` | 気になったことの記録（強度の既定は 3） |
+| `hitoiki reframe add [--event E] [--belief B] [--emotion E] [--emotion-intensity 1-5] [--from-concern ID]` | 捉え直しの記録（ABC 理論に基づく） |
+| `hitoiki reframe deepen <ID>` | AI で受け止め方を掘り下げる問いを生成 |
+| `hitoiki condition list` / `concern list` / `reframe list` `[--date D] [--from F] [--to T]` | 記録の一覧（ID 付き。既定は今日） |
+| `hitoiki condition edit <ID> [-e N] [-m N] [-s N] [--erg TAG] [--note TEXT]` | 調子を編集（指定した項目だけ変える。`-e` `-m` `-s` に 0 でその項目を消す、`--note ""` でメモを消す） |
+| `hitoiki concern edit <ID> [--text T] [-i 1-5]` | 気になったことを編集 |
+| `hitoiki reframe edit <ID> [--event E] [--belief B] [--emotion E] [--emotion-intensity N] [--alternative A]` | 捉え直しを編集（文字列は `""` で消す、`--emotion-intensity 0` で強度を消す） |
+| `hitoiki condition delete <ID>` / `concern delete <ID>` / `reframe delete <ID>` `[--force] [--dry-run]` | 記録を削除。気になったことを元にした捉え直しがあるか、振り返りの回答から参照されていると `--force` が必要（捉え直しは残り、気になったこととの紐付けだけ外れる。参照されているときは「振り返り（日付・種類）の回答から参照されています」と表示）。削除したことは、記録の種類と ID だけをログに残す |
 
-`check` / `hassle` の本文が `list` `edit` `delete` と同じ語のときは、サブコマンドとして解釈されます。
+`condition` / `concern` の本文が `list` `edit` `delete` と同じ語のときは、サブコマンドとして解釈されます。
 
 ### 削除と影響
 
@@ -141,7 +141,7 @@
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki reflect day_start [--date D]` / `day_end` / `weekly` | AI で問いを生成して保存 |
+| `hitoiki reflect day-start [--date D]` / `day-end` / `weekly` | AI で問いを生成して保存 |
 | `hitoiki reflect answer <ID> [--file F]` | 回答を保存（`--file -` で標準入力）。構造化された問いには JSON `{"answers":[{"index":0,"energy":3,"mood":4},{"index":1,"text":"…","intensity":3}]}` を渡す（下記）。Markdown の回答も受け付ける |
 | `hitoiki reflect list [--kind K] [--limit N]` | 保存済みの振り返り一覧（新しい順。`--kind` は `day_start` / `day_end` / `weekly`） |
 | `hitoiki reflect show <ID>` | 問いと回答の詳細（回答済みの問いには保存した調子・気になったこと・捉え直しの内容も出す。回答が作った記録が削除されているときは「この回答の記録は削除されています」と表示。`--json` の `answer_details` に `missing`） |
@@ -151,22 +151,22 @@
 
 | 種類 | 項目 | 保存先 |
 |---|---|---|
-| 調子 | `energy` / `mood` / `stress`（1〜5）、`note`（`erg` も受け付け、付けるとユーザーのタグとして保存する） | `checkin` |
-| 気になったこと | `text`、`intensity`（1〜5、省略時 3） | `hassle` |
-| 捉え直し | `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論） | `abc_record` |
+| 調子 | `energy` / `mood` / `stress`（1〜5）、`note`（`erg` も受け付け、付けるとユーザーのタグとして保存する） | `condition` |
+| 気になったこと | `text`、`intensity`（1〜5、省略時 3） | `concern` |
+| 捉え直し | `event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`alternative`（別の捉え方） | `reframe` |
 | 自由記述 | `text` | 振り返りの回答（`answers_md`） |
 
 空の項目は読み飛ばし、回答済みの問いには答え直せません（不正な値が 1 件でもあれば何も保存しません）。保存した記録の ID は `answers` に入ります。
 
 ### ERG（存在・関係・成長）
 
-ERG は、記録の内容から AI が判定します（存在 = 体や生活の安心、関係 = 人とのつながり、成長 = 手応えや学び）。確信が持てないものは「確認待ち」になり、あなたが確定します。あなたが付けた・確定したタグは AI で上書きされません。AI が未設定（`ai.command` が空）のときは「AI が設定されていないため判定しません」と表示して何もしません。
+ERG は、記録の内容から AI が判定します（存在 = 体や生活の安心、関係 = 人とのつながり、成長 = 手応えや学び）。確信が持てないものは「未確定」になり、あなたが確定します。あなたが付けた・確定したタグは AI で上書きされません。AI が未設定（`ai.command` が空）のときは「AI が設定されていないため判定しません」と表示して何もしません。
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki erg classify [--date D] [--from F --to T] [--dry-run]` | 未判定の記録を AI で判定する（既定は今日）。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は確認待ち。`--dry-run` は保存せず結果だけ表示。終業・週次の振り返りの前にも自動で実行される（`ai.erg_classify`） |
-| `hitoiki erg review` | 確認待ち（AI の提案で未確定）の一覧。提案のタグ・確信度・理由を表示 |
-| `hitoiki erg confirm <ID>` | 確認待ちの提案をそのまま確定する |
+| `hitoiki erg classify [--date D] [--from F --to T] [--dry-run]` | 未判定の記録を AI で判定する（既定は今日）。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は未確定。`--dry-run` は保存せず結果だけ表示。終業・週次の振り返りの前にも自動で実行される（`ai.erg_classify`） |
+| `hitoiki erg review` | 未確定（AI の提案）の一覧。提案のタグ・確信度・理由を表示 |
+| `hitoiki erg confirm <ID>` | 未確定の提案をそのまま確定する |
 | `hitoiki erg set <ID> <existence\|relatedness\|growth\|none>` | タグを付ける・直す（`none` はどれにも関わらない）。ID は前方一致で調子・気になったこと・捉え直し・振り返りのどれでもよい |
 | `hitoiki erg show [--date D] [--from F --to T]` | 期間内の分布（件数）と、記録ごとのラベル（`--json`） |
 

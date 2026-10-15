@@ -72,7 +72,8 @@ pub(crate) fn day_start() -> NudgePayload {
     NudgePayload {
         trigger: NudgeTrigger::DayStart,
         title: "おはようございます".into(),
-        body: "今日のはじまりに、いまの元気度を教えてください（1 = ゆったり 〜 5 = 元気いっぱい）。".into(),
+        body: "今日のはじまりに、いまのエネルギーを教えてください（1 = ゆったり 〜 5 = 元気いっぱい）。"
+            .into(),
         actions: scale("energy"),
         input: None,
         // 始業の通知は「今日のデザイン」（今日の画面）へ。始業の振り返りは今日の画面から開ける。
@@ -124,7 +125,7 @@ pub(crate) fn long_work(minutes: u64, label: Option<&str>) -> NudgePayload {
         trigger: NudgeTrigger::LongWork,
         title: "一息つきませんか".into(),
         body: format!(
-            "{what}に {minutes} 分ほど続けて取り組んでいます。いまの元気度はどのくらいですか（1 〜 5）。"
+            "{what}に {minutes} 分ほど続けて取り組んでいます。いまのエネルギーはどのくらいですか（1 〜 5）。"
         ),
         actions: scale("energy"),
         input: None,
@@ -183,7 +184,7 @@ pub(crate) fn late_work() -> NudgePayload {
     NudgePayload {
         trigger: NudgeTrigger::LateWork,
         title: "遅い時間ですね".into(),
-        body: "いまの元気度を教えてください（1 〜 5）。無理のない範囲で。".into(),
+        body: "いまのエネルギーを教えてください（1 〜 5）。無理のない範囲で。".into(),
         actions: scale("energy"),
         input: None,
         open_screen: Some("records/new/condition".into()),

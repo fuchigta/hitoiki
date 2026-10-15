@@ -151,16 +151,16 @@ impl From<ErgTag> for ErgChoice {
 str_enum!(
     /// ERG のタグを付ける対象の記録の種類。
     ErgRecordKind {
-        Checkin => "checkin",
-        Hassle => "hassle",
-        Abc => "abc",
+        Condition => "condition",
+        Concern => "concern",
+        Reframe => "reframe",
         Reflection => "reflection",
     }
 );
 
 str_enum!(
     /// ERG ラベルの出所。`user` が最優先で、AI は上書きしない。
-    ErgSource { User => "user", Ai => "ai", Suggested => "suggested" }
+    ErgSource { User => "user", Ai => "ai", Unconfirmed => "unconfirmed" }
 );
 
 /// 記録 1 件の ERG ラベル（`erg_label` の行）。
@@ -168,7 +168,7 @@ str_enum!(
 pub struct ErgLabel {
     pub record_kind: ErgRecordKind,
     pub record_id: String,
-    /// `source` が `suggested` のときは提案のタグ（確定していない）。
+    /// `source` が `unconfirmed` のときは提案のタグ（確定していない）。
     pub tag: ErgChoice,
     pub source: ErgSource,
     /// AI の確信度（0〜1）。ユーザーが付けたものは `None`。
@@ -179,10 +179,10 @@ pub struct ErgLabel {
 }
 
 impl ErgLabel {
-    /// 確定している（`user` か `ai`）ときのタグ。`none` と確認待ちは `None`。
+    /// 確定している（`user` か `ai`）ときのタグ。`none` と未確定は `None`。
     pub fn confirmed_tag(&self) -> Option<ErgTag> {
         match self.source {
-            ErgSource::Suggested => None,
+            ErgSource::Unconfirmed => None,
             _ => self.tag.tag(),
         }
     }
@@ -404,7 +404,7 @@ pub struct ActivitySkillRule {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Checkin {
+pub struct Condition {
     pub id: String,
     pub at: Millis,
     pub energy: Option<i64>,
@@ -412,30 +412,30 @@ pub struct Checkin {
     pub stress: Option<i64>,
     pub erg_tag: Option<ErgTag>,
     pub note: Option<String>,
-    pub push_id: Option<String>,
+    pub nudge_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Hassle {
+pub struct Concern {
     pub id: String,
     pub at: Millis,
     pub text: String,
     pub intensity: i64,
     pub segment_id: Option<String>,
-    pub push_id: Option<String>,
+    pub nudge_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct AbcRecord {
+pub struct Reframe {
     pub id: String,
     pub at: Millis,
-    pub activating_event: String,
+    pub event: String,
     pub belief: Option<String>,
-    pub consequence_emotion: Option<String>,
-    pub consequence_intensity: Option<i64>,
-    pub dispute: Option<String>,
-    pub ai_dialog_md: Option<String>,
-    pub hassle_id: Option<String>,
+    pub emotion: Option<String>,
+    pub emotion_intensity: Option<i64>,
+    pub alternative: Option<String>,
+    pub deepening_md: Option<String>,
+    pub concern_id: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

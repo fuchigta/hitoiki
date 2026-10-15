@@ -17,14 +17,14 @@ import {
 } from "./reflect-util";
 
 const KIND_LABELS: Record<Question["kind"], string> = {
-  checkin: "調子",
-  hassle: "気になったこと",
-  abc: "捉え直し",
+  condition: "調子",
+  concern: "気になったこと",
+  reframe: "捉え直し",
   free: "自由記述",
 };
 
-/** 保存した ABC 記録について、B を掘り下げる AI の問い（既存の `abc dispute`）を続けて聞く。 */
-function AbcFollowUp({ recordId }: { recordId: string }) {
+/** 保存した捉え直しについて、B を掘り下げる AI の問い（既存の `reframe deepen`）を続けて聞く。 */
+function ReframeFollowUp({ recordId }: { recordId: string }) {
   const act = useAction();
   const [dialog, setDialog] = useState("");
   return (
@@ -34,8 +34,8 @@ function AbcFollowUp({ recordId }: { recordId: string }) {
           type="button"
           disabled={act.busy}
           onClick={async () => {
-            const r = await act.run(() => api.abcDispute(recordId));
-            if (r) setDialog(r.ai_dialog_md ?? "");
+            const r = await act.run(() => api.reframeDeepen(recordId));
+            if (r) setDialog(r.deepening_md ?? "");
           }}
         >
           {act.busy ? "AI が考えています…" : dialog ? "問いを追加する" : "受け止め方を掘り下げる問いを AI に聞く"}
@@ -122,12 +122,12 @@ export function StructuredAnswer({
                   </ul>
                 )}
                 {detailOf(i)?.missing && <p class="hint">この回答の記録は削除されています。</p>}
-                {q.kind === "abc" && done.record_id && !detailOf(i)?.missing && <AbcFollowUp recordId={done.record_id} />}
+                {q.kind === "reframe" && done.record_id && !detailOf(i)?.missing && <ReframeFollowUp recordId={done.record_id} />}
               </>
             ) : (
               f && (
                 <>
-                  {q.kind === "checkin" && (
+                  {q.kind === "condition" && (
                     <>
                       {askedScales(q).map((s) => (
                         <Scale key={s} label={SCALE_LABELS[s]} value={f[s]} onChange={(n) => patch(i, { [s]: n })} />
@@ -137,7 +137,7 @@ export function StructuredAnswer({
                       </Field>
                     </>
                   )}
-                  {q.kind === "hassle" && (
+                  {q.kind === "concern" && (
                     <>
                       {(q.examples?.length ?? 0) > 0 && <p class="hint">例: {q.examples!.join(" / ")}</p>}
                       <Field label="気になったこと">
@@ -146,14 +146,14 @@ export function StructuredAnswer({
                       <Scale label="強さ" value={f.intensity} onChange={(n) => patch(i, { intensity: n })} />
                     </>
                   )}
-                  {q.kind === "abc" && (
+                  {q.kind === "reframe" && (
                     <>
                       {(q.examples?.length ?? 0) > 0 && <p class="hint">例: {q.examples!.join(" / ")}</p>}
                       <Field label="A: 出来事（AI の候補です。自由に書き換えられます）">
                         <textarea
                           rows={2}
-                          value={f.activating_event}
-                          onInput={(e) => patch(i, { activating_event: e.currentTarget.value })}
+                          value={f.event}
+                          onInput={(e) => patch(i, { event: e.currentTarget.value })}
                         />
                       </Field>
                       <Field label={`B: 受け止め方${q.belief_prompt ? `（${q.belief_prompt}）` : ""}`}>
@@ -163,8 +163,8 @@ export function StructuredAnswer({
                         <input value={f.emotion} onInput={(e) => patch(i, { emotion: e.currentTarget.value })} />
                       </Field>
                       <Scale label="感情の強さ" value={f.emotion_intensity} onChange={(n) => patch(i, { emotion_intensity: n })} />
-                      <Field label="別の捉え方・反論（任意）">
-                        <textarea rows={2} value={f.dispute} onInput={(e) => patch(i, { dispute: e.currentTarget.value })} />
+                      <Field label="別の捉え方（任意）">
+                        <textarea rows={2} value={f.alternative} onInput={(e) => patch(i, { alternative: e.currentTarget.value })} />
                       </Field>
                     </>
                   )}

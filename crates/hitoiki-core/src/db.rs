@@ -18,8 +18,10 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (9, include_str!("../migrations/0009_kr_progress.sql")),
     (10, include_str!("../migrations/0010_kr_suggest_reject.sql")),
     (11, include_str!("../migrations/0011_rename_goal.sql")),
+    (12, include_str!("../migrations/0012_rename_records.sql")),
     (13, include_str!("../migrations/0013_rename_actual.sql")),
     (14, include_str!("../migrations/0014_rename_nudge.sql")),
+    (15, include_str!("../migrations/0015_rename_nudge_id.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -226,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn 従来のチェックインのerg_tagはユーザーのラベルに引き継がれる() {
+    fn 従来の調子のerg_tagはユーザーのラベルに引き継がれる() {
         let mut conn = Connection::open_in_memory().unwrap();
         ensure_migration_table(&conn).unwrap();
         for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v < 7) {
@@ -249,7 +251,127 @@ mod tests {
             .unwrap();
         assert_eq!(
             rows,
-            vec![("checkin".into(), "C1".into(), "growth/user".into(), 1000)]
+            vec![("condition".into(), "C1".into(), "growth/user".into(), 1000)]
+        );
+    }
+
+    /// 0012: 調子・気になったこと・捉え直しの表と列、保存済みの種類の値が用語集の名前になる。
+    #[test]
+    fn migration_0012_記録の表と保存済みの値が新しい名前になる() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        ensure_migration_table(&conn).unwrap();
+        for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v < 12) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO schema_migration(version) VALUES (?1)", [v])
+                .unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO checkin (id, at, energy) VALUES ('C1', 1000, 4);
+             INSERT INTO hassle (id, at, text, intensity) VALUES ('H1', 2000, 'x', 3);
+             INSERT INTO abc_record (id, at, activating_event, belief, consequence_emotion,
+               consequence_intensity, dispute, ai_dialog_md, hassle_id)
+               VALUES ('A1', 3000, 'e', 'b', 'em', 2, 'd', 'dm', 'H1');
+             INSERT INTO erg_label (record_kind, record_id, tag, source, at) VALUES
+               ('checkin', 'C1', 'growth', 'user', 1000),
+               ('hassle', 'H1', 'existence', 'suggested', 2000),
+               ('abc', 'A1', 'none', 'ai', 3000),
+               ('reflection', 'R1', 'growth', 'suggested', 4000);
+             INSERT INTO reflection (id, at, kind, context_json, questions_md, structured_json, answers_json)
+               VALUES ('R1', 4000, 'day_end',
+                 '{\"checkins\":[],\"hassles\":[],\"abc_records\":[{\"activating_event\":\"e\",\"has_dispute\":true}],\"erg_distribution\":{\"pending\":1}}',
+                 '',
+                 '{\"questions\":[{\"kind\":\"checkin\"},{\"kind\":\"abc\",\"activating_event\":\"e\"},{\"kind\":\"free\"}]}',
+                 '{\"items\":[{\"index\":0,\"kind\":\"hassle\",\"record_id\":\"H1\"}]}');",
+        )
+        .unwrap();
+        migrate(&mut conn).unwrap();
+
+        let c: (i64, i64) = conn
+            .query_row("SELECT at, energy FROM condition WHERE id = 'C1'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!(c, (1000, 4));
+        // 使っていなかった erg_tag 列は無くなる。
+        assert!(conn.prepare("SELECT erg_tag FROM condition").is_err());
+        let h: String = conn
+            .query_row("SELECT text FROM concern WHERE id = 'H1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(h, "x");
+        let a: (String, String, String, i64, String, String, String) = conn
+            .query_row(
+                "SELECT event, belief, emotion, emotion_intensity, alternative, deepening_md, concern_id
+                 FROM reframe WHERE id = 'A1'",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            a,
+            (
+                "e".into(),
+                "b".into(),
+                "em".into(),
+                2,
+                "d".into(),
+                "dm".into(),
+                "H1".into()
+            )
+        );
+        for old in ["checkin", "hassle", "abc_record"] {
+            let n: i64 = conn
+                .query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = ?1", [old], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(n, 0, "{old}");
+        }
+
+        let labels: Vec<String> = conn
+            .prepare("SELECT record_kind || '/' || source FROM erg_label ORDER BY at")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<rusqlite::Result<_>>()
+            .unwrap();
+        assert_eq!(
+            labels,
+            vec![
+                "condition/user",
+                "concern/unconfirmed",
+                "reframe/ai",
+                "reflection/unconfirmed"
+            ]
+        );
+
+        let (ctx, st, ans): (String, String, String) = conn
+            .query_row(
+                "SELECT context_json, structured_json, answers_json FROM reflection WHERE id = 'R1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            ctx,
+            r#"{"conditions":[],"concerns":[],"reframes":[{"event":"e","has_alternative":true}],"erg_distribution":{"unconfirmed":1}}"#
+        );
+        assert_eq!(
+            st,
+            r#"{"questions":[{"kind":"condition"},{"kind":"reframe","event":"e"},{"kind":"free"}]}"#
+        );
+        assert_eq!(
+            ans,
+            r#"{"items":[{"index":0,"kind":"concern","record_id":"H1"}]}"#
         );
     }
 
@@ -431,6 +553,16 @@ mod tests {
             .query_row("SELECT key FROM setting", [], |r| r.get(0))
             .unwrap();
         assert_eq!(k, "welcome.completed_at");
+    }
+
+    /// 0015: 調子・気になったことの push_id -> nudge_id。
+    #[test]
+    fn migration_0015_調子と気になったことの問いかけの参照がnudge_idになる() {
+        let conn = open_in_memory().unwrap();
+        for t in ["condition", "concern"] {
+            assert!(conn.prepare(&format!("SELECT nudge_id FROM {t}")).is_ok());
+            assert!(conn.prepare(&format!("SELECT push_id FROM {t}")).is_err());
+        }
     }
 
     #[test]

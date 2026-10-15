@@ -53,7 +53,7 @@ function WeekErg({ at }: { at: number }) {
         <ErgSummary
           distribution={erg.data.distribution}
           range={week}
-          pendingTotal={erg.data.pending_total}
+          unconfirmedTotal={erg.data.unconfirmed_total}
           onChanged={erg.reload}
         />
       )}

@@ -5,13 +5,15 @@
 use crate::error::AppResult;
 use crate::state::AppState;
 use hitoiki_core::config::Config;
-use hitoiki_core::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskAssignRule};
+use hitoiki_core::model::{
+    ActivityRule, Concern, Condition, Goal, KeyResult, Reframe, Skill, TaskAssignRule,
+};
 use hitoiki_core::paths;
 use hitoiki_core::service::goal::{self, GoalEdit, KeyResultEdit};
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
 use hitoiki_core::service::key_result_progress;
 use hitoiki_core::service::link_suggestion;
-use hitoiki_core::service::record::{self, AbcEditInput, CheckInput, HassleInput};
+use hitoiki_core::service::record::{self, ConcernInput, ConditionInput, ReframeEditInput};
 use hitoiki_core::service::rule::{
     self, ActivityRuleEdit, ActivityRuleInput, ActivityRuleList, RuleDeleted, TaskRuleEdit,
 };
@@ -176,36 +178,36 @@ pub fn activity_rule_delete(state: S, id: String) -> AppResult<RuleDeleted<Activ
 // ===== 記録 =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_edit(state: S, id: String, input: CheckInput) -> AppResult<Checkin> {
-    state.with_ctx(|c| record::check_edit(c, &id, &input))
+pub fn condition_edit(state: S, id: String, input: ConditionInput) -> AppResult<Condition> {
+    state.with_ctx(|c| record::condition_edit(c, &id, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+pub fn condition_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
     let mode = mode.unwrap_or(DeleteMode::FORCE);
-    state.with_ctx(|c| record::check_delete(c, &id, mode))
+    state.with_ctx(|c| record::condition_delete(c, &id, mode))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn hassle_edit(state: S, id: String, input: HassleInput) -> AppResult<Hassle> {
-    state.with_ctx(|c| record::hassle_edit(c, &id, &input))
+pub fn concern_edit(state: S, id: String, input: ConcernInput) -> AppResult<Concern> {
+    state.with_ctx(|c| record::concern_edit(c, &id, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn hassle_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+pub fn concern_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
     let mode = mode.unwrap_or_default();
-    state.with_ctx(|c| record::hassle_delete(c, &id, mode))
+    state.with_ctx(|c| record::concern_delete(c, &id, mode))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn abc_edit(state: S, id: String, input: AbcEditInput) -> AppResult<AbcRecord> {
-    state.with_ctx(|c| record::abc_edit(c, &id, &input))
+pub fn reframe_edit(state: S, id: String, input: ReframeEditInput) -> AppResult<Reframe> {
+    state.with_ctx(|c| record::reframe_edit(c, &id, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn abc_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
+pub fn reframe_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<DeleteOutcome> {
     let mode = mode.unwrap_or(DeleteMode::FORCE);
-    state.with_ctx(|c| record::abc_delete(c, &id, mode))
+    state.with_ctx(|c| record::reframe_delete(c, &id, mode))
 }
 
 // ===== カレンダーソース・活動 =====

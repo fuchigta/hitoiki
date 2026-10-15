@@ -443,8 +443,8 @@ pub struct Ai {
     /// （`claude` と `codex` はどちらも `--model` を受け付ける）。`{model}` をモデル名に置換する。
     pub model_args: Vec<String>,
     pub timeout_sec: u64,
-    /// 未指定なら `paths::templates_dir()`。
-    pub templates_dir: Option<String>,
+    /// 未指定なら `paths::prompts_dir()`。
+    pub prompts_dir: Option<String>,
     /// 構造化出力（問いを JSON で受け取り、画面で種類ごとに答える）を使うか。
     pub structured: AiStructured,
     /// 構造化出力のときに `command` の後ろへ付ける引数。空なら `claude` 用の既定
@@ -453,7 +453,7 @@ pub struct Ai {
     pub structured_args: Vec<String>,
     /// 振り返りを生成する前に、その期間の記録の ERG を AI で判定するか（手動の `hitoiki erg classify` は常に使える）。
     pub erg_classify: bool,
-    /// ERG の AI 判定を採用する確信度の下限（0〜1）。未満は「確認待ち」として提案だけ保存する。
+    /// ERG の AI 判定を採用する確信度の下限（0〜1）。未満は「未確定」として提案だけ保存する。
     pub erg_auto_threshold: f64,
 }
 
@@ -464,7 +464,7 @@ impl Default for Ai {
             model: None,
             model_args: Vec::new(),
             timeout_sec: 180,
-            templates_dir: None,
+            prompts_dir: None,
             structured: AiStructured::Auto,
             structured_args: Vec::new(),
             erg_classify: true,

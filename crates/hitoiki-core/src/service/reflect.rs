@@ -1,14 +1,14 @@
-//! AI 振り返り（docs/dev/architecture.md「AI 振り返り」）: テンプレート展開、AI コマンドの起動、`reflection` への保存、ABC の掘り下げ。
+//! AI 振り返り（docs/dev/architecture.md「AI 振り返り」）: プロンプト展開、AI コマンドの起動、`reflection` への保存、捉え直しの掘り下げ。
 //!
 //! ツール本体は推論を持たない。`ai.command` を子プロセスとして起動し、標準入力にプロンプトを渡して
 //! 標準出力を受け取る。
 
 use super::context::{self, ContextJson};
-use super::record::{self, AbcInput, CheckInput, HassleInput};
+use super::record::{self, ConcernInput, ConditionInput, ReframeInput};
 use super::structured::{self, QuestionKind, StructuredOutput};
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{AbcRecord, Checkin, ErgTag, Hassle, Reflection, ReflectionKind};
+use crate::model::{Concern, Condition, ErgTag, Reflection, ReflectionKind, Reframe};
 use crate::repo::reflection as repo;
 use crate::repo::{edit as edit_repo, record as record_repo};
 use crate::{paths, timefmt, Error, Result};
@@ -18,25 +18,25 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// 組み込みの既定テンプレート。
-pub fn builtin_template(name: &str) -> Option<&'static str> {
+/// 組み込みの既定プロンプト。
+pub fn builtin_prompt(name: &str) -> Option<&'static str> {
     match name {
-        "day_start" => Some(include_str!("../../templates/day_start.md")),
-        "day_end" => Some(include_str!("../../templates/day_end.md")),
-        "weekly" => Some(include_str!("../../templates/weekly.md")),
-        "abc_dispute" => Some(include_str!("../../templates/abc_dispute.md")),
-        "day_start_structured" => Some(include_str!("../../templates/day_start_structured.md")),
-        "day_end_structured" => Some(include_str!("../../templates/day_end_structured.md")),
-        "weekly_structured" => Some(include_str!("../../templates/weekly_structured.md")),
-        "erg_classify" => Some(include_str!("../../templates/erg_classify.md")),
+        "day_start" => Some(include_str!("../../prompts/day_start.md")),
+        "day_end" => Some(include_str!("../../prompts/day_end.md")),
+        "weekly" => Some(include_str!("../../prompts/weekly.md")),
+        "reframe_deepen" => Some(include_str!("../../prompts/reframe_deepen.md")),
+        "day_start_structured" => Some(include_str!("../../prompts/day_start_structured.md")),
+        "day_end_structured" => Some(include_str!("../../prompts/day_end_structured.md")),
+        "weekly_structured" => Some(include_str!("../../prompts/weekly_structured.md")),
+        "erg_classify" => Some(include_str!("../../prompts/erg_classify.md")),
         _ => None,
     }
 }
 
-fn templates_dir(ctx: &Ctx) -> PathBuf {
-    match &ctx.cfg.ai.templates_dir {
+fn prompts_dir(ctx: &Ctx) -> PathBuf {
+    match &ctx.cfg.ai.prompts_dir {
         Some(d) if !d.trim().is_empty() => expand_env(d),
-        _ => paths::templates_dir(),
+        _ => paths::prompts_dir(),
     }
 }
 
@@ -59,21 +59,21 @@ fn expand_env(s: &str) -> PathBuf {
     PathBuf::from(out)
 }
 
-/// ユーザー定義テンプレート（`templates_dir/<name>.md`）を優先し、無ければ組み込みを返す。
-pub fn load_template(ctx: &Ctx, name: &str) -> Result<String> {
-    let path = templates_dir(ctx).join(format!("{name}.md"));
+/// ユーザー定義プロンプト（`prompts_dir/<name>.md`）を優先し、無ければ組み込みを返す。
+pub fn load_prompt(ctx: &Ctx, name: &str) -> Result<String> {
+    let path = prompts_dir(ctx).join(format!("{name}.md"));
     if path.is_file() {
         return Ok(std::fs::read_to_string(&path)?);
     }
-    builtin_template(name)
+    builtin_prompt(name)
         .map(str::to_string)
-        .ok_or_else(|| Error::NotFound(format!("テンプレート {name}")))
+        .ok_or_else(|| Error::NotFound(format!("プロンプト {name}")))
 }
 
 /// `{{key}}` を置換する。未知のプレースホルダはそのまま残す。置換結果の中身は再展開しない。
-pub fn render_template(tpl: &str, vars: &[(&str, &str)]) -> String {
-    let mut out = String::with_capacity(tpl.len());
-    let mut rest = tpl;
+pub fn render_prompt(base: &str, vars: &[(&str, &str)]) -> String {
+    let mut out = String::with_capacity(base.len());
+    let mut rest = base;
     while let Some(i) = rest.find("{{") {
         out.push_str(&rest[..i]);
         let after = &rest[i + 2..];
@@ -219,16 +219,16 @@ pub fn build_prompt(ctx: &Ctx, context: &ContextJson) -> Result<String> {
     build_prompt_named(ctx, context, context.kind.as_str())
 }
 
-/// 構造化出力用のプロンプト（テンプレート `<kind>_structured`）。
+/// 構造化出力用のプロンプト（プロンプト `<kind>_structured`）。
 pub fn build_structured_prompt(ctx: &Ctx, context: &ContextJson) -> Result<String> {
     build_prompt_named(ctx, context, &format!("{}_structured", context.kind.as_str()))
 }
 
-fn build_prompt_named(ctx: &Ctx, context: &ContextJson, template: &str) -> Result<String> {
-    let tpl = load_template(ctx, template)?;
+fn build_prompt_named(ctx: &Ctx, context: &ContextJson, name: &str) -> Result<String> {
+    let base = load_prompt(ctx, name)?;
     let json = serde_json::to_string_pretty(context).map_err(anyhow::Error::from)?;
-    Ok(render_template(
-        &tpl,
+    Ok(render_prompt(
+        &base,
         &[
             ("context", &json),
             ("date", &context.date),
@@ -305,10 +305,10 @@ pub fn structured_of(r: &Reflection) -> Result<Option<StructuredOutput>> {
 }
 
 /// 構造化された問い 1 件への回答。使うフィールドは問いの種類で決まる。
-/// - checkin: `energy` / `mood` / `stress`（1〜5）、`note`（`erg` は互換のため受け付け、付けたらユーザーのタグとして保存する。
+/// - condition: `energy` / `mood` / `stress`（1〜5）、`note`（`erg` は互換のため受け付け、付けたらユーザーのタグとして保存する。
 ///   画面は尋ねない。ERG は記録の内容から AI が判定する）
-/// - hassle: `text`、`intensity`（1〜5、省略時 3）
-/// - abc: `activating_event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`dispute`（反論）
+/// - concern: `text`、`intensity`（1〜5、省略時 3）
+/// - reframe: `event`（A）、`belief`（B）、`emotion` / `emotion_intensity`（C）、`alternative`（別の捉え方）
 /// - free: `text`
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -322,11 +322,11 @@ pub struct AnswerItem {
     pub note: Option<String>,
     pub text: Option<String>,
     pub intensity: Option<i64>,
-    pub activating_event: Option<String>,
+    pub event: Option<String>,
     pub belief: Option<String>,
     pub emotion: Option<String>,
     pub emotion_intensity: Option<i64>,
-    pub dispute: Option<String>,
+    pub alternative: Option<String>,
 }
 
 /// `answer_structured` の入力（`hitoiki reflect answer` に渡す JSON もこの形）。
@@ -341,7 +341,7 @@ pub struct AnswersInput {
 pub struct AnsweredItem {
     pub index: usize,
     pub kind: QuestionKind,
-    /// checkin / hassle / abc の保存先（`checkin.id` / `hassle.id` / `abc_record.id`）。free は無し。
+    /// condition / concern / reframe の保存先（`condition.id` / `concern.id` / `reframe.id`）。free は無し。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record_id: Option<String>,
     /// free の回答本文。
@@ -356,7 +356,7 @@ pub struct AnswersRecord {
 }
 
 /// 回答済みの問い 1 件を、問いと保存した記録の中身と並べたもの（回答済みの表示用）。
-/// 記録が後から削除されていれば、`checkin` / `hassle` / `abc` は `None`。
+/// 記録が後から削除されていれば、`condition` / `concern` / `reframe` は `None`。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AnswerDetail {
     pub index: usize,
@@ -367,17 +367,17 @@ pub struct AnswerDetail {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub checkin: Option<Checkin>,
+    pub condition: Option<Condition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hassle: Option<Hassle>,
+    pub concern: Option<Concern>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub abc: Option<AbcRecord>,
-    /// 回答が作った記録（checkin / hassle / abc）が削除されていて、もう無い。
+    pub reframe: Option<Reframe>,
+    /// 回答が作った記録（condition / concern / reframe）が削除されていて、もう無い。
     #[serde(default)]
     pub missing: bool,
 }
 
-/// 振り返りの回答済みの問いを、保存先（`checkin` / `hassle` / `abc_record`）の中身つきで返す。
+/// 振り返りの回答済みの問いを、保存先（`condition` / `concern` / `reframe`）の中身つきで返す。
 /// 構造化されていない振り返り、または回答が無ければ空。
 pub fn answer_details(ctx: &Ctx, r: &Reflection) -> Result<Vec<AnswerDetail>> {
     let Some(out) = structured_of(r)? else {
@@ -399,20 +399,22 @@ pub fn answer_details(ctx: &Ctx, r: &Reflection) -> Result<Vec<AnswerDetail>> {
             prompt: q.prompt.clone(),
             record_id: it.record_id.clone(),
             text: it.text.clone(),
-            checkin: None,
-            hassle: None,
-            abc: None,
+            condition: None,
+            concern: None,
+            reframe: None,
             missing: false,
         };
         if let Some(id) = &it.record_id {
             match it.kind {
-                QuestionKind::Checkin => d.checkin = edit_repo::get_checkin(ctx.conn, id).ok(),
-                QuestionKind::Hassle => d.hassle = record_repo::get_hassle(ctx.conn, id).ok(),
-                QuestionKind::Abc => d.abc = repo::get_abc(ctx.conn, id).ok(),
+                QuestionKind::Condition => d.condition = edit_repo::get_condition(ctx.conn, id).ok(),
+                QuestionKind::Concern => d.concern = record_repo::get_concern(ctx.conn, id).ok(),
+                QuestionKind::Reframe => d.reframe = repo::get_reframe(ctx.conn, id).ok(),
                 QuestionKind::Free => {}
             }
-            d.missing =
-                d.checkin.is_none() && d.hassle.is_none() && d.abc.is_none() && it.kind != QuestionKind::Free;
+            d.missing = d.condition.is_none()
+                && d.concern.is_none()
+                && d.reframe.is_none()
+                && it.kind != QuestionKind::Free;
         }
         v.push(d);
     }
@@ -435,7 +437,7 @@ fn nonblank(s: &Option<String>) -> Option<String> {
         .map(String::from)
 }
 
-/// 構造化された問いへの回答を、種類ごとの保存先（`checkin` / `hassle` / `abc_record`、自由記述は
+/// 構造化された問いへの回答を、種類ごとの保存先（`condition` / `concern` / `reframe`、自由記述は
 /// `answers_md`）に保存する。空の回答は読み飛ばす。回答済みの問いには答え直せない。
 /// 1 件でも不正なら何も保存しない。
 pub fn answer_structured(ctx: &Ctx, id: &str, input: &AnswersInput) -> Result<Reflection> {
@@ -481,7 +483,7 @@ pub fn answer_structured(ctx: &Ctx, id: &str, input: &AnswersInput) -> Result<Re
             text: None,
         };
         match q.kind {
-            QuestionKind::Checkin => {
+            QuestionKind::Condition => {
                 let note = nonblank(&a.note);
                 if a.energy.is_none()
                     && a.mood.is_none()
@@ -491,9 +493,9 @@ pub fn answer_structured(ctx: &Ctx, id: &str, input: &AnswersInput) -> Result<Re
                 {
                     continue;
                 }
-                let c = record::check(
+                let c = record::condition(
                     ctx,
-                    &CheckInput {
+                    &ConditionInput {
                         energy: a.energy,
                         mood: a.mood,
                         stress: a.stress,
@@ -503,46 +505,46 @@ pub fn answer_structured(ctx: &Ctx, id: &str, input: &AnswersInput) -> Result<Re
                 )?;
                 item.record_id = Some(c.id);
             }
-            QuestionKind::Hassle => {
+            QuestionKind::Concern => {
                 let Some(text) = nonblank(&a.text) else { continue };
-                let h = record::hassle(
+                let h = record::concern(
                     ctx,
-                    &HassleInput {
+                    &ConcernInput {
                         text,
                         intensity: a.intensity,
                     },
                 )?;
                 item.record_id = Some(h.id);
             }
-            QuestionKind::Abc => {
-                let (event, belief, emotion, dispute) = (
-                    nonblank(&a.activating_event),
+            QuestionKind::Reframe => {
+                let (event, belief, emotion, alternative) = (
+                    nonblank(&a.event),
                     nonblank(&a.belief),
                     nonblank(&a.emotion),
-                    nonblank(&a.dispute),
+                    nonblank(&a.alternative),
                 );
                 if event.is_none()
                     && belief.is_none()
                     && emotion.is_none()
-                    && dispute.is_none()
+                    && alternative.is_none()
                     && a.emotion_intensity.is_none()
                 {
                     continue;
                 }
-                let abc = record::abc_add(
+                let reframe = record::reframe_add(
                     ctx,
-                    &AbcInput {
-                        activating_event: event,
+                    &ReframeInput {
+                        event,
                         belief,
-                        consequence_emotion: emotion,
-                        consequence_intensity: a.emotion_intensity,
-                        from_hassle: None,
+                        emotion,
+                        emotion_intensity: a.emotion_intensity,
+                        from_concern: None,
                     },
                 )?;
-                if let Some(d) = dispute {
-                    repo::set_abc_dispute(ctx.conn, &abc.id, &d)?;
+                if let Some(d) = alternative {
+                    repo::set_reframe_alternative(ctx.conn, &reframe.id, &d)?;
                 }
-                item.record_id = Some(abc.id);
+                item.record_id = Some(reframe.id);
             }
             QuestionKind::Free => {
                 let Some(text) = nonblank(&a.text) else { continue };
@@ -610,23 +612,21 @@ pub fn show(ctx: &Ctx, id: &str) -> Result<Reflection> {
     repo::resolve(ctx.conn, id)
 }
 
-/// ABC 記録の B（受け止め方）を掘り下げる問いを AI で生成し、`ai_dialog_md` に追記する。
-pub fn abc_dispute(ctx: &Ctx, id: &str) -> Result<AbcRecord> {
+/// 捉え直しの B（受け止め方）を掘り下げる問いを AI で生成し、`deepening_md` に追記する。
+pub fn reframe_deepen(ctx: &Ctx, id: &str) -> Result<Reframe> {
     let tz = ctx.tz()?;
-    let a = repo::resolve_abc(ctx.conn, id)?;
+    let a = repo::resolve_reframe(ctx.conn, id)?;
     let none = "（未記入）";
-    let intensity = a
-        .consequence_intensity
-        .map_or(none.to_string(), |n| n.to_string());
-    let tpl = load_template(ctx, "abc_dispute")?;
-    let prompt = render_template(
-        &tpl,
+    let intensity = a.emotion_intensity.map_or(none.to_string(), |n| n.to_string());
+    let base = load_prompt(ctx, "reframe_deepen")?;
+    let prompt = render_prompt(
+        &base,
         &[
-            ("activating_event", &a.activating_event),
+            ("event", &a.event),
             ("belief", a.belief.as_deref().unwrap_or(none)),
-            ("emotion", a.consequence_emotion.as_deref().unwrap_or(none)),
+            ("emotion", a.emotion.as_deref().unwrap_or(none)),
             ("intensity", &intensity),
-            ("dispute", a.dispute.as_deref().unwrap_or(none)),
+            ("alternative", a.alternative.as_deref().unwrap_or(none)),
             ("date", &timefmt::fmt_rfc3339(tz, a.at)),
         ],
     );
@@ -636,18 +636,18 @@ pub fn abc_dispute(ctx: &Ctx, id: &str) -> Result<AbcRecord> {
         timefmt::fmt_rfc3339(tz, ctx.now()),
         questions
     );
-    let dialog = match a.ai_dialog_md.as_deref().filter(|s| !s.trim().is_empty()) {
+    let dialog = match a.deepening_md.as_deref().filter(|s| !s.trim().is_empty()) {
         Some(prev) => format!("{}\n\n{}", prev.trim_end(), entry),
         None => entry,
     };
-    repo::set_abc_dialog(ctx.conn, &a.id, &dialog)?;
-    repo::get_abc(ctx.conn, &a.id)
+    repo::set_reframe_deepening(ctx.conn, &a.id, &dialog)?;
+    repo::get_reframe(ctx.conn, &a.id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::service::record::{self, AbcInput};
+    use crate::service::record::{self, ReframeInput};
     use crate::service::testutil::Env;
 
     /// `cargo test` が一緒にビルドする examples/echo_stdin のパス。
@@ -670,8 +670,8 @@ mod tests {
     }
 
     #[test]
-    fn template_rendering() {
-        let s = render_template(
+    fn prompt_rendering() {
+        let s = render_prompt(
             "a {{x}} b {{ y }} {{unknown}} {{x",
             &[("x", "1{{y}}"), ("y", "2")],
         );
@@ -679,25 +679,23 @@ mod tests {
     }
 
     #[test]
-    fn builtin_templates_have_placeholders() {
+    fn builtin_prompts_have_placeholders() {
         for n in ["day_start", "day_end", "weekly"] {
-            assert!(builtin_template(n).unwrap().contains("{{context}}"), "{n}");
+            assert!(builtin_prompt(n).unwrap().contains("{{context}}"), "{n}");
         }
-        assert!(builtin_template("abc_dispute").unwrap().contains("{{belief}}"));
+        assert!(builtin_prompt("reframe_deepen").unwrap().contains("{{belief}}"));
     }
 
     #[test]
-    fn user_template_overrides_builtin() {
+    fn user_prompt_overrides_builtin() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("day_end.md"), "独自 {{date}}").unwrap();
         let mut env = Env::new();
-        env.cfg.ai.templates_dir = Some(dir.path().to_string_lossy().into_owned());
-        let t = load_template(&env.ctx(), "day_end").unwrap();
+        env.cfg.ai.prompts_dir = Some(dir.path().to_string_lossy().into_owned());
+        let t = load_prompt(&env.ctx(), "day_end").unwrap();
         assert_eq!(t, "独自 {{date}}");
         // 無いものは組み込み
-        assert!(load_template(&env.ctx(), "weekly")
-            .unwrap()
-            .contains("{{context}}"));
+        assert!(load_prompt(&env.ctx(), "weekly").unwrap().contains("{{context}}"));
     }
 
     #[test]
@@ -793,9 +791,9 @@ mod tests {
         let env = Env::new();
         let ctx = env.ctx();
         for (k, forbidden) in [
-            (ReflectionKind::DayStart, "`hassle` と `abc` は使わない"),
-            (ReflectionKind::DayEnd, "`abc` は使わない"),
-            (ReflectionKind::Weekly, "`checkin` は使わない"),
+            (ReflectionKind::DayStart, "`concern` と `reframe` は使わない"),
+            (ReflectionKind::DayEnd, "`reframe` は使わない"),
+            (ReflectionKind::Weekly, "`condition` は使わない"),
         ] {
             let c = context::context(&ctx, k, None).unwrap();
             let p = build_structured_prompt(&ctx, &c).unwrap();
@@ -848,7 +846,7 @@ mod tests {
             r#"{"answers":[
               {"index":0,"energy":3,"mood":4,"erg":"growth","note":"普通"},
               {"index":1,"text":"会議が長かった","intensity":4},
-              {"index":2,"activating_event":"レビューで指摘された","belief":"向いていない","emotion":"落ち込み","emotion_intensity":4,"dispute":"一部の指摘だけ"},
+              {"index":2,"event":"レビューで指摘された","belief":"向いていない","emotion":"落ち込み","emotion_intensity":4,"alternative":"一部の指摘だけ"},
               {"index":3,"text":"まあまあ"}
             ]}"#,
         )
@@ -862,33 +860,33 @@ mod tests {
             Some("### ひとことで言うと？\n\nまあまあ")
         );
 
-        // 保存先: checkin / hassle / abc_record
+        // 保存先: condition / concern / reframe
         let conn = ctx.conn;
-        let cs = crate::repo::record::list_checkins(conn, 0, i64::MAX).unwrap();
+        let cs = crate::repo::record::list_conditions(conn, 0, i64::MAX).unwrap();
         assert_eq!(cs.len(), 1);
         assert_eq!(
             (cs[0].energy, cs[0].mood, cs[0].erg_tag),
             (Some(3), Some(4), Some(ErgTag::Growth))
         );
         assert_eq!(rec.items[0].record_id.as_deref(), Some(cs[0].id.as_str()));
-        let hs = crate::repo::record::list_hassles(conn, 0, i64::MAX).unwrap();
+        let hs = crate::repo::record::list_concerns(conn, 0, i64::MAX).unwrap();
         assert_eq!((hs.len(), hs[0].intensity), (1, 4));
         assert_eq!(rec.items[1].record_id.as_deref(), Some(hs[0].id.as_str()));
-        let abcs = crate::repo::record::list_abc(conn, 0, i64::MAX).unwrap();
-        assert_eq!(abcs.len(), 1);
-        assert_eq!(abcs[0].belief.as_deref(), Some("向いていない"));
-        assert_eq!(abcs[0].consequence_intensity, Some(4));
-        assert_eq!(abcs[0].dispute.as_deref(), Some("一部の指摘だけ"));
-        assert_eq!(rec.items[2].record_id.as_deref(), Some(abcs[0].id.as_str()));
+        let reframes = crate::repo::record::list_reframe(conn, 0, i64::MAX).unwrap();
+        assert_eq!(reframes.len(), 1);
+        assert_eq!(reframes[0].belief.as_deref(), Some("向いていない"));
+        assert_eq!(reframes[0].emotion_intensity, Some(4));
+        assert_eq!(reframes[0].alternative.as_deref(), Some("一部の指摘だけ"));
+        assert_eq!(rec.items[2].record_id.as_deref(), Some(reframes[0].id.as_str()));
         assert_eq!(rec.items[3].record_id, None);
 
         // 回答済みの表示用に、問いと保存した記録の中身が並んで取れる
         let ds = answer_details(&ctx, &a).unwrap();
         assert_eq!(ds.len(), 4);
-        assert_eq!(ds[0].checkin.as_ref().unwrap().energy, Some(3));
-        assert_eq!(ds[1].hassle.as_ref().unwrap().text, "会議が長かった");
+        assert_eq!(ds[0].condition.as_ref().unwrap().energy, Some(3));
+        assert_eq!(ds[1].concern.as_ref().unwrap().text, "会議が長かった");
         assert_eq!(
-            ds[2].abc.as_ref().unwrap().dispute.as_deref(),
+            ds[2].reframe.as_ref().unwrap().alternative.as_deref(),
             Some("一部の指摘だけ")
         );
         assert_eq!(ds[3].text.as_deref(), Some("まあまあ"));
@@ -923,25 +921,25 @@ mod tests {
         let cid = before[0].record_id.clone().unwrap();
         let hid = before[1].record_id.clone().unwrap();
         // 影響のプレビューに警告が出る。--force なしの削除は失敗する。
-        let dry = record::check_delete(&ctx, &cid, DeleteMode::DRY_RUN).unwrap();
+        let dry = record::condition_delete(&ctx, &cid, DeleteMode::DRY_RUN).unwrap();
         assert_eq!(dry.impact.warnings.len(), 1);
         assert!(dry.impact.warnings[0].contains("day_end"));
         assert!(dry.impact.warnings[0].contains("の回答から参照されています"));
-        assert!(record::check_delete(&ctx, &cid, DeleteMode::default()).is_err());
-        assert!(record::hassle_delete(&ctx, &hid, DeleteMode::default()).is_err());
+        assert!(record::condition_delete(&ctx, &cid, DeleteMode::default()).is_err());
+        assert!(record::concern_delete(&ctx, &hid, DeleteMode::default()).is_err());
         // 参照されていない記録には警告が付かない。
-        let other = record::check(
+        let other = record::condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(1),
                 ..Default::default()
             },
         )
         .unwrap();
-        let d = record::check_delete(&ctx, &other.id, DeleteMode::DRY_RUN).unwrap();
+        let d = record::condition_delete(&ctx, &other.id, DeleteMode::DRY_RUN).unwrap();
         assert!(d.impact.warnings.is_empty());
 
-        record::check_delete(&ctx, &cid, DeleteMode::FORCE).unwrap();
+        record::condition_delete(&ctx, &cid, DeleteMode::FORCE).unwrap();
         let after = answer_details(&ctx, &show(&ctx, &r.id).unwrap()).unwrap();
         assert!(after[0].missing);
         assert!(!after[1].missing);
@@ -972,7 +970,7 @@ mod tests {
         ] {
             assert!(answer_structured(&ctx, &r.id, &AnswersInput { answers }).is_err());
         }
-        // 後ろの項目が不正（強度 9）なら、前の checkin も保存されない
+        // 後ろの項目が不正（強度 9）なら、前の condition も保存されない
         let bad = AnswersInput {
             answers: vec![
                 item(0, &|a| a.energy = Some(3)),
@@ -983,7 +981,7 @@ mod tests {
             ],
         };
         assert!(answer_structured(&ctx, &r.id, &bad).is_err());
-        assert!(crate::repo::record::list_checkins(ctx.conn, 0, i64::MAX)
+        assert!(crate::repo::record::list_conditions(ctx.conn, 0, i64::MAX)
             .unwrap()
             .is_empty());
         assert!(!show(&ctx, &r.id).unwrap().answered());
@@ -997,14 +995,14 @@ mod tests {
         assert!(answer_structured(&env2.ctx(), &md.id, &ok).is_err());
     }
 
-    fn hassle_labels(ctx: &Ctx) -> Vec<crate::model::ErgLabel> {
+    fn concern_labels(ctx: &Ctx) -> Vec<crate::model::ErgLabel> {
         crate::repo::erg::list_range(ctx.conn, 0, i64::MAX).unwrap()
     }
 
-    fn add_hassle(ctx: &Ctx, text: &str) {
-        record::hassle(
+    fn add_concern(ctx: &Ctx, text: &str) {
+        record::concern(
             ctx,
-            &record::HassleInput {
+            &record::ConcernInput {
                 text: text.into(),
                 intensity: None,
             },
@@ -1018,15 +1016,18 @@ mod tests {
         let mut env = Env::new();
         env.cfg.ai.command = argv(Some("erg"));
         let ctx = env.ctx();
-        add_hassle(&ctx, "新しいことを試した");
-        add_hassle(&ctx, "同僚と話した");
+        add_concern(&ctx, "新しいことを試した");
+        add_concern(&ctx, "同僚と話した");
         reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
-        let labels = hassle_labels(&ctx);
+        let labels = concern_labels(&ctx);
         assert_eq!(labels.len(), 2);
-        // r1 は確信度 0.9 で採用、もう一方は 0.5 で確認待ち
+        // r1 は確信度 0.9 で採用、もう一方は 0.5 で未確定
         assert_eq!(labels.iter().filter(|l| l.source == ErgSource::Ai).count(), 1);
         assert_eq!(
-            labels.iter().filter(|l| l.source == ErgSource::Suggested).count(),
+            labels
+                .iter()
+                .filter(|l| l.source == ErgSource::Unconfirmed)
+                .count(),
             1
         );
 
@@ -1034,7 +1035,7 @@ mod tests {
         let r = reflect(&ctx, ReflectionKind::Weekly, None).unwrap();
         let c: serde_json::Value = serde_json::from_str(&r.context_json).unwrap();
         assert_eq!(c["erg_distribution"]["growth"], 1);
-        assert_eq!(c["erg_distribution"]["pending"], 1);
+        assert_eq!(c["erg_distribution"]["unconfirmed"], 1);
         assert!(c["erg_distribution"]["legend"]
             .as_str()
             .unwrap()
@@ -1048,48 +1049,48 @@ mod tests {
         env.cfg.ai.command = argv(Some("erg"));
         env.cfg.ai.erg_classify = false;
         let ctx = env.ctx();
-        add_hassle(&ctx, "何か");
+        add_concern(&ctx, "何か");
         reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
-        assert!(hassle_labels(&ctx).is_empty());
+        assert!(concern_labels(&ctx).is_empty());
         // 始業は対象外
         let mut env = Env::new();
         env.cfg.ai.command = argv(Some("erg"));
         let ctx = env.ctx();
-        add_hassle(&ctx, "何か");
+        add_concern(&ctx, "何か");
         reflect(&ctx, ReflectionKind::DayStart, None).unwrap();
-        assert!(hassle_labels(&ctx).is_empty());
+        assert!(concern_labels(&ctx).is_empty());
         // 判定が失敗しても振り返り自体は保存される
         let mut env = Env::new();
         env.cfg.ai.command = argv(Some("ergfail"));
         let ctx = env.ctx();
-        add_hassle(&ctx, "何か");
+        add_concern(&ctx, "何か");
         let r = reflect(&ctx, ReflectionKind::DayEnd, None).unwrap();
         assert!(r.questions_md.contains("2026-10-10"));
-        assert!(hassle_labels(&ctx).is_empty());
+        assert!(concern_labels(&ctx).is_empty());
     }
 
     #[test]
-    fn abc_dispute_appends_dialog() {
+    fn reframe_deepen_appends_dialog() {
         let mut env = Env::new();
         env.cfg.ai.command = argv(None);
         let ctx = env.ctx();
-        let abc = record::abc_add(
+        let reframe = record::reframe_add(
             &ctx,
-            &AbcInput {
-                activating_event: Some("レビューで指摘された".into()),
+            &ReframeInput {
+                event: Some("レビューで指摘された".into()),
                 belief: Some("自分は向いていない".into()),
-                consequence_emotion: Some("落ち込み".into()),
-                consequence_intensity: Some(4),
-                from_hassle: None,
+                emotion: Some("落ち込み".into()),
+                emotion_intensity: Some(4),
+                from_concern: None,
             },
         )
         .unwrap();
-        let r1 = abc_dispute(&ctx, &abc.id[..10]).unwrap();
-        let d1 = r1.ai_dialog_md.unwrap();
+        let r1 = reframe_deepen(&ctx, &reframe.id[..10]).unwrap();
+        let d1 = r1.deepening_md.unwrap();
         assert!(d1.starts_with("### AI の問い"));
         assert!(d1.contains("自分は向いていない") && d1.contains("レビューで指摘された"));
-        let r2 = abc_dispute(&ctx, &abc.id).unwrap();
-        assert_eq!(r2.ai_dialog_md.unwrap().matches("### AI の問い").count(), 2);
-        assert!(abc_dispute(&ctx, "ZZZZ").is_err());
+        let r2 = reframe_deepen(&ctx, &reframe.id).unwrap();
+        assert_eq!(r2.deepening_md.unwrap().matches("### AI の問い").count(), 2);
+        assert!(reframe_deepen(&ctx, "ZZZZ").is_err());
     }
 }

@@ -40,7 +40,7 @@ pub fn set_user(conn: &Connection, kind: ErgRecordKind, id: &str, tag: ErgChoice
     Ok(())
 }
 
-/// AI の判定（`ai` か `suggested`）を保存する。`user` のラベルがある記録は更新しない。
+/// AI の判定（`ai` か `unconfirmed`）を保存する。`user` のラベルがある記録は更新しない。
 /// 更新したら true。
 pub fn set_auto(conn: &Connection, l: &ErgLabel) -> Result<bool> {
     debug_assert!(l.source != ErgSource::User);
@@ -73,7 +73,7 @@ pub fn delete(conn: &Connection, kind: ErgRecordKind, id: &str) -> Result<()> {
     Ok(())
 }
 
-/// AI 由来のラベル（`ai` / `suggested`）だけを消す。記録の本文を直したときに、判定をやり直せるようにする。
+/// AI 由来のラベル（`ai` / `unconfirmed`）だけを消す。記録の本文を直したときに、判定をやり直せるようにする。
 pub fn delete_auto(conn: &Connection, kind: ErgRecordKind, id: &str) -> Result<()> {
     conn.execute(
         "DELETE FROM erg_label WHERE record_kind = ?1 AND record_id = ?2 AND source <> 'user'",
@@ -85,11 +85,11 @@ pub fn delete_auto(conn: &Connection, kind: ErgRecordKind, id: &str) -> Result<(
 /// 期間内の記録に付いたラベル。
 pub fn list_range(conn: &Connection, start: Millis, end: Millis) -> Result<Vec<ErgLabel>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {COLS} FROM erg_label l JOIN checkin t ON l.record_kind = 'checkin' AND t.id = l.record_id \
+        "SELECT {COLS} FROM erg_label l JOIN condition t ON l.record_kind = 'condition' AND t.id = l.record_id \
            WHERE t.at >= ?1 AND t.at < ?2 \
-         UNION ALL SELECT {COLS} FROM erg_label l JOIN hassle t ON l.record_kind = 'hassle' AND t.id = l.record_id \
+         UNION ALL SELECT {COLS} FROM erg_label l JOIN concern t ON l.record_kind = 'concern' AND t.id = l.record_id \
            WHERE t.at >= ?1 AND t.at < ?2 \
-         UNION ALL SELECT {COLS} FROM erg_label l JOIN abc_record t ON l.record_kind = 'abc' AND t.id = l.record_id \
+         UNION ALL SELECT {COLS} FROM erg_label l JOIN reframe t ON l.record_kind = 'reframe' AND t.id = l.record_id \
            WHERE t.at >= ?1 AND t.at < ?2 \
          UNION ALL SELECT {COLS} FROM erg_label l JOIN reflection t ON l.record_kind = 'reflection' AND t.id = l.record_id \
            WHERE t.at >= ?1 AND t.at < ?2 \
@@ -99,10 +99,10 @@ pub fn list_range(conn: &Connection, start: Millis, end: Millis) -> Result<Vec<E
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 確認待ち（`suggested`）の一覧（古い順）。
-pub fn list_pending(conn: &Connection) -> Result<Vec<ErgLabel>> {
+/// 未確定（`unconfirmed`）の一覧（古い順）。
+pub fn list_unconfirmed(conn: &Connection) -> Result<Vec<ErgLabel>> {
     let mut stmt = conn.prepare(&format!(
-        "SELECT {COLS} FROM erg_label l WHERE l.source = 'suggested' ORDER BY l.at, l.record_id"
+        "SELECT {COLS} FROM erg_label l WHERE l.source = 'unconfirmed' ORDER BY l.at, l.record_id"
     ))?;
     let rows = stmt.query_map([], from_row)?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)

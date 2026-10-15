@@ -1,4 +1,4 @@
-//! ウインドウ操作（メイン窓の表示、画面指定、チェックイン用ポップアップ）。
+//! ウインドウ操作（メイン窓の表示、画面指定、調子用ポップアップ）。
 
 use crate::events;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};

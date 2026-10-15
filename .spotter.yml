@@ -87,7 +87,7 @@ checks:
     docs: [README.md, AGENTS.md, CHANGELOG.md, 'docs/**/*.md']
     path_prefixes: [crates, ui/src, docs, .github]
     ignore:
-      - 'crates/hitoiki-core/templates/{day_start,day_end,weekly,abc_dispute}.md'  # ブレース展開の書き方
+      - 'crates/hitoiki-core/prompts/{day_start,day_end,weekly,reframe_deepen}.md'  # ブレース展開の書き方
       - 'crates/hitoiki-app/binaries/'  # ビルド時に配置する（Git 管理外）
 
   # 文書の Markdown リンクが切れていないこと。

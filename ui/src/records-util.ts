@@ -1,14 +1,14 @@
-// 記録画面（チェックイン・ハッスル・ABC・振り返りを 1 本の時系列に）の純粋ロジック。画面に依存しない。
+// 記録画面（調子・気になったこと・捉え直し・振り返りを 1 本の時系列に）の純粋ロジック。画面に依存しない。
 // 文言は事実を並べるだけにして、記録の内容や件数の偏りに良し悪しの評価は付けない。
 
 import type {
-  AbcRecord,
-  Checkin,
+  Reframe,
+  Condition,
   ErgChoice,
   ErgDistribution,
   ErgLabel,
   ErgRecordKind,
-  Hassle,
+  Concern,
   Millis,
   Reflection,
   ReflectionKind,
@@ -20,21 +20,21 @@ import { ALL_PERIODS, type PeriodId } from "./ui/period-util";
 export const ABC_HELP =
   "出来事（A）、その受け止め方（B）、感情（C）を分けて書き、別の捉え方（反論）を考えてみる方法です（ABC 理論）。受け止め方を言葉にすると、感じ方との間にある考えが見えてきます。";
 
-export type RecordKind = "checkin" | "hassle" | "abc" | "reflection";
+export type RecordKind = "condition" | "concern" | "reframe" | "reflection";
 
 export const RECORD_KIND_LABEL: Record<RecordKind, string> = {
-  checkin: "調子",
-  hassle: "気になったこと",
-  abc: "捉え直し",
+  condition: "調子",
+  concern: "気になったこと",
+  reframe: "捉え直し",
   reflection: "振り返り",
 };
 
 /** 一覧の種類の絞り込み（先頭は「すべて」）。 */
 export const KIND_FILTERS: { id: RecordKind | "all"; label: string }[] = [
   { id: "all", label: "すべて" },
-  { id: "checkin", label: RECORD_KIND_LABEL.checkin },
-  { id: "hassle", label: RECORD_KIND_LABEL.hassle },
-  { id: "abc", label: RECORD_KIND_LABEL.abc },
+  { id: "condition", label: RECORD_KIND_LABEL.condition },
+  { id: "concern", label: RECORD_KIND_LABEL.concern },
+  { id: "reframe", label: RECORD_KIND_LABEL.reframe },
   { id: "reflection", label: RECORD_KIND_LABEL.reflection },
 ];
 
@@ -50,12 +50,12 @@ export const REFLECTION_KIND_LABEL: Record<ReflectionKind, string> = {
 };
 
 /** 「＋ 記録」で作れる種類。 */
-export type NewKind = "checkin" | "hassle" | "abc" | ReflectionKind;
+export type NewKind = "condition" | "concern" | "reframe" | ReflectionKind;
 
 export const NEW_KINDS: { id: NewKind; label: string }[] = [
-  { id: "checkin", label: "調子" },
-  { id: "hassle", label: "気になったこと" },
-  { id: "abc", label: "捉え直し" },
+  { id: "condition", label: "調子" },
+  { id: "concern", label: "気になったこと" },
+  { id: "reframe", label: "捉え直し" },
   { id: "day_start", label: "始業の振り返り" },
   { id: "day_end", label: "終業の振り返り" },
   { id: "weekly", label: "週次の振り返り" },
@@ -75,7 +75,7 @@ export function recordsSelection(path: string[]): RecordsSelection | null {
   if (a === "new") {
     return b && NEW_KINDS.some((k) => k.id === b) ? { mode: "new", kind: b as NewKind } : null;
   }
-  if ((a === "checkin" || a === "hassle" || a === "abc" || a === "reflection") && b) {
+  if ((a === "condition" || a === "concern" || a === "reframe" || a === "reflection") && b) {
     return { mode: "detail", kind: a, id: b };
   }
   return null;
@@ -91,9 +91,9 @@ export function recordsPeriod(param: string | null | undefined): PeriodId {
 // ===== 時系列 =====
 
 export type RecordSource =
-  | { kind: "checkin"; rec: Checkin }
-  | { kind: "hassle"; rec: Hassle }
-  | { kind: "abc"; rec: AbcRecord }
+  | { kind: "condition"; rec: Condition }
+  | { kind: "concern"; rec: Concern }
+  | { kind: "reframe"; rec: Reframe }
   | { kind: "reflection"; rec: Reflection };
 
 export interface TimelineEntry {
@@ -107,8 +107,8 @@ export interface TimelineEntry {
   source: RecordSource;
 }
 
-/** チェックインの要約。入力のある値だけを並べ、一言メモがあれば添える。 */
-export function checkinSummary(c: Checkin): string {
+/** 調子の要約。入力のある値だけを並べ、一言メモがあれば添える。 */
+export function conditionSummary(c: Condition): string {
   const parts: string[] = [];
   if (c.energy != null) parts.push(`エネルギー ${c.energy}`);
   if (c.mood != null) parts.push(`気分 ${c.mood}`);
@@ -133,9 +133,9 @@ export function oneLine(s: string): string {
 }
 
 export interface TimelineInput {
-  checkins: Checkin[];
-  hassles: Hassle[];
-  abcs: AbcRecord[];
+  conditions: Condition[];
+  concerns: Concern[];
+  reframes: Reframe[];
   reflections: Reflection[];
 }
 
@@ -156,9 +156,9 @@ export function buildTimeline(
   const out: TimelineEntry[] = [];
   const push = (kind: RecordKind, rec: { id: string; at: Millis }, summary: string, source: RecordSource) =>
     out.push({ kind, id: rec.id, at: rec.at, summary, erg: labels.get(ergKey(kind as ErgRecordKind, rec.id)), source });
-  for (const c of input.checkins) push("checkin", c, checkinSummary(c), { kind: "checkin", rec: c });
-  for (const h of input.hassles) push("hassle", h, oneLine(h.text), { kind: "hassle", rec: h });
-  for (const a of input.abcs) push("abc", a, oneLine(a.activating_event), { kind: "abc", rec: a });
+  for (const c of input.conditions) push("condition", c, conditionSummary(c), { kind: "condition", rec: c });
+  for (const h of input.concerns) push("concern", h, oneLine(h.text), { kind: "concern", rec: h });
+  for (const a of input.reframes) push("reframe", a, oneLine(a.event), { kind: "reframe", rec: a });
   for (const r of input.reflections) {
     if (range && !inRange(r.at, range.start, range.end)) continue;
     push("reflection", r, reflectionSummary(r), { kind: "reflection", rec: r });
@@ -166,14 +166,14 @@ export function buildTimeline(
   return out.sort((x, y) => y.at - x.at || (x.id < y.id ? 1 : x.id > y.id ? -1 : 0));
 }
 
-/** 種類と「ERG 確認待ち」で絞る。 */
-export function filterTimeline(entries: TimelineEntry[], kind: RecordKind | "all", pendingOnly: boolean): TimelineEntry[] {
-  return entries.filter((e) => (kind === "all" || e.kind === kind) && (!pendingOnly || ergState(e.erg) === "pending"));
+/** 種類と「ERG 未確定」で絞る。 */
+export function filterTimeline(entries: TimelineEntry[], kind: RecordKind | "all", unconfirmedOnly: boolean): TimelineEntry[] {
+  return entries.filter((e) => (kind === "all" || e.kind === kind) && (!unconfirmedOnly || ergState(e.erg) === "unconfirmed"));
 }
 
-/** ERG が確認待ちの件数。 */
-export function pendingCount(entries: TimelineEntry[]): number {
-  return entries.filter((e) => ergState(e.erg) === "pending").length;
+/** ERG が未確定の件数。 */
+export function unconfirmedCount(entries: TimelineEntry[]): number {
+  return entries.filter((e) => ergState(e.erg) === "unconfirmed").length;
 }
 
 // ===== ERG の表示 =====
@@ -187,7 +187,7 @@ const ERG_SHORT: Record<ErgChoice, string> = {
 
 /**
  * 一覧の行に付ける ERG の印。ユーザー確定は観点の名前、AI の判定は名前に「AI」を添える。
- * 確認待ち（AI の提案で未確定）は「確認待ち」。未判定は無し。
+ * 未確定（AI の提案で未確定）は「未確定」。未判定は無し。
  */
 export function ergBadge(label: ErgLabel | undefined): string | undefined {
   switch (ergState(label)) {
@@ -195,8 +195,8 @@ export function ergBadge(label: ErgLabel | undefined): string | undefined {
       return ERG_SHORT[label!.tag];
     case "ai":
       return `${ERG_SHORT[label!.tag]} AI`;
-    case "pending":
-      return "確認待ち";
+    case "unconfirmed":
+      return "未確定";
     default:
       return undefined;
   }
@@ -207,7 +207,7 @@ export function ergCountLine(d: ErgDistribution): string {
   if (d.total === 0) return "この期間に、文章のある記録はありません。";
   let s = `存在 ${d.existence}・関係 ${d.relatedness}・成長 ${d.growth}・該当なし ${d.none}`;
   const rest: string[] = [];
-  if (d.pending > 0) rest.push(`確認待ち ${d.pending}`);
+  if (d.unconfirmed > 0) rest.push(`未確定 ${d.unconfirmed}`);
   if (d.unlabeled > 0) rest.push(`未判定 ${d.unlabeled}`);
   if (rest.length > 0) s += `（${rest.join("、")}）`;
   return s;

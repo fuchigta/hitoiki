@@ -11,7 +11,7 @@ use hitoiki_agents::ImportStats;
 use hitoiki_core::config::Config;
 use hitoiki_core::nudge::{self, NudgePayload, NudgeResponse};
 use hitoiki_core::service::nudgelog;
-use hitoiki_core::service::record::{self, CheckInput};
+use hitoiki_core::service::record::{self, ConditionInput};
 use hitoiki_core::timefmt::Range;
 use hitoiki_core::{Clock, SystemClock};
 use hitoiki_daemon::{AlreadyRunning, Runtime, RuntimeOptions, RuntimeSink};
@@ -121,9 +121,9 @@ pub fn quit(app: &AppHandle) {
 
 /// 通知のアクション（トーストのボタン／ポップアップのボタン）を受けたときの処理。
 ///
-/// `nudge_id` があれば `nudge::apply_response` に渡す（nudge_log・checkin・hassle・スヌーズは core が処理）。
+/// `nudge_id` があれば `nudge::apply_response` に渡す（nudge_log・condition・concern・スヌーズは core が処理）。
 /// ボタンが `open`、または本体クリックなら、ペイロードの `open_screen` の画面を開く。
-/// `nudge_id` が無い（テスト通知）場合は、`energy` を直接チェックインとして記録する。
+/// `nudge_id` が無い（テスト通知）場合は、`energy` を直接調子として記録する。
 pub fn handle_activation(app: &AppHandle, act: Activation) {
     tracing::info!("通知のアクティベーション: {act:?}");
     // 更新のトースト: ボタンでも本体クリックでも、リリースページを開く。
@@ -170,7 +170,7 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
                     Some(Err(e)) => tracing::warn!("通知のタスクを始められませんでした: {e}"),
                     None => {}
                 }
-                changed = out.checkin_id.is_some() || out.hassle_id.is_some() || out.idle_labeled > 0;
+                changed = out.condition_id.is_some() || out.concern_id.is_some() || out.idle_labeled > 0;
                 if out.idle_labeled > 0 || action.as_deref().is_some_and(|a| a.starts_with("idle_")) {
                     // 無操作の分類は確定で保存済み。区間への反映を早める。
                     state.request_rebuild();
@@ -184,9 +184,9 @@ pub fn handle_activation(app: &AppHandle, act: Activation) {
         }
     } else if action.as_deref() == Some("energy") || note.is_some() {
         let r = state.with_ctx(|c| {
-            record::check(
+            record::condition(
                 c,
-                &CheckInput {
+                &ConditionInput {
                     energy: if action.as_deref() == Some("energy") {
                         act.value
                     } else {

@@ -1,7 +1,7 @@
 //! 問いかけの判定ロジック（docs/dev/architecture.md「問いかけ」、OS 非依存）。
 //!
 //! - [`evaluate`]: 現在の状況 [`NudgeContext`] と設定から、出すべき通知 / 抑制 / 保留を純粋関数で決める。
-//! - [`store`]: `nudge_log` の読み書きと [`store::apply_response`]（応答の保存、checkin / hassle の作成）。
+//! - [`store`]: `nudge_log` の読み書きと [`store::apply_response`]（応答の保存、condition / concern の作成）。
 //! - トースト表示（OS 依存）は呼び出し側の責務。
 //!
 //! 時刻はすべて引数（`ctx.now` など）で与える。この関数群は時計を直接読まない。

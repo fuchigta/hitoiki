@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
-import { api, type AbcRecord, type Checkin, type DeleteOutcome, type Hassle } from "./api";
+import { api, type Reframe, type Condition, type DeleteOutcome, type Concern } from "./api";
 import { ErrorBox, Field, Section } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
 import { fmtFull, useAction } from "./lib";
@@ -76,7 +76,7 @@ interface DetailProps {
   onDeleted: () => void;
 }
 
-export function CheckinDetail({ c, erg, onChanged, onDeleted }: DetailProps & { c: Checkin }) {
+export function ConditionDetail({ c, erg, onChanged, onDeleted }: DetailProps & { c: Condition }) {
   const [editing, setEditing] = useState(false);
   const [energy, setEnergy] = useState(str(c.energy));
   const [mood, setMood] = useState(str(c.mood));
@@ -94,8 +94,8 @@ export function CheckinDetail({ c, erg, onChanged, onDeleted }: DetailProps & { 
         setEditing(true);
       }}
       what="調子"
-      preview={() => named(api.checkinDelete(c.id, { dry_run: true }), fmtFull(c.at))}
-      commit={() => api.checkinDelete(c.id, { force: true })}
+      preview={() => named(api.conditionDelete(c.id, { dry_run: true }), fmtFull(c.at))}
+      commit={() => api.conditionDelete(c.id, { force: true })}
       onDeleted={onDeleted}
     />
   );
@@ -108,7 +108,7 @@ export function CheckinDetail({ c, erg, onChanged, onDeleted }: DetailProps & { 
           onSubmit={async (e) => {
             e.preventDefault();
             const r = await act.run(() =>
-              api.checkinEdit(c.id, {
+              api.conditionEdit(c.id, {
                 energy: num(energy),
                 mood: num(mood),
                 stress: num(stress),
@@ -147,7 +147,7 @@ export function CheckinDetail({ c, erg, onChanged, onDeleted }: DetailProps & { 
   );
 }
 
-export function HassleDetail({ h, erg, onChanged, onDeleted }: DetailProps & { h: Hassle }) {
+export function ConcernDetail({ h, erg, onChanged, onDeleted }: DetailProps & { h: Concern }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(h.text);
   const [intensity, setIntensity] = useState(String(h.intensity));
@@ -160,8 +160,8 @@ export function HassleDetail({ h, erg, onChanged, onDeleted }: DetailProps & { h
         setEditing(true);
       }}
       what="気になったこと"
-      preview={() => api.hassleDelete(h.id, { dry_run: true })}
-      commit={() => api.hassleDelete(h.id, { force: true })}
+      preview={() => api.concernDelete(h.id, { dry_run: true })}
+      commit={() => api.concernDelete(h.id, { force: true })}
       onDeleted={onDeleted}
     />
   );
@@ -173,7 +173,7 @@ export function HassleDetail({ h, erg, onChanged, onDeleted }: DetailProps & { h
           class="stack"
           onSubmit={async (e) => {
             e.preventDefault();
-            const r = await act.run(() => api.hassleEdit(h.id, text.trim(), num(intensity)));
+            const r = await act.run(() => api.concernEdit(h.id, text.trim(), num(intensity)));
             if (r) {
               setEditing(false);
               onChanged();
@@ -198,33 +198,33 @@ export function HassleDetail({ h, erg, onChanged, onDeleted }: DetailProps & { h
   );
 }
 
-export function AbcDetail({
+export function ReframeDetail({
   a,
   erg,
   onChanged,
   onDeleted,
   children,
-}: DetailProps & { a: AbcRecord; children?: ComponentChildren }) {
+}: DetailProps & { a: Reframe; children?: ComponentChildren }) {
   const [editing, setEditing] = useState(false);
-  const [ev, setEv] = useState(a.activating_event);
+  const [ev, setEv] = useState(a.event);
   const [belief, setBelief] = useState(a.belief ?? "");
-  const [emotion, setEmotion] = useState(a.consequence_emotion ?? "");
-  const [ci, setCi] = useState(str(a.consequence_intensity));
-  const [dispute, setDispute] = useState(a.dispute ?? "");
+  const [emotion, setEmotion] = useState(a.emotion ?? "");
+  const [ci, setCi] = useState(str(a.emotion_intensity));
+  const [alternative, setAlternative] = useState(a.alternative ?? "");
   const act = useAction();
   const menu = (
     <RecordMenu
       onEdit={() => {
-        setEv(a.activating_event);
+        setEv(a.event);
         setBelief(a.belief ?? "");
-        setEmotion(a.consequence_emotion ?? "");
-        setCi(str(a.consequence_intensity));
-        setDispute(a.dispute ?? "");
+        setEmotion(a.emotion ?? "");
+        setCi(str(a.emotion_intensity));
+        setAlternative(a.alternative ?? "");
         setEditing(true);
       }}
       what="捉え直し"
-      preview={() => named(api.abcDelete(a.id, { dry_run: true }), a.activating_event)}
-      commit={() => api.abcDelete(a.id, { force: true })}
+      preview={() => named(api.reframeDelete(a.id, { dry_run: true }), a.event)}
+      commit={() => api.reframeDelete(a.id, { force: true })}
       onDeleted={onDeleted}
     />
   );
@@ -237,12 +237,12 @@ export function AbcDetail({
           onSubmit={async (e) => {
             e.preventDefault();
             const r = await act.run(() =>
-              api.abcEdit(a.id, {
-                activating_event: ev.trim(),
+              api.reframeEdit(a.id, {
+                event: ev.trim(),
                 belief: belief.trim() || undefined,
-                consequence_emotion: emotion.trim() || undefined,
-                consequence_intensity: num(ci),
-                dispute: dispute.trim() || undefined,
+                emotion: emotion.trim() || undefined,
+                emotion_intensity: num(ci),
+                alternative: alternative.trim() || undefined,
               }),
             );
             if (r) {
@@ -263,23 +263,23 @@ export function AbcDetail({
             </Field>
             <ScaleField label="強さ" value={ci} onChange={setCi} />
           </div>
-          <Field label="別の捉え方（反論）のメモ">
-            <textarea rows={2} value={dispute} onInput={(e) => setDispute(e.currentTarget.value)} />
+          <Field label="別の捉え方のメモ">
+            <textarea rows={2} value={alternative} onInput={(e) => setAlternative(e.currentTarget.value)} />
           </Field>
           <SaveBar busy={act.busy} ok={!!ev.trim()} onCancel={() => setEditing(false)} />
           <ErrorBox error={act.error} />
         </form>
       ) : (
         <>
-          <div class="record-text">A: {a.activating_event}</div>
+          <div class="record-text">A: {a.event}</div>
           {a.belief && <div class="record-text">B: {a.belief}</div>}
-          {a.consequence_emotion && (
+          {a.emotion && (
             <div>
-              C: {a.consequence_emotion}
-              {a.consequence_intensity != null && `（${a.consequence_intensity}）`}
+              C: {a.emotion}
+              {a.emotion_intensity != null && `（${a.emotion_intensity}）`}
             </div>
           )}
-          {a.dispute && <div class="hint">別の捉え方: {a.dispute}</div>}
+          {a.alternative && <div class="hint">別の捉え方: {a.alternative}</div>}
           {erg}
           {children}
         </>

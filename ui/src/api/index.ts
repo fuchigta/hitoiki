@@ -102,15 +102,15 @@ export const api = {
   calendarList: (range?: T.RangeArgs) => call<T.CalendarEvent[]>("calendar_list", { range }),
 
   // 記録
-  checkinAdd: (input: T.CheckInput) => call<T.Checkin>("checkin_add", { input }),
-  checkinList: (range?: T.RangeArgs) => call<T.Items<T.Checkin>>("checkin_list", { range }),
-  hassleAdd: (text: string, intensity?: number) =>
-    call<T.Hassle>("hassle_add", { input: { text, intensity } }),
-  hassleList: (range?: T.RangeArgs) => call<T.Items<T.Hassle>>("hassle_list", { range }),
-  abcAdd: (input: T.AbcInput) => call<T.AbcRecord>("abc_add", { input }),
-  abcList: (range?: T.RangeArgs) => call<T.Items<T.AbcRecord>>("abc_list", { range }),
+  conditionAdd: (input: T.ConditionInput) => call<T.Condition>("condition_add", { input }),
+  conditionList: (range?: T.RangeArgs) => call<T.Items<T.Condition>>("condition_list", { range }),
+  concernAdd: (text: string, intensity?: number) =>
+    call<T.Concern>("concern_add", { input: { text, intensity } }),
+  concernList: (range?: T.RangeArgs) => call<T.Items<T.Concern>>("concern_list", { range }),
+  reframeAdd: (input: T.ReframeInput) => call<T.Reframe>("reframe_add", { input }),
+  reframeList: (range?: T.RangeArgs) => call<T.Items<T.Reframe>>("reframe_list", { range }),
 
-  // 振り返り（AI）。generate / dispute は時間がかかる。
+  // 振り返り（AI）。generate / alternative は時間がかかる。
   context: (kind: T.ReflectionKind, date?: string) => call<unknown>("context", { kind, date }),
   reflectGenerate: (kind: T.ReflectionKind, date?: string) =>
     call<T.Reflection>("reflect_generate", { kind, date }),
@@ -122,7 +122,7 @@ export const api = {
   reflectList: (kind?: T.ReflectionKind, limit = 30) =>
     call<T.Reflection[]>("reflect_list", { kind, limit }),
   reflectShow: (id: string) => call<T.Reflection>("reflect_show", { id }),
-  abcDispute: (id: string) => call<T.AbcRecord>("abc_dispute", { id }),
+  reframeDeepen: (id: string) => call<T.Reframe>("reframe_deepen", { id }),
 
   // ERG
   ergOverview: (range?: T.RangeArgs) => call<T.ErgOverview>("erg_overview", { range }),
@@ -175,13 +175,13 @@ export const api = {
   activityRuleDelete: (id: string) => call<unknown>("activity_rule_delete", { id }),
 
   // 記録の編集と削除
-  checkinEdit: (id: string, input: T.CheckInput) => call<T.Checkin>("checkin_edit", { id, input }),
-  checkinDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("checkin_delete", { id, mode }),
-  hassleEdit: (id: string, text: string, intensity?: number) =>
-    call<T.Hassle>("hassle_edit", { id, input: { text, intensity } }),
-  hassleDelete: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("hassle_delete", { id, mode }),
-  abcEdit: (id: string, input: T.AbcEditInput) => call<T.AbcRecord>("abc_edit", { id, input }),
-  abcDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("abc_delete", { id, mode }),
+  conditionEdit: (id: string, input: T.ConditionInput) => call<T.Condition>("condition_edit", { id, input }),
+  conditionDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("condition_delete", { id, mode }),
+  concernEdit: (id: string, text: string, intensity?: number) =>
+    call<T.Concern>("concern_edit", { id, input: { text, intensity } }),
+  concernDelete: (id: string, mode: T.DeleteMode) => call<T.DeleteOutcome>("concern_delete", { id, mode }),
+  reframeEdit: (id: string, input: T.ReframeEditInput) => call<T.Reframe>("reframe_edit", { id, input }),
+  reframeDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("reframe_delete", { id, mode }),
 
   // カレンダーソース・活動（設定）
   calendarSourceList: () => call<{ sources: T.CalendarSourceView[] }>("calendar_source_list"),

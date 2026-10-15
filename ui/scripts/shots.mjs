@@ -107,11 +107,11 @@ const SELECTED = [
     },
   },
   {
-    name: "records-checkin-selected",
+    name: "records-condition-selected",
     screen: "records",
     hash: (s) => {
-      const c = s.checkins.find((x) => x.at <= s.now);
-      return c && `#/records/checkin/${c.id}`;
+      const c = s.conditions.find((x) => x.at <= s.now);
+      return c && `#/records/condition/${c.id}`;
     },
   },
   {
@@ -123,9 +123,9 @@ const SELECTED = [
     },
   },
   {
-    name: "records-new-abc",
+    name: "records-new-reframe",
     screen: "records",
-    hash: () => "#/records/new/abc",
+    hash: () => "#/records/new/reframe",
   },
 ];
 

@@ -7,7 +7,7 @@ use crate::state::{AppState, NudgeEvent, RuntimeMode};
 use crate::{events, tray, window};
 use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{
-    AbcRecord, CalendarEvent, Checkin, ErgChoice, ErgLabel, ErgRecordKind, Hassle, PlanBlock, Reflection,
+    CalendarEvent, Concern, Condition, ErgChoice, ErgLabel, ErgRecordKind, PlanBlock, Reflection, Reframe,
 };
 use hitoiki_core::service::actual::{self as actual_svc, ActualList, ActualListInput};
 use hitoiki_core::service::block_template::{
@@ -26,7 +26,9 @@ use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
 use hitoiki_core::service::link_suggestion;
 use hitoiki_core::service::plan::{self, BlockList};
-use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
+use hitoiki_core::service::record::{
+    self as record_svc, ConcernInput, ConditionInput, Listing, ReframeInput,
+};
 use hitoiki_core::service::reflect;
 use hitoiki_core::service::report::{self, Report, ReportBy, ReportInput};
 use hitoiki_core::service::review::{
@@ -436,39 +438,39 @@ pub fn calendar_list(state: S, range: Option<RangeArgs>) -> AppResult<Vec<Calend
     })
 }
 
-// ===== 記録（チェックイン・ハッスル・ABC） =====
+// ===== 記録（調子・気になったこと・捉え直し） =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_add(state: S, input: CheckInput) -> AppResult<Checkin> {
-    state.with_ctx(|c| record_svc::check(c, &input))
+pub fn condition_add(state: S, input: ConditionInput) -> AppResult<Condition> {
+    state.with_ctx(|c| record_svc::condition(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn checkin_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Checkin>> {
+pub fn condition_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Condition>> {
     let args = range.unwrap_or_default();
-    state.with_ctx(|c| record_svc::list_checkins(c, &args))
+    state.with_ctx(|c| record_svc::list_conditions(c, &args))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn hassle_add(state: S, input: HassleInput) -> AppResult<Hassle> {
-    state.with_ctx(|c| record_svc::hassle(c, &input))
+pub fn concern_add(state: S, input: ConcernInput) -> AppResult<Concern> {
+    state.with_ctx(|c| record_svc::concern(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn hassle_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Hassle>> {
+pub fn concern_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Concern>> {
     let args = range.unwrap_or_default();
-    state.with_ctx(|c| record_svc::list_hassles(c, &args))
+    state.with_ctx(|c| record_svc::list_concerns(c, &args))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn abc_add(state: S, input: AbcInput) -> AppResult<AbcRecord> {
-    state.with_ctx(|c| record_svc::abc_add(c, &input))
+pub fn reframe_add(state: S, input: ReframeInput) -> AppResult<Reframe> {
+    state.with_ctx(|c| record_svc::reframe_add(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn abc_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<AbcRecord>> {
+pub fn reframe_list(state: S, range: Option<RangeArgs>) -> AppResult<Listing<Reframe>> {
     let args = range.unwrap_or_default();
-    state.with_ctx(|c| record_svc::list_abc(c, &args))
+    state.with_ctx(|c| record_svc::list_reframe(c, &args))
 }
 
 // ===== 振り返り（AI） =====
@@ -506,7 +508,7 @@ pub fn reflect_answer(state: S, id: String, answers_md: String) -> AppResult<Ref
     state.with_ctx(|c| reflect::answer(c, &id, &answers_md))
 }
 
-/// 構造化された問いへの回答を、種類ごとの保存先（チェックイン・ハッスル・ABC・自由記述）に保存する。
+/// 構造化された問いへの回答を、種類ごとの保存先（調子・気になったこと・捉え直し・自由記述）に保存する。
 #[tauri::command(rename_all = "snake_case")]
 pub fn reflect_answer_structured(
     state: S,
@@ -516,7 +518,7 @@ pub fn reflect_answer_structured(
     state.with_ctx(|c| reflect::answer_structured(c, &id, &answers))
 }
 
-/// 回答済みの問いを、保存した記録（チェックイン・ハッスル・ABC）の中身つきで返す。
+/// 回答済みの問いを、保存した記録（調子・気になったこと・捉え直し）の中身つきで返す。
 #[tauri::command(rename_all = "snake_case")]
 pub fn reflect_answer_details(state: S, id: String) -> AppResult<Vec<reflect::AnswerDetail>> {
     state.with_ctx(|c| {
@@ -537,22 +539,25 @@ pub fn reflect_show(state: S, id: String) -> AppResult<Reflection> {
     state.with_ctx(|c| reflect::show(c, &id))
 }
 
-/// ABC 記録の B を掘り下げる問いを AI で生成し、記録に追記する。
+/// 捉え直しの B を掘り下げる問いを AI で生成し、記録に追記する。
 #[tauri::command(rename_all = "snake_case")]
-pub async fn abc_dispute(app: AppHandle, id: String) -> AppResult<AbcRecord> {
-    blocking(app, move |st| st.with_own_ctx(|c| reflect::abc_dispute(c, &id))).await
+pub async fn reframe_deepen(app: AppHandle, id: String) -> AppResult<Reframe> {
+    blocking(app, move |st| {
+        st.with_own_ctx(|c| reflect::reframe_deepen(c, &id))
+    })
+    .await
 }
 
 // ===== ERG（記録の内容から AI が判定し、ユーザーが確認・修正する） =====
 
-/// 期間内の記録の ERG ラベルと分布、確認待ちの数。
+/// 期間内の記録の ERG ラベルと分布、未確定の数。
 #[tauri::command(rename_all = "snake_case")]
 pub fn erg_overview(state: S, range: Option<RangeArgs>) -> AppResult<erg::ErgOverview> {
     let args = range.unwrap_or_default();
     state.with_ctx(|c| erg::overview(c, &args))
 }
 
-/// 確認待ち（AI の提案で未確定）の一覧。
+/// 未確定（AI の提案で未確定）の一覧。
 #[tauri::command(rename_all = "snake_case")]
 pub fn erg_review(state: S) -> AppResult<erg::ErgReview> {
     state.with_ctx(erg::review)
@@ -593,7 +598,7 @@ pub fn erg_set(state: S, record_kind: String, record_id: String, tag: String) ->
     state.with_ctx(|c| erg::set_for(c, kind, &record_id, tag))
 }
 
-/// 確認待ちの提案をそのまま確定する。
+/// 未確定の提案をそのまま確定する。
 #[tauri::command(rename_all = "snake_case")]
 pub fn erg_confirm(state: S, record_kind: String, record_id: String) -> AppResult<ErgLabel> {
     let kind = ErgRecordKind::from_str(&record_kind)?;

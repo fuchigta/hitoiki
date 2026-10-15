@@ -40,9 +40,9 @@ export interface State {
   blocks: T.PlanBlock[];
   templates: T.TemplateView[];
   appliedTemplates: Record<string, string[]>;
-  checkins: T.Checkin[];
-  hassles: T.Hassle[];
-  abcs: T.AbcRecord[];
+  conditions: T.Condition[];
+  concerns: T.Concern[];
+  reframes: T.Reframe[];
   goals: T.Goal[];
   keyResults: T.KeyResult[];
   keyResultSkills: Record<string, string[]>;
@@ -117,9 +117,9 @@ export function emptyState(scenario: Scenario): State {
     blocks: [],
     templates: [],
     appliedTemplates: {},
-    checkins: [],
-    hassles: [],
-    abcs: [],
+    conditions: [],
+    concerns: [],
+    reframes: [],
     goals: [],
     keyResults: [],
     keyResultSkills: {},
@@ -393,7 +393,7 @@ function seedCommon(s: State, busy: boolean) {
   const picks = [t1, t2, t3, t4, t8];
   const r = rng(20261013);
   for (let d = -100; d < 0; d++) genDay(s, d, r, { reviewEvery: busy && d >= -9 ? 3 : 0, picks });
-  // 先週・今週に確認待ちを少し入れる（default でも「実績」に数件出る）。
+  // 先週・今週に未確定を少し入れる（default でも「実績」に数件出る）。
   if (!busy) {
     const wk = s.segments.filter((x) => x.start_at >= at(-9, "00:00") && x.start_at < at(-1, "00:00") && x.status === "auto" && x.kind === "work");
     for (const x of wk.slice(0, 5)) {
@@ -441,28 +441,28 @@ function seedCommon(s: State, busy: boolean) {
   );
 
   // 記録
-  s.checkins.push(
-    { id: nid(s, "chk"), at: at(0, "09:02"), energy: 4, mood: 4, stress: 2, erg_tag: null, note: "よく眠れた。", push_id: null },
-    { id: nid(s, "chk"), at: at(-1, "17:40"), energy: 2, mood: 3, stress: 4, erg_tag: "relatedness", note: "レビューの返答待ちが多かった。", push_id: null },
-    { id: nid(s, "chk"), at: at(-3, "09:10"), energy: 3, mood: 3, stress: 3, erg_tag: null, note: null, push_id: null },
+  s.conditions.push(
+    { id: nid(s, "chk"), at: at(0, "09:02"), energy: 4, mood: 4, stress: 2, erg_tag: null, note: "よく眠れた。", nudge_id: null },
+    { id: nid(s, "chk"), at: at(-1, "17:40"), energy: 2, mood: 3, stress: 4, erg_tag: "relatedness", note: "レビューの返答待ちが多かった。", nudge_id: null },
+    { id: nid(s, "chk"), at: at(-3, "09:10"), energy: 3, mood: 3, stress: 3, erg_tag: null, note: null, nudge_id: null },
   );
-  const h1: T.Hassle = { id: nid(s, "has"), at: at(-1, "14:20"), text: "同じ質問を何度もチャットで聞かれて、作業が途切れた", intensity: 3, segment_id: null, push_id: null };
-  s.hassles.push(h1, { id: nid(s, "has"), at: at(0, "10:12"), text: "見積もりの根拠資料がどこにあるか分からない", intensity: 2, segment_id: null, push_id: null });
-  s.abcs.push({
-    id: nid(s, "abc"),
+  const h1: T.Concern = { id: nid(s, "has"), at: at(-1, "14:20"), text: "同じ質問を何度もチャットで聞かれて、作業が途切れた", intensity: 3, segment_id: null, nudge_id: null };
+  s.concerns.push(h1, { id: nid(s, "has"), at: at(0, "10:12"), text: "見積もりの根拠資料がどこにあるか分からない", intensity: 2, segment_id: null, nudge_id: null });
+  s.reframes.push({
+    id: nid(s, "reframe"),
     at: at(-1, "18:05"),
-    activating_event: "レビューで設計の前提を指摘された",
+    event: "レビューで設計の前提を指摘された",
     belief: "自分は設計が向いていないのかもしれない",
-    consequence_emotion: "落ち込み",
-    consequence_intensity: 3,
-    dispute: null,
-    ai_dialog_md: null,
-    hassle_id: h1.id,
+    emotion: "落ち込み",
+    emotion_intensity: 3,
+    alternative: null,
+    deepening_md: null,
+    concern_id: h1.id,
   });
   s.ergLabels.push(
-    { record_kind: "checkin", record_id: s.checkins[1].id, tag: "relatedness", source: "user", confidence: null, reason: null, at: at(-1, "17:45") },
-    { record_kind: "hassle", record_id: h1.id, tag: "relatedness", source: "suggested", confidence: 0.55, reason: "他の人とのやり取りに関する内容のため", at: at(-1, "14:25") },
-    { record_kind: "abc", record_id: s.abcs[0].id, tag: "growth", source: "ai", confidence: 0.82, reason: "設計の力に関する悩みのため", at: at(-1, "18:10") },
+    { record_kind: "condition", record_id: s.conditions[1].id, tag: "relatedness", source: "user", confidence: null, reason: null, at: at(-1, "17:45") },
+    { record_kind: "concern", record_id: h1.id, tag: "relatedness", source: "unconfirmed", confidence: 0.55, reason: "他の人とのやり取りに関する内容のため", at: at(-1, "14:25") },
+    { record_kind: "reframe", record_id: s.reframes[0].id, tag: "growth", source: "ai", confidence: 0.82, reason: "設計の力に関する悩みのため", at: at(-1, "18:10") },
   );
   s.reflections.push({
     id: nid(s, "ref"),
@@ -480,7 +480,7 @@ function seedCommon(s: State, busy: boolean) {
   const payload: T.NudgePayload = {
     trigger: "day_start",
     title: "いまの調子はどうですか",
-    body: "元気度をひとつ選んでください。答えなくても大丈夫です。",
+    body: "エネルギーをひとつ選んでください。答えなくても大丈夫です。",
     actions: [1, 2, 3, 4, 5].map((n) => ({ id: "energy", label: String(n), value: n })),
     input: { id: "concern", placeholder: "困っていることがあれば一言" },
     open_screen: null,
@@ -563,9 +563,9 @@ function seedBusy(s: State, ctx: ReturnType<typeof seedCommon>) {
     s.nudges.push({ id: nid(s, "nudge"), at: at(0, `${String(8 + (i % 3)).padStart(2, "0")}:${String(10 * i).padStart(2, "0")}`), at_local: "", trigger: "idle_return", trigger_label: "席に戻ったとき", title: p.title, body: p.body, state: "unanswered", payload: p });
   }
   for (let i = 0; i < 8; i++) {
-    const c: T.Checkin = { push_id: null, id: nid(s, "chk"), at: at(-i, "17:30"), energy: 1 + (i % 5), mood: 1 + ((i + 2) % 5), stress: 1 + ((i + 3) % 5), erg_tag: null, note: i % 2 ? "長い一日だった。" : null };
-    s.checkins.push(c);
-    s.ergLabels.push({ record_kind: "checkin", record_id: c.id, tag: "existence", source: "suggested", confidence: 0.5, reason: "体調に関する記録のため", at: c.at });
+    const c: T.Condition = { nudge_id: null, id: nid(s, "chk"), at: at(-i, "17:30"), energy: 1 + (i % 5), mood: 1 + ((i + 2) % 5), stress: 1 + ((i + 3) % 5), erg_tag: null, note: i % 2 ? "長い一日だった。" : null };
+    s.conditions.push(c);
+    s.ergLabels.push({ record_kind: "condition", record_id: c.id, tag: "existence", source: "unconfirmed", confidence: 0.5, reason: "体調に関する記録のため", at: c.at });
   }
   s.ruleSuggestions.push(
     { task_id: ctx.t2.id, task_title: ctx.t2.title, field: "exe", pattern: "EXCEL.EXE", pattern_type: "contains", count: 5, target: "EXCEL.EXE" },

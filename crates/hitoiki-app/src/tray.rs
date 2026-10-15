@@ -3,7 +3,7 @@
 use crate::state::{AppState, RuntimeMode};
 use crate::{events, window};
 use hitoiki_core::model::{TaskKind, TaskStatus};
-use hitoiki_core::service::record::{self, CheckInput};
+use hitoiki_core::service::record::{self, ConditionInput};
 use hitoiki_core::service::task::{self, TaskFilter};
 use hitoiki_core::service::{status, update, Ctx};
 use hitoiki_core::{Clock, SystemClock};
@@ -97,12 +97,12 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     }
     let switch = switch.build()?;
 
-    let mut checkin = SubmenuBuilder::new(app, "調子（エネルギー）");
+    let mut condition = SubmenuBuilder::new(app, "調子（エネルギー）");
     for n in 1..=5 {
-        let item = MenuItemBuilder::with_id(format!("checkin:{n}"), format!("{n}")).build(app)?;
-        checkin = checkin.item(&item);
+        let item = MenuItemBuilder::with_id(format!("condition:{n}"), format!("{n}")).build(app)?;
+        condition = condition.item(&item);
     }
-    let checkin = checkin.build()?;
+    let condition = condition.build()?;
 
     let doing_item = MenuItemBuilder::with_id("info-doing", &doing_text)
         .enabled(false)
@@ -115,7 +115,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
         None => "タスクを素早く入力…".to_string(),
     };
     let quick = MenuItemBuilder::with_id("quick", quick_label).build(app)?;
-    let hassle = MenuItemBuilder::with_id("hassle", "気になったことを記録…").build(app)?;
+    let concern = MenuItemBuilder::with_id("concern", "気になったことを記録…").build(app)?;
     let open = MenuItemBuilder::with_id("open", "UI を開く").build(app)?;
     let snooze = MenuItemBuilder::with_id(
         "snooze",
@@ -172,9 +172,9 @@ fn build_menu(app: &AppHandle) -> tauri::Result<(Menu<tauri::Wry>, String)> {
     let menu = menu
         .separator()
         .item(&switch)
-        .item(&checkin)
+        .item(&condition)
         .item(&quick)
-        .item(&hassle)
+        .item(&concern)
         .item(&open)
         .separator()
         .item(&snooze)
@@ -266,12 +266,12 @@ fn on_menu_event(app: &AppHandle, id: &str) {
             }
             Err(e) => tracing::warn!("タスクを開始できませんでした: {}", e.message),
         }
-    } else if let Some(n) = id.strip_prefix("checkin:") {
+    } else if let Some(n) = id.strip_prefix("condition:") {
         let energy = n.parse::<i64>().ok();
         match state.with_ctx(|c| {
-            record::check(
+            record::condition(
                 c,
-                &CheckInput {
+                &ConditionInput {
                     energy,
                     ..Default::default()
                 },
@@ -283,7 +283,7 @@ fn on_menu_event(app: &AppHandle, id: &str) {
     } else {
         match id {
             "quick" => crate::quick::open(app),
-            "hassle" => window::open_screen(app, "records"),
+            "concern" => window::open_screen(app, "records"),
             "open" => window::open_screen(app, "today"),
             "snooze" => {
                 let now = SystemClock.now_ms();

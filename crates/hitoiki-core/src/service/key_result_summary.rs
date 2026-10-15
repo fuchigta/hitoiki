@@ -59,7 +59,7 @@ pub struct KeyResultTask {
     pub title: String,
     pub status: TaskStatus,
     pub estimate_min: Option<i64>,
-    /// 期間内にこのタスクへ帰属した時間（ミリ秒）。
+    /// 期間内にこのタスクに割り当てられた時間（ミリ秒）。
     pub tracked_ms: i64,
     pub done_at: Option<i64>,
 }
@@ -486,7 +486,7 @@ mod tests {
     }
 
     #[test]
-    fn 既定の期間は直近8週で時間は帰属した作業だけを数える() {
+    fn 既定の期間は直近8週で時間は割り当てられた作業だけを数える() {
         let env = Env::new();
         let c = env.ctx();
         let f = setup(&c, None, None);
@@ -507,7 +507,7 @@ mod tests {
             SegmentKind::Work,
             Some(&f.t2),
         );
-        // 無操作・休憩・無視・別タスク・未帰属は数えない。
+        // 無操作・休憩・無視・別タスク・未割り当ては数えない。
         seg(
             &c,
             "C",

@@ -8,9 +8,9 @@ import { Scale } from "./ui/parts";
 // 記録の作成フォーム（`#/records/new/<種類>`）。保存したら `onCreated` で作った記録を渡し、画面がその記録を選択する。
 
 export function NewRecord({ kind, onCreated }: { kind: NewKind; onCreated: (s: RecordSource) => void }) {
-  if (kind === "checkin") return <NewCheckin onCreated={onCreated} />;
-  if (kind === "hassle") return <NewHassle onCreated={onCreated} />;
-  if (kind === "abc") return <NewAbc onCreated={onCreated} />;
+  if (kind === "condition") return <NewCondition onCreated={onCreated} />;
+  if (kind === "concern") return <NewConcern onCreated={onCreated} />;
+  if (kind === "reframe") return <NewReframe onCreated={onCreated} />;
   if (isReflectionKind(kind)) return <NewReflection kind={kind} onCreated={onCreated} />;
   return null;
 }
@@ -26,7 +26,7 @@ function SaveRow({ busy, ok, label = "記録" }: { busy: boolean; ok: boolean; l
   );
 }
 
-function NewCheckin({ onCreated }: { onCreated: (s: RecordSource) => void }) {
+function NewCondition({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   const [energy, setEnergy] = useState<number>();
   const [mood, setMood] = useState<number>();
   const [stress, setStress] = useState<number>();
@@ -38,8 +38,8 @@ function NewCheckin({ onCreated }: { onCreated: (s: RecordSource) => void }) {
         class="stack"
         onSubmit={async (e) => {
           e.preventDefault();
-          const r = await act.run(() => api.checkinAdd({ energy, mood, stress, note: note.trim() || undefined }));
-          if (r) onCreated({ kind: "checkin", rec: r });
+          const r = await act.run(() => api.conditionAdd({ energy, mood, stress, note: note.trim() || undefined }));
+          if (r) onCreated({ kind: "condition", rec: r });
         }}
       >
         <Scale label="エネルギー" value={energy} onChange={setEnergy} />
@@ -55,7 +55,7 @@ function NewCheckin({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   );
 }
 
-function NewHassle({ onCreated }: { onCreated: (s: RecordSource) => void }) {
+function NewConcern({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   const [text, setText] = useState("");
   const [intensity, setIntensity] = useState<number | undefined>(3);
   const act = useAction();
@@ -65,8 +65,8 @@ function NewHassle({ onCreated }: { onCreated: (s: RecordSource) => void }) {
         class="stack"
         onSubmit={async (e) => {
           e.preventDefault();
-          const r = await act.run(() => api.hassleAdd(text.trim(), intensity));
-          if (r) onCreated({ kind: "hassle", rec: r });
+          const r = await act.run(() => api.concernAdd(text.trim(), intensity));
+          if (r) onCreated({ kind: "concern", rec: r });
         }}
       >
         <Field label="気になったこと">
@@ -80,7 +80,7 @@ function NewHassle({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   );
 }
 
-function NewAbc({ onCreated }: { onCreated: (s: RecordSource) => void }) {
+function NewReframe({ onCreated }: { onCreated: (s: RecordSource) => void }) {
   const [a, setA] = useState("");
   const [b, setB] = useState("");
   const [c, setC] = useState("");
@@ -93,14 +93,14 @@ function NewAbc({ onCreated }: { onCreated: (s: RecordSource) => void }) {
         onSubmit={async (e) => {
           e.preventDefault();
           const r = await act.run(() =>
-            api.abcAdd({
-              activating_event: a.trim(),
+            api.reframeAdd({
+              event: a.trim(),
               belief: b.trim() || undefined,
-              consequence_emotion: c.trim() || undefined,
-              consequence_intensity: ci,
+              emotion: c.trim() || undefined,
+              emotion_intensity: ci,
             }),
           );
-          if (r) onCreated({ kind: "abc", rec: r });
+          if (r) onCreated({ kind: "reframe", rec: r });
         }}
       >
         <Field label="A: 出来事">

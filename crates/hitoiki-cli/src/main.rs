@@ -77,7 +77,7 @@ struct ReflectionOut<'a> {
     r: &'a hitoiki_core::model::Reflection,
     structured: Option<serde_json::Value>,
     answers: Option<serde_json::Value>,
-    /// 回答済みの問いと、保存した記録（チェックイン・ハッスル・ABC）の中身。
+    /// 回答済みの問いと、保存した記録（調子・気になったこと・捉え直し）の中身。
     answer_details: &'a [reflect::AnswerDetail],
 }
 
@@ -326,11 +326,11 @@ fn run(cli: Cli) -> Result<()> {
                         dismiss,
                     },
                 )?;
-                if r.checkin_id.is_some() {
-                    ext::notify_data("checkin");
+                if r.condition_id.is_some() {
+                    ext::notify_data("condition");
                 }
-                if r.hassle_id.is_some() {
-                    ext::notify_data("hassle");
+                if r.concern_id.is_some() {
+                    ext::notify_data("concern");
                 }
                 if idle.is_some() || idle_task {
                     ext::notify_data("segments");
@@ -609,12 +609,12 @@ fn run(cli: Cli) -> Result<()> {
             }
             BlockCmd::Template(t) => template_cmd(&ctx, tz, json, t),
         },
-        Cmd::Check { cmd: Some(sub), .. } => manage::check_sub(&ctx, json, sub),
-        Cmd::Hassle { cmd: Some(sub), .. } => manage::hassle_sub(&ctx, json, sub),
+        Cmd::Condition { cmd: Some(sub), .. } => manage::condition_sub(&ctx, json, sub),
+        Cmd::Concern { cmd: Some(sub), .. } => manage::concern_sub(&ctx, json, sub),
         Cmd::ActivityRule(c) => manage::activity_rule_sub(&ctx, json, c),
         Cmd::Activity(c) => manage::label_sub(&ctx, json, c),
         Cmd::Calendar(c) => manage::calendar_sub(&ctx, json, c),
-        Cmd::Check {
+        Cmd::Condition {
             energy,
             mood,
             stress,
@@ -622,9 +622,9 @@ fn run(cli: Cli) -> Result<()> {
             note,
             ..
         } => {
-            let c = record::check(
+            let c = record::condition(
                 &ctx,
-                &record::CheckInput {
+                &record::ConditionInput {
                     energy,
                     mood,
                     stress,
@@ -632,48 +632,48 @@ fn run(cli: Cli) -> Result<()> {
                     note,
                 },
             )?;
-            ext::notify_data("checkin");
-            emit(json, &c, || render::checkin(&c))
+            ext::notify_data("condition");
+            emit(json, &c, || render::condition(&c))
         }
-        Cmd::Hassle { text, intensity, .. } => {
+        Cmd::Concern { text, intensity, .. } => {
             let text = read_text(&text.ok_or_else(|| {
                 hitoiki_core::Error::InvalidArgument("気になったことの内容を指定してください".into())
             })?)?;
-            let h = record::hassle(&ctx, &record::HassleInput { text, intensity })?;
-            ext::notify_data("hassle");
-            emit(json, &h, || render::hassle(&h))
+            let h = record::concern(&ctx, &record::ConcernInput { text, intensity })?;
+            ext::notify_data("concern");
+            emit(json, &h, || render::concern(&h))
         }
-        Cmd::Abc(AbcCmd::Add {
-            a,
-            b,
-            c_emotion,
-            c_intensity,
-            from_hassle,
+        Cmd::Reframe(ReframeCmd::Add {
+            event,
+            belief,
+            emotion,
+            emotion_intensity,
+            from_concern,
         }) => {
-            let r = record::abc_add(
+            let r = record::reframe_add(
                 &ctx,
-                &record::AbcInput {
-                    activating_event: a,
-                    belief: b,
-                    consequence_emotion: c_emotion,
-                    consequence_intensity: c_intensity,
-                    from_hassle,
+                &record::ReframeInput {
+                    event,
+                    belief,
+                    emotion,
+                    emotion_intensity,
+                    from_concern,
                 },
             )?;
-            ext::notify_data("abc");
+            ext::notify_data("reframe");
             emit(json, &r, || {
                 format!(
-                    "捉え直し（ABC）を記録しました: {} (A: {})",
+                    "捉え直しを記録しました: {} (出来事: {})",
                     render::short(&r.id),
-                    r.activating_event
+                    r.event
                 )
             })
         }
-        Cmd::Abc(AbcCmd::Dispute { id }) => {
-            let r = reflect::abc_dispute(&ctx, &id)?;
-            emit(json, &r, || render::abc_dispute(&r))
+        Cmd::Reframe(ReframeCmd::Deepen { id }) => {
+            let r = reflect::reframe_deepen(&ctx, &id)?;
+            emit(json, &r, || render::reframe_deepen(&r))
         }
-        Cmd::Abc(sub) => manage::abc_sub(&ctx, json, sub),
+        Cmd::Reframe(sub) => manage::reframe_sub(&ctx, json, sub),
         Cmd::Context { kind, date } => {
             let c = context::context(&ctx, kind.parse()?, date.as_deref())?;
             // 機械可読が目的なので --json の有無にかかわらず JSON を出す。

@@ -1,16 +1,16 @@
 //! ERG（存在・関係・成長）の AI 判定（docs/dev/architecture.md「ERG の判定」）。
 //!
 //! ユーザーに ERG を選んでもらうのではなく、記録の内容から AI が判定し、ユーザーが確認・修正する。
-//! 保存先は `erg_label`（記録の種類と ID ごとに最大 1 件。出所 `user` / `ai` / `suggested`）。
+//! 保存先は `erg_label`（記録の種類と ID ごとに最大 1 件。出所 `user` / `ai` / `unconfirmed`）。
 //!
-//! - 対象（`subjects`）: 文章を持つ記録。チェックインのメモ、ハッスル、ABC（A・B・C・反論）、
+//! - 対象（`subjects`）: 文章を持つ記録。調子のメモ、気になったこと、捉え直し（A・B・C・別の捉え方）、
 //!   振り返りの回答（`answers_md`）。文章が無い記録は対象外。
 //! - AI の応答は確信度が閾値（`ai.erg_auto_threshold`）以上なら採用（`ai`）、未満・確信度なしなら
-//!   確認待ち（`suggested`。提案タグと理由だけ保存し、確定しない）。`none`（どれにも関わらない）も同様。
-//! - `user` のラベルは AI で上書きしない。判定済み（確認待ちを含む）の記録は再判定しない。
+//!   未確定（`unconfirmed`。提案タグと理由だけ保存し、確定しない）。`none`（どれにも関わらない）も同様。
+//! - `user` のラベルは AI で上書きしない。判定済み（未確定を含む）の記録は再判定しない。
 //! - AI に渡すのは記録の文章だけ（IDは `r1`, `r2` … の連番に置き換える）。文章やプロンプトはログに出さない。
 
-use super::reflect::{load_template, render_template, run_ai};
+use super::reflect::{load_prompt, render_prompt, run_ai};
 use super::{range_view, structured, Ctx, RangeArgs, RangeView};
 use crate::model::{ErgChoice, ErgLabel, ErgRecordKind, ErgSource, ReflectionKind};
 use crate::repo::{self, edit, erg as repo_erg, record, reflection};
@@ -35,9 +35,9 @@ const MAX_REASON_CHARS: usize = 120;
 
 fn table_of(kind: ErgRecordKind) -> &'static str {
     match kind {
-        ErgRecordKind::Checkin => "checkin",
-        ErgRecordKind::Hassle => "hassle",
-        ErgRecordKind::Abc => "abc_record",
+        ErgRecordKind::Condition => "condition",
+        ErgRecordKind::Concern => "concern",
+        ErgRecordKind::Reframe => "reframe",
         ErgRecordKind::Reflection => "reflection",
     }
 }
@@ -89,17 +89,17 @@ pub fn subjects(ctx: &Ctx, range: Range) -> Result<Vec<Subject>> {
             });
         }
     };
-    for c in record::list_checkins(ctx.conn, range.start, range.end)? {
+    for c in record::list_conditions(ctx.conn, range.start, range.end)? {
         let text = nonblank(&c.note).map(String::from);
-        push(ErgRecordKind::Checkin, c.id, c.at, text);
+        push(ErgRecordKind::Condition, c.id, c.at, text);
     }
-    for h in record::list_hassles(ctx.conn, range.start, range.end)? {
+    for h in record::list_concerns(ctx.conn, range.start, range.end)? {
         let text = Some(h.text.trim().to_string()).filter(|s| !s.is_empty());
-        push(ErgRecordKind::Hassle, h.id, h.at, text);
+        push(ErgRecordKind::Concern, h.id, h.at, text);
     }
-    for a in record::list_abc(ctx.conn, range.start, range.end)? {
-        let text = abc_text(&a);
-        push(ErgRecordKind::Abc, a.id, a.at, text);
+    for a in record::list_reframe(ctx.conn, range.start, range.end)? {
+        let text = reframe_text(&a);
+        push(ErgRecordKind::Reframe, a.id, a.at, text);
     }
     for r in reflection::list_range(ctx.conn, range.start, range.end)? {
         let text = nonblank(&r.answers_md).map(String::from);
@@ -109,18 +109,18 @@ pub fn subjects(ctx: &Ctx, range: Range) -> Result<Vec<Subject>> {
     Ok(out)
 }
 
-fn abc_text(a: &crate::model::AbcRecord) -> Option<String> {
+fn reframe_text(a: &crate::model::Reframe) -> Option<String> {
     let mut parts = Vec::new();
-    if !a.activating_event.trim().is_empty() {
-        parts.push(format!("出来事: {}", a.activating_event.trim()));
+    if !a.event.trim().is_empty() {
+        parts.push(format!("出来事: {}", a.event.trim()));
     }
     if let Some(b) = nonblank(&a.belief) {
         parts.push(format!("受け止め方: {b}"));
     }
-    if let Some(c) = nonblank(&a.consequence_emotion) {
+    if let Some(c) = nonblank(&a.emotion) {
         parts.push(format!("感情: {c}"));
     }
-    if let Some(d) = nonblank(&a.dispute) {
+    if let Some(d) = nonblank(&a.alternative) {
         parts.push(format!("別の捉え方: {d}"));
     }
     (!parts.is_empty()).then(|| parts.join("\n"))
@@ -129,12 +129,12 @@ fn abc_text(a: &crate::model::AbcRecord) -> Option<String> {
 /// 記録の文章を取り出す（ラベルが付いた記録の表示用）。記録が無ければ `None`。
 fn text_of(ctx: &Ctx, kind: ErgRecordKind, id: &str) -> Result<Option<(Millis, Option<String>)>> {
     let found = match kind {
-        ErgRecordKind::Checkin => {
-            edit::get_checkin(ctx.conn, id).map(|c| (c.at, nonblank(&c.note).map(String::from)))
+        ErgRecordKind::Condition => {
+            edit::get_condition(ctx.conn, id).map(|c| (c.at, nonblank(&c.note).map(String::from)))
         }
-        ErgRecordKind::Hassle => record::get_hassle(ctx.conn, id).map(|h| (h.at, Some(h.text))),
-        ErgRecordKind::Abc => edit::get_abc(ctx.conn, id).map(|a| {
-            let t = abc_text(&a);
+        ErgRecordKind::Concern => record::get_concern(ctx.conn, id).map(|h| (h.at, Some(h.text))),
+        ErgRecordKind::Reframe => edit::get_reframe(ctx.conn, id).map(|a| {
+            let t = reframe_text(&a);
             (a.at, t)
         }),
         ErgRecordKind::Reflection => {
@@ -158,8 +158,8 @@ pub struct ErgDistribution {
     pub growth: usize,
     /// どれにも関わらないと判定（確定）された記録。
     pub none: usize,
-    /// 確認待ち（AI の提案のみで未確定）の記録。
-    pub pending: usize,
+    /// 未確定（AI の提案のみ）の記録。
+    pub unconfirmed: usize,
     /// 未判定の記録（文章はあるがラベルが無い）。
     pub unlabeled: usize,
     /// 確定した件数（existence + relatedness + growth + none）のうち、AI の判定を採用したもの。
@@ -183,7 +183,7 @@ fn distribution_of(subjects: &[Subject]) -> ErgDistribution {
         d.total += 1;
         match &s.label {
             None => d.unlabeled += 1,
-            Some(l) if l.source == ErgSource::Suggested => d.pending += 1,
+            Some(l) if l.source == ErgSource::Unconfirmed => d.unconfirmed += 1,
             Some(l) => {
                 match l.tag {
                     ErgChoice::Existence => d.existence += 1,
@@ -207,7 +207,7 @@ fn distribution_of(subjects: &[Subject]) -> ErgDistribution {
 pub struct Verdict {
     pub id: String,
     pub tag: ErgChoice,
-    /// 0〜1。欠落・範囲外・数値でない場合は `None`（確認待ちとして扱う）。
+    /// 0〜1。欠落・範囲外・数値でない場合は `None`（未確定として扱う）。
     pub confidence: Option<f64>,
     pub reason: String,
 }
@@ -255,7 +255,7 @@ fn find_braced_json(s: &str) -> Option<Value> {
 
 /// AI コマンドの標準出力から判定を読む。JSON として読めない・`labels` が無い場合はエラー。
 /// 要素ごとに検査し、`id` が文字列でない・未知のタグの要素は読み捨てる（`invalid` に数える）。
-/// 確信度が 0〜1 の数値でない場合は `None` にする（採用せず確認待ちになる）。
+/// 確信度が 0〜1 の数値でない場合は `None` にする（採用せず未確定になる）。
 pub fn parse_response(stdout: &str) -> Result<Parsed> {
     let value = match structured::extract_value(stdout, "labels") {
         Ok(v) => structured::unwrap_json_string(&v)?,
@@ -349,9 +349,9 @@ pub fn candidates(ctx: &Ctx, range: Range) -> Result<Vec<Subject>> {
 
 fn kind_label(kind: ErgRecordKind) -> &'static str {
     match kind {
-        ErgRecordKind::Checkin => "調子のメモ",
-        ErgRecordKind::Hassle => "気になったこと",
-        ErgRecordKind::Abc => "捉え直しの記録",
+        ErgRecordKind::Condition => "調子のメモ",
+        ErgRecordKind::Concern => "気になったこと",
+        ErgRecordKind::Reframe => "捉え直し",
         ErgRecordKind::Reflection => "振り返りの回答",
     }
 }
@@ -370,8 +370,8 @@ pub fn build_prompt(ctx: &Ctx, batch: &[Subject]) -> Result<String> {
         })
         .collect();
     let json = serde_json::to_string_pretty(&records).map_err(anyhow::Error::from)?;
-    let tpl = load_template(ctx, "erg_classify")?;
-    Ok(render_template(&tpl, &[("records", &json)]))
+    let base = load_prompt(ctx, "erg_classify")?;
+    Ok(render_prompt(&base, &[("records", &json)]))
 }
 
 /// 判定した記録 1 件の結果。
@@ -385,7 +385,7 @@ pub struct ClassifiedItem {
     pub tag: ErgChoice,
     pub confidence: Option<f64>,
     pub reason: String,
-    /// `ai`（採用）か `suggested`（確認待ち）。
+    /// `ai`（採用）か `unconfirmed`（未確定）。
     pub source: ErgSource,
 }
 
@@ -399,8 +399,8 @@ pub struct ClassifyOutcome {
     pub targets: usize,
     /// AI の判定を採用した数。
     pub adopted: usize,
-    /// 確認待ちにした数。
-    pub pending: usize,
+    /// 未確定にした数。
+    pub unconfirmed: usize,
     /// AI が返さなかった・読めなかったため未判定のままの数。
     pub unread: usize,
     pub items: Vec<ClassifiedItem>,
@@ -422,7 +422,7 @@ pub fn classify_range(ctx: &Ctx, range: Range, dry_run: bool, runner: Runner) ->
         skipped: None,
         targets: 0,
         adopted: 0,
-        pending: 0,
+        unconfirmed: 0,
         unread: 0,
         items: vec![],
     };
@@ -459,7 +459,7 @@ pub fn classify_range(ctx: &Ctx, range: Range, dry_run: bool, runner: Runner) ->
                 source: if adopt {
                     ErgSource::Ai
                 } else {
-                    ErgSource::Suggested
+                    ErgSource::Unconfirmed
                 },
                 confidence: v.confidence,
                 reason: Some(v.reason.clone()).filter(|r| !r.is_empty()),
@@ -473,7 +473,7 @@ pub fn classify_range(ctx: &Ctx, range: Range, dry_run: bool, runner: Runner) ->
             if adopt {
                 out.adopted += 1;
             } else {
-                out.pending += 1;
+                out.unconfirmed += 1;
             }
             out.items.push(ClassifiedItem {
                 record_kind: s.kind,
@@ -512,7 +512,7 @@ pub fn classify_before_reflection(ctx: &Ctx, kind: ReflectionKind, date: Option<
         Ok(o) => tracing::info!(
             targets = o.targets,
             adopted = o.adopted,
-            pending = o.pending,
+            unconfirmed = o.unconfirmed,
             "ERG を判定しました"
         ),
         Err(e) => tracing::warn!(error = %e, "ERG の判定に失敗したので、振り返りはそのまま続けます"),
@@ -558,12 +558,12 @@ pub fn set(ctx: &Ctx, reference: &str, choice: ErgChoice) -> Result<ErgLabel> {
     set_for(ctx, kind, &id, choice)
 }
 
-/// 確認待ちの提案をそのまま確定する（「これでよい」）。
+/// 未確定の提案をそのまま確定する（「これでよい」）。
 pub fn confirm_for(ctx: &Ctx, kind: ErgRecordKind, id: &str) -> Result<ErgLabel> {
     let id = repo::resolve_prefix(ctx.conn, table_of(kind), id)?;
     let l = repo_erg::get(ctx.conn, kind, &id)?
-        .filter(|l| l.source == ErgSource::Suggested)
-        .ok_or_else(|| Error::InvalidArgument(format!("{id} は確認待ちではありません")))?;
+        .filter(|l| l.source == ErgSource::Unconfirmed)
+        .ok_or_else(|| Error::InvalidArgument(format!("{id} は未確定ではありません")))?;
     set_for(ctx, kind, &id, l.tag)
 }
 
@@ -588,10 +588,10 @@ pub struct ErgReview {
     pub items: Vec<ErgItem>,
 }
 
-/// 確認待ち（AI の提案で未確定）の一覧。
+/// 未確定（AI の提案）の一覧。
 pub fn review(ctx: &Ctx) -> Result<ErgReview> {
     let mut items = Vec::new();
-    for l in repo_erg::list_pending(ctx.conn)? {
+    for l in repo_erg::list_unconfirmed(ctx.conn)? {
         // 記録が消えているものは出さない（削除時に消えるが念のため）。
         let Some((at, text)) = text_of(ctx, l.record_kind, &l.record_id)? else {
             continue;
@@ -611,8 +611,8 @@ pub struct ErgOverview {
     pub range: RangeView,
     pub distribution: ErgDistribution,
     pub labels: Vec<ErgLabel>,
-    /// 確認待ちの数（全期間）。
-    pub pending_total: usize,
+    /// 未確定の数（全期間）。
+    pub unconfirmed_total: usize,
 }
 
 pub fn overview(ctx: &Ctx, args: &RangeArgs) -> Result<ErgOverview> {
@@ -623,7 +623,7 @@ pub fn overview(ctx: &Ctx, args: &RangeArgs) -> Result<ErgOverview> {
         range: range_view(tz, range),
         distribution: distribution_of(&subs),
         labels: subs.into_iter().filter_map(|s| s.label).collect(),
-        pending_total: repo_erg::list_pending(ctx.conn)?.len(),
+        unconfirmed_total: repo_erg::list_unconfirmed(ctx.conn)?.len(),
     })
 }
 
@@ -631,7 +631,7 @@ pub fn overview(ctx: &Ctx, args: &RangeArgs) -> Result<ErgOverview> {
 mod tests {
     use super::*;
     use crate::model::ErgTag;
-    use crate::service::record::{self, AbcInput, CheckInput, HassleInput};
+    use crate::service::record::{self, ConcernInput, ConditionInput, ReframeInput};
     use crate::service::testutil::Env;
 
     fn json_ok(labels: &str) -> String {
@@ -649,10 +649,10 @@ mod tests {
         timefmt::day_range(tz, timefmt::local_date_of(tz, crate::service::testutil::now()))
     }
 
-    fn hassle(ctx: &Ctx, text: &str) -> String {
-        record::hassle(
+    fn concern(ctx: &Ctx, text: &str) -> String {
+        record::concern(
             ctx,
-            &HassleInput {
+            &ConcernInput {
                 text: text.into(),
                 intensity: None,
             },
@@ -707,13 +707,13 @@ mod tests {
     }
 
     #[test]
-    fn threshold_decides_adopt_or_pending() {
+    fn threshold_decides_adopt_or_unconfirmed() {
         let env = env_with_ai();
         let ctx = env.ctx();
-        let a = hassle(&ctx, "新しい言語を触って手応えがあった");
-        let b = hassle(&ctx, "同僚に相談できた気がする");
-        let c = hassle(&ctx, "メモ");
-        let d = hassle(&ctx, "確信度なし");
+        let a = concern(&ctx, "新しい言語を触って手応えがあった");
+        let b = concern(&ctx, "同僚に相談できた気がする");
+        let c = concern(&ctx, "メモ");
+        let d = concern(&ctx, "確信度なし");
         let runner = |_: &str| -> Result<String> {
             Ok(json_ok(
                 r#"[{"id":"r1","tag":"growth","confidence":0.8,"reason":"学び"},
@@ -723,9 +723,9 @@ mod tests {
             ))
         };
         let o = classify_range(&ctx, today(&env), false, &runner).unwrap();
-        assert_eq!((o.targets, o.adopted, o.pending, o.unread), (4, 2, 2, 0));
+        assert_eq!((o.targets, o.adopted, o.unconfirmed, o.unread), (4, 2, 2, 0));
         let get = |id: &str| {
-            repo_erg::get(ctx.conn, ErgRecordKind::Hassle, id)
+            repo_erg::get(ctx.conn, ErgRecordKind::Concern, id)
                 .unwrap()
                 .unwrap()
         };
@@ -734,21 +734,21 @@ mod tests {
         let by_tag = |t: ErgChoice| labels.iter().find(|l| l.tag == t).unwrap();
         assert_eq!(by_tag(ErgChoice::Growth).source, ErgSource::Ai);
         assert_eq!(by_tag(ErgChoice::None).source, ErgSource::Ai);
-        assert_eq!(by_tag(ErgChoice::Relatedness).source, ErgSource::Suggested);
+        assert_eq!(by_tag(ErgChoice::Relatedness).source, ErgSource::Unconfirmed);
         let ex = by_tag(ErgChoice::Existence);
-        assert_eq!((ex.source, ex.confidence), (ErgSource::Suggested, None));
+        assert_eq!((ex.source, ex.confidence), (ErgSource::Unconfirmed, None));
         assert!(by_tag(ErgChoice::Relatedness).reason.is_some());
         // 判定済みは再判定しない
         let o2 = classify_range(&ctx, today(&env), false, &|_| panic!("呼ばれない")).unwrap();
         assert_eq!(o2.targets, 0);
-        // 確認待ちは一覧に出て、確定すると user になる
+        // 未確定は一覧に出て、確定すると user になる
         let r = review(&ctx).unwrap();
         assert_eq!(r.items.len(), 2);
-        let pending_id = r.items[0].label.record_id.clone();
+        let unconfirmed_id = r.items[0].label.record_id.clone();
         let want = r.items[0].label.tag;
-        let l = confirm_for(&ctx, ErgRecordKind::Hassle, &pending_id).unwrap();
+        let l = confirm_for(&ctx, ErgRecordKind::Concern, &unconfirmed_id).unwrap();
         assert_eq!((l.source, l.tag, l.confidence), (ErgSource::User, want, None));
-        assert!(confirm_for(&ctx, ErgRecordKind::Hassle, &pending_id).is_err());
+        assert!(confirm_for(&ctx, ErgRecordKind::Concern, &unconfirmed_id).is_err());
         assert_eq!(review(&ctx).unwrap().items.len(), 1);
     }
 
@@ -756,14 +756,14 @@ mod tests {
     fn user_label_is_never_overwritten() {
         let env = env_with_ai();
         let ctx = env.ctx();
-        let id = hassle(&ctx, "朝から頭が重い");
+        let id = concern(&ctx, "朝から頭が重い");
         let l = set(&ctx, &id[..10], ErgChoice::Existence).unwrap();
         assert_eq!(l.source, ErgSource::User);
         // 文章はあってもラベルがあるので対象にならない
         assert!(candidates(&ctx, today(&env)).unwrap().is_empty());
         // 競合（AI の保存より前にユーザーが付けていた）でも更新されない
         let ai = ErgLabel {
-            record_kind: ErgRecordKind::Hassle,
+            record_kind: ErgRecordKind::Concern,
             record_id: id.clone(),
             tag: ErgChoice::Growth,
             source: ErgSource::Ai,
@@ -772,19 +772,19 @@ mod tests {
             at: 1,
         };
         assert!(!repo_erg::set_auto(ctx.conn, &ai).unwrap());
-        let got = repo_erg::get(ctx.conn, ErgRecordKind::Hassle, &id)
+        let got = repo_erg::get(ctx.conn, ErgRecordKind::Concern, &id)
             .unwrap()
             .unwrap();
         assert_eq!((got.tag, got.source), (ErgChoice::Existence, ErgSource::User));
         // AI の判定はユーザーが直せる（none も確定として扱う）
-        let id2 = hassle(&ctx, "別のこと");
+        let id2 = concern(&ctx, "別のこと");
         let runner = |_: &str| -> Result<String> {
             Ok(json_ok(
                 r#"[{"id":"r1","tag":"growth","confidence":0.9,"reason":"x"}]"#,
             ))
         };
         classify_range(&ctx, today(&env), false, &runner).unwrap();
-        let fixed = set_for(&ctx, ErgRecordKind::Hassle, &id2, ErgChoice::None).unwrap();
+        let fixed = set_for(&ctx, ErgRecordKind::Concern, &id2, ErgChoice::None).unwrap();
         assert_eq!((fixed.source, fixed.tag), (ErgSource::User, ErgChoice::None));
     }
 
@@ -793,11 +793,11 @@ mod tests {
         let mut env = Env::new();
         env.cfg.ai.command = vec![];
         let ctx = env.ctx();
-        hassle(&ctx, "何か");
+        concern(&ctx, "何か");
         let o = classify_range(&ctx, today(&env), false, &|_| panic!("呼ばれない")).unwrap();
         assert_eq!(o.skipped.as_deref(), Some(NOT_CONFIGURED));
         assert_eq!(o.targets, 0);
-        assert!(repo_erg::list_pending(ctx.conn).unwrap().is_empty());
+        assert!(repo_erg::list_unconfirmed(ctx.conn).unwrap().is_empty());
         // 振り返りの前処理も何もしない
         classify_before_reflection(&ctx, ReflectionKind::DayEnd, None);
     }
@@ -806,8 +806,8 @@ mod tests {
     fn dry_run_saves_nothing_and_unread_is_counted() {
         let env = env_with_ai();
         let ctx = env.ctx();
-        hassle(&ctx, "a");
-        hassle(&ctx, "b");
+        concern(&ctx, "a");
+        concern(&ctx, "b");
         let runner = |_: &str| -> Result<String> {
             Ok(json_ok(
                 r#"[{"id":"r1","tag":"growth","confidence":0.9,"reason":"x"},{"id":"r9","tag":"growth","confidence":0.9}]"#,
@@ -827,37 +827,37 @@ mod tests {
     fn subjects_cover_each_text_kind_and_distribution_counts() {
         let env = env_with_ai();
         let ctx = env.ctx();
-        // チェックイン: メモ無しは対象外、メモ有りは対象、ERG をユーザーが付けたものはメモ無しでも数える
-        record::check(
+        // 調子: メモ無しは対象外、メモ有りは対象、ERG をユーザーが付けたものはメモ無しでも数える
+        record::condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(3),
                 ..Default::default()
             },
         )
         .unwrap();
-        record::check(
+        record::condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 note: Some("よく眠れた".into()),
                 ..Default::default()
             },
         )
         .unwrap();
-        record::check(
+        record::condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(4),
                 erg: Some(ErgTag::Growth),
                 ..Default::default()
             },
         )
         .unwrap();
-        hassle(&ctx, "会議が長い");
-        let abc = record::abc_add(
+        concern(&ctx, "会議が長い");
+        let reframe = record::reframe_add(
             &ctx,
-            &AbcInput {
-                activating_event: Some("指摘された".into()),
+            &ReframeInput {
+                event: Some("指摘された".into()),
                 belief: Some("向いていない".into()),
                 ..Default::default()
             },
@@ -865,14 +865,16 @@ mod tests {
         .unwrap();
         let cands = candidates(&ctx, today(&env)).unwrap();
         assert_eq!(cands.len(), 3);
-        let abc_text = cands
+        let reframe_text = cands
             .iter()
-            .find(|c| c.id == abc.id)
+            .find(|c| c.id == reframe.id)
             .unwrap()
             .text
             .clone()
             .unwrap();
-        assert!(abc_text.contains("出来事: 指摘された") && abc_text.contains("受け止め方: 向いていない"));
+        assert!(
+            reframe_text.contains("出来事: 指摘された") && reframe_text.contains("受け止め方: 向いていない")
+        );
         // 振り返りの回答も対象
         let refl = crate::model::Reflection {
             id: "01HREFL0000000000000000000".into(),
@@ -889,7 +891,7 @@ mod tests {
         assert_eq!(candidates(&ctx, today(&env)).unwrap().len(), 4);
 
         let d = distribution(&ctx, today(&env)).unwrap();
-        assert_eq!((d.growth, d.unlabeled, d.pending, d.total), (1, 4, 0, 5));
+        assert_eq!((d.growth, d.unlabeled, d.unconfirmed, d.total), (1, 4, 0, 5));
         assert_eq!(d.legend, LEGEND);
         // 判定後の分布
         let runner = |_: &str| -> Result<String> {
@@ -908,7 +910,7 @@ mod tests {
                 d.relatedness,
                 d.growth,
                 d.none,
-                d.pending,
+                d.unconfirmed,
                 d.unlabeled,
                 d.ai_decided,
                 d.total
@@ -916,14 +918,14 @@ mod tests {
             (1, 1, 1, 1, 1, 0, 3, 5)
         );
         let ov = overview(&ctx, &RangeArgs::default()).unwrap();
-        assert_eq!((ov.labels.len(), ov.pending_total), (5, 1));
+        assert_eq!((ov.labels.len(), ov.unconfirmed_total), (5, 1));
     }
 
     #[test]
     fn prompt_uses_aliases_not_ids_and_truncates() {
         let env = env_with_ai();
         let ctx = env.ctx();
-        let id = hassle(&ctx, &"あ".repeat(MAX_TEXT_CHARS + 50));
+        let id = concern(&ctx, &"あ".repeat(MAX_TEXT_CHARS + 50));
         let cands = candidates(&ctx, today(&env)).unwrap();
         let p = build_prompt(&ctx, &cands).unwrap();
         assert!(p.contains("\"id\": \"r1\"") && !p.contains(&id) && !p.contains("{{records}}"));
@@ -934,41 +936,41 @@ mod tests {
     fn editing_text_resets_ai_label_but_not_user_label() {
         let env = env_with_ai();
         let ctx = env.ctx();
-        let id = hassle(&ctx, "元の文章");
+        let id = concern(&ctx, "元の文章");
         let runner = |_: &str| -> Result<String> {
             Ok(json_ok(
                 r#"[{"id":"r1","tag":"growth","confidence":0.9,"reason":"x"}]"#,
             ))
         };
         classify_range(&ctx, today(&env), false, &runner).unwrap();
-        record::hassle_edit(
+        record::concern_edit(
             &ctx,
             &id,
-            &HassleInput {
+            &ConcernInput {
                 text: "直した文章".into(),
                 intensity: None,
             },
         )
         .unwrap();
-        assert!(repo_erg::get(ctx.conn, ErgRecordKind::Hassle, &id)
+        assert!(repo_erg::get(ctx.conn, ErgRecordKind::Concern, &id)
             .unwrap()
             .is_none());
         set(&ctx, &id, ErgChoice::Growth).unwrap();
-        record::hassle_edit(
+        record::concern_edit(
             &ctx,
             &id,
-            &HassleInput {
+            &ConcernInput {
                 text: "また直した".into(),
                 intensity: None,
             },
         )
         .unwrap();
-        assert!(repo_erg::get(ctx.conn, ErgRecordKind::Hassle, &id)
+        assert!(repo_erg::get(ctx.conn, ErgRecordKind::Concern, &id)
             .unwrap()
             .is_some());
         // 記録を消すとラベルも消える
-        record::hassle_delete(&ctx, &id, crate::service::impact::DeleteMode::FORCE).unwrap();
-        assert!(repo_erg::get(ctx.conn, ErgRecordKind::Hassle, &id)
+        record::concern_delete(&ctx, &id, crate::service::impact::DeleteMode::FORCE).unwrap();
+        assert!(repo_erg::get(ctx.conn, ErgRecordKind::Concern, &id)
             .unwrap()
             .is_none());
     }

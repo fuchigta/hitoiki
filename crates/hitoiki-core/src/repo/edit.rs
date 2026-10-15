@@ -2,7 +2,7 @@
 //!
 //! 外部キーが有効なので、参照されている行を消す前に参照側を外す（NULL 化または削除）。
 
-use crate::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskAssignRule};
+use crate::model::{ActivityRule, Concern, Condition, Goal, KeyResult, Reframe, Skill, TaskAssignRule};
 use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -245,89 +245,86 @@ pub fn delete_activity_rule(conn: &Connection, id: &str) -> Result<()> {
 
 // ===== 記録 =====
 
-pub fn get_checkin(conn: &Connection, id: &str) -> Result<Checkin> {
+pub fn get_condition(conn: &Connection, id: &str) -> Result<Condition> {
     let (s, e) = (0, i64::MAX);
-    super::record::list_checkins(conn, s, e)?
+    super::record::list_conditions(conn, s, e)?
         .into_iter()
         .find(|c| c.id == id)
         .ok_or_else(|| Error::NotFound(format!("調子 {id}")))
 }
 
-pub fn update_checkin(conn: &Connection, c: &Checkin) -> Result<()> {
+pub fn update_condition(conn: &Connection, c: &Condition) -> Result<()> {
     conn.execute(
-        "UPDATE checkin SET energy = ?2, mood = ?3, stress = ?4, note = ?5 WHERE id = ?1",
+        "UPDATE condition SET energy = ?2, mood = ?3, stress = ?4, note = ?5 WHERE id = ?1",
         params![c.id, c.energy, c.mood, c.stress, c.note],
     )?;
     Ok(())
 }
 
-pub fn delete_checkin(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM checkin WHERE id = ?1", [id])?;
+pub fn delete_condition(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM condition WHERE id = ?1", [id])?;
     conn.execute(
-        "DELETE FROM erg_label WHERE record_kind = 'checkin' AND record_id = ?1",
+        "DELETE FROM erg_label WHERE record_kind = 'condition' AND record_id = ?1",
         [id],
     )?;
     Ok(())
 }
 
-pub fn update_hassle(conn: &Connection, h: &Hassle) -> Result<()> {
+pub fn update_concern(conn: &Connection, h: &Concern) -> Result<()> {
     conn.execute(
-        "UPDATE hassle SET text = ?2, intensity = ?3 WHERE id = ?1",
+        "UPDATE concern SET text = ?2, intensity = ?3 WHERE id = ?1",
         params![h.id, h.text, h.intensity],
     )?;
     Ok(())
 }
 
-/// ハッスルを元にした ABC 記録の数。
-pub fn count_abc_of_hassle(conn: &Connection, hassle_id: &str) -> Result<i64> {
+/// 気になったことを元にした捉え直しの数。
+pub fn count_reframe_of_concern(conn: &Connection, concern_id: &str) -> Result<i64> {
     count(
         conn,
-        "SELECT COUNT(*) FROM abc_record WHERE hassle_id = ?1",
-        hassle_id,
+        "SELECT COUNT(*) FROM reframe WHERE concern_id = ?1",
+        concern_id,
     )
 }
 
-/// ハッスルを消す。元にした ABC 記録は残し、`hassle_id` だけ NULL に戻す。
-pub fn delete_hassle(conn: &Connection, id: &str) -> Result<()> {
+/// 気になったことを消す。元にした捉え直しは残し、`concern_id` だけ NULL に戻す。
+pub fn delete_concern(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("UPDATE reframe SET concern_id = NULL WHERE concern_id = ?1", [id])?;
+    conn.execute("DELETE FROM concern WHERE id = ?1", [id])?;
     conn.execute(
-        "UPDATE abc_record SET hassle_id = NULL WHERE hassle_id = ?1",
-        [id],
-    )?;
-    conn.execute("DELETE FROM hassle WHERE id = ?1", [id])?;
-    conn.execute(
-        "DELETE FROM erg_label WHERE record_kind = 'hassle' AND record_id = ?1",
+        "DELETE FROM erg_label WHERE record_kind = 'concern' AND record_id = ?1",
         [id],
     )?;
     Ok(())
 }
 
-pub fn get_abc(conn: &Connection, id: &str) -> Result<AbcRecord> {
-    super::record::list_abc(conn, 0, i64::MAX)?
+pub fn get_reframe(conn: &Connection, id: &str) -> Result<Reframe> {
+    super::record::list_reframe(conn, 0, i64::MAX)?
         .into_iter()
         .find(|a| a.id == id)
         .ok_or_else(|| Error::NotFound(format!("捉え直し {id}")))
 }
 
-pub fn update_abc(conn: &Connection, a: &AbcRecord) -> Result<()> {
+pub fn update_reframe(conn: &Connection, a: &Reframe) -> Result<()> {
     conn.execute(
-        "UPDATE abc_record SET activating_event = ?2, belief = ?3, consequence_emotion = ?4, \
-         consequence_intensity = ?5, dispute = ?6 WHERE id = ?1",
+        "UPDATE reframe SET event = ?2, belief = ?3, emotion = ?4, \
+         emotion_intensity = ?5, alternative = ?6 WHERE id = ?1",
         params![
             a.id,
-            a.activating_event,
+            a.event,
             a.belief,
-            a.consequence_emotion,
-            a.consequence_intensity,
-            a.dispute
+            a.emotion,
+            a.emotion_intensity,
+            a.alternative
         ],
     )?;
     Ok(())
 }
 
-pub fn delete_abc(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM abc_record WHERE id = ?1", [id])?;
+pub fn delete_reframe(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM reframe WHERE id = ?1", [id])?;
     conn.execute(
-        "DELETE FROM erg_label WHERE record_kind = 'abc' AND record_id = ?1",
+        "DELETE FROM erg_label WHERE record_kind = 'reframe' AND record_id = ?1",
         [id],
     )?;
     Ok(())

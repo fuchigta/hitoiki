@@ -305,44 +305,61 @@ fn 編集と削除_force_dry_run_終了コード() {
     assert_eq!(l["rules"][0]["enabled"], false);
     assert_eq!(run(h, &["activity-rule", "delete", &a]).code, 0);
 
-    // 記録: ハッスルを消すと ABC の紐付けだけ外れる
-    let hs = id_of(&run(h, &["--json", "hassle", "会議が長い", "-i", "4"]));
-    let abc = id_of(&run(
+    // 記録: 気になったことを消すと捉え直しの紐付けだけ外れる
+    let hs = id_of(&run(h, &["--json", "concern", "会議が長い", "-i", "4"]));
+    let reframe = id_of(&run(
         h,
-        &["--json", "abc", "add", "--from-hassle", &hs, "--b", "無駄"],
+        &[
+            "--json",
+            "reframe",
+            "add",
+            "--from-concern",
+            &hs,
+            "--belief",
+            "無駄",
+        ],
     ));
-    let e = run(h, &["--json", "hassle", "edit", &hs, "-i", "2"]);
+    let e = run(h, &["--json", "concern", "edit", &hs, "-i", "2"]);
     assert_eq!(e.json()["intensity"], 2);
-    assert_eq!(run(h, &["hassle", "delete", &hs]).code, 2);
-    assert_eq!(run(h, &["hassle", "delete", &hs, "--force"]).code, 0);
-    let l = run(h, &["--json", "abc", "list"]).json();
-    assert!(l["items"][0]["hassle_id"].is_null());
+    assert_eq!(run(h, &["concern", "delete", &hs]).code, 2);
+    assert_eq!(run(h, &["concern", "delete", &hs, "--force"]).code, 0);
+    let l = run(h, &["--json", "reframe", "list"]).json();
+    assert!(l["items"][0]["concern_id"].is_null());
     let e = run(
         h,
         &[
             "--json",
-            "abc",
+            "reframe",
             "edit",
-            &abc,
-            "--a",
+            &reframe,
+            "--event",
             "A2",
-            "--b",
+            "--belief",
             "",
-            "--c-emotion",
+            "--emotion",
             "不安",
-            "--c-intensity",
+            "--emotion-intensity",
             "3",
         ],
     );
     assert_eq!(e.code, 0, "{}", e.stderr);
-    assert_eq!(e.json()["activating_event"], "A2");
+    assert_eq!(e.json()["event"], "A2");
     assert!(e.json()["belief"].is_null());
-    assert_eq!(run(h, &["abc", "delete", &abc]).code, 0);
-    let c = id_of(&run(h, &["--json", "check", "-e", "2", "-m", "3"]));
+    assert_eq!(run(h, &["reframe", "delete", &reframe]).code, 0);
+    let c = id_of(&run(h, &["--json", "condition", "-e", "2", "-m", "3"]));
     let e = run(
         h,
         &[
-            "--json", "check", "edit", &c, "-e", "5", "-m", "0", "--note", "元気",
+            "--json",
+            "condition",
+            "edit",
+            &c,
+            "-e",
+            "5",
+            "-m",
+            "0",
+            "--note",
+            "エネルギー",
         ],
     );
     assert_eq!(e.code, 0, "{}", e.stderr);
@@ -350,11 +367,11 @@ fn 編集と削除_force_dry_run_終了コード() {
         (e.json()["energy"].as_i64(), e.json()["mood"].is_null()),
         (Some(5), true)
     );
-    assert_eq!(run(h, &["check", "edit", &c, "-e", "9"]).code, 2);
-    assert_eq!(run(h, &["check", "delete", &c]).code, 0);
-    assert_eq!(run(h, &["check", "delete", &c]).code, 3);
-    // 引数なしのハッスルは引数エラー
-    assert_eq!(run(h, &["hassle"]).code, 2);
+    assert_eq!(run(h, &["condition", "edit", &c, "-e", "9"]).code, 2);
+    assert_eq!(run(h, &["condition", "delete", &c]).code, 0);
+    assert_eq!(run(h, &["condition", "delete", &c]).code, 3);
+    // 引数なしの気になったことは引数エラー
+    assert_eq!(run(h, &["concern"]).code, 2);
 
     // カレンダーソース・活動: URL は出力に出ない
     let a = run(
@@ -563,25 +580,42 @@ fn report_and_review_flow() {
 fn records_and_planning() {
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();
-    assert_eq!(run(h, &["check", "-e", "6"]).code, 2);
+    assert_eq!(run(h, &["condition", "-e", "6"]).code, 2);
     let c = run(
         h,
         &[
-            "--json", "check", "-e", "4", "-m", "3", "--erg", "growth", "--note", "ok",
+            "--json",
+            "condition",
+            "-e",
+            "4",
+            "-m",
+            "3",
+            "--erg",
+            "growth",
+            "--note",
+            "ok",
         ],
     );
     assert_eq!(c.code, 0, "{}", c.stderr);
     assert_eq!(c.json()["erg_tag"], "growth");
 
-    let hs = run(h, &["--json", "hassle", "会議が長い"]);
+    let hs = run(h, &["--json", "concern", "会議が長い"]);
     assert_eq!(hs.json()["intensity"], 3);
     let hid = hs.json()["id"].as_str().unwrap().to_string();
-    let abc = run(
+    let reframe = run(
         h,
-        &["--json", "abc", "add", "--from-hassle", &hid, "--b", "無駄だ"],
+        &[
+            "--json",
+            "reframe",
+            "add",
+            "--from-concern",
+            &hid,
+            "--belief",
+            "無駄だ",
+        ],
     );
-    assert_eq!(abc.code, 0, "{}", abc.stderr);
-    assert_eq!(abc.json()["activating_event"], "会議が長い");
+    assert_eq!(reframe.code, 0, "{}", reframe.stderr);
+    assert_eq!(reframe.json()["event"], "会議が長い");
 
     let o = run(
         h,
@@ -653,17 +687,17 @@ fn config_doctor_and_reflect() {
     assert!(c.stdout.contains("\"version\": 2"), "{}", c.stdout);
     assert_eq!(run(h, &["context", "--kind", "bogus"]).code, 2);
     assert_eq!(run(h, &["reflect", "list"]).code, 0);
-    assert_eq!(run(h, &["abc", "dispute", "X"]).code, 3);
+    assert_eq!(run(h, &["reframe", "deepen", "X"]).code, 3);
 }
 
 #[test]
-fn erg_判定_確認待ち_確定() {
+fn erg_判定_未確定_確定() {
     use hitoiki_core::model::{ErgChoice, ErgLabel, ErgRecordKind, ErgSource};
     let dir = tempfile::tempdir().unwrap();
     let h = dir.path();
     // AI が未設定なら、エラーにせず判定しない
     std::fs::write(h.join("config.toml"), "[ai]\ncommand = []\n").unwrap();
-    let id = run(h, &["--json", "hassle", "新しいことを学んだ"]).json()["id"]
+    let id = run(h, &["--json", "concern", "新しいことを学んだ"]).json()["id"]
         .as_str()
         .unwrap()
         .to_string();
@@ -685,15 +719,15 @@ fn erg_判定_確認待ち_確定() {
         0
     );
 
-    // 確認待ちの提案を直接用意する（AI は呼ばない）
+    // 未確定の提案を直接用意する（AI は呼ばない）
     let conn = db::open(&h.join("hitoiki.db")).unwrap();
     hitoiki_core::repo::erg::set_auto(
         &conn,
         &ErgLabel {
-            record_kind: ErgRecordKind::Hassle,
+            record_kind: ErgRecordKind::Concern,
             record_id: id.clone(),
             tag: ErgChoice::Growth,
-            source: ErgSource::Suggested,
+            source: ErgSource::Unconfirmed,
             confidence: Some(0.5),
             reason: Some("学びに触れている".into()),
             at: 1,
@@ -703,14 +737,14 @@ fn erg_判定_確認待ち_確定() {
     drop(conn);
     let r = run(h, &["--json", "erg", "review"]).json();
     assert_eq!(r["items"][0]["tag"], "growth");
-    assert_eq!(r["items"][0]["source"], "suggested");
+    assert_eq!(r["items"][0]["source"], "unconfirmed");
     assert_eq!(r["items"][0]["reason"], "学びに触れている");
     assert!(run(h, &["erg", "review"]).stdout.contains("成長"));
     let s = run(h, &["--json", "erg", "show"]).json();
-    assert_eq!(s["distribution"]["pending"], 1);
-    assert_eq!(s["pending_total"], 1);
+    assert_eq!(s["distribution"]["unconfirmed"], 1);
+    assert_eq!(s["unconfirmed_total"], 1);
 
-    // そのまま確定 → user。確認待ちではなくなる
+    // そのまま確定 → user。未確定ではなくなる
     let c = run(h, &["--json", "erg", "confirm", &id[..14]]);
     assert_eq!(c.code, 0, "{}", c.stderr);
     assert_eq!(c.json()["source"], "user");
@@ -725,7 +759,7 @@ fn erg_判定_確認待ち_確定() {
         run(h, &["--json", "erg", "show"]).json()["distribution"]["growth"],
         1
     );
-    // 確認待ちでないものは confirm できない（2）。変えるのは set
+    // 未確定でないものは confirm できない（2）。変えるのは set
     assert_eq!(run(h, &["erg", "confirm", &id]).code, 2);
     let s = run(h, &["--json", "erg", "set", &id, "none"]);
     assert_eq!((s.code, s.json()["tag"].as_str()), (0, Some("none")));
@@ -745,9 +779,9 @@ fn structured_reflection_show_and_answer() {
     let h = dir.path();
     // AI は呼ばず、構造化された振り返りを直接保存しておく。
     let structured = r#"{"summary":"要約","questions":[
-        {"kind":"checkin","prompt":"いまの調子は？","scales":["energy","mood"]},
-        {"kind":"hassle","prompt":"引っかかったことは？"},
-        {"kind":"abc","prompt":"場面を選んで","activating_event":"指摘された"},
+        {"kind":"condition","prompt":"いまの調子は？","scales":["energy","mood"]},
+        {"kind":"concern","prompt":"引っかかったことは？"},
+        {"kind":"reframe","prompt":"場面を選んで","event":"指摘された"},
         {"kind":"free","prompt":"ひとことで"}]}"#;
     let conn = db::open(&h.join("hitoiki.db")).unwrap();
     hitoiki_core::repo::reflection::insert(
@@ -781,14 +815,14 @@ fn structured_reflection_show_and_answer() {
     // --json は構造をそのまま返す
     let j = run(h, &["--json", "reflect", "show", "01HZZZ"]).json();
     assert_eq!(j["structured"]["questions"].as_array().unwrap().len(), 4);
-    assert_eq!(j["structured"]["questions"][2]["kind"], "abc");
+    assert_eq!(j["structured"]["questions"][2]["kind"], "reframe");
     assert!(j["answers"].is_null());
 
     // 回答 JSON（標準入力）
     let ans = r#"{"answers":[
         {"index":0,"energy":3,"mood":4},
         {"index":1,"text":"会議が長い","intensity":4},
-        {"index":2,"activating_event":"指摘された","belief":"向いていない","emotion":"落ち込み","emotion_intensity":3},
+        {"index":2,"event":"指摘された","belief":"向いていない","emotion":"落ち込み","emotion_intensity":3},
         {"index":3,"text":"まあまあ"}]}"#;
     let a = run_with_stdin(
         h,
@@ -799,21 +833,24 @@ fn structured_reflection_show_and_answer() {
     let aj = a.json();
     assert_eq!(aj["answers"]["items"].as_array().unwrap().len(), 4);
     assert!(aj["answers_md"].as_str().unwrap().contains("まあまあ"));
-    // 保存先の確認: checkin / hassle / abc_record にそれぞれ 1 件
+    // 保存先の確認: condition / concern / reframe にそれぞれ 1 件
     let conn = db::open(&h.join("hitoiki.db")).unwrap();
-    let hs = hitoiki_core::repo::record::list_hassles(&conn, 0, i64::MAX).unwrap();
+    let hs = hitoiki_core::repo::record::list_concerns(&conn, 0, i64::MAX).unwrap();
     assert_eq!(
         (hs.len(), hs[0].text.as_str(), hs[0].intensity),
         (1, "会議が長い", 4)
     );
     assert_eq!(
-        hitoiki_core::repo::record::list_checkins(&conn, 0, i64::MAX)
+        hitoiki_core::repo::record::list_conditions(&conn, 0, i64::MAX)
             .unwrap()
             .len(),
         1
     );
-    let abcs = hitoiki_core::repo::record::list_abc(&conn, 0, i64::MAX).unwrap();
-    assert_eq!((abcs.len(), abcs[0].belief.as_deref()), (1, Some("向いていない")));
+    let reframes = hitoiki_core::repo::record::list_reframe(&conn, 0, i64::MAX).unwrap();
+    assert_eq!(
+        (reframes.len(), reframes[0].belief.as_deref()),
+        (1, Some("向いていない"))
+    );
     drop(conn);
     // 範囲外の番号は引数エラー（終了コード 2）
     let bad = run_with_stdin(

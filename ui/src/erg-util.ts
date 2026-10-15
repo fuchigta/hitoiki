@@ -31,12 +31,12 @@ export function labelMap(labels: ErgLabel[]): Map<string, ErgLabel> {
   return new Map(labels.map((l) => [ergKey(l.record_kind, l.record_id), l]));
 }
 
-/** 画面での状態。unlabeled はラベル無し、pending は確認待ち（AI の提案で未確定）。 */
-export type ErgState = "unlabeled" | "user" | "ai" | "pending";
+/** 画面での状態。unlabeled はラベル無し、unconfirmed は未確定（AI の提案で未確定）。 */
+export type ErgState = "unlabeled" | "user" | "ai" | "unconfirmed";
 
 export function ergState(l: ErgLabel | undefined | null): ErgState {
   if (!l) return "unlabeled";
-  return l.source === "suggested" ? "pending" : l.source;
+  return l.source === "unconfirmed" ? "unconfirmed" : l.source;
 }
 
 /** 確信度の表示（0.85 → "85%"）。無ければ空。 */
@@ -56,7 +56,7 @@ export function distributionSummary(d: ErgDistribution): string {
   const parts = [`存在 ${d.existence}`, `関係 ${d.relatedness}`, `成長 ${d.growth}`, `どれにも当てはまらない ${d.none}`];
   let s = `記録 ${d.total} 件のうち、${parts.join(" ・ ")}`;
   const rest: string[] = [];
-  if (d.pending > 0) rest.push(`確認待ち ${d.pending}`);
+  if (d.unconfirmed > 0) rest.push(`未確定 ${d.unconfirmed}`);
   if (d.unlabeled > 0) rest.push(`未判定 ${d.unlabeled}`);
   if (rest.length > 0) s += `（${rest.join("、")}）`;
   return s;
@@ -67,12 +67,12 @@ export function classifyMessage(o: {
   skipped: string | null;
   targets: number;
   adopted: number;
-  pending: number;
+  unconfirmed: number;
   unread: number;
 }): string {
   if (o.skipped) return o.skipped;
   if (o.targets === 0) return "判定する記録はありません。";
-  let s = `${o.targets} 件を判定しました。AI の判定を採用 ${o.adopted} 件、確認待ち ${o.pending} 件`;
+  let s = `${o.targets} 件を判定しました。AI の判定を採用 ${o.adopted} 件、未確定 ${o.unconfirmed} 件`;
   if (o.unread > 0) s += `、判定が得られなかったもの ${o.unread} 件`;
   return s + "。";
 }

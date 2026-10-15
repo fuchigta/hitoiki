@@ -224,9 +224,9 @@ function buildHeatmap(s: State, by: string | undefined, fromS?: string, toS?: st
   if (isCount) {
     label = "記録の件数";
     const want = (k: string) => !arg || arg === k;
-    if (want("checkin")) s.checkins.forEach((x) => add(x.at, 1));
-    if (want("hassle")) s.hassles.forEach((x) => add(x.at, 1));
-    if (want("abc")) s.abcs.forEach((x) => add(x.at, 1));
+    if (want("condition")) s.conditions.forEach((x) => add(x.at, 1));
+    if (want("concern")) s.concerns.forEach((x) => add(x.at, 1));
+    if (want("reframe")) s.reframes.forEach((x) => add(x.at, 1));
     if (want("reflection")) s.reflections.forEach((x) => add(x.at, 1));
   } else {
     const skillNames = kind === "skill" ? skillClosure(s, [arg]) : null;
@@ -664,17 +664,17 @@ function previewBlocks(s: State, tp: T.TemplateView, day: number): T.PreviewBloc
 // ===== 記録 =====
 
 function recordText(s: State, kind: T.ErgRecordKind, id: string): { at: number; text: string } {
-  if (kind === "checkin") {
-    const c = s.checkins.find((x) => x.id === id);
+  if (kind === "condition") {
+    const c = s.conditions.find((x) => x.id === id);
     return { at: c?.at ?? 0, text: c?.note ?? "（メモなし）" };
   }
-  if (kind === "hassle") {
-    const h = s.hassles.find((x) => x.id === id);
+  if (kind === "concern") {
+    const h = s.concerns.find((x) => x.id === id);
     return { at: h?.at ?? 0, text: h?.text ?? "" };
   }
-  if (kind === "abc") {
-    const a = s.abcs.find((x) => x.id === id);
-    return { at: a?.at ?? 0, text: a?.activating_event ?? "" };
+  if (kind === "reframe") {
+    const a = s.reframes.find((x) => x.id === id);
+    return { at: a?.at ?? 0, text: a?.event ?? "" };
   }
   const r = s.reflections.find((x) => x.id === id);
   return { at: r?.at ?? 0, text: r?.answers_md ?? "" };
@@ -697,14 +697,14 @@ function items<R extends { at: number }>(s: State, list: R[], a?: T.RangeArgs): 
 
 function structuredQuestions(kind: T.ReflectionKind): T.StructuredOutput {
   const q: T.Question[] = [
-    { kind: "checkin", prompt: kind === "day_start" ? "いまの調子を教えてください。" : "今日の終わりの調子はどうですか。", scales: ["energy", "mood", "stress"] },
-    { kind: "hassle", prompt: "今日、引っかかったことはありましたか。", examples: ["同じ質問が何度も来て作業が途切れた", "資料の場所が分からなかった"] },
-    { kind: "abc", prompt: "気になった出来事を、そのときの考えと気持ちと一緒に書いてみませんか。", activating_event: "レビューで設計の前提を指摘された", belief_prompt: "そのとき、どんな考えが浮かびましたか。" },
+    { kind: "condition", prompt: kind === "day_start" ? "いまの調子を教えてください。" : "今日の終わりの調子はどうですか。", scales: ["energy", "mood", "stress"] },
+    { kind: "concern", prompt: "今日、引っかかったことはありましたか。", examples: ["同じ質問が何度も来て作業が途切れた", "資料の場所が分からなかった"] },
+    { kind: "reframe", prompt: "気になった出来事を、そのときの考えと気持ちと一緒に書いてみませんか。", event: "レビューで設計の前提を指摘された", belief_prompt: "そのとき、どんな考えが浮かびましたか。" },
     { kind: "free", prompt: "ほかに書き残しておきたいことがあれば自由にどうぞ。" },
   ];
   const summary =
     kind === "weekly"
-      ? "今週は設計とレビュー対応に多くの時間が入っていました。確認待ちの区間が数件残っています。"
+      ? "今週は設計とレビュー対応に多くの時間が入っていました。未確定の区間が数件残っています。"
       : kind === "day_start"
         ? "昨日は設計書とレビュー対応が中心でした。今日は午前に見積もりの指摘対応、午後に設計書の予定です。"
         : "今日は見積もりレビューの指摘対応に最も時間が入っています。会議は朝会のみでした。";
@@ -1108,37 +1108,37 @@ const H: Record<string, Handler> = {
   },
 
   // 記録
-  checkin_add: (s, a) => {
-    const i = a.input as T.CheckInput;
-    const c: T.Checkin = { id: nid(s, "chk"), at: s.now, energy: i.energy ?? null, mood: i.mood ?? null, stress: i.stress ?? null, erg_tag: null, note: i.note ?? null, push_id: null };
-    s.checkins.unshift(c);
+  condition_add: (s, a) => {
+    const i = a.input as T.ConditionInput;
+    const c: T.Condition = { id: nid(s, "chk"), at: s.now, energy: i.energy ?? null, mood: i.mood ?? null, stress: i.stress ?? null, erg_tag: null, note: i.note ?? null, nudge_id: null };
+    s.conditions.unshift(c);
     return c;
   },
-  checkin_list: (s, a) => items(s, s.checkins, a.range),
-  hassle_add: (s, a) => {
-    const h: T.Hassle = { id: nid(s, "has"), at: s.now, text: a.input.text, intensity: a.input.intensity ?? 3, segment_id: null, push_id: null };
-    s.hassles.unshift(h);
+  condition_list: (s, a) => items(s, s.conditions, a.range),
+  concern_add: (s, a) => {
+    const h: T.Concern = { id: nid(s, "has"), at: s.now, text: a.input.text, intensity: a.input.intensity ?? 3, segment_id: null, nudge_id: null };
+    s.concerns.unshift(h);
     return h;
   },
-  hassle_list: (s, a) => items(s, s.hassles, a.range),
-  abc_add: (s, a) => {
-    const i = a.input as T.AbcInput;
-    const h = i.from_hassle ? s.hassles.find((x) => x.id === i.from_hassle) : undefined;
-    const r: T.AbcRecord = {
-      id: nid(s, "abc"),
+  concern_list: (s, a) => items(s, s.concerns, a.range),
+  reframe_add: (s, a) => {
+    const i = a.input as T.ReframeInput;
+    const h = i.from_concern ? s.concerns.find((x) => x.id === i.from_concern) : undefined;
+    const r: T.Reframe = {
+      id: nid(s, "reframe"),
       at: s.now,
-      activating_event: i.activating_event ?? h?.text ?? "",
+      event: i.event ?? h?.text ?? "",
       belief: i.belief ?? null,
-      consequence_emotion: i.consequence_emotion ?? null,
-      consequence_intensity: i.consequence_intensity ?? null,
-      dispute: null,
-      ai_dialog_md: null,
-      hassle_id: h?.id ?? null,
+      emotion: i.emotion ?? null,
+      emotion_intensity: i.emotion_intensity ?? null,
+      alternative: null,
+      deepening_md: null,
+      concern_id: h?.id ?? null,
     };
-    s.abcs.unshift(r);
+    s.reframes.unshift(r);
     return r;
   },
-  abc_list: (s, a) => items(s, s.abcs, a.range),
+  reframe_list: (s, a) => items(s, s.reframes, a.range),
 
   // 振り返り
   context: (s, a) => ({ kind: a.kind, date: a.date ?? ymd(s.now), tasks: s.tasks.length }),
@@ -1172,14 +1172,14 @@ const H: Record<string, Handler> = {
     for (const it of (a.answers as T.AnswersInput).answers) {
       const q = so.questions?.[it.index];
       if (!q) continue;
-      if (q.kind === "checkin") {
-        const c = H.checkin_add(s, { input: { energy: it.energy, mood: it.mood, stress: it.stress, note: it.note } }, undefined as never) as T.Checkin;
+      if (q.kind === "condition") {
+        const c = H.condition_add(s, { input: { energy: it.energy, mood: it.mood, stress: it.stress, note: it.note } }, undefined as never) as T.Condition;
         out.push({ index: it.index, kind: q.kind, record_id: c.id });
-      } else if (q.kind === "hassle") {
-        const h = H.hassle_add(s, { input: { text: it.text ?? "", intensity: it.intensity } }, undefined as never) as T.Hassle;
+      } else if (q.kind === "concern") {
+        const h = H.concern_add(s, { input: { text: it.text ?? "", intensity: it.intensity } }, undefined as never) as T.Concern;
         out.push({ index: it.index, kind: q.kind, record_id: h.id });
-      } else if (q.kind === "abc") {
-        const b = H.abc_add(s, { input: { activating_event: it.activating_event, belief: it.belief, consequence_emotion: it.emotion, consequence_intensity: it.emotion_intensity } }, undefined as never) as T.AbcRecord;
+      } else if (q.kind === "reframe") {
+        const b = H.reframe_add(s, { input: { event: it.event, belief: it.belief, emotion: it.emotion, emotion_intensity: it.emotion_intensity } }, undefined as never) as T.Reframe;
         out.push({ index: it.index, kind: q.kind, record_id: b.id });
       } else {
         out.push({ index: it.index, kind: q.kind, text: it.text });
@@ -1198,10 +1198,10 @@ const H: Record<string, Handler> = {
       prompt: so.questions?.[it.index]?.prompt ?? "",
       record_id: it.record_id,
       text: it.text,
-      checkin: s.checkins.find((x) => x.id === it.record_id),
-      hassle: s.hassles.find((x) => x.id === it.record_id),
-      abc: s.abcs.find((x) => x.id === it.record_id),
-      missing: it.record_id ? ![...s.checkins, ...s.hassles, ...s.abcs].some((x) => x.id === it.record_id) : undefined,
+      condition: s.conditions.find((x) => x.id === it.record_id),
+      concern: s.concerns.find((x) => x.id === it.record_id),
+      reframe: s.reframes.find((x) => x.id === it.record_id),
+      missing: it.record_id ? ![...s.conditions, ...s.concerns, ...s.reframes].some((x) => x.id === it.record_id) : undefined,
     }));
   },
   reflect_list: (s, a) => s.reflections.filter((r) => !a.kind || r.kind === a.kind).slice(0, a.limit ?? 30),
@@ -1210,11 +1210,11 @@ const H: Record<string, Handler> = {
     if (!r) fail("not_found", "振り返りが見つかりません。");
     return r;
   },
-  abc_dispute: (s, a) => {
-    const r = s.abcs.find((x) => x.id === a.id);
+  reframe_deepen: (s, a) => {
+    const r = s.reframes.find((x) => x.id === a.id);
     if (!r) fail("not_found", "捉え直しが見つかりません。");
-    r.dispute = "その考えを裏づける事実と、そうでない事実を並べてみると、どう見えますか。";
-    r.ai_dialog_md = "**問い**: 指摘された点は設計全体への評価でしたか、それとも前提の一部についてでしたか。";
+    r.alternative = "その考えを裏づける事実と、そうでない事実を並べてみると、どう見えますか。";
+    r.deepening_md = "**問い**: 指摘された点は設計全体への評価でしたか、それとも前提の一部についてでしたか。";
     return r;
   },
 
@@ -1222,8 +1222,8 @@ const H: Record<string, Handler> = {
   erg_overview: (s, a) => {
     const [from, to] = range(s, a.range);
     const labels = s.ergLabels.filter((l) => l.at >= from && l.at < to);
-    const count = (tag: T.ErgChoice) => labels.filter((l) => l.source !== "suggested" && l.tag === tag).length;
-    const total = [...s.checkins, ...s.hassles, ...s.abcs, ...s.reflections].filter((x) => x.at >= from && x.at < to).length;
+    const count = (tag: T.ErgChoice) => labels.filter((l) => l.source !== "unconfirmed" && l.tag === tag).length;
+    const total = [...s.conditions, ...s.concerns, ...s.reframes, ...s.reflections].filter((x) => x.at >= from && x.at < to).length;
     const labeled = labels.length;
     return {
       range: rangeView(from, to),
@@ -1232,19 +1232,19 @@ const H: Record<string, Handler> = {
         relatedness: count("relatedness"),
         growth: count("growth"),
         none: count("none"),
-        pending: labels.filter((l) => l.source === "suggested").length,
+        unconfirmed: labels.filter((l) => l.source === "unconfirmed").length,
         unlabeled: Math.max(0, total - labeled),
         ai_decided: labels.filter((l) => l.source === "ai").length,
         total,
         legend: "記録の内容がどの観点に関わるかの件数です。多い少ないに良し悪しはありません。",
       },
       labels,
-      pending_total: s.ergLabels.filter((l) => l.source === "suggested").length,
+      unconfirmed_total: s.ergLabels.filter((l) => l.source === "unconfirmed").length,
     } satisfies T.ErgOverview;
   },
   erg_review: (s) => ({
     items: s.ergLabels
-      .filter((l) => l.source === "suggested")
+      .filter((l) => l.source === "unconfirmed")
       .map((l): T.ErgItem => {
         const r = recordText(s, l.record_kind, l.record_id);
         return { ...l, record_at: r.at, excerpt: r.text };
@@ -1252,7 +1252,7 @@ const H: Record<string, Handler> = {
   }),
   erg_classify: (s, a) => {
     const [from, to] = range(s, a.range);
-    return { range: rangeView(from, to), dry_run: false, skipped: "自動判定が設定されていないため、判定しませんでした。", targets: 0, adopted: 0, pending: 0, unread: 0, items: [] } satisfies T.ErgClassifyOutcome;
+    return { range: rangeView(from, to), dry_run: false, skipped: "自動判定が設定されていないため、判定しませんでした。", targets: 0, adopted: 0, unconfirmed: 0, unread: 0, items: [] } satisfies T.ErgClassifyOutcome;
   },
   erg_set: (s, a) => upsertErg(s, a.record_kind, a.record_id, { tag: a.tag, source: "user", confidence: null, reason: null }),
   erg_confirm: (s, a) => upsertErg(s, a.record_kind, a.record_id, { source: "user" }),
@@ -1456,41 +1456,41 @@ const H: Record<string, Handler> = {
   },
 
   // 記録の編集と削除
-  checkin_edit: (s, a) => {
-    const c = s.checkins.find((x) => x.id === a.id);
+  condition_edit: (s, a) => {
+    const c = s.conditions.find((x) => x.id === a.id);
     if (!c) fail("not_found", "調子が見つかりません。");
-    const i = a.input as T.CheckInput;
+    const i = a.input as T.ConditionInput;
     Object.assign(c, { energy: i.energy ?? null, mood: i.mood ?? null, stress: i.stress ?? null, note: i.note ?? null });
     return c;
   },
-  checkin_delete: (s, a) => {
-    const c = s.checkins.find((x) => x.id === a.id);
+  condition_delete: (s, a) => {
+    const c = s.conditions.find((x) => x.id === a.id);
     if (!c) fail("not_found", "調子が見つかりません。");
-    return deleteOutcome("checkin", c.id, "調子", [], a.mode, () => (s.checkins = s.checkins.filter((x) => x.id !== c.id)));
+    return deleteOutcome("condition", c.id, "調子", [], a.mode, () => (s.conditions = s.conditions.filter((x) => x.id !== c.id)));
   },
-  hassle_edit: (s, a) => {
-    const h = s.hassles.find((x) => x.id === a.id);
+  concern_edit: (s, a) => {
+    const h = s.concerns.find((x) => x.id === a.id);
     if (!h) fail("not_found", "気になったことが見つかりません。");
     h.text = a.input.text;
     if (a.input.intensity !== undefined) h.intensity = a.input.intensity;
     return h;
   },
-  hassle_delete: (s, a) => {
-    const h = s.hassles.find((x) => x.id === a.id);
+  concern_delete: (s, a) => {
+    const h = s.concerns.find((x) => x.id === a.id);
     if (!h) fail("not_found", "気になったことが見つかりません。");
-    return deleteOutcome("hassle", h.id, h.text, [{ label: "つながる捉え直し", count: s.abcs.filter((x) => x.hassle_id === h.id).length }], a.mode, () => (s.hassles = s.hassles.filter((x) => x.id !== h.id)));
+    return deleteOutcome("concern", h.id, h.text, [{ label: "つながる捉え直し", count: s.reframes.filter((x) => x.concern_id === h.id).length }], a.mode, () => (s.concerns = s.concerns.filter((x) => x.id !== h.id)));
   },
-  abc_edit: (s, a) => {
-    const r = s.abcs.find((x) => x.id === a.id);
+  reframe_edit: (s, a) => {
+    const r = s.reframes.find((x) => x.id === a.id);
     if (!r) fail("not_found", "捉え直しが見つかりません。");
-    const i = a.input as T.AbcEditInput;
-    Object.assign(r, { activating_event: i.activating_event, belief: i.belief ?? null, consequence_emotion: i.consequence_emotion ?? null, consequence_intensity: i.consequence_intensity ?? null, dispute: i.dispute ?? null });
+    const i = a.input as T.ReframeEditInput;
+    Object.assign(r, { event: i.event, belief: i.belief ?? null, emotion: i.emotion ?? null, emotion_intensity: i.emotion_intensity ?? null, alternative: i.alternative ?? null });
     return r;
   },
-  abc_delete: (s, a) => {
-    const r = s.abcs.find((x) => x.id === a.id);
+  reframe_delete: (s, a) => {
+    const r = s.reframes.find((x) => x.id === a.id);
     if (!r) fail("not_found", "捉え直しが見つかりません。");
-    return deleteOutcome("abc", r.id, r.activating_event, [], a.mode, () => (s.abcs = s.abcs.filter((x) => x.id !== r.id)));
+    return deleteOutcome("reframe", r.id, r.event, [], a.mode, () => (s.reframes = s.reframes.filter((x) => x.id !== r.id)));
   },
 
   // カレンダーソース・活動
@@ -1566,9 +1566,9 @@ const H: Record<string, Handler> = {
     const p = s.nudges.find((x) => x.id === a.nudge_id);
     if (p) p.state = a.action === "dismiss" ? "dismissed" : "answered";
     if (a.action === "energy" && a.value) {
-      s.checkins.unshift({ id: nid(s, "chk"), at: s.now, energy: a.value, mood: null, stress: null, erg_tag: null, note: a.input || null, push_id: a.nudge_id ?? null });
+      s.conditions.unshift({ id: nid(s, "chk"), at: s.now, energy: a.value, mood: null, stress: null, erg_tag: null, note: a.input || null, nudge_id: a.nudge_id ?? null });
     }
-    if (a.input && a.action !== "energy") s.hassles.unshift({ id: nid(s, "has"), at: s.now, text: a.input, intensity: 3, segment_id: null, push_id: a.nudge_id ?? null });
+    if (a.input && a.action !== "energy") s.concerns.unshift({ id: nid(s, "has"), at: s.now, text: a.input, intensity: 3, segment_id: null, nudge_id: a.nudge_id ?? null });
     s.pendingNudge = null;
     return null;
   },

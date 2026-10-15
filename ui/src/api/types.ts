@@ -507,7 +507,7 @@ export interface Suggestion {
   templates: TemplateView[];
 }
 
-export interface Checkin {
+export interface Condition {
   id: string;
   at: Millis;
   energy: number | null;
@@ -515,28 +515,28 @@ export interface Checkin {
   stress: number | null;
   erg_tag: ErgTag | null;
   note: string | null;
-  push_id: string | null;
+  nudge_id: string | null;
 }
 
-export interface Hassle {
+export interface Concern {
   id: string;
   at: Millis;
   text: string;
   intensity: number;
   segment_id: string | null;
-  push_id: string | null;
+  nudge_id: string | null;
 }
 
-export interface AbcRecord {
+export interface Reframe {
   id: string;
   at: Millis;
-  activating_event: string;
+  event: string;
   belief: string | null;
-  consequence_emotion: string | null;
-  consequence_intensity: number | null;
-  dispute: string | null;
-  ai_dialog_md: string | null;
-  hassle_id: string | null;
+  emotion: string | null;
+  emotion_intensity: number | null;
+  alternative: string | null;
+  deepening_md: string | null;
+  concern_id: string | null;
 }
 
 export interface Items<T> {
@@ -545,19 +545,19 @@ export interface Items<T> {
   items: T[];
 }
 
-export interface CheckInput {
+export interface ConditionInput {
   energy?: number;
   mood?: number;
   stress?: number;
   note?: string;
 }
 
-export interface AbcInput {
-  activating_event?: string;
+export interface ReframeInput {
+  event?: string;
   belief?: string;
-  consequence_emotion?: string;
-  consequence_intensity?: number;
-  from_hassle?: string;
+  emotion?: string;
+  emotion_intensity?: number;
+  from_concern?: string;
 }
 
 export interface Goal {
@@ -819,12 +819,12 @@ export interface ActivityRuleEdit {
   enabled?: boolean;
 }
 
-export interface AbcEditInput {
-  activating_event: string;
+export interface ReframeEditInput {
+  event: string;
   belief?: string;
-  consequence_emotion?: string;
-  consequence_intensity?: number;
-  dispute?: string;
+  emotion?: string;
+  emotion_intensity?: number;
+  alternative?: string;
 }
 
 export interface CalendarSourceView {
@@ -891,7 +891,7 @@ export interface Reflection {
   answers_json: string | null;
 }
 
-export type QuestionKind = "checkin" | "hassle" | "abc" | "free";
+export type QuestionKind = "condition" | "concern" | "reframe" | "free";
 export type Scale = "energy" | "mood" | "stress";
 
 /** core の `service::structured::Question`。使わない項目は省略される。 */
@@ -900,7 +900,7 @@ export interface Question {
   prompt: string;
   scales?: Scale[];
   examples?: string[];
-  activating_event?: string;
+  event?: string;
   belief_prompt?: string;
 }
 
@@ -928,9 +928,9 @@ export interface AnswerDetail {
   prompt: string;
   record_id?: string;
   text?: string;
-  checkin?: Checkin;
-  hassle?: Hassle;
-  abc?: AbcRecord;
+  condition?: Condition;
+  concern?: Concern;
+  reframe?: Reframe;
   /** 回答が作った記録が削除されていて、もう無い。 */
   missing?: boolean;
 }
@@ -944,11 +944,11 @@ export interface AnswerItem {
   note?: string;
   text?: string;
   intensity?: number;
-  activating_event?: string;
+  event?: string;
   belief?: string;
   emotion?: string;
   emotion_intensity?: number;
-  dispute?: string;
+  alternative?: string;
 }
 
 export interface AnswersInput {
@@ -1070,9 +1070,9 @@ export interface CorrectionUndone {
 
 /** 3 つの観点か、どれにも関わらない（none）。 */
 export type ErgChoice = ErgTag | "none";
-export type ErgRecordKind = "checkin" | "hassle" | "abc" | "reflection";
-/** user = ユーザーが付けた・確定した / ai = 確信度が閾値以上で AI が採用 / suggested = 確認待ち（AI の提案で未確定） */
-export type ErgSource = "user" | "ai" | "suggested";
+export type ErgRecordKind = "condition" | "concern" | "reframe" | "reflection";
+/** user = ユーザーが付けた・確定した / ai = 確信度が閾値以上で AI が採用 / unconfirmed = 未確定（AI の提案で未確定） */
+export type ErgSource = "user" | "ai" | "unconfirmed";
 
 /** core の `model::ErgLabel`。 */
 export interface ErgLabel {
@@ -1091,7 +1091,7 @@ export interface ErgDistribution {
   relatedness: number;
   growth: number;
   none: number;
-  pending: number;
+  unconfirmed: number;
   unlabeled: number;
   ai_decided: number;
   total: number;
@@ -1102,7 +1102,7 @@ export interface ErgOverview {
   range: RangeView;
   distribution: ErgDistribution;
   labels: ErgLabel[];
-  pending_total: number;
+  unconfirmed_total: number;
 }
 
 export interface ErgItem extends ErgLabel {
@@ -1132,7 +1132,7 @@ export interface ErgClassifyOutcome {
   skipped: string | null;
   targets: number;
   adopted: number;
-  pending: number;
+  unconfirmed: number;
   unread: number;
   items: ErgClassifiedItem[];
 }

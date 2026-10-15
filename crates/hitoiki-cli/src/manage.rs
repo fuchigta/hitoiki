@@ -18,7 +18,7 @@ fn mode(o: &DeleteOpts) -> DeleteMode {
     }
 }
 
-/// 記録（チェックイン・ハッスル・ABC）を実際に削除するとき、削除の記録をログファイルに残す準備をする。
+/// 記録（調子・気になったこと・捉え直し）を実際に削除するとき、削除の記録をログファイルに残す準備をする。
 /// 戻り値は削除が終わるまで保持する（Drop でフラッシュ）。ログを開けなくても削除自体は続ける。
 fn delete_log(o: &DeleteOpts) -> Option<hitoiki_daemon::LogGuard> {
     if o.dry_run {
@@ -65,11 +65,11 @@ fn scale(v: Option<i64>, cur: Option<i64>) -> Option<i64> {
     }
 }
 
-pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
+pub fn condition_sub(ctx: &Ctx, json: bool, cmd: ConditionCmd) -> Result<()> {
     let tz = ctx.tz()?;
     match cmd {
-        CheckCmd::List { range } => {
-            let l = record::list_checkins(ctx, &range_args(&range))?;
+        ConditionCmd::List { range } => {
+            let l = record::list_conditions(ctx, &range_args(&range))?;
             emit(json, &l, || {
                 let rows: Vec<Vec<String>> = l
                     .items
@@ -89,7 +89,7 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
                 table(&["ID", "時刻", "エネルギー", "気分", "ストレス", "メモ"], &rows)
             })
         }
-        CheckCmd::Edit {
+        ConditionCmd::Edit {
             id,
             energy,
             mood,
@@ -97,8 +97,8 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
             erg,
             note,
         } => {
-            let cur = record::check_get(ctx, &id)?;
-            let input = record::CheckInput {
+            let cur = record::condition_get(ctx, &id)?;
+            let input = record::ConditionInput {
                 energy: scale(energy, cur.energy),
                 mood: scale(mood, cur.mood),
                 stress: scale(stress, cur.stress),
@@ -106,26 +106,26 @@ pub fn check_sub(ctx: &Ctx, json: bool, cmd: CheckCmd) -> Result<()> {
                 erg,
                 note: note.or(cur.note),
             };
-            let c = record::check_edit(ctx, &cur.id, &input)?;
-            ext::notify_data("checkin");
+            let c = record::condition_edit(ctx, &cur.id, &input)?;
+            ext::notify_data("condition");
             emit(json, &c, || {
                 format!("調子を更新しました: {}", render::short(&c.id))
             })
         }
-        CheckCmd::Delete { id, opts } => {
+        ConditionCmd::Delete { id, opts } => {
             let _log = delete_log(&opts);
-            let o = record::check_delete(ctx, &id, mode(&opts))?;
-            ext::notify_data("checkin");
+            let o = record::condition_delete(ctx, &id, mode(&opts))?;
+            ext::notify_data("condition");
             delete_report(json, "調子", &o)
         }
     }
 }
 
-pub fn hassle_sub(ctx: &Ctx, json: bool, cmd: HassleCmd) -> Result<()> {
+pub fn concern_sub(ctx: &Ctx, json: bool, cmd: ConcernCmd) -> Result<()> {
     let tz = ctx.tz()?;
     match cmd {
-        HassleCmd::List { range } => {
-            let l = record::list_hassles(ctx, &range_args(&range))?;
+        ConcernCmd::List { range } => {
+            let l = record::list_concerns(ctx, &range_args(&range))?;
             emit(json, &l, || {
                 let rows: Vec<Vec<String>> = l
                     .items
@@ -142,35 +142,35 @@ pub fn hassle_sub(ctx: &Ctx, json: bool, cmd: HassleCmd) -> Result<()> {
                 table(&["ID", "時刻", "強度", "内容"], &rows)
             })
         }
-        HassleCmd::Edit { id, text, intensity } => {
-            let cur = record::hassle_get(ctx, &id)?;
-            let h = record::hassle_edit(
+        ConcernCmd::Edit { id, text, intensity } => {
+            let cur = record::concern_get(ctx, &id)?;
+            let h = record::concern_edit(
                 ctx,
                 &cur.id,
-                &record::HassleInput {
+                &record::ConcernInput {
                     text: text.unwrap_or(cur.text),
                     intensity,
                 },
             )?;
-            ext::notify_data("hassle");
+            ext::notify_data("concern");
             emit(json, &h, || {
                 format!("気になったことを更新しました: {}", render::short(&h.id))
             })
         }
-        HassleCmd::Delete { id, opts } => {
+        ConcernCmd::Delete { id, opts } => {
             let _log = delete_log(&opts);
-            let o = record::hassle_delete(ctx, &id, mode(&opts))?;
-            ext::notify_data("hassle");
+            let o = record::concern_delete(ctx, &id, mode(&opts))?;
+            ext::notify_data("concern");
             delete_report(json, "気になったこと", &o)
         }
     }
 }
 
-pub fn abc_sub(ctx: &Ctx, json: bool, cmd: AbcCmd) -> Result<()> {
+pub fn reframe_sub(ctx: &Ctx, json: bool, cmd: ReframeCmd) -> Result<()> {
     let tz = ctx.tz()?;
     match cmd {
-        AbcCmd::List { range } => {
-            let l = record::list_abc(ctx, &range_args(&range))?;
+        ReframeCmd::List { range } => {
+            let l = record::list_reframe(ctx, &range_args(&range))?;
             emit(json, &l, || {
                 let rows: Vec<Vec<String>> = l
                     .items
@@ -179,47 +179,47 @@ pub fn abc_sub(ctx: &Ctx, json: bool, cmd: AbcCmd) -> Result<()> {
                         vec![
                             render::short(&a.id),
                             to_local(tz, a.at).format("%m-%d %H:%M").to_string(),
-                            a.activating_event.clone(),
+                            a.event.clone(),
                             a.belief.clone().unwrap_or_default(),
-                            a.consequence_emotion.clone().unwrap_or_default(),
+                            a.emotion.clone().unwrap_or_default(),
                         ]
                     })
                     .collect();
-                table(&["ID", "時刻", "A", "B", "C"], &rows)
+                table(&["ID", "時刻", "出来事", "受け止め方", "感情"], &rows)
             })
         }
-        AbcCmd::Edit {
+        ReframeCmd::Edit {
             id,
-            a,
-            b,
-            c_emotion,
-            c_intensity,
-            dispute,
+            event,
+            belief,
+            emotion,
+            emotion_intensity,
+            alternative,
         } => {
-            let cur = record::abc_get(ctx, &id)?;
-            let r = record::abc_edit(
+            let cur = record::reframe_get(ctx, &id)?;
+            let r = record::reframe_edit(
                 ctx,
                 &cur.id,
-                &record::AbcEditInput {
-                    activating_event: a.unwrap_or(cur.activating_event),
-                    belief: b.or(cur.belief),
-                    consequence_emotion: c_emotion.or(cur.consequence_emotion),
-                    consequence_intensity: scale(c_intensity, cur.consequence_intensity),
-                    dispute: dispute.or(cur.dispute),
+                &record::ReframeEditInput {
+                    event: event.unwrap_or(cur.event),
+                    belief: belief.or(cur.belief),
+                    emotion: emotion.or(cur.emotion),
+                    emotion_intensity: scale(emotion_intensity, cur.emotion_intensity),
+                    alternative: alternative.or(cur.alternative),
                 },
             )?;
-            ext::notify_data("abc");
+            ext::notify_data("reframe");
             emit(json, &r, || {
                 format!("捉え直しを更新しました: {}", render::short(&r.id))
             })
         }
-        AbcCmd::Delete { id, opts } => {
+        ReframeCmd::Delete { id, opts } => {
             let _log = delete_log(&opts);
-            let o = record::abc_delete(ctx, &id, mode(&opts))?;
-            ext::notify_data("abc");
+            let o = record::reframe_delete(ctx, &id, mode(&opts))?;
+            ext::notify_data("reframe");
             delete_report(json, "捉え直し", &o)
         }
-        AbcCmd::Add { .. } | AbcCmd::Dispute { .. } => unreachable!("handled in main"),
+        ReframeCmd::Add { .. } | ReframeCmd::Deepen { .. } => unreachable!("handled in main"),
     }
 }
 

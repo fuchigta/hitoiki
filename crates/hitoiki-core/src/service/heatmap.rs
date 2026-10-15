@@ -1,7 +1,7 @@
 //! 活動量ヒートマップ（日別の集計と濃淡の段階）。
 //!
 //! 時間の集計の軸は `activity_segment`（`segment_confirmation` 適用後の派生層）から、記録の集計の軸は
-//! `checkin` / `hassle` / `abc_record` / `reflection` の `at` から、ローカル日付ごとに集計する。
+//! `condition` / `concern` / `reframe` / `reflection` の `at` から、ローカル日付ごとに集計する。
 //! 日付の区切りは設定のタイムゾーンの 0 時。週は月曜始まり。
 //!
 //! 濃淡の段階（0〜4）: 値が 0 の日は 0。値のある日だけを小さい順に並べ、
@@ -26,7 +26,7 @@ pub const DEFAULT_WEEKS: i64 = 53;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct HeatmapInput {
-    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `key_result:<ID・タイトル>`（`key-result show` と同じ成果の指標の時間: 成果の指標のスキルが付いた作業と紐付けたタスク）/ `records[:checkin|hassle|abc|reflection]`。
+    /// `time`（既定）/ `kind:<種別>` / `task:<ID・タイトル>` / `skill:<名前・ID>` / `key_result:<ID・タイトル>`（`key-result show` と同じ成果の指標の時間: 成果の指標のスキルが付いた作業と紐付けたタスク）/ `records[:condition|concern|reframe|reflection]`。
     pub by: Option<String>,
     /// 開始日（`YYYY-MM-DD` / `today` / `yesterday`）。既定は 53 週前の週の月曜。
     pub from: Option<String>,
@@ -82,9 +82,9 @@ enum HeatmapBy {
 
 /// (指定名, テーブル, 表示名)
 const RECORD_KINDS: [(&str, &str, &str); 4] = [
-    ("checkin", "checkin", "調子"),
-    ("hassle", "hassle", "気になったこと"),
-    ("abc", "abc_record", "捉え直し"),
+    ("condition", "condition", "調子"),
+    ("concern", "concern", "気になったこと"),
+    ("reframe", "reframe", "捉え直し"),
     ("reflection", "reflection", "振り返り"),
 ];
 
@@ -115,7 +115,7 @@ fn parse_heatmap_by(ctx: &Ctx, by: &str) -> Result<(HeatmapBy, String, String, &
     };
     let bad = || {
         Error::InvalidArgument(format!(
-            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, key_result:<成果の指標>, records[:checkin|hassle|abc|reflection])"
+            "--by の値が不正です: {by} (候補: time, kind:<種別>, task:<タスク>, skill:<スキル>, key_result:<成果の指標>, records[:condition|concern|reframe|reflection])"
         ))
     };
     Ok(match (head, arg) {
@@ -714,16 +714,16 @@ mod tests {
         let env = Env::new();
         let c = env.ctx();
         let d = env.day_start();
-        // 当日 00:30 JST（UTC では前日）のチェックインは、ローカル日付の当日に数える。
+        // 当日 00:30 JST（UTC では前日）の調子は、ローカル日付の当日に数える。
         c.conn
-            .execute("INSERT INTO checkin (id, at) VALUES ('C1', ?1)", [d + 30 * MIN])
+            .execute("INSERT INTO condition (id, at) VALUES ('C1', ?1)", [d + 30 * MIN])
             .unwrap();
         c.conn
-            .execute("INSERT INTO checkin (id, at) VALUES ('C2', ?1)", [d - 30 * MIN])
+            .execute("INSERT INTO condition (id, at) VALUES ('C2', ?1)", [d - 30 * MIN])
             .unwrap();
         c.conn
             .execute(
-                "INSERT INTO hassle (id, at, text) VALUES ('H1', ?1, 'x')",
+                "INSERT INTO concern (id, at, text) VALUES ('H1', ?1, 'x')",
                 [d + 60 * MIN],
             )
             .unwrap();
@@ -737,7 +737,7 @@ mod tests {
         assert_eq!(all.unit, "count");
         assert_eq!(day(&all, "2026-10-10").value, 3);
         assert_eq!(day(&all, "2026-10-09").value, 1);
-        let ck = heatmap(&c, &input("records:checkin")).unwrap();
+        let ck = heatmap(&c, &input("records:condition")).unwrap();
         assert_eq!(ck.total, 2);
         assert_eq!(day(&ck, "2026-10-10").value, 1);
         let rf = heatmap(&c, &input("records:reflection")).unwrap();

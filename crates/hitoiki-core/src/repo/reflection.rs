@@ -1,6 +1,6 @@
-//! `reflection`（AI 振り返り）と `abc_record` の AI 対話列の読み書き。
+//! `reflection`（AI 振り返り）と `reframe` の AI 対話列の読み書き。
 
-use crate::model::{AbcRecord, Reflection, ReflectionKind};
+use crate::model::{Reflection, ReflectionKind, Reframe};
 use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -129,30 +129,30 @@ pub fn set_structured_answers(
     Ok(())
 }
 
-pub fn set_abc_dispute(conn: &Connection, id: &str, dispute: &str) -> Result<()> {
+pub fn set_reframe_alternative(conn: &Connection, id: &str, alternative: &str) -> Result<()> {
     conn.execute(
-        "UPDATE abc_record SET dispute = ?2 WHERE id = ?1",
-        params![id, dispute],
+        "UPDATE reframe SET alternative = ?2 WHERE id = ?1",
+        params![id, alternative],
     )?;
     Ok(())
 }
 
-pub fn get_abc(conn: &Connection, id: &str) -> Result<AbcRecord> {
+pub fn get_reframe(conn: &Connection, id: &str) -> Result<Reframe> {
     conn.query_row(
-        "SELECT id, at, activating_event, belief, consequence_emotion, consequence_intensity, dispute, \
-         ai_dialog_md, hassle_id FROM abc_record WHERE id = ?1",
+        "SELECT id, at, event, belief, emotion, emotion_intensity, alternative, \
+         deepening_md, concern_id FROM reframe WHERE id = ?1",
         [id],
         |r| {
-            Ok(AbcRecord {
+            Ok(Reframe {
                 id: r.get(0)?,
                 at: r.get(1)?,
-                activating_event: r.get(2)?,
+                event: r.get(2)?,
                 belief: r.get(3)?,
-                consequence_emotion: r.get(4)?,
-                consequence_intensity: r.get(5)?,
-                dispute: r.get(6)?,
-                ai_dialog_md: r.get(7)?,
-                hassle_id: r.get(8)?,
+                emotion: r.get(4)?,
+                emotion_intensity: r.get(5)?,
+                alternative: r.get(6)?,
+                deepening_md: r.get(7)?,
+                concern_id: r.get(8)?,
             })
         },
     )
@@ -160,14 +160,14 @@ pub fn get_abc(conn: &Connection, id: &str) -> Result<AbcRecord> {
     .ok_or_else(|| Error::NotFound(format!("捉え直し {id}")))
 }
 
-pub fn resolve_abc(conn: &Connection, prefix: &str) -> Result<AbcRecord> {
-    get_abc(conn, &super::resolve_prefix(conn, "abc_record", prefix)?)
+pub fn resolve_reframe(conn: &Connection, prefix: &str) -> Result<Reframe> {
+    get_reframe(conn, &super::resolve_prefix(conn, "reframe", prefix)?)
 }
 
-pub fn set_abc_dialog(conn: &Connection, id: &str, ai_dialog_md: &str) -> Result<()> {
+pub fn set_reframe_deepening(conn: &Connection, id: &str, deepening_md: &str) -> Result<()> {
     conn.execute(
-        "UPDATE abc_record SET ai_dialog_md = ?2 WHERE id = ?1",
-        params![id, ai_dialog_md],
+        "UPDATE reframe SET deepening_md = ?2 WHERE id = ?1",
+        params![id, deepening_md],
     )?;
     Ok(())
 }

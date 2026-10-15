@@ -25,7 +25,7 @@ export default {
     await q.getByRole("textbox", { name: "気になったこと" }).fill("振り返りで書いた気になったこと");
     await page.getByRole("button", { name: "回答を保存", exact: true }).click();
     await until(
-      () => mockState(page, (s) => s.hassles.some((h) => h.text === "振り返りで書いた気になったこと") && !!s.reflections[0].answers_json),
+      () => mockState(page, (s) => s.concerns.some((h) => h.text === "振り返りで書いた気になったこと") && !!s.reflections[0].answers_json),
       "回答がモックの状態に入りません",
     );
     await page.getByText("回答を保存しました").waitFor();
@@ -34,6 +34,5 @@ export default {
     const list = page.getByRole("list", { name: "記録の時系列" });
     await list.getByRole("button", { name: /振り返りで書いた気になったこと/ }).waitFor();
     await list.getByRole("button", { name: /終業の振り返り・回答あり/ }).first().waitFor();
-
   },
 };

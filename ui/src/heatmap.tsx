@@ -17,9 +17,9 @@ const BYS: { id: HeatBy; label: string }[] = [
 
 const RECORD_KINDS = [
   { id: "", label: "すべて" },
-  { id: "checkin", label: "調子" },
-  { id: "hassle", label: "気になったこと" },
-  { id: "abc", label: "捉え直し" },
+  { id: "condition", label: "調子" },
+  { id: "concern", label: "気になったこと" },
+  { id: "reframe", label: "捉え直し" },
   { id: "reflection", label: "振り返り" },
 ];
 

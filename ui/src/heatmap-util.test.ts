@@ -67,6 +67,6 @@ describe("表示", () => {
     expect(buildBy("key_result", "")).toBeNull();
     expect(buildBy("key_result", "01ABC")).toBe("key_result:01ABC");
     expect(buildBy("records", "")).toBe("records");
-    expect(buildBy("records", "abc")).toBe("records:abc");
+    expect(buildBy("records", "reframe")).toBe("records:reframe");
   });
 });

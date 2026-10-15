@@ -15,7 +15,7 @@ import {
 } from "./erg-util";
 import { useAction } from "./lib";
 
-/** 記録 1 件の ERG。AI の判定は小さく「AI」と分かる印、確認待ちは提案と理由に「これでよい / 変える」を付ける。 */
+/** 記録 1 件の ERG。AI の判定は小さく「AI」と分かる印、未確定は提案と理由に「これでよい / 変える」を付ける。 */
 export function ErgLine({
   kind,
   id,
@@ -73,7 +73,7 @@ export function ErgLine({
           {label.reason && <span class="meta"> {label.reason}</span>}
         </span>
       )}
-      {st === "pending" && label && (
+      {st === "unconfirmed" && label && (
         <span>
           <span class="meta">ERG の提案: </span>
           <span class="tag" title={ERG_HINTS[label.tag]}>
@@ -103,7 +103,7 @@ export function ErgLine({
             <button
               type="button"
               key={c}
-              class={label?.tag === c && st !== "pending" ? "chip on" : "chip"}
+              class={label?.tag === c && st !== "unconfirmed" ? "chip on" : "chip"}
               title={ERG_HINTS[c]}
               disabled={act.busy}
               onClick={() => set(c)}
@@ -128,12 +128,12 @@ export function ErgLine({
 export function ErgSummary({
   distribution,
   range,
-  pendingTotal,
+  unconfirmedTotal,
   onChanged,
 }: {
   distribution: ErgDistribution;
   range: { date?: string; from?: string; to?: string };
-  pendingTotal: number;
+  unconfirmedTotal: number;
   onChanged: () => void;
 }) {
   const act = useAction();
@@ -158,14 +158,14 @@ export function ErgSummary({
         ))}
       </ul>
       <p class="meta">{distributionSummary(distribution)}</p>
-      {pendingTotal > 0 && <p class="hint">確認待ちの提案が全期間で {pendingTotal} 件あります（記録画面で確定できます）。</p>}
+      {unconfirmedTotal > 0 && <p class="hint">未確定の提案が全期間で {unconfirmedTotal} 件あります（記録画面で確定できます）。</p>}
       <div class="row">
         <button type="button" disabled={act.busy || !canClassify} onClick={classify}>
           {act.busy ? "AI が判定しています…" : "未判定の記録を AI で判定する"}
         </button>
         <Help>
           ERG は「{ERG_LEGEND}」の 3 つの観点です。記録の内容から AI が判定し、AI の判定は小さく「AI」と表示されます。
-          確信が持てないものは確認待ちになり、あなたが確定するまで集計に入りません。
+          確信が持てないものは未確定になり、あなたが確定するまで集計に入りません。
         </Help>
         {msg && (
           <span class="meta" role="status">

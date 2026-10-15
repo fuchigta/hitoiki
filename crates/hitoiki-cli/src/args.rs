@@ -60,7 +60,7 @@ pub enum Cmd {
     Nudge(NudgeCmd),
     /// コンディションの記録（`check list|edit|delete` で一覧・編集・削除）
     #[command(args_conflicts_with_subcommands = true)]
-    Check {
+    Condition {
         /// エネルギー 1-5
         #[arg(short = 'e', long)]
         energy: Option<i64>,
@@ -76,17 +76,17 @@ pub enum Cmd {
         #[arg(long)]
         note: Option<String>,
         #[command(subcommand)]
-        cmd: Option<CheckCmd>,
+        cmd: Option<ConditionCmd>,
     },
-    /// 気になったこと（ハッスル）の記録（`hassle list|edit|delete` で一覧・編集・削除）
+    /// 気になったことの記録（`concern list|edit|delete` で一覧・編集・削除）
     #[command(args_conflicts_with_subcommands = true)]
-    Hassle {
+    Concern {
         text: Option<String>,
         /// 強度 1-5（既定 3）
         #[arg(short = 'i', long)]
         intensity: Option<i64>,
         #[command(subcommand)]
-        cmd: Option<HassleCmd>,
+        cmd: Option<ConcernCmd>,
     },
     /// 活動ルール（アプリ・タイトル等のパターンから活動を当てる）
     #[command(subcommand, name = "activity-rule")]
@@ -97,9 +97,9 @@ pub enum Cmd {
     /// カレンダーソース（ICS）
     #[command(subcommand)]
     Calendar(CalendarCmd),
-    /// 捉え直し（ABC）の記録。出来事・受け止め方・感情を分けて書く
+    /// 捉え直しの記録（ABC 理論に基づく）
     #[command(subcommand)]
-    Abc(AbcCmd),
+    Reframe(ReframeCmd),
     /// 目標
     #[command(subcommand)]
     Goal(GoalCmd),
@@ -127,7 +127,7 @@ pub enum Cmd {
     },
     /// 活動量ヒートマップ（日別の濃淡）
     Heatmap {
-        /// time | kind:<種別> | task:<ID・タイトル> | skill:<名前> | records[:checkin|hassle|abc|reflection]
+        /// time | kind:<種別> | task:<ID・タイトル> | skill:<名前> | records[:condition|concern|reframe|reflection]
         #[arg(long, default_value = "time")]
         by: String,
         /// 開始日（既定: 今日を含む週から数えて 53 週分）
@@ -147,7 +147,7 @@ pub enum Cmd {
     /// AI で問いを生成して保存
     #[command(subcommand)]
     Reflect(ReflectCmd),
-    /// ERG（存在・関係・成長）。記録の内容から AI が判定し、確認待ちをユーザーが確定する
+    /// ERG（存在・関係・成長）。記録の内容から AI が判定し、未確定をユーザーが確定する
     #[command(subcommand)]
     Erg(ErgCmd),
     /// エージェントセッション
@@ -346,8 +346,8 @@ pub struct DeleteOpts {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum CheckCmd {
-    /// 調子（チェックイン）の一覧
+pub enum ConditionCmd {
+    /// 調子の一覧
     List {
         #[command(flatten)]
         range: RangeOpts,
@@ -375,7 +375,7 @@ pub enum CheckCmd {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum HassleCmd {
+pub enum ConcernCmd {
     List {
         #[command(flatten)]
         range: RangeOpts,
@@ -741,45 +741,45 @@ pub enum TemplateCmd {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum AbcCmd {
+pub enum ReframeCmd {
     Add {
         /// A: 出来事
-        #[arg(long = "a")]
-        a: Option<String>,
+        #[arg(long)]
+        event: Option<String>,
         /// B: 受け止め方
-        #[arg(long = "b")]
-        b: Option<String>,
+        #[arg(long)]
+        belief: Option<String>,
         /// C: 感情
         #[arg(long)]
-        c_emotion: Option<String>,
+        emotion: Option<String>,
         /// C: 強度 1-5
         #[arg(long)]
-        c_intensity: Option<i64>,
+        emotion_intensity: Option<i64>,
         /// 気になったことの ID（A を補完する）
         #[arg(long)]
-        from_hassle: Option<String>,
+        from_concern: Option<String>,
     },
     /// AI で受け止め方を掘り下げる問いを生成
-    Dispute { id: String },
+    Deepen { id: String },
     /// 捉え直しの一覧
     List {
         #[command(flatten)]
         range: RangeOpts,
     },
-    /// 捉え直しを編集する（指定した項目だけ変える。文字列に空文字を渡すと消す。--c-intensity 0 で強度を消す）
+    /// 捉え直しを編集する（指定した項目だけ変える。文字列に空文字を渡すと消す。--emotion-intensity 0 で強度を消す）
     Edit {
         id: String,
-        #[arg(long = "a")]
-        a: Option<String>,
-        #[arg(long = "b")]
-        b: Option<String>,
         #[arg(long)]
-        c_emotion: Option<String>,
+        event: Option<String>,
         #[arg(long)]
-        c_intensity: Option<i64>,
-        /// 反論・掘り下げのメモ
+        belief: Option<String>,
         #[arg(long)]
-        dispute: Option<String>,
+        emotion: Option<String>,
+        #[arg(long)]
+        emotion_intensity: Option<i64>,
+        /// 別の捉え方・掘り下げのメモ
+        #[arg(long)]
+        alternative: Option<String>,
     },
     Delete {
         id: String,
@@ -989,12 +989,10 @@ pub enum SkillCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum ReflectCmd {
-    #[command(name = "day_start")]
     DayStart {
         #[arg(long)]
         date: Option<String>,
     },
-    #[command(name = "day_end")]
     DayEnd {
         #[arg(long)]
         date: Option<String>,
@@ -1025,7 +1023,7 @@ pub enum ReflectCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum ErgCmd {
-    /// 未判定の記録を AI で判定する。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は確認待ち。AI が未設定なら何もしない
+    /// 未判定の記録を AI で判定する。確信度が `ai.erg_auto_threshold` 以上なら採用、未満は未確定。AI が未設定なら何もしない
     Classify {
         #[command(flatten)]
         range: RangeOpts,
@@ -1033,7 +1031,7 @@ pub enum ErgCmd {
         #[arg(long)]
         dry_run: bool,
     },
-    /// 確認待ち（AI の提案で未確定）の一覧
+    /// 未確定（AI の提案で未確定）の一覧
     Review,
     /// タグを付ける・直す（ユーザーの確定。AI は上書きしない）。`none` はどれにも関わらない
     Set {
@@ -1042,7 +1040,7 @@ pub enum ErgCmd {
         /// existence | relatedness | growth | none
         tag: ErgChoice,
     },
-    /// 確認待ちの提案をそのまま確定する
+    /// 未確定の提案をそのまま確定する
     Confirm {
         /// 記録の ID（前方一致）
         record: String,

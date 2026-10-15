@@ -45,6 +45,6 @@ pub fn questions_dir() -> PathBuf {
     config_dir().join("questions")
 }
 
-pub fn templates_dir() -> PathBuf {
-    config_dir().join("templates")
+pub fn prompts_dir() -> PathBuf {
+    config_dir().join("prompts")
 }

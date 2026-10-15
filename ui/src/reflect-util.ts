@@ -14,23 +14,23 @@ import type {
 
 /** 1 つの問いのフォーム状態。使う項目は問いの種類で決まる。 */
 export interface QuestionForm {
-  // checkin
+  // condition
   energy?: number;
   mood?: number;
   stress?: number;
   note: string;
-  // hassle / free
+  // concern / free
   text: string;
   intensity?: number;
-  // abc
-  activating_event: string;
+  // reframe
+  event: string;
   belief: string;
   emotion: string;
   emotion_intensity?: number;
-  dispute: string;
+  alternative: string;
 }
 
-export const SCALE_LABELS: Record<Scale, string> = { energy: "元気", mood: "気分", stress: "ストレス" };
+export const SCALE_LABELS: Record<Scale, string> = { energy: "エネルギー", mood: "気分", stress: "ストレス" };
 
 /** 保存済みの構造化出力を読む。無い・壊れている場合は null（従来の Markdown 表示にする）。 */
 export function parseStructured(r: Pick<Reflection, "structured_json">): StructuredOutput | null {
@@ -54,16 +54,16 @@ export function parseAnswered(r: Pick<Reflection, "answers_json">): AnswersRecor
   }
 }
 
-/** 問いごとのフォームの初期状態。ハッスルの強度は 3、ABC の A は AI の候補を入れておく（編集できる）。 */
+/** 問いごとのフォームの初期状態。気になったことの強度は 3、捉え直しの A は AI の候補を入れておく（編集できる）。 */
 export function initialForm(q: Question): QuestionForm {
   return {
     note: "",
     text: "",
-    intensity: q.kind === "hassle" ? 3 : undefined,
-    activating_event: q.kind === "abc" ? (q.activating_event ?? "") : "",
+    intensity: q.kind === "concern" ? 3 : undefined,
+    event: q.kind === "reframe" ? (q.event ?? "") : "",
     belief: "",
     emotion: "",
-    dispute: "",
+    alternative: "",
   };
 }
 
@@ -73,18 +73,18 @@ export function initialForms(out: StructuredOutput): QuestionForm[] {
 
 const blank = (s: string) => s.trim() === "";
 
-/** 何も答えていないか（空のフォームは送らない）。ABC の A が候補のままなら、他に入力が無い限り空とみなす。 */
+/** 何も答えていないか（空のフォームは送らない）。捉え直しの A が候補のままなら、他に入力が無い限り空とみなす。 */
 export function isBlank(q: Question, f: QuestionForm): boolean {
   switch (q.kind) {
-    case "checkin":
+    case "condition":
       return f.energy == null && f.mood == null && f.stress == null && blank(f.note);
-    case "hassle":
+    case "concern":
       return blank(f.text);
     case "free":
       return blank(f.text);
-    case "abc": {
-      const aUntouched = blank(f.activating_event) || f.activating_event.trim() === (q.activating_event ?? "").trim();
-      return aUntouched && blank(f.belief) && blank(f.emotion) && f.emotion_intensity == null && blank(f.dispute);
+    case "reframe": {
+      const aUntouched = blank(f.event) || f.event.trim() === (q.event ?? "").trim();
+      return aUntouched && blank(f.belief) && blank(f.emotion) && f.emotion_intensity == null && blank(f.alternative);
     }
   }
 }
@@ -94,7 +94,7 @@ const opt = (s: string) => (blank(s) ? undefined : s.trim());
 /** フォーム 1 件を回答に変換する（尋ねていない尺度は送らない）。 */
 export function toAnswerItem(index: number, q: Question, f: QuestionForm): AnswerItem {
   switch (q.kind) {
-    case "checkin": {
+    case "condition": {
       const asked = new Set<Scale>(q.scales && q.scales.length > 0 ? q.scales : ["energy", "mood", "stress"]);
       return {
         index,
@@ -104,18 +104,18 @@ export function toAnswerItem(index: number, q: Question, f: QuestionForm): Answe
         note: opt(f.note),
       };
     }
-    case "hassle":
+    case "concern":
       return { index, text: opt(f.text), intensity: f.intensity };
     case "free":
       return { index, text: opt(f.text) };
-    case "abc":
+    case "reframe":
       return {
         index,
-        activating_event: opt(f.activating_event),
+        event: opt(f.event),
         belief: opt(f.belief),
         emotion: opt(f.emotion),
         emotion_intensity: f.emotion_intensity,
-        dispute: opt(f.dispute),
+        alternative: opt(f.alternative),
       };
   }
 }
@@ -149,25 +149,25 @@ export function detailLines(d: AnswerDetail): string[] {
   const add = (label: string, v: string | number | null | undefined) => {
     if (v != null && String(v).trim() !== "") lines.push(`${label}: ${v}`);
   };
-  if (d.checkin) {
-    const c = d.checkin;
+  if (d.condition) {
+    const c = d.condition;
     add(SCALE_LABELS.energy, c.energy);
     add(SCALE_LABELS.mood, c.mood);
     add(SCALE_LABELS.stress, c.stress);
     add("ERG タグ", c.erg_tag ? ERG_NAMES[c.erg_tag] : null);
     add("メモ", c.note);
   }
-  if (d.hassle) {
-    add("気になったこと", d.hassle.text);
-    add("強さ", d.hassle.intensity);
+  if (d.concern) {
+    add("気になったこと", d.concern.text);
+    add("強さ", d.concern.intensity);
   }
-  if (d.abc) {
-    const a = d.abc;
-    add("A: 出来事", a.activating_event);
+  if (d.reframe) {
+    const a = d.reframe;
+    add("A: 出来事", a.event);
     add("B: 受け止め方", a.belief);
-    add("C: 感情", a.consequence_emotion);
-    add("感情の強さ", a.consequence_intensity);
-    add("別の捉え方・反論", a.dispute);
+    add("C: 感情", a.emotion);
+    add("感情の強さ", a.emotion_intensity);
+    add("別の捉え方", a.alternative);
   }
   return lines;
 }

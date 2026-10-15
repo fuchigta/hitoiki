@@ -13,7 +13,7 @@ export default {
     // 「＋ 記録」のメニューから種類を選ぶと、右に作成フォームが出る。
     await page.getByRole("button", { name: "＋ 記録", exact: true }).click();
     await page.getByRole("menuitem", { name: "調子", exact: true }).click();
-    await until(() => hashOf(page) === "#/records/new/checkin", "作成フォームのルートになりません");
+    await until(() => hashOf(page) === "#/records/new/condition", "作成フォームのルートになりません");
     await page.getByRole("heading", { name: "調子を記録", level: 2 }).waitFor();
 
     const form = page.locator("section.card").filter({ has: page.getByRole("heading", { name: "調子を記録", level: 2 }) });
@@ -23,13 +23,13 @@ export default {
     await form.getByRole("button", { name: "記録", exact: true }).click();
 
     await until(
-      () => mockState(page, (s) => s.checkins.some((c) => c.note === "操作シナリオのメモ" && c.energy === 4 && c.mood === 3)),
+      () => mockState(page, (s) => s.conditions.some((c) => c.note === "操作シナリオのメモ" && c.energy === 4 && c.mood === 3)),
       "調子がモックの状態に入りません",
     );
-    const id = await mockState(page, (s) => s.checkins.find((c) => c.note === "操作シナリオのメモ").id);
+    const id = await mockState(page, (s) => s.conditions.find((c) => c.note === "操作シナリオのメモ").id);
 
     // 作った記録が選択され（URL に ID）、一覧の先頭に出て、右に詳細が出る。
-    await until(() => hashOf(page) === `#/records/checkin/${id}`, "作った記録が選択されません");
+    await until(() => hashOf(page) === `#/records/condition/${id}`, "作った記録が選択されません");
     await page.getByRole("heading", { name: "調子", level: 2 }).waitFor();
     await page.locator(".ld-detail").getByText("操作シナリオのメモ").waitFor();
     const first = list.getByRole("listitem").first();
@@ -38,7 +38,7 @@ export default {
 
     // 種類で絞り込む（URL の ?kind=）。気になったことだけにすると調子の行は消える。
     await page.getByRole("group", { name: "種類" }).getByRole("button", { name: "気になったこと", exact: true }).click();
-    await until(() => hashOf(page).includes("kind=hassle"), "絞り込みが URL に載りません");
+    await until(() => hashOf(page).includes("kind=concern"), "絞り込みが URL に載りません");
     await until(async () => (await list.getByRole("button", { name: /エネルギー 4・気分 3/ }).count()) === 0, "調子の行が残っています");
     const row = list.getByRole("listitem").first();
     await row.getByRole("button").first().click();
@@ -49,14 +49,14 @@ export default {
     await page.getByRole("menuitem", { name: "編集", exact: true }).click();
     await page.getByRole("textbox", { name: "気になったこと" }).fill("編集後の気になったこと");
     await page.getByRole("button", { name: "保存", exact: true }).click();
-    await until(() => mockState(page, (s) => s.hassles.some((h) => h.text === "編集後の気になったこと")), "編集がモックの状態に反映されません");
+    await until(() => mockState(page, (s) => s.concerns.some((h) => h.text === "編集後の気になったこと")), "編集がモックの状態に反映されません");
     await page.locator(".ld-detail").getByText("編集後の気になったこと").waitFor();
 
     // 削除（確認ダイアログ）。一覧から消え、選択が外れる。
     await page.getByRole("button", { name: "気になったことの操作" }).click();
     await page.getByRole("menuitem", { name: "削除…", exact: true }).click();
     await page.getByRole("button", { name: "削除する", exact: true }).click();
-    await until(() => mockState(page, (s) => !s.hassles.some((h) => h.text === "編集後の気になったこと")), "気になったことが削除されません");
-    await until(() => !hashOf(page).includes("/hassle/"), "選択が外れません");
+    await until(() => mockState(page, (s) => !s.concerns.some((h) => h.text === "編集後の気になったこと")), "気になったことが削除されません");
+    await until(() => !hashOf(page).includes("/concern/"), "選択が外れません");
   },
 };

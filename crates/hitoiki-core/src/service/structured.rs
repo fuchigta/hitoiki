@@ -1,6 +1,6 @@
 //! AI 振り返りの構造化出力（docs/dev/architecture.md「AI 振り返り」）。
 //!
-//! 問いを「チェックイン / ハッスル / ABC / 自由記述」の種類つきで JSON として受け取り、画面で種類ごとに
+//! 問いを「調子 / 気になったこと / 捉え直し / 自由記述」の種類つきで JSON として受け取り、画面で種類ごとに
 //! 答えられるようにする。ここにはスキーマの定義と生成、AI コマンドの出力の読み取り、Markdown への整形、
 //! コマンド引数の組み立てを置く。AI コマンドの起動と保存は `reflect.rs`。
 
@@ -18,33 +18,33 @@ pub const MAX_QUESTIONS: usize = 8;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QuestionKind {
-    Checkin,
-    Hassle,
-    Abc,
+    Condition,
+    Concern,
+    Reframe,
     Free,
 }
 
 impl QuestionKind {
     pub fn as_str(&self) -> &'static str {
         match self {
-            QuestionKind::Checkin => "checkin",
-            QuestionKind::Hassle => "hassle",
-            QuestionKind::Abc => "abc",
+            QuestionKind::Condition => "condition",
+            QuestionKind::Concern => "concern",
+            QuestionKind::Reframe => "reframe",
             QuestionKind::Free => "free",
         }
     }
 
     pub fn label(&self) -> &'static str {
         match self {
-            QuestionKind::Checkin => "調子",
-            QuestionKind::Hassle => "気になったこと",
-            QuestionKind::Abc => "捉え直し",
+            QuestionKind::Condition => "調子",
+            QuestionKind::Concern => "気になったこと",
+            QuestionKind::Reframe => "捉え直し",
             QuestionKind::Free => "自由記述",
         }
     }
 }
 
-/// チェックインで尋ねる尺度。
+/// 調子で尋ねる尺度。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Scale {
@@ -58,7 +58,7 @@ impl Scale {
 
     pub fn label(&self) -> &'static str {
         match self {
-            Scale::Energy => "元気",
+            Scale::Energy => "エネルギー",
             Scale::Mood => "気分",
             Scale::Stress => "ストレス",
         }
@@ -70,16 +70,16 @@ impl Scale {
 pub struct Question {
     pub kind: QuestionKind,
     pub prompt: String,
-    /// checkin: 尋ねる尺度。
+    /// condition: 尋ねる尺度。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scales: Vec<Scale>,
-    /// hassle / abc: 例示。
+    /// concern / reframe: 例示。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub examples: Vec<String>,
-    /// abc: A（出来事）の候補。ユーザーが編集できる。
+    /// reframe: A（出来事）の候補。ユーザーが編集できる。
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub activating_event: Option<String>,
-    /// abc: B を掘り下げる問い。
+    pub event: Option<String>,
+    /// reframe: B を掘り下げる問い。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub belief_prompt: Option<String>,
 }
@@ -93,7 +93,7 @@ pub struct StructuredOutput {
 }
 
 impl StructuredOutput {
-    /// 内容を検査し、正規化する（空の問いは捨てる、checkin の尺度の既定、数の上限）。
+    /// 内容を検査し、正規化する（空の問いは捨てる、condition の尺度の既定、数の上限）。
     /// 問いが 1 つも残らなければスキーマ違反として扱う。
     pub fn normalize(mut self) -> Result<Self> {
         self.summary = self
@@ -103,8 +103,8 @@ impl StructuredOutput {
         for q in &mut self.questions {
             q.prompt = q.prompt.trim().to_string();
             q.examples.retain(|e| !e.trim().is_empty());
-            q.activating_event = q
-                .activating_event
+            q.event = q
+                .event
                 .take()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
@@ -113,7 +113,7 @@ impl StructuredOutput {
                 .take()
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty());
-            if q.kind == QuestionKind::Checkin && q.scales.is_empty() {
+            if q.kind == QuestionKind::Condition && q.scales.is_empty() {
                 q.scales = Scale::ALL.to_vec();
             }
             dedup(&mut q.scales);
@@ -138,12 +138,12 @@ impl StructuredOutput {
         for (i, q) in self.questions.iter().enumerate() {
             s += &format!("{}. {}\n", i + 1, q.prompt);
             match q.kind {
-                QuestionKind::Checkin => {
+                QuestionKind::Condition => {
                     let names: Vec<&str> = q.scales.iter().map(Scale::label).collect();
                     s += &format!("   - 調子（{}）\n", names.join("・"));
                 }
-                QuestionKind::Abc => {
-                    if let Some(a) = &q.activating_event {
+                QuestionKind::Reframe => {
+                    if let Some(a) = &q.event {
                         s += &format!("   - 出来事の候補: {a}\n");
                     }
                     if let Some(b) = &q.belief_prompt {
@@ -184,14 +184,14 @@ pub fn schema_json() -> String {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "kind": { "type": "string", "enum": ["checkin", "hassle", "abc", "free"] },
+                        "kind": { "type": "string", "enum": ["condition", "concern", "reframe", "free"] },
                         "prompt": { "type": "string" },
                         "scales": {
                             "type": "array",
                             "items": { "type": "string", "enum": ["energy", "mood", "stress"] }
                         },
                         "examples": { "type": "array", "items": { "type": "string" } },
-                        "activating_event": { "type": "string" },
+                        "event": { "type": "string" },
                         "belief_prompt": { "type": "string" }
                     },
                     "required": ["kind", "prompt"]
@@ -333,9 +333,9 @@ mod tests {
     }
 
     const OUT: &str = r#"{"summary":"要約","questions":[
-        {"kind":"checkin","prompt":"いまの調子は","scales":["energy","mood"]},
-        {"kind":"hassle","prompt":"引っかかったことは","examples":["会議が長い"],"erg_candidates":["growth"]},
-        {"kind":"abc","prompt":"場面を選んで","activating_event":"レビューで指摘","belief_prompt":"何がよぎった"},
+        {"kind":"condition","prompt":"いまの調子は","scales":["energy","mood"]},
+        {"kind":"concern","prompt":"引っかかったことは","examples":["会議が長い"],"erg_candidates":["growth"]},
+        {"kind":"reframe","prompt":"場面を選んで","event":"レビューで指摘","belief_prompt":"何がよぎった"},
         {"kind":"free","prompt":"ひとことで"}]}"#;
 
     #[test]
@@ -343,13 +343,16 @@ mod tests {
         let v: Value = serde_json::from_str(&schema_json()).unwrap();
         assert_eq!(v["type"], "object");
         let kinds = &v["properties"]["questions"]["items"]["properties"]["kind"]["enum"];
-        assert_eq!(kinds, &serde_json::json!(["checkin", "hassle", "abc", "free"]));
+        assert_eq!(
+            kinds,
+            &serde_json::json!(["condition", "concern", "reframe", "free"])
+        );
         assert!(!schema_json().contains("oneOf"));
         assert_eq!(v["required"], serde_json::json!(["questions"]));
         let props = v["properties"]["questions"]["items"]["properties"]
             .as_object()
             .unwrap();
-        for k in ["scales", "examples", "activating_event", "belief_prompt"] {
+        for k in ["scales", "examples", "event", "belief_prompt"] {
             assert!(props.contains_key(k), "{k}");
         }
         // ERG は問いに含めない（記録の内容から AI が判定する。service/erg.rs）。過去の JSON に残っていても読める（OUT）。
@@ -366,7 +369,7 @@ mod tests {
         assert_eq!(o.summary.as_deref(), Some("要約"));
         assert_eq!(o.questions.len(), 4);
         assert_eq!(o.questions[0].scales, vec![Scale::Energy, Scale::Mood]);
-        assert_eq!(o.questions[2].activating_event.as_deref(), Some("レビューで指摘"));
+        assert_eq!(o.questions[2].event.as_deref(), Some("レビューで指摘"));
     }
 
     #[test]
@@ -408,7 +411,8 @@ mod tests {
         let bad = r#"{"structured_output":{"questions":[{"kind":"free"}]}}"#;
         assert!(parse_output(bad).is_err());
         // 未知の尺度
-        let bad = r#"{"structured_output":{"questions":[{"kind":"checkin","prompt":"x","scales":["joy"]}]}}"#;
+        let bad =
+            r#"{"structured_output":{"questions":[{"kind":"condition","prompt":"x","scales":["joy"]}]}}"#;
         assert!(parse_output(bad).is_err());
         // 問いが空
         let bad = r#"{"structured_output":{"questions":[{"kind":"free","prompt":"  "}]}}"#;
@@ -420,11 +424,11 @@ mod tests {
     #[test]
     fn normalize_defaults_and_caps() {
         let q = |p: &str| Question {
-            kind: QuestionKind::Checkin,
+            kind: QuestionKind::Condition,
             prompt: p.into(),
             scales: vec![],
             examples: vec![],
-            activating_event: None,
+            event: None,
             belief_prompt: None,
         };
         let o = StructuredOutput {
@@ -444,7 +448,7 @@ mod tests {
         let md = o.to_markdown();
         assert!(md.starts_with("## 要約\n\n要約"));
         assert!(md.contains("1. いまの調子は"));
-        assert!(md.contains("調子（元気・気分）"));
+        assert!(md.contains("調子（エネルギー・気分）"));
         assert!(md.contains("出来事の候補: レビューで指摘"));
         assert!(md.contains("例: 会議が長い"));
         assert!(md.contains("4. ひとことで"));

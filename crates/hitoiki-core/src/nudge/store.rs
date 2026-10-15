@@ -1,4 +1,4 @@
-//! nudge_log の読み書きと、通知への応答の反映（checkin / hassle / スヌーズ）。
+//! nudge_log の読み書きと、通知への応答の反映（condition / concern / スヌーズ）。
 
 use super::payload::{
     BLOCK_SKIP, IDLE_ACTION_PREFIX, IDLE_TASK_ACTION, KEY_RESULT_SKIP_WEEK, TASK_LATER, TASK_SKIP_WEEK,
@@ -192,8 +192,8 @@ pub struct NudgeResponse {
 /// `apply_response` が作成・設定したもの。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ResponseOutcome {
-    pub checkin_id: Option<String>,
-    pub hassle_id: Option<String>,
+    pub condition_id: Option<String>,
+    pub concern_id: Option<String>,
     pub snoozed_until: Option<Millis>,
     /// idle_return への応答で分類をつけた無操作区間の数。
     pub idle_labeled: usize,
@@ -209,7 +209,7 @@ fn check_scale(v: Option<i64>) -> Result<i64> {
     }
 }
 
-/// 通知のボタン以外で与える、チェックインの値（CLI の `nudge answer` など）。
+/// 通知のボタン以外で与える、調子の値（CLI の `nudge answer` など）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Scales {
     pub energy: Option<i64>,
@@ -219,12 +219,12 @@ pub struct Scales {
 
 /// 応答を反映する。
 ///
-/// - 記録（checkin / hassle）の `at` は、応答時刻ではなく **通知の時刻**（`nudge_log.at`）にする。
+/// - 記録（condition / concern）の `at` は、応答時刻ではなく **通知の時刻**（`nudge_log.at`）にする。
 ///   通知の時点の状態への答えなので、あとから答えても時系列がずれない。
 /// - nudge_log: `response_json` に応答を保存。`responded_at = now`（`dismiss` のみ設定しない）。
-/// - `energy` / `stress`: checkin を作成（`nudge_id` 付き）。
-/// - `text`（空白のみは無視）: hassle を作成（`nudge_id` 付き）。強度は `stress` の値、なければ 3。
-///   `stress` と `text` が同時なら、checkin と hassle の両方を作る。
+/// - `energy` / `stress`: condition を作成（`nudge_id` 付き）。
+/// - `text`（空白のみは無視）: concern を作成（`nudge_id` 付き）。強度は `stress` の値、なければ 3。
+///   `stress` と `text` が同時なら、condition と concern の両方を作る。
 /// - `snooze_15` / `snooze_60`: now + 15 分 / 60 分。`snooze_today`: ローカルの翌日 0 時（`tz` で決まる）。
 ///   `snoozed_until` を当該 nudge_log に設定する（以後の `evaluate` が全トリガーを抑制）。
 pub fn apply_response(
@@ -237,7 +237,7 @@ pub fn apply_response(
     apply_response_with(conn, nudge_id, response, Scales::default(), now, tz)
 }
 
-/// [`apply_response`] に、ボタン以外のチェックイン値（`scales`）を加えたもの。値は 1〜5。
+/// [`apply_response`] に、ボタン以外の調子の値（`scales`）を加えたもの。値は 1〜5。
 /// ボタン（`energy` / `stress`）と同じ項目が重なったときはボタンの値を優先する。
 pub fn apply_response_with(
     conn: &Connection,
@@ -297,10 +297,10 @@ pub fn apply_response_with(
     if energy.is_some() || mood.is_some() || stress.is_some() {
         let id = new_id();
         conn.execute(
-            "INSERT INTO checkin (id, at, energy, mood, stress, push_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO condition (id, at, energy, mood, stress, nudge_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![id, log.at, energy, mood, stress, nudge_id],
         )?;
-        out.checkin_id = Some(id);
+        out.condition_id = Some(id);
     }
     if let Some(text) = response.text.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
         let id = new_id();
@@ -309,10 +309,10 @@ pub fn apply_response_with(
             _ => stress.unwrap_or(3),
         };
         conn.execute(
-            "INSERT INTO hassle (id, at, text, intensity, push_id) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO concern (id, at, text, intensity, nudge_id) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, log.at, text, intensity, nudge_id],
         )?;
-        out.hassle_id = Some(id);
+        out.concern_id = Some(id);
     }
 
     let responded = (action != Some("dismiss")).then_some(now);

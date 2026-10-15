@@ -2,7 +2,7 @@
 
 use crate::table::{pad, table, truncate};
 use chrono_tz::Tz;
-use hitoiki_core::model::{Checkin, Goal, Hassle, KeyResult, PlanBlock, TaskAssignRule};
+use hitoiki_core::model::{Concern, Condition, Goal, KeyResult, PlanBlock, TaskAssignRule};
 use hitoiki_core::repo::segment::kind_label;
 use hitoiki_core::service::{
     actual::ActualList,
@@ -584,7 +584,7 @@ pub fn block_added(tz: Tz, b: &PlanBlock) -> String {
     )
 }
 
-pub fn checkin(c: &Checkin) -> String {
+pub fn condition(c: &Condition) -> String {
     let f = |n: Option<i64>| n.map(|v| v.to_string()).unwrap_or_else(|| "-".into());
     format!(
         "記録しました: {} (エネルギー {} / 気分 {} / ストレス {})",
@@ -595,7 +595,7 @@ pub fn checkin(c: &Checkin) -> String {
     )
 }
 
-pub fn hassle(h: &Hassle) -> String {
+pub fn concern(h: &Concern) -> String {
     format!(
         "気になったことを記録しました: {} (強度 {})",
         short(&h.id),
@@ -918,23 +918,23 @@ fn detail_lines(d: &hitoiki_core::service::reflect::AnswerDetail) -> Vec<String>
             v.push(format!("{label}: {x}"));
         }
     };
-    if let Some(c) = &d.checkin {
-        add("元気", c.energy.map(|n| n.to_string()));
+    if let Some(c) = &d.condition {
+        add("エネルギー", c.energy.map(|n| n.to_string()));
         add("気分", c.mood.map(|n| n.to_string()));
         add("ストレス", c.stress.map(|n| n.to_string()));
         add("ERG タグ", c.erg_tag.map(|t| t.to_string()));
         add("メモ", c.note.clone());
     }
-    if let Some(h) = &d.hassle {
+    if let Some(h) = &d.concern {
         add("気になったこと", Some(h.text.clone()));
         add("強さ", Some(h.intensity.to_string()));
     }
-    if let Some(a) = &d.abc {
-        add("A（出来事）", Some(a.activating_event.clone()));
+    if let Some(a) = &d.reframe {
+        add("A（出来事）", Some(a.event.clone()));
         add("B（受け止め方）", a.belief.clone());
-        add("C（感情）", a.consequence_emotion.clone());
-        add("感情の強さ", a.consequence_intensity.map(|n| n.to_string()));
-        add("反論", a.dispute.clone());
+        add("C（感情）", a.emotion.clone());
+        add("感情の強さ", a.emotion_intensity.map(|n| n.to_string()));
+        add("別の捉え方", a.alternative.clone());
     }
     v
 }
@@ -973,12 +973,12 @@ pub fn reflection(
         };
         s += &format!("\n[{i}] ({}・{mark}) {}\n", q.kind.label(), q.prompt);
         match q.kind {
-            QuestionKind::Checkin => {
+            QuestionKind::Condition => {
                 let names: Vec<&str> = q.scales.iter().map(Scale::label).collect();
                 s += &format!("    尺度: {}（1〜5）\n", names.join("・"));
             }
-            QuestionKind::Abc => {
-                if let Some(a) = &q.activating_event {
+            QuestionKind::Reframe => {
+                if let Some(a) = &q.event {
                     s += &format!("    A（出来事）の候補: {a}\n");
                 }
                 if let Some(b) = &q.belief_prompt {
@@ -1040,11 +1040,11 @@ pub fn reflection_list(tz: Tz, list: &[hitoiki_core::model::Reflection]) -> Stri
     table(&["ID", "日時", "種別", "回答"], &rows)
 }
 
-pub fn abc_dispute(a: &hitoiki_core::model::AbcRecord) -> String {
+pub fn reframe_deepen(a: &hitoiki_core::model::Reframe) -> String {
     format!(
         "捉え直し {} の問いを追記しました。\n\n{}",
         short(&a.id),
-        a.ai_dialog_md.as_deref().unwrap_or_default()
+        a.deepening_md.as_deref().unwrap_or_default()
     )
 }
 
@@ -1385,10 +1385,10 @@ pub fn nudge_answered(r: &hitoiki_core::service::nudgelog::AnswerResult) -> Stri
         NudgeState::Dismissed => format!("見送りました: {}", short(&r.id)),
         _ => {
             let mut parts = Vec::new();
-            if r.checkin_id.is_some() {
+            if r.condition_id.is_some() {
                 parts.push("調子".to_string());
             }
-            if r.hassle_id.is_some() {
+            if r.concern_id.is_some() {
                 parts.push("気になったこと".to_string());
             }
             if r.idle_labeled > 0 {
@@ -1417,7 +1417,7 @@ fn erg_source(s: hitoiki_core::model::ErgSource) -> &'static str {
     match s {
         User => "ユーザー",
         Ai => "AI",
-        Suggested => "確認待ち",
+        Unconfirmed => "未確定",
     }
 }
 
@@ -1434,7 +1434,7 @@ pub fn erg_classify(tz: Tz, o: &hitoiki_core::service::erg::ClassifyOutcome) -> 
         return "判定する記録はありません（未判定のものがありません）。".into();
     }
     let mut s = format!(
-        "{}対象 {} 件: AI の判定を採用 {} 件 / 確認待ち {} 件{}\n",
+        "{}対象 {} 件: AI の判定を採用 {} 件 / 未確定 {} 件{}\n",
         if o.dry_run {
             "（dry-run・保存していません）"
         } else {
@@ -1442,7 +1442,7 @@ pub fn erg_classify(tz: Tz, o: &hitoiki_core::service::erg::ClassifyOutcome) -> 
         },
         o.targets,
         o.adopted,
-        o.pending,
+        o.unconfirmed,
         if o.unread > 0 {
             format!(" / 判定が得られず未判定のまま {} 件", o.unread)
         } else {
@@ -1473,7 +1473,7 @@ pub fn erg_classify(tz: Tz, o: &hitoiki_core::service::erg::ClassifyOutcome) -> 
 /// `hitoiki erg review` の人間向け表示。
 pub fn erg_review(tz: Tz, r: &hitoiki_core::service::erg::ErgReview) -> String {
     if r.items.is_empty() {
-        return "確認待ちはありません。".into();
+        return "未確定はありません。".into();
     }
     let rows: Vec<Vec<String>> = r
         .items
@@ -1509,7 +1509,7 @@ pub fn erg_label(l: &hitoiki_core::model::ErgLabel) -> String {
 pub fn erg_overview(tz: Tz, o: &hitoiki_core::service::erg::ErgOverview) -> String {
     let d = &o.distribution;
     let mut s = format!(
-        "{} 〜 {} の記録 {} 件\n  存在 {} / 関係 {} / 成長 {} / どれにも関わらない {}\n  確認待ち {} / 未判定 {}（うち AI の判定を採用 {}）\n  （{}）",
+        "{} 〜 {} の記録 {} 件\n  存在 {} / 関係 {} / 成長 {} / どれにも関わらない {}\n  未確定 {} / 未判定 {}（うち AI の判定を採用 {}）\n  （{}）",
         dt(tz, o.range.start_at),
         dt(tz, o.range.end_at),
         d.total,
@@ -1517,15 +1517,15 @@ pub fn erg_overview(tz: Tz, o: &hitoiki_core::service::erg::ErgOverview) -> Stri
         d.relatedness,
         d.growth,
         d.none,
-        d.pending,
+        d.unconfirmed,
         d.unlabeled,
         d.ai_decided,
         d.legend
     );
-    if o.pending_total > 0 {
+    if o.unconfirmed_total > 0 {
         s += &format!(
-            "\n確認待ちは全期間で {} 件あります（`hitoiki erg review`）。",
-            o.pending_total
+            "\n未確定は全期間で {} 件あります（`hitoiki erg review`）。",
+            o.unconfirmed_total
         );
     }
     s

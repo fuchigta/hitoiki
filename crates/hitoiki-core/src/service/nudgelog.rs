@@ -1,7 +1,7 @@
 //! 問いかけの一覧と、あとからの回答・見送り（docs/dev/architecture.md「問いかけ」）。
 //!
 //! 応答の保存は [`crate::nudge::store::apply_response_with`] を通す（トーストの応答と同じ処理）。
-//! 記録（checkin / hassle）の `at` は通知の時刻になる。
+//! 記録（condition / concern）の `at` は通知の時刻になる。
 
 use super::{Ctx, RangeArgs};
 use crate::model::TaskStatus;
@@ -183,8 +183,8 @@ pub fn start_nudged_task(ctx: &Ctx, task_id: &str) -> Result<super::task::TaskCh
 pub struct AnswerResult {
     pub id: String,
     pub state: NudgeState,
-    pub checkin_id: Option<String>,
-    pub hassle_id: Option<String>,
+    pub condition_id: Option<String>,
+    pub concern_id: Option<String>,
     /// 分類をつけた無操作区間の数。
     pub idle_labeled: usize,
     /// 始めたタスクの ID（`task_start` の答え）。
@@ -262,8 +262,8 @@ pub fn answer(ctx: &Ctx, id: &str, input: &AnswerInput) -> Result<AnswerResult> 
     Ok(AnswerResult {
         id,
         state,
-        checkin_id: out.checkin_id,
-        hassle_id: out.hassle_id,
+        condition_id: out.condition_id,
+        concern_id: out.concern_id,
         idle_labeled: out.idle_labeled,
         started_task,
     })
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn エネルギーの回答は通知の時刻でcheckinに保存される() {
+    fn エネルギーの回答は通知の時刻でconditionに保存される() {
         let env = Env::new();
         let ctx = env.ctx();
         let at = env.day_start() + 3_600_000;
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(r.state, NudgeState::Answered);
         let (e, m, a, p): (i64, i64, i64, String) = env
             .conn
-            .query_row("SELECT energy, mood, at, push_id FROM checkin", [], |r| {
+            .query_row("SELECT energy, mood, at, nudge_id FROM condition", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
             })
             .unwrap();
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn ハッスルの回答はhassleに保存される() {
+    fn 気になったことの回答はconcernに保存される() {
         let env = Env::new();
         let ctx = env.ctx();
         let at = env.day_start() + 3_600_000;
@@ -354,10 +354,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert!(r.checkin_id.is_some() && r.hassle_id.is_some());
+        assert!(r.condition_id.is_some() && r.concern_id.is_some());
         let (t, i, a): (String, i64, i64) = env
             .conn
-            .query_row("SELECT text, intensity, at FROM hassle", [], |r| {
+            .query_row("SELECT text, intensity, at FROM concern", [], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?))
             })
             .unwrap();

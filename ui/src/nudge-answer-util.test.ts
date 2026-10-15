@@ -24,7 +24,7 @@ describe("buildForm", () => {
     const f = buildForm({
       ...base,
       actions: [],
-      input: { id: "hassle", placeholder: "ひとこと" },
+      input: { id: "concern", placeholder: "ひとこと" },
       open_screen: null,
     });
     expect(f.buttons).toEqual([{ key: "text", label: "ひとこと残す", action: "text", value: null }]);
@@ -52,7 +52,7 @@ describe("buildForm", () => {
 
 describe("respondArgs", () => {
   it("ボタンと一言（空白除去）を渡す", () => {
-    const f = buildForm({ ...base, input: { id: "hassle", placeholder: "x" } });
+    const f = buildForm({ ...base, input: { id: "concern", placeholder: "x" } });
     expect(respondArgs("P1", base, f.buttons[3], "  会議が長い ")).toEqual({
       nudge_id: "P1",
       action: "energy",

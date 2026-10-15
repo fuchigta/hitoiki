@@ -25,7 +25,7 @@ pub struct Activation {
 /// 入力欄だけで答える通知（ボタン無し）用の、テキスト送信ボタンの `NudgeAction.id`。
 pub const TEXT_ACTION: &str = "text";
 
-/// 設定画面の動作確認用のテスト通知（チェックイン相当。nudge_log には紐付かない）。
+/// 設定画面の動作確認用のテスト通知（調子を尋ねる問いかけ相当。nudge_log には紐付かない）。
 pub fn test_payload() -> NudgePayload {
     NudgePayload {
         trigger: NudgeTrigger::LongWork,

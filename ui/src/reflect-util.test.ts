@@ -15,9 +15,9 @@ import {
 const out: StructuredOutput = {
   summary: "要約",
   questions: [
-    { kind: "checkin", prompt: "調子は", scales: ["energy", "mood"] },
-    { kind: "hassle", prompt: "引っかかったことは" },
-    { kind: "abc", prompt: "場面を選んで", activating_event: "指摘された", belief_prompt: "何がよぎった" },
+    { kind: "condition", prompt: "調子は", scales: ["energy", "mood"] },
+    { kind: "concern", prompt: "引っかかったことは" },
+    { kind: "reframe", prompt: "場面を選んで", event: "指摘された", belief_prompt: "何がよぎった" },
     { kind: "free", prompt: "ひとことで" },
   ],
 };
@@ -32,16 +32,16 @@ describe("parseStructured / parseAnswered", () => {
   });
   it("読める", () => {
     expect(parseStructured({ structured_json: JSON.stringify(out) })?.questions).toHaveLength(4);
-    const a = parseAnswered({ answers_json: '{"items":[{"index":1,"kind":"hassle","record_id":"H1"}]}' });
+    const a = parseAnswered({ answers_json: '{"items":[{"index":1,"kind":"concern","record_id":"H1"}]}' });
     expect(a.items[0].record_id).toBe("H1");
   });
 });
 
 describe("initialForm", () => {
-  it("ハッスルの強度は 3、ABC の A は候補", () => {
+  it("気になったことの強度は 3、捉え直しの A は候補", () => {
     const f = initialForms(out);
     expect(f[1].intensity).toBe(3);
-    expect(f[2].activating_event).toBe("指摘された");
+    expect(f[2].event).toBe("指摘された");
     expect(f[0].intensity).toBeUndefined();
   });
 });
@@ -57,7 +57,7 @@ describe("buildAnswers", () => {
     const forms = initialForms(out);
     forms[0] = { ...forms[0], energy: 3, mood: 4, note: " 普通 " };
     forms[1] = { ...forms[1], text: " 会議が長い ", intensity: 4 };
-    forms[2] = { ...forms[2], belief: "向いていない", emotion: "落ち込み", emotion_intensity: 4, dispute: "" };
+    forms[2] = { ...forms[2], belief: "向いていない", emotion: "落ち込み", emotion_intensity: 4, alternative: "" };
     forms[3] = { ...forms[3], text: "まあまあ" };
     const a = buildAnswers(out.questions, forms);
     expect(a.answers).toHaveLength(4);
@@ -67,7 +67,7 @@ describe("buildAnswers", () => {
         { index: 1, text: "会議が長い", intensity: 4 },
         {
           index: 2,
-          activating_event: "指摘された",
+          event: "指摘された",
           belief: "向いていない",
           emotion: "落ち込み",
           emotion_intensity: 4,
@@ -93,57 +93,57 @@ describe("buildAnswers", () => {
     expect(a.answers.map((x) => x.index)).toEqual([3]);
   });
 
-  it("ABC は A を編集しただけでも送る。候補のままで他が空なら送らない", () => {
+  it("捉え直しは A を編集しただけでも送る。候補のままで他が空なら送らない", () => {
     const q = out.questions[2];
     const f = initialForm(q);
     expect(isBlank(q, f)).toBe(true);
-    expect(isBlank(q, { ...f, activating_event: "別の出来事" })).toBe(false);
-    expect(isBlank(q, { ...f, activating_event: "", belief: "b" })).toBe(false);
+    expect(isBlank(q, { ...f, event: "別の出来事" })).toBe(false);
+    expect(isBlank(q, { ...f, event: "", belief: "b" })).toBe(false);
   });
 });
 
 describe("askedScales", () => {
   it("空なら 3 つとも", () => {
-    const q: Question = { kind: "checkin", prompt: "x" };
+    const q: Question = { kind: "condition", prompt: "x" };
     expect(askedScales(q)).toEqual(["energy", "mood", "stress"]);
     expect(askedScales({ ...q, scales: ["mood"] })).toEqual(["mood"]);
   });
 });
 
 describe("detailLines", () => {
-  const base = { id: "x", at: 0, push_id: null };
-  it("保存したチェックイン・ハッスル・ABC の内容を行にする", () => {
+  const base = { id: "x", at: 0, nudge_id: null };
+  it("保存した調子・気になったこと・捉え直しの内容を行にする", () => {
     expect(
       detailLines({
         index: 0,
-        kind: "checkin",
+        kind: "condition",
         prompt: "p",
-        checkin: { ...base, energy: 3, mood: null, stress: 2, erg_tag: "growth", note: "普通" },
+        condition: { ...base, energy: 3, mood: null, stress: 2, erg_tag: "growth", note: "普通" },
       }),
-    ).toEqual(["元気: 3", "ストレス: 2", "ERG タグ: 成長", "メモ: 普通"]);
+    ).toEqual(["エネルギー: 3", "ストレス: 2", "ERG タグ: 成長", "メモ: 普通"]);
     expect(
       detailLines({
         index: 1,
-        kind: "hassle",
+        kind: "concern",
         prompt: "p",
-        hassle: { ...base, text: "会議が長い", intensity: 4, segment_id: null },
+        concern: { ...base, text: "会議が長い", intensity: 4, segment_id: null },
       }),
     ).toEqual(["気になったこと: 会議が長い", "強さ: 4"]);
     expect(
       detailLines({
         index: 2,
-        kind: "abc",
+        kind: "reframe",
         prompt: "p",
-        abc: {
+        reframe: {
           id: "x",
           at: 0,
-          activating_event: "指摘された",
+          event: "指摘された",
           belief: "向いていない",
-          consequence_emotion: "落ち込み",
-          consequence_intensity: 4,
-          dispute: "一部だけ",
-          ai_dialog_md: null,
-          hassle_id: null,
+          emotion: "落ち込み",
+          emotion_intensity: 4,
+          alternative: "一部だけ",
+          deepening_md: null,
+          concern_id: null,
         },
       }),
     ).toEqual([
@@ -151,7 +151,7 @@ describe("detailLines", () => {
       "B: 受け止め方: 向いていない",
       "C: 感情: 落ち込み",
       "感情の強さ: 4",
-      "別の捉え方・反論: 一部だけ",
+      "別の捉え方: 一部だけ",
     ]);
     expect(detailLines({ index: 3, kind: "free", prompt: "p", text: "x" })).toEqual([]);
   });

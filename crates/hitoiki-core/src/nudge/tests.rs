@@ -706,7 +706,7 @@ fn record_decision_deliver_suppress_defer() {
 }
 
 #[test]
-fn apply_energy_creates_checkin() {
+fn apply_energy_creates_condition() {
     let conn = db::open_in_memory().unwrap();
     let id = deliver_log(&conn, NudgeTrigger::DayStart, 1000);
     let out = store::apply_response(
@@ -721,10 +721,10 @@ fn apply_energy_creates_checkin() {
         TZ,
     )
     .unwrap();
-    let cid = out.checkin_id.unwrap();
+    let cid = out.condition_id.unwrap();
     let (energy, stress, nudge_id, at): (Option<i64>, Option<i64>, String, i64) = conn
         .query_row(
-            "SELECT energy, stress, push_id, at FROM checkin WHERE id = ?1",
+            "SELECT energy, stress, nudge_id, at FROM condition WHERE id = ?1",
             [&cid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
@@ -739,7 +739,7 @@ fn apply_energy_creates_checkin() {
 }
 
 #[test]
-fn apply_stress_with_text_creates_checkin_and_hassle() {
+fn apply_stress_with_text_creates_condition_and_concern() {
     let conn = db::open_in_memory().unwrap();
     let id = deliver_log(&conn, NudgeTrigger::SwitchSpike, 1000);
     let out = store::apply_response(
@@ -754,11 +754,11 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
         TZ,
     )
     .unwrap();
-    assert!(out.checkin_id.is_some());
+    assert!(out.condition_id.is_some());
     let (text, intensity, nudge_id): (String, i64, String) = conn
         .query_row(
-            "SELECT text, intensity, push_id FROM hassle WHERE id = ?1",
-            [out.hassle_id.unwrap()],
+            "SELECT text, intensity, nudge_id FROM concern WHERE id = ?1",
+            [out.concern_id.unwrap()],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .unwrap();
@@ -767,7 +767,7 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
         ("チャットが多すぎる", 5, id.as_str())
     );
 
-    // テキストだけなら hassle のみ（強度 3）。空文字は無視。
+    // テキストだけなら concern のみ（強度 3）。空文字は無視。
     let id2 = deliver_log(&conn, NudgeTrigger::SwitchSpike, 6000);
     let out = store::apply_response(
         &conn,
@@ -780,7 +780,7 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
         TZ,
     )
     .unwrap();
-    assert!(out.checkin_id.is_none() && out.hassle_id.is_some());
+    assert!(out.condition_id.is_none() && out.concern_id.is_some());
     let id3 = deliver_log(&conn, NudgeTrigger::SwitchSpike, 8000);
     let out = store::apply_response(
         &conn,
@@ -793,7 +793,7 @@ fn apply_stress_with_text_creates_checkin_and_hassle() {
         TZ,
     )
     .unwrap();
-    assert!(out.hassle_id.is_none());
+    assert!(out.concern_id.is_none());
 }
 
 #[test]
@@ -873,7 +873,7 @@ fn apply_dismiss_does_not_count_as_response_and_errors() {
         Err(crate::Error::NotFound(_))
     ));
     let n: i64 = conn
-        .query_row("SELECT COUNT(*) FROM checkin", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM condition", [], |r| r.get(0))
         .unwrap();
     assert_eq!(n, 0);
 }

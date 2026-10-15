@@ -5,7 +5,7 @@
 
 use super::report::{self, Report, ReportBy, ReportInput, ReportRow};
 use super::{range_view, Ctx, RangeArgs, RangeView};
-use crate::model::{Checkin, ErgTag, Hassle, ReflectionKind, SegmentKind, SegmentStatus, Task};
+use crate::model::{Concern, Condition, ErgTag, ReflectionKind, SegmentKind, SegmentStatus, Task};
 use crate::repo::{self, plan, raw, record, segment};
 use crate::timefmt::{self, Range};
 use crate::{Error, Millis, Result};
@@ -71,7 +71,7 @@ pub struct DoingTaskView {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct CheckinView {
+pub struct ConditionView {
     pub at: String,
     pub energy: Option<i64>,
     pub mood: Option<i64>,
@@ -81,20 +81,20 @@ pub struct CheckinView {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct HassleView {
+pub struct ConcernView {
     pub at: String,
     pub text: String,
     pub intensity: i64,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct AbcView {
+pub struct ReframeView {
     pub at: String,
-    pub activating_event: String,
+    pub event: String,
     pub belief: Option<String>,
-    pub consequence_emotion: Option<String>,
-    pub consequence_intensity: Option<i64>,
-    pub has_dispute: bool,
+    pub emotion: Option<String>,
+    pub emotion_intensity: Option<i64>,
+    pub has_alternative: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,10 +174,10 @@ pub struct ContextJson {
     pub doing_tasks: Option<Vec<DoingTaskView>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub interrupts: Option<Interrupts>,
-    pub hassles: Vec<HassleView>,
+    pub concerns: Vec<ConcernView>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub abc_records: Option<Vec<AbcView>>,
-    pub checkins: Vec<CheckinView>,
+    pub reframes: Option<Vec<ReframeView>>,
+    pub conditions: Vec<ConditionView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub needs_review_count: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -238,9 +238,9 @@ fn summary(ctx: &Ctx, range: Range, tz: Tz, bys: &[ReportBy]) -> Result<Summary>
     })
 }
 
-fn checkin_views(tz: Tz, list: &[Checkin]) -> Vec<CheckinView> {
+fn condition_views(tz: Tz, list: &[Condition]) -> Vec<ConditionView> {
     list.iter()
-        .map(|c| CheckinView {
+        .map(|c| ConditionView {
             at: timefmt::fmt_rfc3339(tz, c.at),
             energy: c.energy,
             mood: c.mood,
@@ -251,9 +251,9 @@ fn checkin_views(tz: Tz, list: &[Checkin]) -> Vec<CheckinView> {
         .collect()
 }
 
-fn hassle_views(tz: Tz, list: &[Hassle]) -> Vec<HassleView> {
+fn concern_views(tz: Tz, list: &[Concern]) -> Vec<ConcernView> {
     list.iter()
-        .map(|h| HassleView {
+        .map(|h| ConcernView {
             at: timefmt::fmt_rfc3339(tz, h.at),
             text: h.text.clone(),
             intensity: h.intensity,
@@ -385,9 +385,9 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
         plan: None,
         doing_tasks: None,
         interrupts: None,
-        hassles: vec![],
-        abc_records: None,
-        checkins: vec![],
+        concerns: vec![],
+        reframes: None,
+        conditions: vec![],
         needs_review_count: None,
         goals: None,
         previous_week_diff: None,
@@ -404,11 +404,11 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                 tz,
                 &[ReportBy::Task, ReportBy::Kind, ReportBy::Agent],
             )?);
-            out.hassles = hassle_views(tz, &record::list_hassles(ctx.conn, prev.start, prev.end)?);
+            out.concerns = concern_views(tz, &record::list_concerns(ctx.conn, prev.start, prev.end)?);
             out.plan = Some(plan_view(ctx, today, tz)?);
             out.doing_tasks = Some(doing_tasks(repo::task::list_doing(ctx.conn)?));
-            // 直近のチェックイン: 前日の始まりから基準日の終わりまで。
-            out.checkins = checkin_views(tz, &record::list_checkins(ctx.conn, prev.start, today.end)?);
+            // 直近の調子: 前日の始まりから基準日の終わりまで。
+            out.conditions = condition_views(tz, &record::list_conditions(ctx.conn, prev.start, today.end)?);
             out.needs_review_count = Some(needs_review_count(ctx)?);
         }
         ReflectionKind::DayEnd => {
@@ -428,8 +428,8 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
                 ],
             )?);
             out.interrupts = Some(interrupts(ctx, day, tz)?);
-            out.hassles = hassle_views(tz, &record::list_hassles(ctx.conn, day.start, day.end)?);
-            out.checkins = checkin_views(tz, &record::list_checkins(ctx.conn, day.start, day.end)?);
+            out.concerns = concern_views(tz, &record::list_concerns(ctx.conn, day.start, day.end)?);
+            out.conditions = condition_views(tz, &record::list_conditions(ctx.conn, day.start, day.end)?);
             out.needs_review_count = Some(needs_review_count(ctx)?);
         }
         ReflectionKind::Weekly => {
@@ -507,31 +507,31 @@ pub fn context(ctx: &Ctx, kind: ReflectionKind, date: Option<&str>) -> Result<Co
 
             out.summary = Some(sum);
             out.interrupts = Some(interrupts(ctx, week, tz)?);
-            out.hassles = hassle_views(tz, &record::list_hassles(ctx.conn, week.start, week.end)?);
-            out.abc_records = Some(
-                list_abc(ctx, week)?
+            out.concerns = concern_views(tz, &record::list_concerns(ctx.conn, week.start, week.end)?);
+            out.reframes = Some(
+                list_reframe(ctx, week)?
                     .into_iter()
-                    .map(|a| AbcView {
+                    .map(|a| ReframeView {
                         at: timefmt::fmt_rfc3339(tz, a.at),
-                        activating_event: a.activating_event,
+                        event: a.event,
                         belief: a.belief,
-                        consequence_emotion: a.consequence_emotion,
-                        consequence_intensity: a.consequence_intensity,
-                        has_dispute: a.dispute.is_some(),
+                        emotion: a.emotion,
+                        emotion_intensity: a.emotion_intensity,
+                        has_alternative: a.alternative.is_some(),
                     })
                     .collect(),
             );
-            let checkins = record::list_checkins(ctx.conn, week.start, week.end)?;
+            let conditions = record::list_conditions(ctx.conn, week.start, week.end)?;
             out.erg_distribution = Some(super::erg::distribution(ctx, week)?);
-            out.checkins = checkin_views(tz, &checkins);
+            out.conditions = condition_views(tz, &conditions);
             out.needs_review_count = Some(needs_review_count(ctx)?);
         }
     }
     Ok(out)
 }
 
-fn list_abc(ctx: &Ctx, range: Range) -> Result<Vec<crate::model::AbcRecord>> {
-    repo::record::list_abc(ctx.conn, range.start, range.end)
+fn list_reframe(ctx: &Ctx, range: Range) -> Result<Vec<crate::model::Reframe>> {
+    repo::record::list_reframe(ctx.conn, range.start, range.end)
 }
 
 /// `--kind` 文字列の解釈。
@@ -543,7 +543,7 @@ pub fn parse_kind(s: &str) -> Result<ReflectionKind> {
 mod tests {
     use super::*;
     use crate::id::new_id;
-    use crate::model::{AbcRecord, SegmentKind, SegmentStatus};
+    use crate::model::{Reframe, SegmentKind, SegmentStatus};
     use crate::service::task::{self, TaskInput};
     use crate::service::testutil::{insert_segment, Env};
 
@@ -599,35 +599,35 @@ mod tests {
             Some(&t.task.id),
             SegmentStatus::Auto,
         );
-        crate::service::record::check(
+        crate::service::record::condition(
             &ctx,
-            &crate::service::record::CheckInput {
+            &crate::service::record::ConditionInput {
                 energy: Some(3),
                 erg: Some(ErgTag::Growth),
                 ..Default::default()
             },
         )
         .unwrap();
-        crate::service::record::hassle(
+        crate::service::record::concern(
             &ctx,
-            &crate::service::record::HassleInput {
+            &crate::service::record::ConcernInput {
                 text: "会議が長い".into(),
                 intensity: Some(4),
             },
         )
         .unwrap();
-        repo::record::insert_abc(
+        repo::record::insert_reframe(
             &env.conn,
-            &AbcRecord {
+            &Reframe {
                 id: new_id(),
                 at: crate::service::testutil::now(),
-                activating_event: "指摘された".into(),
+                event: "指摘された".into(),
                 belief: Some("自分は駄目だ".into()),
-                consequence_emotion: None,
-                consequence_intensity: None,
-                dispute: None,
-                ai_dialog_md: None,
-                hassle_id: None,
+                emotion: None,
+                emotion_intensity: None,
+                alternative: None,
+                deepening_md: None,
+                concern_id: None,
             },
         )
         .unwrap();
@@ -652,7 +652,7 @@ mod tests {
         assert!(v["plan"]["calendar_events"].is_array());
         assert!(v["plan"]["plan_blocks"].is_array());
         assert!(v["doing_tasks"].is_array());
-        assert_eq!(v["checkins"].as_array().unwrap().len(), 1);
+        assert_eq!(v["conditions"].as_array().unwrap().len(), 1);
         assert!(v.get("interrupts").is_none());
     }
 
@@ -674,7 +674,7 @@ mod tests {
         }
         assert_eq!(v["interrupts"]["total_minutes"], 20);
         assert_eq!(v["interrupts"]["count"], 1);
-        assert_eq!(v["hassles"][0]["intensity"], 4);
+        assert_eq!(v["concerns"][0]["intensity"], 4);
         assert_eq!(v["needs_review_count"], 1);
         // ウインドウタイトル（main.rs）や exe 名は含まれない
         let s = v.to_string();
@@ -702,8 +702,8 @@ mod tests {
         assert!(v["goals"]["goals"].is_array());
         assert!(v["goals"]["unlinked_ratio"].is_number());
         assert_eq!(v["erg_distribution"]["growth"], 1);
-        assert_eq!(v["abc_records"].as_array().unwrap().len(), 1);
-        assert_eq!(v["abc_records"][0]["belief"], "自分は駄目だ");
+        assert_eq!(v["reframes"].as_array().unwrap().len(), 1);
+        assert_eq!(v["reframes"][0]["belief"], "自分は駄目だ");
     }
 
     #[test]

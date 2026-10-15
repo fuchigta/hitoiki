@@ -9,7 +9,7 @@
 | ログ | `%LOCALAPPDATA%\hitoiki\logs\` |
 | 自動判定・プラグイン | `%APPDATA%\hitoiki\plugins\` |
 | 質問セット | `%APPDATA%\hitoiki\questions\` |
-| 振り返りテンプレート | `%APPDATA%\hitoiki\templates\` |
+| 振り返りのプロンプト | `%APPDATA%\hitoiki\prompts\` |
 
 `HITOIKI_HOME` 環境変数を設定すると、設定・DB の置き場所をまとめて差し替えられます（テスト用）。
 
@@ -34,7 +34,7 @@ hitoiki config get nudge.daily_limit
 | `nudge` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_work_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`key_result_idle_weekday`（3）、`toast_persistent`（true）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
-| `ai` | `command`（`["claude", "-p"]`）、`model`（claude なら `haiku`）、`model_args`、`timeout_sec`（180）、`templates_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
+| `ai` | `command`（`["claude", "-p"]`）、`model`（claude なら `haiku`）、`model_args`、`timeout_sec`（180）、`prompts_dir`、`structured`、`structured_args`、`erg_classify`（true）、`erg_auto_threshold`（0.8） |
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources` |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 
@@ -115,7 +115,7 @@ timeout_sec = 180
 ```
 
 - `erg_classify`（既定 true）は、終業・週次の振り返りを作る前に、その期間の記録の ERG（存在・関係・成長）を AI で判定するかの設定です。**true のとき、ERG が未判定の記録の文章（調子のメモ、気になったこと、捉え直し、振り返りの回答）が `command` に送られます**（`hitoiki erg classify` を実行したときは設定にかかわらず送られます）。`command` が空なら送らず、判定もしません。
-- `erg_auto_threshold`（既定 0.8）は、AI の判定を採用する確信度の下限です（0〜1）。未満のものは「確認待ち」になり、あなたが確定するまで集計に入りません。
+- `erg_auto_threshold`（既定 0.8）は、AI の判定を採用する確信度の下限です（0〜1）。未満のものは「未確定」になり、あなたが確定するまで集計に入りません。
 - 既定は `claude -p` です。他のコマンドに替えるときは、プロンプトを標準入力から読み、回答を標準出力に書くものを指定します。
 - `model` は、AI コマンドに使わせるモデル名です（例: `model = "sonnet"`）。指定すると `command` の後ろに `--model <モデル名>` を付けて起動します（`claude` も `codex` も `--model` を受け付けます）。未指定（既定）のときは、`command` の先頭が `claude` なら `haiku` を使い、それ以外のコマンドには何も付けません。空文字（`model = ""`）にすると何も付けず、コマンド側の既定のモデルになります。`hitoiki config set ai.model sonnet` でも設定できます。
 - `model_args` は、`model` を指定したときに `command` の後ろへ付ける引数です。空（既定）なら `["--model", "{model}"]` を使います。`{model}` はモデル名に置き換わります。モデルの指定方法が違うコマンドに替えるときだけ設定します（例: `model_args = ["-m", "{model}"]`）。構造化出力の引数（`structured_args`）は、その後ろに付きます（`command` → モデルの引数 → `structured_args` の順）。
@@ -130,7 +130,7 @@ structured = "auto"   # auto | on | off
 # structured_args = ["--output-format", "json", "--json-schema", "{schema}"]
 ```
 
-- 問いのテンプレートは組み込みですが、`%APPDATA%\hitoiki\templates`（`ai.templates_dir` で変更可）に同名の `day_start.md`、`day_end.md`、`weekly.md`、`abc_dispute.md` を置くとそちらが優先されます。構造化出力用には `day_start_structured.md`、`day_end_structured.md`、`weekly_structured.md` があり、同じ場所に置けば優先されます（使う問いの種類と数の指示は、このテンプレートに書いてあります）。
+- 問いのプロンプトは組み込みですが、`%APPDATA%\hitoiki\prompts`（`ai.prompts_dir` で変更可）に同名の `day_start.md`、`day_end.md`、`weekly.md`、`reframe_deepen.md` を置くとそちらが優先されます。構造化出力用には `day_start_structured.md`、`day_end_structured.md`、`weekly_structured.md` があり、同じ場所に置けば優先されます（使う問いの種類と数の指示は、このプロンプトに書いてあります）。
 
 ## 自動判定
 

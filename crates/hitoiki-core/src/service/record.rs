@@ -1,9 +1,9 @@
-//! 手入力の記録: チェックイン、デイリーハッスル、ABC（docs/dev/architecture.md「データモデル」、docs/dev/architecture.md「CLI」）。
+//! 手入力の記録: 調子、気になったこと、捉え直し（docs/dev/architecture.md「データモデル」、docs/dev/architecture.md「CLI」）。
 
 use super::impact::{DeleteMode, DeleteOutcome, Impact};
 use super::{check_1_5, Ctx, RangeArgs};
 use crate::id::new_id;
-use crate::model::{AbcRecord, Checkin, ErgRecordKind, ErgTag, Hassle};
+use crate::model::{Concern, Condition, ErgRecordKind, ErgTag, Reframe};
 use crate::repo::{edit, erg, record};
 use crate::{Error, Millis, Result};
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ fn with_reflection_refs(ctx: &Ctx, mut im: Impact) -> Result<Impact> {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
-pub struct CheckInput {
+pub struct ConditionInput {
     pub energy: Option<i64>,
     pub mood: Option<i64>,
     pub stress: Option<i64>,
@@ -45,7 +45,7 @@ pub struct CheckInput {
     pub note: Option<String>,
 }
 
-pub fn check(ctx: &Ctx, input: &CheckInput) -> Result<Checkin> {
+pub fn condition(ctx: &Ctx, input: &ConditionInput) -> Result<Condition> {
     check_1_5("energy (-e)", input.energy)?;
     check_1_5("mood (-m)", input.mood)?;
     check_1_5("stress (-s)", input.stress)?;
@@ -59,7 +59,7 @@ pub fn check(ctx: &Ctx, input: &CheckInput) -> Result<Checkin> {
             "-e / -m / -s / --erg / --note のいずれかを指定してください".into(),
         ));
     }
-    let c = Checkin {
+    let c = Condition {
         id: new_id(),
         at: ctx.now(),
         energy: input.energy,
@@ -67,82 +67,82 @@ pub fn check(ctx: &Ctx, input: &CheckInput) -> Result<Checkin> {
         stress: input.stress,
         erg_tag: input.erg,
         note: input.note.clone(),
-        push_id: None,
+        nudge_id: None,
     };
     // `answer_structured` などの外側のトランザクションの中でも呼ばれるので、ここでは張らない。
-    record::insert_checkin(ctx.conn, &c)?;
+    record::insert_condition(ctx.conn, &c)?;
     if let Some(t) = input.erg {
         // ユーザーが付けたタグ（出所 user）。AI は上書きしない。
-        erg::set_user(ctx.conn, ErgRecordKind::Checkin, &c.id, t.into(), c.at)?;
+        erg::set_user(ctx.conn, ErgRecordKind::Condition, &c.id, t.into(), c.at)?;
     }
     Ok(c)
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct HassleInput {
+pub struct ConcernInput {
     pub text: String,
     /// 1〜5。省略時は 3。
     pub intensity: Option<i64>,
 }
 
-pub fn hassle(ctx: &Ctx, input: &HassleInput) -> Result<Hassle> {
+pub fn concern(ctx: &Ctx, input: &ConcernInput) -> Result<Concern> {
     check_1_5("強度 (-i)", input.intensity)?;
     if input.text.trim().is_empty() {
         return Err(Error::InvalidArgument("気になったことの内容が空です".into()));
     }
-    let h = Hassle {
+    let h = Concern {
         id: new_id(),
         at: ctx.now(),
         text: input.text.trim().to_string(),
         intensity: input.intensity.unwrap_or(3),
         segment_id: None,
-        push_id: None,
+        nudge_id: None,
     };
-    record::insert_hassle(ctx.conn, &h)?;
+    record::insert_concern(ctx.conn, &h)?;
     Ok(h)
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
-pub struct AbcInput {
-    /// A: 出来事。`from_hassle` 指定時は省略可（ハッスル本文で補完）。
-    pub activating_event: Option<String>,
+pub struct ReframeInput {
+    /// A: 出来事。`from_concern` 指定時は省略可（気になったこと本文で補完）。
+    pub event: Option<String>,
     pub belief: Option<String>,
-    pub consequence_emotion: Option<String>,
+    pub emotion: Option<String>,
     /// 1〜5。
-    pub consequence_intensity: Option<i64>,
-    /// ハッスルの ID（前方一致）。
-    pub from_hassle: Option<String>,
+    pub emotion_intensity: Option<i64>,
+    /// 気になったことの ID（前方一致）。
+    pub from_concern: Option<String>,
 }
 
-pub fn abc_add(ctx: &Ctx, input: &AbcInput) -> Result<AbcRecord> {
-    check_1_5("感情の強度 (--c-intensity)", input.consequence_intensity)?;
-    let hassle = match &input.from_hassle {
-        Some(p) => Some(record::resolve_hassle(ctx.conn, p)?),
+pub fn reframe_add(ctx: &Ctx, input: &ReframeInput) -> Result<Reframe> {
+    check_1_5("感情の強度 (--emotion-intensity)", input.emotion_intensity)?;
+    let concern = match &input.from_concern {
+        Some(p) => Some(record::resolve_concern(ctx.conn, p)?),
         None => None,
     };
     let a = input
-        .activating_event
+        .event
         .clone()
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| hassle.as_ref().map(|h| h.text.clone()))
-        .ok_or_else(|| Error::InvalidArgument("--a か --from-hassle が必要です".into()))?;
-    let r = AbcRecord {
+        .or_else(|| concern.as_ref().map(|h| h.text.clone()))
+        .ok_or_else(|| Error::InvalidArgument("--event か --from-concern が必要です".into()))?;
+    let r = Reframe {
         id: new_id(),
         at: ctx.now(),
-        activating_event: a,
+        event: a,
         belief: input.belief.clone(),
-        consequence_emotion: input.consequence_emotion.clone(),
-        consequence_intensity: input.consequence_intensity,
-        dispute: None,
-        ai_dialog_md: None,
-        hassle_id: hassle.map(|h| h.id),
+        emotion: input.emotion.clone(),
+        emotion_intensity: input.emotion_intensity,
+        alternative: None,
+        deepening_md: None,
+        concern_id: concern.map(|h| h.id),
     };
-    record::insert_abc(ctx.conn, &r)?;
+    record::insert_reframe(ctx.conn, &r)?;
     Ok(r)
 }
 
-/// 期間付きの一覧（チェックイン・ハッスル・ABC 共通）。
+/// 期間付きの一覧（調子・気になったこと・捉え直し共通）。
 #[derive(Debug, Clone, Serialize)]
 pub struct Listing<T> {
     pub start_at: Millis,
@@ -163,25 +163,25 @@ fn listing<T>(
     })
 }
 
-/// 範囲内のチェックイン（時刻順）。
-pub fn list_checkins(ctx: &Ctx, args: &RangeArgs) -> Result<Listing<Checkin>> {
-    listing(ctx, args, |c, s, e| record::list_checkins(c.conn, s, e))
+/// 範囲内の調子（時刻順）。
+pub fn list_conditions(ctx: &Ctx, args: &RangeArgs) -> Result<Listing<Condition>> {
+    listing(ctx, args, |c, s, e| record::list_conditions(c.conn, s, e))
 }
 
-/// 範囲内のハッスル（時刻順）。
-pub fn list_hassles(ctx: &Ctx, args: &RangeArgs) -> Result<Listing<Hassle>> {
-    listing(ctx, args, |c, s, e| record::list_hassles(c.conn, s, e))
+/// 範囲内の気になったこと（時刻順）。
+pub fn list_concerns(ctx: &Ctx, args: &RangeArgs) -> Result<Listing<Concern>> {
+    listing(ctx, args, |c, s, e| record::list_concerns(c.conn, s, e))
 }
 
-/// 範囲内の ABC 記録（時刻順）。
-pub fn list_abc(ctx: &Ctx, args: &RangeArgs) -> Result<Listing<AbcRecord>> {
-    listing(ctx, args, |c, s, e| record::list_abc(c.conn, s, e))
+/// 範囲内の捉え直し（時刻順）。
+pub fn list_reframe(ctx: &Ctx, args: &RangeArgs) -> Result<Listing<Reframe>> {
+    listing(ctx, args, |c, s, e| record::list_reframe(c.conn, s, e))
 }
 
 // ===== 編集・削除 =====
 
-/// チェックインの編集。記録した内容を丸ごと置き換える（指定のない項目は消える）。時刻は変えない。
-pub fn check_edit(ctx: &Ctx, id: &str, input: &CheckInput) -> Result<Checkin> {
+/// 調子の編集。記録した内容を丸ごと置き換える（指定のない項目は消える）。時刻は変えない。
+pub fn condition_edit(ctx: &Ctx, id: &str, input: &ConditionInput) -> Result<Condition> {
     check_1_5("energy (-e)", input.energy)?;
     check_1_5("mood (-m)", input.mood)?;
     check_1_5("stress (-s)", input.stress)?;
@@ -200,52 +200,52 @@ pub fn check_edit(ctx: &Ctx, id: &str, input: &CheckInput) -> Result<Checkin> {
             "エネルギー・気分・ストレス・ERG・メモのいずれかが必要です（消す場合は削除してください）".into(),
         ));
     }
-    let mut c = edit::get_checkin(ctx.conn, &crate::repo::resolve_prefix(ctx.conn, "checkin", id)?)?;
+    let mut c = edit::get_condition(ctx.conn, &crate::repo::resolve_prefix(ctx.conn, "condition", id)?)?;
     let text_changed = c.note != note;
     c.energy = input.energy;
     c.mood = input.mood;
     c.stress = input.stress;
     c.note = note;
     let tx = ctx.conn.unchecked_transaction()?;
-    edit::update_checkin(ctx.conn, &c)?;
+    edit::update_condition(ctx.conn, &c)?;
     if text_changed {
         // メモを直したので、AI 由来の ERG は捨てて判定をやり直せるようにする（ユーザーが付けたものは残す）。
-        erg::delete_auto(ctx.conn, ErgRecordKind::Checkin, &c.id)?;
+        erg::delete_auto(ctx.conn, ErgRecordKind::Condition, &c.id)?;
     }
     if let Some(t) = input.erg {
-        erg::set_user(ctx.conn, ErgRecordKind::Checkin, &c.id, t.into(), ctx.now())?;
+        erg::set_user(ctx.conn, ErgRecordKind::Condition, &c.id, t.into(), ctx.now())?;
     }
-    c.erg_tag = erg::get(ctx.conn, ErgRecordKind::Checkin, &c.id)?.and_then(|l| l.confirmed_tag());
+    c.erg_tag = erg::get(ctx.conn, ErgRecordKind::Condition, &c.id)?.and_then(|l| l.confirmed_tag());
     tx.commit()?;
     Ok(c)
 }
 
-pub fn check_get(ctx: &Ctx, id: &str) -> Result<Checkin> {
-    edit::get_checkin(ctx.conn, &crate::repo::resolve_prefix(ctx.conn, "checkin", id)?)
+pub fn condition_get(ctx: &Ctx, id: &str) -> Result<Condition> {
+    edit::get_condition(ctx.conn, &crate::repo::resolve_prefix(ctx.conn, "condition", id)?)
 }
 
-pub fn check_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
-    let c = check_get(ctx, id)?;
-    let im = with_reflection_refs(ctx, Impact::new("checkin", &c.id, "調子"))?;
+pub fn condition_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
+    let c = condition_get(ctx, id)?;
+    let im = with_reflection_refs(ctx, Impact::new("condition", &c.id, "調子"))?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
-        edit::delete_checkin(ctx.conn, &c.id)?;
-        log_deleted("checkin", &c.id);
+        edit::delete_condition(ctx.conn, &c.id)?;
+        log_deleted("condition", &c.id);
     }
     Ok(DeleteOutcome::new(mode, im, go))
 }
 
-pub fn hassle_get(ctx: &Ctx, id: &str) -> Result<Hassle> {
-    record::resolve_hassle(ctx.conn, id)
+pub fn concern_get(ctx: &Ctx, id: &str) -> Result<Concern> {
+    record::resolve_concern(ctx.conn, id)
 }
 
-/// ハッスルの編集。`intensity` が `None` なら強度は変えない。
-pub fn hassle_edit(ctx: &Ctx, id: &str, input: &HassleInput) -> Result<Hassle> {
+/// 気になったことの編集。`intensity` が `None` なら強度は変えない。
+pub fn concern_edit(ctx: &Ctx, id: &str, input: &ConcernInput) -> Result<Concern> {
     check_1_5("強度 (-i)", input.intensity)?;
     if input.text.trim().is_empty() {
         return Err(Error::InvalidArgument("気になったことの内容が空です".into()));
     }
-    let mut h = hassle_get(ctx, id)?;
+    let mut h = concern_get(ctx, id)?;
     let text = input.text.trim().to_string();
     let text_changed = h.text != text;
     h.text = text;
@@ -253,94 +253,91 @@ pub fn hassle_edit(ctx: &Ctx, id: &str, input: &HassleInput) -> Result<Hassle> {
         h.intensity = i;
     }
     let tx = ctx.conn.unchecked_transaction()?;
-    edit::update_hassle(ctx.conn, &h)?;
+    edit::update_concern(ctx.conn, &h)?;
     if text_changed {
-        erg::delete_auto(ctx.conn, ErgRecordKind::Hassle, &h.id)?;
+        erg::delete_auto(ctx.conn, ErgRecordKind::Concern, &h.id)?;
     }
     tx.commit()?;
     Ok(h)
 }
 
-/// ハッスルの削除。元にした ABC 記録は残し、ハッスルとの紐付けだけ外す。
-pub fn hassle_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
-    let h = hassle_get(ctx, id)?;
-    let im = Impact::new("hassle", &h.id, &h.text).line(
+/// 気になったことの削除。元にした捉え直しは残し、気になったこととの紐付けだけ外す。
+pub fn concern_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
+    let h = concern_get(ctx, id)?;
+    let im = Impact::new("concern", &h.id, &h.text).line(
         "この気になったことから作った捉え直し（記録は残り、気になったこととの紐付けだけ外れる）",
-        edit::count_abc_of_hassle(ctx.conn, &h.id)?,
+        edit::count_reframe_of_concern(ctx.conn, &h.id)?,
     );
     let im = with_reflection_refs(ctx, im)?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
         let tx = ctx.conn.unchecked_transaction()?;
-        edit::delete_hassle(ctx.conn, &h.id)?;
+        edit::delete_concern(ctx.conn, &h.id)?;
         tx.commit()?;
-        log_deleted("hassle", &h.id);
+        log_deleted("concern", &h.id);
     }
     Ok(DeleteOutcome::new(mode, im, go))
 }
 
-/// ABC 記録の編集内容。記録した内容を丸ごと置き換える（`None` は消す）。時刻と AI の問いは変えない。
+/// 捉え直しの編集内容。記録した内容を丸ごと置き換える（`None` は消す）。時刻と AI の問いは変えない。
 #[derive(Debug, Clone, Deserialize)]
-pub struct AbcEditInput {
-    pub activating_event: String,
+pub struct ReframeEditInput {
+    pub event: String,
     #[serde(default)]
     pub belief: Option<String>,
     #[serde(default)]
-    pub consequence_emotion: Option<String>,
+    pub emotion: Option<String>,
     #[serde(default)]
-    pub consequence_intensity: Option<i64>,
+    pub emotion_intensity: Option<i64>,
     #[serde(default)]
-    pub dispute: Option<String>,
+    pub alternative: Option<String>,
 }
 
-pub fn abc_get(ctx: &Ctx, id: &str) -> Result<AbcRecord> {
-    edit::get_abc(
-        ctx.conn,
-        &crate::repo::resolve_prefix(ctx.conn, "abc_record", id)?,
-    )
+pub fn reframe_get(ctx: &Ctx, id: &str) -> Result<Reframe> {
+    edit::get_reframe(ctx.conn, &crate::repo::resolve_prefix(ctx.conn, "reframe", id)?)
 }
 
-pub fn abc_edit(ctx: &Ctx, id: &str, input: &AbcEditInput) -> Result<AbcRecord> {
-    check_1_5("感情の強度 (--c-intensity)", input.consequence_intensity)?;
-    if input.activating_event.trim().is_empty() {
+pub fn reframe_edit(ctx: &Ctx, id: &str, input: &ReframeEditInput) -> Result<Reframe> {
+    check_1_5("感情の強度 (--emotion-intensity)", input.emotion_intensity)?;
+    if input.event.trim().is_empty() {
         return Err(Error::InvalidArgument("A（出来事）が空です".into()));
     }
     let blank = |s: &Option<String>| s.as_ref().map(|x| x.trim().to_string()).filter(|x| !x.is_empty());
-    let mut a = abc_get(ctx, id)?;
+    let mut a = reframe_get(ctx, id)?;
     let before = (
-        a.activating_event.clone(),
+        a.event.clone(),
         a.belief.clone(),
-        a.consequence_emotion.clone(),
-        a.dispute.clone(),
+        a.emotion.clone(),
+        a.alternative.clone(),
     );
-    a.activating_event = input.activating_event.trim().to_string();
+    a.event = input.event.trim().to_string();
     a.belief = blank(&input.belief);
-    a.consequence_emotion = blank(&input.consequence_emotion);
-    a.consequence_intensity = input.consequence_intensity;
-    a.dispute = blank(&input.dispute);
+    a.emotion = blank(&input.emotion);
+    a.emotion_intensity = input.emotion_intensity;
+    a.alternative = blank(&input.alternative);
     let text_changed = before
         != (
-            a.activating_event.clone(),
+            a.event.clone(),
             a.belief.clone(),
-            a.consequence_emotion.clone(),
-            a.dispute.clone(),
+            a.emotion.clone(),
+            a.alternative.clone(),
         );
     let tx = ctx.conn.unchecked_transaction()?;
-    edit::update_abc(ctx.conn, &a)?;
+    edit::update_reframe(ctx.conn, &a)?;
     if text_changed {
-        erg::delete_auto(ctx.conn, ErgRecordKind::Abc, &a.id)?;
+        erg::delete_auto(ctx.conn, ErgRecordKind::Reframe, &a.id)?;
     }
     tx.commit()?;
     Ok(a)
 }
 
-pub fn abc_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
-    let a = abc_get(ctx, id)?;
-    let im = with_reflection_refs(ctx, Impact::new("abc_record", &a.id, &a.activating_event))?;
+pub fn reframe_delete(ctx: &Ctx, id: &str, mode: DeleteMode) -> Result<DeleteOutcome> {
+    let a = reframe_get(ctx, id)?;
+    let im = with_reflection_refs(ctx, Impact::new("reframe", &a.id, &a.event))?;
     let go = DeleteOutcome::gate(mode, &im)?;
     if go {
-        edit::delete_abc(ctx.conn, &a.id)?;
-        log_deleted("abc_record", &a.id);
+        edit::delete_reframe(ctx.conn, &a.id)?;
+        log_deleted("reframe", &a.id);
     }
     Ok(DeleteOutcome::new(mode, im, go))
 }
@@ -351,12 +348,12 @@ mod edit_tests {
     use crate::service::testutil::Env;
 
     #[test]
-    fn チェックインの編集と削除() {
+    fn 調子の編集と削除() {
         let env = Env::new();
         let ctx = env.ctx();
-        let c = check(
+        let c = condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(2),
                 mood: Some(3),
                 note: Some("眠い".into()),
@@ -364,10 +361,10 @@ mod edit_tests {
             },
         )
         .unwrap();
-        let e = check_edit(
+        let e = condition_edit(
             &ctx,
             &c.id,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(4),
                 erg: Some(ErgTag::Growth),
                 ..Default::default()
@@ -379,124 +376,138 @@ mod edit_tests {
             (Some(4), None, None, Some(ErgTag::Growth))
         );
         assert_eq!(e.at, c.at);
-        let listed = list_checkins(&ctx, &RangeArgs::default()).unwrap().items;
+        let listed = list_conditions(&ctx, &RangeArgs::default()).unwrap().items;
         assert_eq!(listed[0].energy, Some(4));
-        assert!(check_edit(&ctx, &c.id, &CheckInput::default()).is_err());
-        assert!(check_edit(
+        assert!(condition_edit(&ctx, &c.id, &ConditionInput::default()).is_err());
+        assert!(condition_edit(
             &ctx,
             &c.id,
-            &CheckInput {
+            &ConditionInput {
                 stress: Some(9),
                 ..Default::default()
             }
         )
         .is_err());
-        assert!(check_delete(&ctx, &c.id, DeleteMode::DRY_RUN).is_ok());
-        assert_eq!(list_checkins(&ctx, &RangeArgs::default()).unwrap().items.len(), 1);
-        assert!(check_delete(&ctx, &c.id, DeleteMode::default()).unwrap().deleted);
-        assert!(list_checkins(&ctx, &RangeArgs::default())
+        assert!(condition_delete(&ctx, &c.id, DeleteMode::DRY_RUN).is_ok());
+        assert_eq!(
+            list_conditions(&ctx, &RangeArgs::default()).unwrap().items.len(),
+            1
+        );
+        assert!(
+            condition_delete(&ctx, &c.id, DeleteMode::default())
+                .unwrap()
+                .deleted
+        );
+        assert!(list_conditions(&ctx, &RangeArgs::default())
             .unwrap()
             .items
             .is_empty());
-        assert!(check_delete(&ctx, &c.id, DeleteMode::default()).is_err());
+        assert!(condition_delete(&ctx, &c.id, DeleteMode::default()).is_err());
     }
 
     #[test]
-    fn ハッスルの削除は_abc_の紐付けだけ外す() {
+    fn 気になったことの削除は_reframe_の紐付けだけ外す() {
         let env = Env::new();
         let ctx = env.ctx();
-        let h = hassle(
+        let h = concern(
             &ctx,
-            &HassleInput {
+            &ConcernInput {
                 text: "長い会議".into(),
                 intensity: Some(4),
             },
         )
         .unwrap();
-        let e = hassle_edit(
+        let e = concern_edit(
             &ctx,
             &h.id,
-            &HassleInput {
+            &ConcernInput {
                 text: " 長すぎる会議 ".into(),
                 intensity: None,
             },
         )
         .unwrap();
         assert_eq!((e.text.as_str(), e.intensity), ("長すぎる会議", 4));
-        assert!(hassle_edit(
+        assert!(concern_edit(
             &ctx,
             &h.id,
-            &HassleInput {
+            &ConcernInput {
                 text: " ".into(),
                 intensity: None
             }
         )
         .is_err());
-        let a = abc_add(
+        let a = reframe_add(
             &ctx,
-            &AbcInput {
-                from_hassle: Some(h.id.clone()),
+            &ReframeInput {
+                from_concern: Some(h.id.clone()),
                 ..Default::default()
             },
         )
         .unwrap();
-        assert!(hassle_delete(&ctx, &h.id, DeleteMode::default()).is_err());
-        let d = hassle_delete(&ctx, &h.id, DeleteMode::FORCE).unwrap();
+        assert!(concern_delete(&ctx, &h.id, DeleteMode::default()).is_err());
+        let d = concern_delete(&ctx, &h.id, DeleteMode::FORCE).unwrap();
         assert!(d.deleted);
         assert_eq!(d.impact.total(), 1);
-        let a2 = abc_get(&ctx, &a.id).unwrap();
-        assert!(a2.hassle_id.is_none());
-        assert_eq!(a2.activating_event, "長すぎる会議");
-        assert!(list_hassles(&ctx, &RangeArgs::default())
+        let a2 = reframe_get(&ctx, &a.id).unwrap();
+        assert!(a2.concern_id.is_none());
+        assert_eq!(a2.event, "長すぎる会議");
+        assert!(list_concerns(&ctx, &RangeArgs::default())
             .unwrap()
             .items
             .is_empty());
     }
 
     #[test]
-    fn abc_の編集と削除() {
+    fn reframe_の編集と削除() {
         let env = Env::new();
         let ctx = env.ctx();
-        let a = abc_add(
+        let a = reframe_add(
             &ctx,
-            &AbcInput {
-                activating_event: Some("A".into()),
+            &ReframeInput {
+                event: Some("A".into()),
                 belief: Some("B".into()),
-                consequence_intensity: Some(2),
+                emotion_intensity: Some(2),
                 ..Default::default()
             },
         )
         .unwrap();
-        let e = abc_edit(
+        let e = reframe_edit(
             &ctx,
             &a.id,
-            &AbcEditInput {
-                activating_event: "A2".into(),
+            &ReframeEditInput {
+                event: "A2".into(),
                 belief: None,
-                consequence_emotion: Some("不安".into()),
-                consequence_intensity: Some(4),
-                dispute: Some("本当に？".into()),
+                emotion: Some("不安".into()),
+                emotion_intensity: Some(4),
+                alternative: Some("本当に？".into()),
             },
         )
         .unwrap();
         assert_eq!(
-            (e.belief.clone(), e.consequence_intensity, e.dispute.as_deref()),
+            (e.belief.clone(), e.emotion_intensity, e.alternative.as_deref()),
             (None, Some(4), Some("本当に？"))
         );
-        assert!(abc_edit(
+        assert!(reframe_edit(
             &ctx,
             &a.id,
-            &AbcEditInput {
-                activating_event: " ".into(),
+            &ReframeEditInput {
+                event: " ".into(),
                 belief: None,
-                consequence_emotion: None,
-                consequence_intensity: None,
-                dispute: None
+                emotion: None,
+                emotion_intensity: None,
+                alternative: None
             }
         )
         .is_err());
-        assert!(abc_delete(&ctx, &a.id, DeleteMode::default()).unwrap().deleted);
-        assert!(list_abc(&ctx, &RangeArgs::default()).unwrap().items.is_empty());
+        assert!(
+            reframe_delete(&ctx, &a.id, DeleteMode::default())
+                .unwrap()
+                .deleted
+        );
+        assert!(list_reframe(&ctx, &RangeArgs::default())
+            .unwrap()
+            .items
+            .is_empty());
     }
 }
 
@@ -506,29 +517,29 @@ mod tests {
     use crate::service::testutil::Env;
 
     #[test]
-    fn check_validates_range() {
+    fn condition_validates_range() {
         let env = Env::new();
         let ctx = env.ctx();
-        assert!(check(
+        assert!(condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(6),
                 ..Default::default()
             }
         )
         .is_err());
-        assert!(check(
+        assert!(condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 mood: Some(0),
                 ..Default::default()
             }
         )
         .is_err());
-        assert!(check(&ctx, &CheckInput::default()).is_err());
-        let c = check(
+        assert!(condition(&ctx, &ConditionInput::default()).is_err());
+        let c = condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(4),
                 erg: Some(ErgTag::Growth),
                 ..Default::default()
@@ -540,71 +551,71 @@ mod tests {
     }
 
     #[test]
-    fn hassle_default_and_abc_from_hassle() {
+    fn concern_default_and_reframe_from_concern() {
         let env = Env::new();
         let ctx = env.ctx();
-        let h = hassle(
+        let h = concern(
             &ctx,
-            &HassleInput {
+            &ConcernInput {
                 text: "会議が長い".into(),
                 intensity: None,
             },
         )
         .unwrap();
         assert_eq!(h.intensity, 3);
-        assert!(hassle(
+        assert!(concern(
             &ctx,
-            &HassleInput {
+            &ConcernInput {
                 text: "x".into(),
                 intensity: Some(9)
             }
         )
         .is_err());
-        let a = abc_add(
+        let a = reframe_add(
             &ctx,
-            &AbcInput {
-                from_hassle: Some(h.id.clone()),
+            &ReframeInput {
+                from_concern: Some(h.id.clone()),
                 belief: Some("無駄だ".into()),
                 ..Default::default()
             },
         )
         .unwrap();
-        assert_eq!(a.activating_event, "会議が長い");
-        assert_eq!(a.hassle_id.as_deref(), Some(h.id.as_str()));
-        assert!(abc_add(&ctx, &AbcInput::default()).is_err());
+        assert_eq!(a.event, "会議が長い");
+        assert_eq!(a.concern_id.as_deref(), Some(h.id.as_str()));
+        assert!(reframe_add(&ctx, &ReframeInput::default()).is_err());
     }
 
     #[test]
     fn 範囲の一覧() {
         let env = Env::new();
         let ctx = env.ctx();
-        check(
+        condition(
             &ctx,
-            &CheckInput {
+            &ConditionInput {
                 energy: Some(3),
                 ..Default::default()
             },
         )
         .unwrap();
-        hassle(
+        concern(
             &ctx,
-            &HassleInput {
+            &ConcernInput {
                 text: "x".into(),
                 intensity: None,
             },
         )
         .unwrap();
-        abc_add(
+        reframe_add(
             &ctx,
-            &AbcInput {
-                activating_event: Some("a".into()),
+            &ReframeInput {
+                event: Some("a".into()),
                 ..Default::default()
             },
         )
         .unwrap();
         let a = RangeArgs::default();
-        assert_eq!(list_checkins(&ctx, &a).unwrap().items.len(), 1);
-        assert_eq!(list_hassles(&ctx, &a).unwrap().items.len(), 1);
-        assert_eq!(list_abc(&ctx, &a).unwrap().items.len(), 1);
+        assert_eq!(list_conditions(&ctx, &a).unwrap().items.len(), 1);
+        assert_eq!(list_concerns(&ctx, &a).unwrap().items.len(), 1);
+        assert_eq!(list_reframe(&ctx, &a).unwrap().items.len(), 1);
     }
 }
