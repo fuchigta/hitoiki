@@ -1,6 +1,6 @@
 import type { RefObject } from "preact";
 import { api } from "./api";
-import type { BlockInput, BlockView, CalendarEvent, GapView, Millis, SegmentView, TaskView } from "./api";
+import type { BlockInput, BlockView, CalendarEvent, UncollectedView, Millis, SegmentView, TaskView } from "./api";
 import type { BlockDraft } from "./block-form";
 import { ErrorBox } from "./components";
 import { DayGrid } from "./day-grid";
@@ -14,7 +14,7 @@ interface Props {
   blocks: BlockView[];
   segments: SegmentView[];
   events: CalendarEvent[];
-  gaps?: GapView[];
+  uncollected?: UncollectedView[];
   now?: Millis;
   /** ブロックを変えた後に呼ぶ（一覧の再取得）。 */
   reload: () => void;
@@ -106,7 +106,7 @@ export function DayDesigner(p: Props) {
         blocks={p.blocks}
         segments={p.segments}
         events={p.events}
-        gaps={p.gaps}
+        uncollected={p.uncollected}
         now={p.now}
         selection={selection}
         editingId={p.draft?.id ?? null}

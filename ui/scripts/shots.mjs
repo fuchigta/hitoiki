@@ -63,18 +63,18 @@ const SELECTED = [
     },
   },
   {
-    name: "log-selected",
-    screen: "log",
+    name: "actual-selected",
+    screen: "actual",
     hash: (s) => {
       // 一覧に出る（短い区間でない）要確認のうち、いちばん新しいもの。
       const x = s.segments.filter((y) => y.status === "needs_review" && y.end_at - y.start_at >= 120000).sort((a, b) => b.start_at - a.start_at)[0];
-      return x && `#/log/${x.id}`;
+      return x && `#/actual/${x.id}`;
     },
   },
   {
-    name: "log-multi",
-    screen: "log",
-    hash: (s) => (s.segments.filter((y) => y.status === "needs_review").length >= 2 ? "#/log" : null),
+    name: "actual-multi",
+    screen: "actual",
+    hash: (s) => (s.segments.filter((y) => y.status === "needs_review").length >= 2 ? "#/actual" : null),
     // 先頭の 2 件にチェックを付けた状態にする。
     act: async (page) => {
       const boxes = page.getByRole("checkbox", { name: "この区間を選ぶ" });

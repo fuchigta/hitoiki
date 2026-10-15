@@ -47,7 +47,7 @@ checks:
       # 収集器 -> アーキテクチャ
       - paths: 'crates/hitoiki-collect*/src/**'
         doc: docs/dev/architecture.md
-      # 帰属判定・再計算 -> アーキテクチャ
+      # 割り当て・再計算 -> アーキテクチャ
       - paths: 'crates/hitoiki-core/src/pipeline/**'
         doc: docs/dev/architecture.md
         exclude: ['**/tests.rs']

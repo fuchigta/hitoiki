@@ -365,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn 無操作の回答は期間にoverrideを作る() {
+    fn 無操作の回答は期間に確定を作る() {
         let env = Env::new();
         let ctx = env.ctx();
         let d = env.day_start();
@@ -387,7 +387,7 @@ mod tests {
         let n: i64 = env
             .conn
             .query_row(
-                "SELECT COUNT(*) FROM segment_override WHERE start_at = ?1 AND end_at = ?2",
+                "SELECT COUNT(*) FROM segment_confirmation WHERE start_at = ?1 AND end_at = ?2",
                 [d + 600_000, d + 1_800_000],
                 |r| r.get(0),
             )

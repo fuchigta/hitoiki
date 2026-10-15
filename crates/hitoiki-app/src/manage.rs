@@ -1,11 +1,11 @@
-//! 編集・削除系の Tauri コマンド（目標・スキル・ルール・記録・カレンダーソース・活動ラベル）。
+//! 編集・削除系の Tauri コマンド（目標・スキル・ルール・記録・カレンダーソース・活動）。
 //! core の service 層を呼ぶだけの薄いラッパで、ロジックは持たない。
 //! 削除は `mode` で dry_run（影響の確認）と force（確認後の削除）を指定する。
 
 use crate::error::AppResult;
 use crate::state::AppState;
 use hitoiki_core::config::Config;
-use hitoiki_core::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskMatchRule};
+use hitoiki_core::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskAssignRule};
 use hitoiki_core::paths;
 use hitoiki_core::service::goal::{self, GoalEdit, KeyResultEdit};
 use hitoiki_core::service::impact::{DeleteMode, DeleteOutcome};
@@ -134,14 +134,14 @@ pub fn skill_delete(
 // ===== ルール =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn rule_edit(state: S, id: String, input: TaskRuleEdit) -> AppResult<TaskMatchRule> {
+pub fn task_rule_edit(state: S, id: String, input: TaskRuleEdit) -> AppResult<TaskAssignRule> {
     let v = state.with_ctx(|c| rule::task_rule_edit(c, &id, &input))?;
     state.request_rebuild();
     Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn rule_delete(state: S, id: String) -> AppResult<RuleDeleted<TaskMatchRule>> {
+pub fn task_rule_delete(state: S, id: String) -> AppResult<RuleDeleted<TaskAssignRule>> {
     let v = state.with_ctx(|c| rule::task_rule_delete(c, &id, false))?;
     state.request_rebuild();
     Ok(v)
@@ -208,7 +208,7 @@ pub fn abc_delete(state: S, id: String, mode: Option<DeleteMode>) -> AppResult<D
     state.with_ctx(|c| record::abc_delete(c, &id, mode))
 }
 
-// ===== カレンダーソース・活動ラベル =====
+// ===== カレンダーソース・活動 =====
 
 #[tauri::command(rename_all = "snake_case")]
 pub fn calendar_source_list() -> AppResult<CalendarSourceList> {
@@ -253,26 +253,26 @@ pub fn calendar_source_delete(state: S, name: String, mode: Option<DeleteMode>) 
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn activity_label_list() -> AppResult<LabelList> {
+pub fn activity_list() -> AppResult<LabelList> {
     Ok(settings::labels_list(&Config::load()?))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn activity_label_add(state: S, label: String) -> AppResult<LabelList> {
+pub fn activity_add(state: S, label: String) -> AppResult<LabelList> {
     let v = settings::labels_add(&paths::config_file(), &label)?;
     state.apply_config();
     Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn activity_label_rename(state: S, from: String, to: String) -> AppResult<LabelList> {
+pub fn activity_rename(state: S, from: String, to: String) -> AppResult<LabelList> {
     let v = state.with_ctx(|c| settings::labels_rename(c.conn, &paths::config_file(), &from, &to))?;
     state.apply_config();
     Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn activity_label_remove(state: S, label: String) -> AppResult<LabelList> {
+pub fn activity_remove(state: S, label: String) -> AppResult<LabelList> {
     let v = settings::labels_remove(&paths::config_file(), &label)?;
     state.apply_config();
     Ok(v)

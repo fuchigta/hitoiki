@@ -3,9 +3,9 @@
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};
 use crate::id::new_id;
 use crate::model::{
-    ActivityRule, MatchField, PatternType, SegmentKind, SegmentOverride, SegmentStatus, TaskMatchRule,
+    ActivityRule, MatchField, PatternType, SegmentConfirmation, SegmentKind, SegmentStatus, TaskAssignRule,
 };
-use crate::repo::{self, overrides, rule};
+use crate::repo::{self, confirmation, rule};
 use crate::{Error, Millis, Result};
 use rusqlite::{params, OptionalExtension};
 use serde::Serialize;
@@ -16,13 +16,13 @@ pub struct ReviewList {
     /// 返した区間の数。
     pub count: usize,
     pub segments: Vec<SegmentView>,
-    /// `review.min_sec` 未満のため隠した区間の数（`all` のときは 0）。データは変更しない。
+    /// `actual.min_sec` 未満のため隠した区間の数（`all` のときは 0）。データは変更しない。
     pub hidden_short: usize,
-    /// 短い区間とみなす長さ（秒、`review.min_sec`）。
+    /// 短い区間とみなす長さ（秒、`actual.min_sec`）。
     pub min_sec: u64,
 }
 
-/// 範囲内の needs_review 区間のうち、`review.min_sec` 以上のもの。短い区間は隠し、件数を `hidden_short` で返す。
+/// 範囲内の needs_review 区間のうち、`actual.min_sec` 以上のもの。短い区間は隠し、件数を `hidden_short` で返す。
 pub fn list(ctx: &Ctx, args: &RangeArgs) -> Result<ReviewList> {
     list_with(ctx, args, false)
 }
@@ -32,7 +32,7 @@ pub fn list_with(ctx: &Ctx, args: &RangeArgs, all: bool) -> Result<ReviewList> {
     let tz = ctx.tz()?;
     let range = ctx.range(args)?;
     let titles = task_titles(ctx.conn)?;
-    let min_sec = ctx.cfg.review.min_sec;
+    let min_sec = ctx.cfg.actual.min_sec;
     let min_ms = min_sec as i64 * 1000;
     let mut hidden_short = 0;
     let mut segments: Vec<SegmentView> = Vec::new();
@@ -53,35 +53,35 @@ pub fn list_with(ctx: &Ctx, args: &RangeArgs, all: bool) -> Result<ReviewList> {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct ReviewSetInput {
+pub struct ConfirmInput {
     /// 区間 ID（前方一致）。
     pub segment: String,
     /// タスク ID（前方一致）。
     pub task: Option<String>,
     pub kind: Option<SegmentKind>,
     pub activity: Option<String>,
-    /// 区間からルールを生成する（タスク指定ならタスク帰属ルール、活動のみなら活動ルール）。
+    /// 区間からルールを生成する（タスク指定ならタスクタスクの割り当てルール、活動のみなら活動ルール）。
     pub rule: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CreatedRule {
-    /// `task_match_rule` | `activity_rule`
+    /// `task_assign_rule` | `activity_rule`
     pub rule_type: &'static str,
     pub id: String,
     pub field: MatchField,
     pub pattern: String,
     pub pattern_type: PatternType,
     pub task_id: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     /// 同一内容の既存ルールを再利用した場合 true。
     pub reused: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ReviewSetResult {
+pub struct ConfirmResult {
     pub segment: SegmentView,
-    pub override_id: String,
+    pub confirmation_id: String,
     pub rule: Option<CreatedRule>,
 }
 
@@ -138,11 +138,11 @@ fn ensure_task_rule(
     field: MatchField,
     pattern: String,
     ty: PatternType,
-) -> Result<(TaskMatchRule, bool)> {
+) -> Result<(TaskAssignRule, bool)> {
     if let Some(r) = rule::find_task_rule(ctx.conn, task_id, field, &pattern, ty)? {
         return Ok((r, true));
     }
-    let r = TaskMatchRule {
+    let r = TaskAssignRule {
         id: new_id(),
         task_id: task_id.to_string(),
         field,
@@ -155,20 +155,20 @@ fn ensure_task_rule(
     Ok((r, false))
 }
 
-fn created_task_rule(r: TaskMatchRule, reused: bool) -> CreatedRule {
+fn created_task_rule(r: TaskAssignRule, reused: bool) -> CreatedRule {
     CreatedRule {
-        rule_type: "task_match_rule",
+        rule_type: "task_assign_rule",
         id: r.id,
         field: r.field,
         pattern: r.pattern,
         pattern_type: r.pattern_type,
         task_id: Some(r.task_id),
-        activity_label: None,
+        activity: None,
         reused,
     }
 }
 
-/// 区間から `--rule` のルールを作る（タスク指定ならタスク帰属ルール、活動のみなら活動ルール）。
+/// 区間から `--rule` のルールを作る（タスク指定ならタスクタスクの割り当てルール、活動のみなら活動ルール）。
 fn create_rule(
     ctx: &Ctx,
     seg: &crate::model::ActivitySegment,
@@ -191,7 +191,7 @@ fn create_rule(
                 field,
                 pattern,
                 pattern_type: ty,
-                activity_label: label,
+                activity: label,
                 priority: 0,
                 enabled: true,
             };
@@ -206,20 +206,20 @@ fn create_rule(
         pattern: r.pattern,
         pattern_type: r.pattern_type,
         task_id: None,
-        activity_label: Some(r.activity_label),
+        activity: Some(r.activity),
         reused,
     })
 }
 
-/// 区間の確定内容。`set` / `set_many` / 無操作のワンタップ仕分けが共有する。
+/// 区間の確定内容。`confirm` / `confirm_many` / 無操作のワンタップ分類が共有する。
 struct Decision {
     task_id: Option<String>,
     kind: Option<SegmentKind>,
     activity: Option<String>,
 }
 
-/// 範囲 [start, end) を確定する: `segment_override` を作り、範囲に収まる `activity_segment` 行にも即時に反映する。
-/// 戻り値は作った override の ID。
+/// 範囲 [start, end) を確定する: `segment_confirmation` を作り、範囲に収まる `activity_segment` 行にも即時に反映する。
+/// 戻り値は作った確定の ID。
 fn confirm_range(
     conn: &rusqlite::Connection,
     start: Millis,
@@ -227,32 +227,32 @@ fn confirm_range(
     d: &Decision,
     now: Millis,
 ) -> Result<String> {
-    let ov = SegmentOverride {
+    let ov = SegmentConfirmation {
         id: new_id(),
         start_at: start,
         end_at: end,
         kind: d.kind,
         task_id: d.task_id.clone(),
-        activity_label: d.activity.clone(),
+        activity: d.activity.clone(),
         created_at: now,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     };
-    overrides::insert(conn, &ov)?;
+    confirmation::insert(conn, &ov)?;
     // task_id が空文字列なら「タスクなし」（外す）。無視（ignored）にする区間はタスクも活動も持たない。
     conn.execute(
         "UPDATE activity_segment SET kind = COALESCE(?3, kind), \
          task_id = CASE WHEN ?3 = 'ignored' OR ?4 = '' THEN NULL ELSE COALESCE(?4, task_id) END, \
-         activity_label = CASE WHEN ?3 = 'ignored' THEN NULL ELSE COALESCE(?5, activity_label) END, \
-         status = 'confirmed', decided_by = 'user', confidence = 1.0 \
+         activity = CASE WHEN ?3 = 'ignored' THEN NULL ELSE COALESCE(?5, activity) END, \
+         status = 'confirmed', decided_by = 'confirmation', confidence = 1.0 \
          WHERE start_at >= ?1 AND end_at <= ?2",
         params![start, end, d.kind, d.task_id, d.activity],
     )?;
     Ok(ov.id)
 }
 
-/// 区間を確定する。`segment_override` を作成し、対象の `activity_segment` 行も即時に反映する。
-pub fn set(ctx: &Ctx, input: &ReviewSetInput) -> Result<ReviewSetResult> {
+/// 区間を確定する。`segment_confirmation` を作成し、対象の `activity_segment` 行も即時に反映する。
+pub fn confirm(ctx: &Ctx, input: &ConfirmInput) -> Result<ConfirmResult> {
     let tz = ctx.tz()?;
     let seg = repo::segment::resolve(ctx.conn, &input.segment)?;
     let d = decision(
@@ -263,7 +263,7 @@ pub fn set(ctx: &Ctx, input: &ReviewSetInput) -> Result<ReviewSetResult> {
         input.rule,
     )?;
     let tx = ctx.conn.unchecked_transaction()?;
-    let override_id = confirm_range(ctx.conn, seg.start_at, seg.end_at, &d, ctx.now())?;
+    let confirmation_id = confirm_range(ctx.conn, seg.start_at, seg.end_at, &d, ctx.now())?;
     let created = if input.rule {
         Some(create_rule(
             ctx,
@@ -277,9 +277,9 @@ pub fn set(ctx: &Ctx, input: &ReviewSetInput) -> Result<ReviewSetResult> {
     tx.commit()?;
 
     let updated = repo::segment::get(ctx.conn, &seg.id)?;
-    Ok(ReviewSetResult {
+    Ok(ConfirmResult {
         segment: segment_view(tz, &updated, &task_titles(ctx.conn)?),
-        override_id,
+        confirmation_id,
         rule: created,
     })
 }
@@ -317,10 +317,10 @@ fn decision(
     })
 }
 
-/// まとめて仕分ける入力。`segments` の全区間に同じ割り当てを適用する。
+/// まとめて確定する入力。`segments` の全区間に同じ割り当てを適用する。
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(default)]
-pub struct ReviewBatchInput {
+pub struct ConfirmBatchInput {
     /// 区間 ID（前方一致）の一覧。
     pub segments: Vec<String>,
     pub task: Option<String>,
@@ -331,17 +331,17 @@ pub struct ReviewBatchInput {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct ReviewBatchResult {
+pub struct ConfirmBatchResult {
     /// 確定した区間の数。
     pub count: usize,
     pub segments: Vec<SegmentView>,
-    pub override_ids: Vec<String>,
+    pub confirmation_ids: Vec<String>,
     /// 生成した（または再利用した）ルール。同じ条件は 1 件にまとめる。
     pub rules: Vec<CreatedRule>,
 }
 
 /// 複数の区間にまとめて同じ割り当てをする。1 つでも解決できなければ何も変更しない。
-pub fn set_many(ctx: &Ctx, input: &ReviewBatchInput) -> Result<ReviewBatchResult> {
+pub fn confirm_many(ctx: &Ctx, input: &ConfirmBatchInput) -> Result<ConfirmBatchResult> {
     if input.segments.is_empty() {
         return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
     }
@@ -367,14 +367,14 @@ fn apply_batch(
     segs: &[crate::model::ActivitySegment],
     d: &Decision,
     with_rule: bool,
-) -> Result<ReviewBatchResult> {
+) -> Result<ConfirmBatchResult> {
     let tz = ctx.tz()?;
     let now = ctx.now();
     let tx = ctx.conn.unchecked_transaction()?;
-    let mut override_ids = Vec::new();
+    let mut confirmation_ids = Vec::new();
     let mut rules: Vec<CreatedRule> = Vec::new();
     for seg in segs {
-        override_ids.push(confirm_range(ctx.conn, seg.start_at, seg.end_at, d, now)?);
+        confirmation_ids.push(confirm_range(ctx.conn, seg.start_at, seg.end_at, d, now)?);
         if with_rule {
             let r = create_rule(ctx, seg, d.task_id.as_deref(), d.activity.as_deref())?;
             if !rules.iter().any(|x| x.id == r.id) {
@@ -388,20 +388,20 @@ fn apply_batch(
         .iter()
         .map(|s| Ok(segment_view(tz, &repo::segment::get(ctx.conn, &s.id)?, &titles)))
         .collect::<Result<Vec<_>>>()?;
-    Ok(ReviewBatchResult {
+    Ok(ConfirmBatchResult {
         count: segments.len(),
         segments,
-        override_ids,
+        confirmation_ids,
         rules,
     })
 }
 
 // ===== 区間の無視 =====
 
-/// 区間（まとめて指定可）を「無視」にする: 種別 `ignored`・タスクなしの override として保存する
-/// （集計・仕分け・レポート・タスクの実績に数えない。再計算でも残る）。生データは変えない。
+/// 区間（まとめて指定可）を「無視」にする: 種別 `ignored`・タスクなしの確定として保存する
+/// （集計・レポート・タスクの実績に数えない。再計算でも残る）。生データは変えない。
 /// 取り消しは [`unignore`]。
-pub fn ignore(ctx: &Ctx, segments: &[String]) -> Result<ReviewBatchResult> {
+pub fn ignore(ctx: &Ctx, segments: &[String]) -> Result<ConfirmBatchResult> {
     if segments.is_empty() {
         return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
     }
@@ -424,15 +424,15 @@ pub fn ignore(ctx: &Ctx, segments: &[String]) -> Result<ReviewBatchResult> {
 pub struct UnignoreResult {
     /// 無視を取り消した区間の数。
     pub count: usize,
-    /// 削除した override の数。
-    pub overrides_removed: usize,
+    /// 削除した確定の数。
+    pub confirmations_removed: usize,
     /// 再計算した範囲。
     pub range: RangeView,
 }
 
-/// 「無視」にした区間（override）を取り消し、その範囲を再計算して元に戻す。
-/// アプリの無視リスト（`collect.ignore_exes`）による無視は override ではないので、`ignore remove` で外す。
-/// `judge` は再計算で使う判定器（無ければルールのみ）。
+/// 「無視」にした区間（確定）を取り消し、その範囲を再計算して元に戻す。
+/// アプリの無視リスト（`collect.ignore_exes`）による無視は確定ではないので、`ignore remove` で外す。
+/// `judge` は再計算で使う自動判定（無ければルールのみ）。
 pub fn unignore(
     ctx: &Ctx,
     segments: &[String],
@@ -457,7 +457,7 @@ pub fn unignore(
     }
     let lo = segs.iter().map(|s| s.start_at).min().unwrap_or(0);
     let hi = segs.iter().map(|s| s.end_at).max().unwrap_or(0);
-    let found: Vec<SegmentOverride> = overrides::list(ctx.conn, crate::timefmt::Range::new(lo, hi))?
+    let found: Vec<SegmentConfirmation> = confirmation::list(ctx.conn, crate::timefmt::Range::new(lo, hi))?
         .into_iter()
         .filter(|o| o.kind == Some(SegmentKind::Ignored))
         .filter(|o| {
@@ -477,22 +477,22 @@ pub fn unignore(
     );
     let ids: Vec<String> = found.iter().map(|o| o.id.clone()).collect();
     let tx = ctx.conn.unchecked_transaction()?;
-    let removed = overrides::delete_many(ctx.conn, &ids)?;
+    let removed = confirmation::delete_many(ctx.conn, &ids)?;
     tx.commit()?;
     let stats = crate::rebuild::rebuild_with_judge(ctx.conn, ctx.cfg, range, ctx.now(), judge)?;
     Ok(UnignoreResult {
         count: segs.len(),
-        overrides_removed: removed,
+        confirmations_removed: removed,
         range: range_view(tz, stats.range),
     })
 }
 
-// ===== 無操作区間のワンタップ仕分け =====
+// ===== 無操作区間のワンタップ分類 =====
 
-/// 無操作（idle）区間につけるワンタップの分類。種別と活動ラベルの組で表し、`segment_override` として保存する
-/// （再計算しても残る）。新しい種別は作らず、既存の `break` / `meeting` / 活動ラベルで表す。
+/// 無操作（idle）区間につけるワンタップの分類。種別と活動の組で表し、`segment_confirmation` として保存する
+/// （再計算しても残る）。新しい種別は作らず、既存の `break` / `meeting` / 活動で表す。
 ///
-/// | 分類 | 種別 | 活動ラベル |
+/// | 分類 | 種別 | 活動 |
 /// |---|---|---|
 /// | 休憩 (`break`) | break | なし |
 /// | 会議 (`meeting`) | meeting | なし |
@@ -534,7 +534,7 @@ impl IdlePreset {
         }
     }
 
-    /// 上書きする (種別, 活動ラベル)。
+    /// 上書きする (種別, 活動)。
     pub fn kind_and_activity(&self) -> (SegmentKind, Option<&'static str>) {
         match self {
             IdlePreset::Break => (SegmentKind::Break, None),
@@ -576,7 +576,7 @@ impl std::str::FromStr for IdlePreset {
 
 /// 無操作区間（まとめて指定可）に分類をつける。無操作（または以前に分類した休憩・会議・考えごと）以外の区間が
 /// 混じっていたら、何も変更せずエラーにする。
-pub fn set_idle(ctx: &Ctx, segments: &[String], preset: IdlePreset) -> Result<ReviewBatchResult> {
+pub fn set_idle(ctx: &Ctx, segments: &[String], preset: IdlePreset) -> Result<ConfirmBatchResult> {
     if segments.is_empty() {
         return Err(Error::InvalidArgument("区間を 1 つ以上指定してください".into()));
     }
@@ -585,7 +585,7 @@ pub fn set_idle(ctx: &Ctx, segments: &[String], preset: IdlePreset) -> Result<Re
         let s = repo::segment::resolve(ctx.conn, p)?;
         let was_idle = match s.kind {
             SegmentKind::Idle | SegmentKind::Break | SegmentKind::Meeting => true,
-            SegmentKind::Work => s.activity_label.as_deref() == Some("考えごと"),
+            SegmentKind::Work => s.activity.as_deref() == Some("考えごと"),
             _ => false,
         };
         if !was_idle {
@@ -601,7 +601,7 @@ pub fn set_idle(ctx: &Ctx, segments: &[String], preset: IdlePreset) -> Result<Re
     apply_batch(ctx, &segs, &preset.decision(), false)
 }
 
-/// 無操作の期間 [start, end) に分類をつける（通知のボタン用）。期間全体への override を保存するので、
+/// 無操作の期間 [start, end) に分類をつける（通知のボタン用）。期間全体への確定を保存するので、
 /// 区間がまだ作られていなくても、次の再計算で反映される。戻り値は即時に反映した区間の数。
 pub fn set_idle_range(
     conn: &rusqlite::Connection,
@@ -680,10 +680,10 @@ fn load_dismissed(conn: &rusqlite::Connection) -> Result<std::collections::BTree
         .unwrap_or_default())
 }
 
-/// ユーザーが確定した区間（decided_by = user）を (条件, タスク) ごとに数え、
-/// `review.rule_suggest_min_count` 回以上のものでルールが未登録・断られていないものを多い順に返す。
+/// ユーザーが確定した区間（decided_by = confirmation）を (条件, タスク) ごとに数え、
+/// `actual.rule_suggest_min_count` 回以上のものでルールが未登録・断られていないものを多い順に返す。
 pub fn suggest_rules(ctx: &Ctx) -> Result<Vec<RuleSuggestion>> {
-    let min = ctx.cfg.review.rule_suggest_min_count;
+    let min = ctx.cfg.actual.rule_suggest_min_count;
     if min == 0 {
         return Ok(vec![]);
     }
@@ -693,12 +693,12 @@ pub fn suggest_rules(ctx: &Ctx) -> Result<Vec<RuleSuggestion>> {
     let titles = task_titles(ctx.conn)?;
     let mut counts: std::collections::BTreeMap<String, (RuleSuggestionRef, u32)> = Default::default();
     for s in repo::segment::list_by_status(ctx.conn, range, SegmentStatus::Confirmed)? {
-        let (Some(tid), Some("user")) = (s.task_id.as_deref(), s.decided_by.as_deref()) else {
+        let (Some(tid), Some("confirmation")) = (s.task_id.as_deref(), s.decided_by.as_deref()) else {
             continue;
         };
         if !matches!(
             s.kind,
-            SegmentKind::Work | SegmentKind::AgentDialog | SegmentKind::AgentWatch
+            SegmentKind::Work | SegmentKind::AgentDialog | SegmentKind::AgentWait
         ) {
             continue;
         }
@@ -740,7 +740,7 @@ pub fn suggest_rules(ctx: &Ctx) -> Result<Vec<RuleSuggestion>> {
     Ok(out)
 }
 
-/// 提案を受け入れ、タスク帰属ルールを追加する（同じ内容があれば再利用）。
+/// 提案を受け入れ、タスクタスクの割り当てルールを追加する（同じ内容があれば再利用）。
 pub fn accept_suggestion(ctx: &Ctx, r: &RuleSuggestionRef) -> Result<CreatedRule> {
     let task = repo::task::resolve(ctx.conn, &r.task_id)?;
     rule::validate_pattern(&r.pattern, r.pattern_type)?;
@@ -748,14 +748,14 @@ pub fn accept_suggestion(ctx: &Ctx, r: &RuleSuggestionRef) -> Result<CreatedRule
     Ok(created_task_rule(rule, reused))
 }
 
-/// 提案を断る。同じ組み合わせは `review.rule_suggest_snooze_days` 日のあいだ提案しない。
+/// 提案を断る。同じ組み合わせは `actual.rule_suggest_snooze_days` 日のあいだ提案しない。
 pub fn dismiss_suggestion(ctx: &Ctx, r: &RuleSuggestionRef) -> Result<()> {
     let now = ctx.now();
     let mut map = load_dismissed(ctx.conn)?;
     map.retain(|_, until| *until > now);
     map.insert(
         r.key(),
-        now + ctx.cfg.review.rule_suggest_snooze_days as Millis * 86_400_000,
+        now + ctx.cfg.actual.rule_suggest_snooze_days as Millis * 86_400_000,
     );
     super::update::put(
         ctx.conn,
@@ -838,9 +838,9 @@ mod tests {
         assert_eq!(l.count, 1);
         assert_eq!(l.hidden_short, 0);
         let t = mk_task(&ctx);
-        let r = set(
+        let r = confirm(
             &ctx,
-            &ReviewSetInput {
+            &ConfirmInput {
                 segment: "SEG1".into(),
                 task: Some(t.clone()),
                 activity: Some("コーディング".into()),
@@ -851,13 +851,13 @@ mod tests {
         .unwrap();
         assert_eq!(r.segment.status, SegmentStatus::Confirmed);
         assert_eq!(r.segment.task_id.as_deref(), Some(t.as_str()));
-        assert_eq!(r.segment.decided_by.as_deref(), Some("user"));
+        assert_eq!(r.segment.decided_by.as_deref(), Some("confirmation"));
         let rule = r.rule.unwrap();
         // agent_session_id なし -> title の contains
         assert_eq!(rule.field, MatchField::Title);
         assert_eq!(rule.pattern, "main.rs");
         assert_eq!(list(&ctx, &RangeArgs::default()).unwrap().count, 0);
-        let ovs = overrides::list(ctx.conn, crate::timefmt::Range::new(d, d + 900_000)).unwrap();
+        let ovs = confirmation::list(ctx.conn, crate::timefmt::Range::new(d, d + 900_000)).unwrap();
         assert_eq!(ovs.len(), 1);
         assert_eq!(ovs[0].task_id.as_deref(), Some(t.as_str()));
     }
@@ -890,9 +890,9 @@ mod tests {
             )
             .unwrap();
         let t = mk_task(&ctx);
-        let r = set(
+        let r = confirm(
             &ctx,
-            &ReviewSetInput {
+            &ConfirmInput {
                 segment: "SEG1".into(),
                 task: Some(t),
                 rule: true,
@@ -940,9 +940,9 @@ mod tests {
     fn rule_cwd_is_glob_escaped() {
         let env = Env::new();
         let (t, seg) = agent_seg(&env, Some(r"C:\src\a[1]{x}?*"));
-        let r = set(
+        let r = confirm(
             &env.ctx(),
-            &ReviewSetInput {
+            &ConfirmInput {
                 segment: seg,
                 task: Some(t),
                 rule: true,
@@ -961,9 +961,9 @@ mod tests {
     fn agent_segment_without_cwd_is_error() {
         let env = Env::new();
         let (t, seg) = agent_seg(&env, None);
-        let e = set(
+        let e = confirm(
             &env.ctx(),
-            &ReviewSetInput {
+            &ConfirmInput {
                 segment: seg,
                 task: Some(t),
                 rule: true,
@@ -988,18 +988,18 @@ mod tests {
             None,
             SegmentStatus::NeedsReview,
         );
-        let e = set(
+        let e = confirm(
             &ctx,
-            &ReviewSetInput {
+            &ConfirmInput {
                 segment: "SEG1".into(),
                 ..Default::default()
             },
         )
         .unwrap_err();
         assert_eq!(e.exit_code(), 2);
-        let e = set(
+        let e = confirm(
             &ctx,
-            &ReviewSetInput {
+            &ConfirmInput {
                 segment: "NOPE".into(),
                 kind: Some(SegmentKind::Break),
                 ..Default::default()
@@ -1009,14 +1009,14 @@ mod tests {
         assert_eq!(e.exit_code(), 3);
     }
 
-    // ===== 無操作のワンタップ仕分け =====
+    // ===== 無操作のワンタップ分類 =====
 
     fn seg_row(
         conn: &rusqlite::Connection,
         id: &str,
     ) -> (SegmentKind, Option<String>, SegmentStatus, Option<String>) {
         conn.query_row(
-            "SELECT kind, activity_label, status, decided_by FROM activity_segment WHERE id = ?1",
+            "SELECT kind, activity, status, decided_by FROM activity_segment WHERE id = ?1",
             [id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
@@ -1038,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn set_idle_saves_override_for_each_preset() {
+    fn set_idle_saves_confirmation_for_each_preset() {
         let env = Env::new();
         let ctx = env.ctx();
         let d = env.day_start();
@@ -1065,18 +1065,15 @@ mod tests {
             let (k, l, st, by) = seg_row(ctx.conn, &id);
             assert_eq!(
                 (k, l.as_deref(), st, by.as_deref()),
-                (kind, label, SegmentStatus::Confirmed, Some("user"))
+                (kind, label, SegmentStatus::Confirmed, Some("confirmation"))
             );
-            // 再計算で残る override が、区間の範囲に保存されている。
-            let ovs = overrides::list(ctx.conn, crate::timefmt::Range::new(s, s + 600_000)).unwrap();
+            // 再計算で残る確定が、区間の範囲に保存されている。
+            let ovs = confirmation::list(ctx.conn, crate::timefmt::Range::new(s, s + 600_000)).unwrap();
             assert_eq!(ovs.len(), 1);
-            assert_eq!(
-                (ovs[0].kind, ovs[0].activity_label.as_deref()),
-                (Some(kind), label)
-            );
+            assert_eq!((ovs[0].kind, ovs[0].activity.as_deref()), (Some(kind), label));
             assert_eq!(ovs[0].task_id, None);
         }
-        // 仕分け済みの休憩は別の分類へ付け替えられる。
+        // 確定済みの休憩は別の分類へ付け替えられる。
         set_idle(&ctx, &["IDLE0".into()], IdlePreset::Away).unwrap();
         assert_eq!(seg_row(ctx.conn, "IDLE0").1.as_deref(), Some("離席"));
     }
@@ -1108,17 +1105,17 @@ mod tests {
         assert_eq!(e.exit_code(), 2);
         assert_eq!(seg_row(ctx.conn, "I1").2, SegmentStatus::NeedsReview);
         assert!(
-            overrides::list(ctx.conn, crate::timefmt::Range::new(d, d + 900_000))
+            confirmation::list(ctx.conn, crate::timefmt::Range::new(d, d + 900_000))
                 .unwrap()
                 .is_empty()
         );
         assert_eq!(set_idle(&ctx, &[], IdlePreset::Break).unwrap_err().exit_code(), 2);
     }
 
-    // ===== まとめて仕分け =====
+    // ===== まとめて確定 =====
 
     #[test]
-    fn set_many_assigns_same_task_to_all_and_dedups_rule() {
+    fn confirm_many_assigns_same_task_to_all_and_dedups_rule() {
         let env = Env::new();
         let ctx = env.ctx();
         let d = env.day_start();
@@ -1134,9 +1131,9 @@ mod tests {
             );
         }
         let t = mk_task(&ctx);
-        let r = set_many(
+        let r = confirm_many(
             &ctx,
-            &ReviewBatchInput {
+            &ConfirmBatchInput {
                 segments: vec!["S0".into(), "S1".into(), "S2".into(), "S1".into()],
                 task: Some(t.clone()),
                 activity: Some("開発".into()),
@@ -1145,11 +1142,11 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!((r.count, r.override_ids.len()), (3, 3));
+        assert_eq!((r.count, r.confirmation_ids.len()), (3, 3));
         for i in 0..3 {
             let v = &r.segments[i];
             assert_eq!(
-                (v.status, v.task_id.as_deref(), v.activity_label.as_deref()),
+                (v.status, v.task_id.as_deref(), v.activity.as_deref()),
                 (SegmentStatus::Confirmed, Some(t.as_str()), Some("開発"))
             );
         }
@@ -1159,7 +1156,7 @@ mod tests {
     }
 
     #[test]
-    fn set_many_is_all_or_nothing() {
+    fn confirm_many_is_all_or_nothing() {
         let env = Env::new();
         let ctx = env.ctx();
         let d = env.day_start();
@@ -1172,9 +1169,9 @@ mod tests {
             None,
             SegmentStatus::NeedsReview,
         );
-        let e = set_many(
+        let e = confirm_many(
             &ctx,
-            &ReviewBatchInput {
+            &ConfirmBatchInput {
                 segments: vec!["S0".into(), "NOPE".into()],
                 kind: Some(SegmentKind::Break),
                 ..Default::default()
@@ -1183,7 +1180,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(e.exit_code(), 3);
         assert_eq!(seg_row(ctx.conn, "S0").2, SegmentStatus::NeedsReview);
-        let e = set_many(&ctx, &ReviewBatchInput::default()).unwrap_err();
+        let e = confirm_many(&ctx, &ConfirmBatchInput::default()).unwrap_err();
         assert_eq!(e.exit_code(), 2);
     }
 
@@ -1206,7 +1203,7 @@ mod tests {
             );
             ctx.conn
                 .execute(
-                    "UPDATE activity_segment SET decided_by = 'user' WHERE id = ?1",
+                    "UPDATE activity_segment SET decided_by = 'confirmation' WHERE id = ?1",
                     [&id],
                 )
                 .unwrap();
@@ -1236,7 +1233,7 @@ mod tests {
         let mut env = Env::new();
         let t = mk_task(&env.ctx());
         confirm_n(&env, &t, 3, "A");
-        // 自動判定（decided_by が user でない）は数えない
+        // 自動判定（decided_by が confirmation でない）は数えない
         env.conn
             .execute(
                 "UPDATE activity_segment SET decided_by = 'rule' WHERE id = 'A0'",
@@ -1246,12 +1243,12 @@ mod tests {
         assert!(suggest_rules(&env.ctx()).unwrap().is_empty());
         env.conn
             .execute(
-                "UPDATE activity_segment SET decided_by = 'user' WHERE id = 'A0'",
+                "UPDATE activity_segment SET decided_by = 'confirmation' WHERE id = 'A0'",
                 [],
             )
             .unwrap();
         assert_eq!(suggest_rules(&env.ctx()).unwrap().len(), 1);
-        env.cfg.review.rule_suggest_min_count = 0;
+        env.cfg.actual.rule_suggest_min_count = 0;
         assert!(suggest_rules(&env.ctx()).unwrap().is_empty());
     }
 
@@ -1265,7 +1262,7 @@ mod tests {
         let r = accept_suggestion(&ctx, &s.rule).unwrap();
         assert_eq!(
             (r.rule_type, r.reused, r.pattern.as_str()),
-            ("task_match_rule", false, "Code.exe")
+            ("task_assign_rule", false, "Code.exe")
         );
         assert!(suggest_rules(&ctx).unwrap().is_empty());
         assert!(accept_suggestion(&ctx, &s.rule).unwrap().reused);
@@ -1327,7 +1324,7 @@ mod ignore_tests {
         wspan(ctx.conn, "B", d + 30 * MIN, d + 40 * MIN, "notepad.exe");
         wspan(ctx.conn, "C", d + 40 * MIN, d + 70 * MIN, "devenv.exe");
         let range = Range::new(d, d + 120 * MIN);
-        // devenv は T に帰属させ、notepad は別の区間として残す。
+        // devenv は T に割り当て、notepad は別の区間として残す。
         let t = crate::service::task::add(
             &ctx,
             &crate::service::task::TaskInput {
@@ -1366,7 +1363,7 @@ mod ignore_tests {
 
         // 取り消し
         let u = unignore(&ctx, &ign, None).unwrap();
-        assert_eq!((u.count, u.overrides_removed), (1, 1));
+        assert_eq!((u.count, u.confirmations_removed), (1, 1));
         assert_eq!(total(&ctx), 70 * MIN);
         // 生データは変わらない
         let n: i64 = ctx
@@ -1394,7 +1391,7 @@ mod ignore_tests {
             unignore(&ctx, &["WWWW".into()], None),
             Err(Error::InvalidArgument(_))
         ));
-        // 無視リスト由来の無視（override なし）は取り消せない
+        // 無視リスト由来の無視（確定なし）は取り消せない
         insert_segment(
             ctx.conn,
             "IIII",

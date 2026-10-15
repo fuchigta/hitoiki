@@ -2,16 +2,16 @@
 import type { SegmentKind, SegmentView } from "./api";
 
 /** 状態の絞り込み。`review` は要確認、`untasked` はタスクなし、`all` はすべて。 */
-export type LogStatus = "review" | "untasked" | "all";
+export type ActualStatus = "review" | "untasked" | "all";
 
-export const LOG_STATUSES: LogStatus[] = ["review", "untasked", "all"];
+export const ACTUAL_STATUSES: ActualStatus[] = ["review", "untasked", "all"];
 
 /** `?status=` の値。不正・未指定は要確認。 */
-export function statusFromParam(v: string | null | undefined): LogStatus {
-  return LOG_STATUSES.find((s) => s === v) ?? "review";
+export function statusFromParam(v: string | null | undefined): ActualStatus {
+  return ACTUAL_STATUSES.find((s) => s === v) ?? "review";
 }
 
-const WORK_KINDS: SegmentKind[] = ["work", "agent_dialog", "agent_watch"];
+const WORK_KINDS: SegmentKind[] = ["work", "agent_dialog", "agent_wait"];
 
 /** 「タスクなし」の対象: タスクが付いていない作業・エージェントの区間。 */
 export function isUntasked(s: Pick<SegmentView, "task_id" | "kind">): boolean {
@@ -19,10 +19,10 @@ export function isUntasked(s: Pick<SegmentView, "task_id" | "kind">): boolean {
 }
 
 /**
- * `api.log` の区間を、状態とタスクで絞り込む（要確認は別の API なのでここでは触らない）。
+ * `api.actualList` の区間を、状態とタスクで絞り込む（要確認は別の API なのでここでは触らない）。
  * 無視（ignored）は「すべて」でも出さない。
  */
-export function filterSegments(segs: SegmentView[], status: LogStatus, taskId?: string | null): SegmentView[] {
+export function filterSegments(segs: SegmentView[], status: ActualStatus, taskId?: string | null): SegmentView[] {
   return segs.filter((s) => {
     if (s.kind === "ignored") return false;
     if (taskId && s.task_id !== taskId) return false;

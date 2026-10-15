@@ -206,7 +206,7 @@ describe("digestSegments", () => {
       { start_at: 0, end_at: 10 * MIN, kind: "work", status: "needs_review" },
       { start_at: 0, end_at: 5 * MIN, kind: "agent_dialog", status: "auto" },
       { start_at: 0, end_at: 20 * MIN, kind: "agent_dialog", status: "needs_review" },
-      { start_at: 0, end_at: 30 * MIN, kind: "agent_watch", status: "auto" },
+      { start_at: 0, end_at: 30 * MIN, kind: "agent_wait", status: "auto" },
     ]);
     expect(d).toEqual({ reviewCount: 2, reviewMs: 30 * MIN, agentMs: 25 * MIN });
     expect(digestSegments([])).toEqual({ reviewCount: 0, reviewMs: 0, agentMs: 0 });

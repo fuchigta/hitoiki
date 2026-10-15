@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { api, type IdlePreset, type SegmentKind, type SegmentView, type TaskView } from "./api";
 import { ErrorBox, Section } from "./components";
-import { totalMs } from "./log-util";
+import { totalMs } from "./actual-util";
 import { KIND_LABEL, KIND_ORDER, fmtDateTime, fmtDur, fmtTime, useAction } from "./lib";
 import { TaskPicker } from "./task-picker";
 import { OverflowMenu, type MenuItem } from "./ui/parts";
@@ -36,7 +36,7 @@ export function SegmentPanel({ segs, tasks, onDone, onTasksChanged }: Props) {
   const [task, setTask] = useState(many ? "" : (one.task_id ?? ""));
   const [created, setCreated] = useState<TaskView[]>([]);
   const [kind, setKind] = useState<SegmentKind | "">("");
-  const [activity, setActivity] = useState(many ? "" : (one.activity_label ?? ""));
+  const [activity, setActivity] = useState(many ? "" : (one.activity ?? ""));
   const [rule, setRule] = useState(false);
   const act = useAction();
 
@@ -44,18 +44,18 @@ export function SegmentPanel({ segs, tasks, onDone, onTasksChanged }: Props) {
 
   const submit = async () => {
     const r = await act.run(async () => {
-      await (many ? api.reviewSetMany({ segments: ids, task: task || undefined, kind: kind || undefined, activity: activity.trim() || undefined, rule }) : api.reviewSet({ segment: one.id, task: task || undefined, kind: kind || undefined, activity: activity.trim() || undefined, rule }));
+      await (many ? api.actualConfirmMany({ segments: ids, task: task || undefined, kind: kind || undefined, activity: activity.trim() || undefined, rule }) : api.actualConfirm({ segment: one.id, task: task || undefined, kind: kind || undefined, activity: activity.trim() || undefined, rule }));
       return true;
     });
     if (r) onDone(ids);
   };
 
   const asIdle = async (preset: IdlePreset) => {
-    if (await act.run(() => api.reviewIdle(ids, preset))) onDone(ids);
+    if (await act.run(() => api.actualIdle(ids, preset))) onDone(ids);
   };
 
   const ignoreThese = async () => {
-    if (await act.run(() => api.reviewIgnore(ids))) onDone(ids);
+    if (await act.run(() => api.actualIgnore(ids))) onDone(ids);
   };
 
   const ignoreApp = async () => {
@@ -67,7 +67,7 @@ export function SegmentPanel({ segs, tasks, onDone, onTasksChanged }: Props) {
     const title = (one.title || one.exe_name || "割り込み").slice(0, 60);
     const r = await act.run(async () => {
       const t = await api.taskAdd({ title, interrupt: true });
-      return api.reviewSet({ segment: one.id, task: t.id, rule });
+      return api.actualConfirm({ segment: one.id, task: t.id, rule });
     });
     if (r) {
       onTasksChanged?.();
@@ -96,7 +96,7 @@ export function SegmentPanel({ segs, tasks, onDone, onTasksChanged }: Props) {
           {fmtDateTime(one.start_at)} – {fmtTime(one.end_at)} ・ {fmtDur(one.duration_ms)} ・ {KIND_LABEL[one.kind]}
           {one.confidence != null ? ` ・ 確信度 ${Math.round(one.confidence * 100)}%` : ""}
           {one.status === "needs_review" && <span class="tag">要確認</span>}
-          {one.offline && <span class="tag">PC 外</span>}
+          {one.off_pc && <span class="tag">PC 外</span>}
         </p>
       )}
       {idleOnly && (

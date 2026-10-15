@@ -53,7 +53,7 @@ impl DoctorReport {
 
 #[derive(Debug, Clone, Default)]
 pub struct DoctorOptions {
-    /// true でカレンダー取得・判定器への疎通を実際に試す（`--network`）。
+    /// true でカレンダー取得・自動判定への疎通を実際に試す（`--network`）。
     pub network: bool,
     /// 常駐プロセスへの Ping 先。None なら現在のユーザーの既定名。
     pub pipe_name: Option<PipeName>,
@@ -191,7 +191,7 @@ fn check_collect(db: Option<&Connection>, opts: &DoctorOptions) -> DoctorItem {
                     status = Status::Warn;
                 }
             }
-            if let Some((msg, warn)) = gap_summary(c, now) {
+            if let Some((msg, warn)) = uncollected_summary(c, now) {
                 parts.push(msg);
                 if warn {
                     status = Status::Warn;
@@ -216,27 +216,27 @@ fn check_collect(db: Option<&Connection>, opts: &DoctorOptions) -> DoctorItem {
 /// 診断で見る期間。
 const DAY_MS: Millis = 24 * 60 * 60 * 1000;
 /// これ以上の記録停止があれば警告にする（再起動や短い中断では警告しない）。
-const GAP_WARN_MS: Millis = 10 * 60 * 1000;
+const UNCOLLECTED_WARN_MS: Millis = 10 * 60 * 1000;
 
 /// 直近 24 時間の記録停止（収集器が動いていなかった時間帯）の要約。メッセージと、警告にするか。
-fn gap_summary(conn: &Connection, now: Millis) -> Option<(String, bool)> {
+fn uncollected_summary(conn: &Connection, now: Millis) -> Option<(String, bool)> {
     use hitoiki_core::recording;
     let range = hitoiki_core::timefmt::Range::new(now - DAY_MS, now);
-    let gaps = recording::gaps(conn, range, now).ok()?;
-    let total: Millis = gaps.iter().map(|g| g.duration_ms()).sum();
+    let uncollected = recording::uncollected(conn, range, now).ok()?;
+    let total: Millis = uncollected.iter().map(|g| g.duration_ms()).sum();
     if total == 0 {
         return Some(("直近 24 時間の記録停止なし".into(), false));
     }
-    let longest = gaps.iter().max_by_key(|g| g.duration_ms())?;
+    let longest = uncollected.iter().max_by_key(|g| g.duration_ms())?;
     Some((
         format!(
-            "直近 24 時間に {} 分の記録停止（{} 回。最長 {} 分、{}）。PC を終了していた時間を含みます。詳しくは `hitoiki log` の「記録なし」とログを参照",
+            "直近 24 時間に {} 分の記録停止（{} 回。最長 {} 分、{}）。PC を終了していた時間を含みます。詳しくは `hitoiki actual list` の「記録なし」とログを参照",
             total / 60_000,
-            gaps.len(),
+            uncollected.len(),
             longest.duration_ms() / 60_000,
             age_text(now, longest.start_at).replace("前", "前から"),
         ),
-        total >= GAP_WARN_MS,
+        total >= UNCOLLECTED_WARN_MS,
     ))
 }
 
@@ -431,7 +431,7 @@ pub(crate) fn find_in_path(cmd: &str) -> Option<PathBuf> {
 
 fn check_judge(cfg: &Config, opts: &DoctorOptions) -> DoctorItem {
     if !cfg.judge.enabled {
-        return item("judge", Status::Ok, "判定器は無効です");
+        return item("judge", Status::Ok, "自動判定は無効です");
     }
     let name = &cfg.judge.default;
     let Some(backend) = cfg.judge.backends.get(name) else {
@@ -562,18 +562,18 @@ api_key_env = "HITOIKI_TEST_NO_SUCH_KEY_VAR"
     }
 
     #[test]
-    fn gap_summary_reports_stopped_minutes() {
+    fn uncollected_summary_reports_stopped_minutes() {
         use hitoiki_core::repo::collect as repo;
         let c = hitoiki_core::db::open_in_memory().unwrap();
         let now = 10 * 60 * 60_000;
         // 稼働記録なし
-        assert!(gap_summary(&c, now).map(|(_, w)| !w).unwrap_or(true));
+        assert!(uncollected_summary(&c, now).map(|(_, w)| !w).unwrap_or(true));
         // 5 時間前〜3 時間前に動いて停止、その後 2 時間前から現在まで稼働
         repo::begin_run(&c, now - 5 * 3_600_000).unwrap();
         repo::touch_run(&c, now - 3 * 3_600_000, true).unwrap();
         repo::begin_run(&c, now - 2 * 3_600_000).unwrap();
         repo::touch_run(&c, now - 5_000, false).unwrap();
-        let (msg, warn) = gap_summary(&c, now).unwrap();
+        let (msg, warn) = uncollected_summary(&c, now).unwrap();
         assert!(warn, "{msg}");
         assert!(msg.contains("60 分の記録停止"), "{msg}");
     }

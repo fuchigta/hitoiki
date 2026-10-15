@@ -1,4 +1,4 @@
-//! OpenAI 互換 Chat Completions 判定器（docs/dev/architecture.md「判定器」）。LiteLLM プロキシ（AIGW）を想定。
+//! OpenAI 互換 Chat Completions 自動判定（docs/dev/architecture.md「自動判定」）。LiteLLM プロキシ（AIGW）を想定。
 //!
 //! 構造化出力（`json_schema`）で問い合わせ、サーバが 400/422 で拒否したら
 //! `json_object` モード（スキーマはプロンプトに埋め込む）に自動でフォールバックする。
@@ -146,7 +146,7 @@ impl Judge for OpenAiCompatibleJudge {
             match self.ask_chunk(chunk, questions) {
                 Ok(rs) => out.extend(rs),
                 Err(e) => {
-                    tracing::warn!("判定器 {} のバッチ問い合わせに失敗: {e:#}", self.name);
+                    tracing::warn!("判定の接続先 {} のバッチ問い合わせに失敗: {e:#}", self.name);
                     out.extend(chunk.iter().map(|_| None));
                 }
             }

@@ -176,7 +176,7 @@ function DailyStep() {
           <a href="#/today">今日</a>: タイムラインで一日の流れを確認します。
         </li>
         <li>
-          <a href="#/log?status=review">実績</a>: 要確認の区間を、タスクなどに確定します。
+          <a href="#/actual?status=review">実績</a>: 要確認の区間を、タスクなどに確定します。
         </li>
         <li>通知に 1 タップで答えると、記録の精度が上がります。</li>
         <li>

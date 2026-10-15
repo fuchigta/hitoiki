@@ -15,7 +15,7 @@ export function hasExe(list: string[], exe: string): boolean {
 
 /** 付け替えの候補のうち、チェックされた（記録なしを除く）区間の ID。 */
 export function ignorableIds(cands: CorrectionCandidate[]): string[] {
-  return cands.filter((c) => c.checked && !c.gap).map((c) => c.id);
+  return cands.filter((c) => c.checked && !c.uncollected).map((c) => c.id);
 }
 
 /** 合計時間の表記（1 分未満は秒、それ以上は小数 1 桁の分）。 */

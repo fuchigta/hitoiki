@@ -19,9 +19,9 @@ export interface CorrectionRec {
   end_at: number;
   task_id: string | null;
   kind: T.SegmentKind | null;
-  activity_label: string | null;
+  activity: string | null;
   total_ms: number;
-  offline_ms: number;
+  off_pc_ms: number;
   segment_count: number;
   created_at: number;
   /** 取り消し用: 変更前の区間の状態。 */
@@ -33,7 +33,7 @@ export interface State {
   now: number;
   seq: number;
   tasks: TaskRec[];
-  taskRules: T.TaskMatchRule[];
+  taskRules: T.TaskAssignRule[];
   doingSince: Record<string, number>;
   previousDoing: string | null;
   segments: SegRec[];
@@ -97,7 +97,7 @@ function baseConfig(): Record<string, unknown> {
       important_stale_days: 3,
       kr_idle_weekday: 3,
     },
-    review: { trust_doing: false, auto_break_locked_min: 10, min_sec: 60, snap_sec: 120 },
+    actual: { trust_doing: false, auto_break_locked_min: 10, min_sec: 60, snap_sec: 120 },
     collect: { ignore_exes: DEFAULT_IGNORE_EXES },
     calendar: { sources: [] as unknown[] },
     activity: { labels: [] as string[] },
@@ -311,7 +311,7 @@ function genDay(s: State, dayOffset: number, r: () => number, opts: { reviewEver
       const p = r();
       if (p < 0.5) chunk = { min: 20 + Math.floor(r() * 50), kind: "work", exe: r() < 0.6 ? "Code.exe" : "chrome.exe", task: "pick" };
       else if (p < 0.65) chunk = { min: 15 + Math.floor(r() * 25), kind: "agent_dialog", exe: "WindowsTerminal.exe", title: "claude", task: "pick", agent: true };
-      else if (p < 0.75) chunk = { min: 10 + Math.floor(r() * 15), kind: "agent_watch", exe: "WindowsTerminal.exe", title: "claude", task: "pick", agent: true };
+      else if (p < 0.75) chunk = { min: 10 + Math.floor(r() * 15), kind: "agent_wait", exe: "WindowsTerminal.exe", title: "claude", task: "pick", agent: true };
       else if (p < 0.85) chunk = { min: 15 + Math.floor(r() * 30), kind: "meeting", exe: "Teams.exe", task: "none" };
       else if (p < 0.92) chunk = { min: 5 + Math.floor(r() * 10), kind: "idle", task: "none" };
       else chunk = { min: 8 + Math.floor(r() * 15), kind: "work", exe: exes[Math.floor(r() * exes.length)], task: "none", status: "needs_review" };
@@ -331,7 +331,7 @@ function genDay(s: State, dayOffset: number, r: () => number, opts: { reviewEver
       end_at: segEnd,
       kind: chunk.kind,
       task_id: needs ? null : task?.id ?? null,
-      activity_label: chunk.kind === "meeting" ? "会議" : chunk.kind === "break" ? "休憩" : null,
+      activity: chunk.kind === "meeting" ? "会議" : chunk.kind === "break" ? "休憩" : null,
       confidence: needs ? 0.35 : task ? 0.7 + r() * 0.3 : null,
       decided_by: needs ? "heuristic" : task ? (r() < 0.5 ? "rule" : "doing") : "kind",
       status: needs ? "needs_review" : task && r() < 0.3 ? "confirmed" : "auto",
@@ -384,8 +384,8 @@ function seedCommon(s: State, busy: boolean) {
     { id: nid(s, "rule"), task_id: t2.id, field: "cwd", pattern: "^C:\\\\src\\\\auth-design", pattern_type: "regex", priority: 5, enabled: false },
   );
   s.activityRules.push(
-    { id: nid(s, "arule"), field: "exe", pattern: "Teams.exe", pattern_type: "contains", activity_label: "会議", priority: 5, enabled: true },
-    { id: nid(s, "arule"), field: "title", pattern: "*Pull request*", pattern_type: "glob", activity_label: "レビュー", priority: 3, enabled: true },
+    { id: nid(s, "arule"), field: "exe", pattern: "Teams.exe", pattern_type: "contains", activity: "会議", priority: 5, enabled: true },
+    { id: nid(s, "arule"), field: "title", pattern: "*Pull request*", pattern_type: "glob", activity: "レビュー", priority: 3, enabled: true },
   );
   seedTemplates(s, [t1, t2, t3, t4]);
 
@@ -393,7 +393,7 @@ function seedCommon(s: State, busy: boolean) {
   const picks = [t1, t2, t3, t4, t8];
   const r = rng(20261013);
   for (let d = -100; d < 0; d++) genDay(s, d, r, { reviewEvery: busy && d >= -9 ? 3 : 0, picks });
-  // 先週・今週に確認待ちを少し入れる（default でも「仕分け」に数件出る）。
+  // 先週・今週に確認待ちを少し入れる（default でも「実績」に数件出る）。
   if (!busy) {
     const wk = s.segments.filter((x) => x.start_at >= at(-9, "00:00") && x.start_at < at(-1, "00:00") && x.status === "auto" && x.kind === "work");
     for (const x of wk.slice(0, 5)) {
@@ -409,7 +409,7 @@ function seedCommon(s: State, busy: boolean) {
     end_at: at(0, end),
     kind: "work",
     task_id: null,
-    activity_label: null,
+    activity: null,
     confidence: 0.9,
     decided_by: "doing",
     status: "auto",
@@ -419,8 +419,8 @@ function seedCommon(s: State, busy: boolean) {
     ...o,
   });
   s.segments.push(
-    seg("09:00", "09:40", { task_id: t1.id, activity_label: "設計", exe_name: "Code.exe", title: "estimate.md - hitoiki - Visual Studio Code", status: "confirmed", decided_by: "user" }),
-    seg("09:40", "09:55", { kind: "meeting", activity_label: "会議", confidence: 1, decided_by: "rule", exe_name: "Teams.exe", title: "朝会 | Microsoft Teams" }),
+    seg("09:00", "09:40", { task_id: t1.id, activity: "設計", exe_name: "Code.exe", title: "estimate.md - hitoiki - Visual Studio Code", status: "confirmed", decided_by: "confirmation" }),
+    seg("09:40", "09:55", { kind: "meeting", activity: "会議", confidence: 1, decided_by: "rule", exe_name: "Teams.exe", title: "朝会 | Microsoft Teams" }),
     seg("09:55", "10:10", { task_id: t1.id, exe_name: "EXCEL.EXE", title: "見積もり_v3.xlsx - Excel", decided_by: "rule" }),
     seg("10:10", "10:18", { status: "needs_review", confidence: 0.35, decided_by: "heuristic", exe_name: "chrome.exe", title: "Rust の所有権 - The Rust Programming Language" }),
     seg("10:18", "10:30", { kind: "agent_dialog", task_id: t1.id, exe_name: "WindowsTerminal.exe", title: "claude", agent_session_id: "sess-today-1", decided_by: "doing" }),

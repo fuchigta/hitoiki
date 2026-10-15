@@ -201,7 +201,7 @@ Conventional Commits 形式で書きます。1 行目は次の形です。
 例:
 
 ```
-feat(core): 帰属ルールに git_branch フィールドを追加
+feat(core): タスクの割り当てルールに git_branch フィールドを追加
 fix(collect-win): ロック解除直後に区間が欠ける問題を修正
 docs: 利用者向け文書を docs/user に分割
 ```

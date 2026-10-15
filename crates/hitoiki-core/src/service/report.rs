@@ -75,7 +75,7 @@ pub struct ReportRow {
     /// `total_ms` に対する割合（0〜1）。
     pub ratio: f64,
     pub segments: usize,
-    /// 内訳（agent の dialog / watch など）。
+    /// 内訳（agent の dialog / wait など）。
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub breakdown: BTreeMap<String, i64>,
 }
@@ -213,7 +213,7 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
                 (Some(id), None) => (Some(id.clone()), id.clone()),
                 _ => (None, NONE_LABEL.into()),
             }],
-            ReportBy::Activity => vec![match &s.activity_label {
+            ReportBy::Activity => vec![match &s.activity {
                 Some(l) if !l.is_empty() => (Some(l.clone()), l.clone()),
                 _ => (None, NONE_LABEL.into()),
             }],
@@ -240,7 +240,7 @@ fn aggregate(conn: &Connection, range: Range, tz: chrono_tz::Tz, input: &ReportI
                 _ => vec![(None, NONE_LABEL.into())],
             },
             ReportBy::Agent => {
-                if !matches!(s.kind, SegmentKind::AgentDialog | SegmentKind::AgentWatch) {
+                if !matches!(s.kind, SegmentKind::AgentDialog | SegmentKind::AgentWait) {
                     continue;
                 }
                 breakdown_key = Some(s.kind.to_string());

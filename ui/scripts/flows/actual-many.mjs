@@ -4,9 +4,9 @@ import { mockState, until } from "../lib/flow.mjs";
 const pendingCount = (page) => mockState(page, (s) => s.segments.filter((x) => x.status === "needs_review").length);
 
 export default {
-  name: "log-many",
+  name: "actual-many",
   scenario: "default",
-  screen: "log",
+  screen: "actual",
   async run({ page }) {
     const rows = page.getByRole("list", { name: "区間" }).locator("li.object-row");
     const before = await rows.count();
@@ -27,7 +27,7 @@ export default {
     if ((await pendingCount(page)) !== pendingBefore - 2) throw new Error("モックの要確認の件数が 2 件減っていません。");
     const assigned = await mockState(page, (s) => {
       const t = s.tasks.find((x) => x.title === "Rust 所有権の復習");
-      return s.segments.filter((x) => x.task_id === t.id && x.decided_by === "user").length;
+      return s.segments.filter((x) => x.task_id === t.id && x.decided_by === "confirmation").length;
     });
     if (assigned < 2) throw new Error("確定した 2 件にタスクが付いていません。");
   },

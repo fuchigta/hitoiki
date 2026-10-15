@@ -1,6 +1,6 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { api, type AppError, type BlockView, type GapView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
+import { api, type AppError, type BlockView, type UncollectedView, type Millis, type ReportRow, type RuntimeMode, type SegmentView } from "./api";
 import { leaveGuard } from "./edit-util";
 import { Help } from "./ui/parts";
 import { KIND_LABEL, KIND_ORDER, fmtDur, fmtTime, useAction } from "./lib";
@@ -213,22 +213,22 @@ interface TimelineProps {
   dayStart: Millis;
   dayEnd: Millis;
   /** 記録なしの時間帯。実績の行に斜線で重ねる。 */
-  gaps?: GapView[];
+  uncollected?: UncollectedView[];
 }
 
 const HOUR = 3600_000;
 
-export function Timeline({ segments, blocks, now, dayStart, dayEnd, gaps = [] }: TimelineProps) {
+export function Timeline({ segments, blocks, now, dayStart, dayEnd, uncollected = [] }: TimelineProps) {
   const starts = [
     ...segments.map((s) => s.start_at),
     ...blocks.map((b) => b.start_at),
-    ...gaps.map((g) => g.start_at),
+    ...uncollected.map((g) => g.start_at),
     now,
   ];
   const ends = [
     ...segments.map((s) => s.end_at),
     ...blocks.map((b) => b.end_at),
-    ...gaps.map((g) => g.end_at),
+    ...uncollected.map((g) => g.end_at),
     now,
   ];
   let lo = Math.floor((Math.min(...starts) - dayStart) / HOUR) * HOUR + dayStart;
@@ -283,10 +283,10 @@ export function Timeline({ segments, blocks, now, dayStart, dayEnd, gaps = [] }:
               title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}${s.status === "needs_review" ? "（要確認）" : ""}`}
             />
           ))}
-          {gaps.map((g) => (
+          {uncollected.map((g) => (
             <div
-              key={`gap-${g.start_at}`}
-              class="tl-item gap"
+              key={`uncollected-${g.start_at}`}
+              class="tl-item uncollected"
               style={{ left: pos(g.start_at), width: width(g.start_at, g.end_at) }}
               title={`${fmtTime(g.start_at)}–${fmtTime(g.end_at)} 記録なし（${fmtDur(g.duration_ms)}。収集が止まっていた時間帯です）`}
             />
@@ -307,9 +307,9 @@ export function Timeline({ segments, blocks, now, dayStart, dayEnd, gaps = [] }:
             要確認
           </li>
         )}
-        {gaps.length > 0 && (
+        {uncollected.length > 0 && (
           <li>
-            <i class="dot gap" />
+            <i class="dot uncollected" />
             記録なし
           </li>
         )}

@@ -275,7 +275,7 @@ pub fn apply_response_with(
             let task_id = p
                 .and_then(|p| p.task_id)
                 .ok_or_else(|| Error::InvalidArgument("この通知には対象のタスクがありません".into()))?;
-            out.idle_labeled = correction::assign_offline_range(conn, range.0, range.1, &task_id, now)?;
+            out.idle_labeled = correction::assign_off_pc_range(conn, range.0, range.1, &task_id, now)?;
         }
         Some("open") | Some("dismiss") | None => {}
         Some(other) if other.starts_with(IDLE_ACTION_PREFIX) => {

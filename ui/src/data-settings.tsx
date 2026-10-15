@@ -1,4 +1,4 @@
-// 設定画面の「自分で作った一覧」（活動ラベル・カレンダーソース）。ルールは settings-rules.tsx。
+// 設定画面の「自分で作った一覧」（活動・カレンダーソース）。ルールは settings-rules.tsx。
 import { useState } from "preact/hooks";
 import { api } from "./api";
 import { Card, Empty, ErrorBox, Field } from "./components";
@@ -6,8 +6,8 @@ import { useConfirmDelete } from "./confirm-delete";
 import { useAction, useAsync } from "./lib";
 import { ObjectList, ObjectRow, OverflowMenu } from "./ui/parts";
 
-export function ActivityLabelsCard() {
-  const labels = useAsync(() => api.activityLabelList(), []);
+export function ActivityCard() {
+  const labels = useAsync(() => api.activityList(), []);
   const [add, setAdd] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [to, setTo] = useState("");
@@ -16,10 +16,10 @@ export function ActivityLabelsCard() {
     if ((await act.run(fn)) !== undefined) labels.reload();
   };
   return (
-    <Card title="活動ラベル" help="自動判定（AI）に渡す活動の候補です。外しても、過去の時間や活動ルールに付いたラベルは残ります。">
+    <Card title="活動" help="自動判定（AI）に渡す活動の候補です。外しても、過去の時間や活動ルールに付いた活動は残ります。">
       <ErrorBox error={labels.error} />
-      {labels.data?.labels.length === 0 && <Empty>活動ラベルはありません。</Empty>}
-      <ObjectList label="活動ラベル">
+      {labels.data?.labels.length === 0 && <Empty>活動はありません。</Empty>}
+      <ObjectList label="活動">
         {labels.data?.labels.map((l) =>
           renaming === l ? (
             <li key={l}>
@@ -27,7 +27,7 @@ export function ActivityLabelsCard() {
                 class="row"
                 onSubmit={async (e) => {
                   e.preventDefault();
-                  await after(() => api.activityLabelRename(l, to.trim()));
+                  await after(() => api.activityRename(l, to.trim()));
                   setRenaming(null);
                 }}
               >
@@ -57,7 +57,7 @@ export function ActivityLabelsCard() {
                     setTo(l);
                   },
                 },
-                { label: "外す", onSelect: () => after(() => api.activityLabelRemove(l)), disabled: act.busy },
+                { label: "外す", onSelect: () => after(() => api.activityRemove(l)), disabled: act.busy },
               ]}
             />
           ),
@@ -67,7 +67,7 @@ export function ActivityLabelsCard() {
         class="row"
         onSubmit={async (e) => {
           e.preventDefault();
-          await after(() => api.activityLabelAdd(add.trim()));
+          await after(() => api.activityAdd(add.trim()));
           setAdd("");
         }}
       >

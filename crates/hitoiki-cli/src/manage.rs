@@ -1,4 +1,4 @@
-//! 編集・削除系コマンド（目標・スキル・ルール・記録・カレンダーソース・活動ラベル）。
+//! 編集・削除系コマンド（目標・スキル・ルール・記録・カレンダーソース・活動）。
 //! ロジックは core の service 層にあり、ここは引数の解釈と出力整形だけを行う。
 
 use crate::args::*;
@@ -506,7 +506,7 @@ fn activity_rules_table(rules: &[hitoiki_core::model::ActivityRule]) -> String {
                 r.field.to_string(),
                 r.pattern_type.to_string(),
                 r.pattern.clone(),
-                r.activity_label.clone(),
+                r.activity.clone(),
                 r.priority.to_string(),
                 if r.enabled { "有効" } else { "無効" }.into(),
             ]
@@ -537,7 +537,7 @@ pub fn activity_rule_sub(ctx: &Ctx, json: bool, cmd: ActivityRuleCmd) -> Result<
                     field,
                     pattern,
                     pattern_type,
-                    activity_label: label,
+                    activity: label,
                     priority,
                 },
             )?;
@@ -563,7 +563,7 @@ pub fn activity_rule_sub(ctx: &Ctx, json: bool, cmd: ActivityRuleCmd) -> Result<
                     field,
                     pattern,
                     pattern_type,
-                    activity_label: label,
+                    activity: label,
                     priority,
                     enabled: enabled(enable, disable),
                 },

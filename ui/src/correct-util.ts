@@ -77,7 +77,7 @@ export function matchesFilter(c: CorrectionCandidate, f: CandidateFilter): boole
 
 /** 無操作・休憩・記録なし（割り当てると PC 外の時間になるもの）。 */
 export function isIdleLike(c: CorrectionCandidate): boolean {
-  return c.becomes_offline;
+  return c.becomes_off_pc;
 }
 
 /** 候補のチェックを 1 件切り替える。 */
@@ -106,7 +106,7 @@ export interface Totals {
   selected: number;
   total_ms: number;
   /** うち PC 外（無操作・記録なし）の時間。 */
-  offline_ms: number;
+  off_pc_ms: number;
   /** 外した（対象にならない）候補の数。絞り込みで隠れたものも含める。 */
   excluded: number;
 }
@@ -117,7 +117,7 @@ export function sumSelected(cands: CorrectionCandidate[], f: CandidateFilter): T
   return {
     selected: sel.length,
     total_ms: sel.reduce((n, c) => n + c.duration_ms, 0),
-    offline_ms: sel.filter(isIdleLike).reduce((n, c) => n + c.duration_ms, 0),
+    off_pc_ms: sel.filter(isIdleLike).reduce((n, c) => n + c.duration_ms, 0),
     excluded: cands.length - sel.length,
   };
 }
@@ -137,7 +137,7 @@ export function fmtJpDuration(ms: number): string {
 export function describeTotals(targetLabel: string, t: Totals): string {
   if (t.selected === 0) return `${targetLabel} に割り当てる区間がありません。`;
   let s = `${targetLabel} に ${fmtJpDuration(t.total_ms)}を割り当て`;
-  if (t.offline_ms > 0) s += `（うち PC 外 ${fmtJpDuration(t.offline_ms)}）`;
+  if (t.off_pc_ms > 0) s += `（うち PC 外 ${fmtJpDuration(t.off_pc_ms)}）`;
   s += "。";
   if (t.excluded > 0) s += `外した区間 ${t.excluded} 件`;
   return s;

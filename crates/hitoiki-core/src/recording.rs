@@ -13,18 +13,18 @@ use rusqlite::Connection;
 use serde::Serialize;
 
 /// これより短い空白は記録停止とみなさない（再起動の合間など）。
-pub const MIN_GAP_MS: Millis = 60_000;
+pub const MIN_UNCOLLECTED_MS: Millis = 60_000;
 /// 最後の稼働が正常停止しておらず、終了時刻がこれ以内なら「いま動いている」とみなす。
 pub const LIVE_GRACE_MS: Millis = 30_000;
 
 /// 記録が無かった時間帯。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct Gap {
+pub struct Uncollected {
     pub start_at: Millis,
     pub end_at: Millis,
 }
 
-impl Gap {
+impl Uncollected {
     pub fn duration_ms(&self) -> Millis {
         self.end_at - self.start_at
     }
@@ -32,7 +32,7 @@ impl Gap {
 
 /// 稼働記録 `runs` から、`range`（`now` までに切る）の記録なし区間を求める。純粋関数。
 /// 最初の稼働より前（稼働記録を持たない古いバージョンの期間）は分からないので記録なしにしない。
-pub fn gaps_from_runs(runs: &[CollectorRun], range: Range, now: Millis) -> Vec<Gap> {
+pub fn uncollected_from_runs(runs: &[CollectorRun], range: Range, now: Millis) -> Vec<Uncollected> {
     let mut runs: Vec<CollectorRun> = runs.to_vec();
     runs.sort_by_key(|r| (r.start_at, r.end_at));
     let Some(first) = runs.first() else {
@@ -53,19 +53,19 @@ pub fn gaps_from_runs(runs: &[CollectorRun], range: Range, now: Millis) -> Vec<G
             break;
         }
         if r.start_at > cur {
-            push_gap(&mut out, cur, r.start_at.min(hi));
+            push_uncollected(&mut out, cur, r.start_at.min(hi));
         }
         cur = cur.max(r.end_at);
     }
     if cur < hi {
-        push_gap(&mut out, cur, hi);
+        push_uncollected(&mut out, cur, hi);
     }
     out
 }
 
-fn push_gap(out: &mut Vec<Gap>, start_at: Millis, end_at: Millis) {
-    if end_at - start_at >= MIN_GAP_MS {
-        out.push(Gap { start_at, end_at });
+fn push_uncollected(out: &mut Vec<Uncollected>, start_at: Millis, end_at: Millis) {
+    if end_at - start_at >= MIN_UNCOLLECTED_MS {
+        out.push(Uncollected { start_at, end_at });
     }
 }
 
@@ -78,8 +78,8 @@ pub fn is_recording(conn: &Connection, now: Millis) -> Result<bool> {
 }
 
 /// DB の稼働記録から記録なし区間を求める。
-pub fn gaps(conn: &Connection, range: Range, now: Millis) -> Result<Vec<Gap>> {
-    Ok(gaps_from_runs(&list_runs(conn)?, range, now))
+pub fn uncollected(conn: &Connection, range: Range, now: Millis) -> Result<Vec<Uncollected>> {
+    Ok(uncollected_from_runs(&list_runs(conn)?, range, now))
 }
 
 #[cfg(test)]
@@ -96,8 +96,8 @@ mod tests {
         }
     }
 
-    fn g(s: Millis, e: Millis) -> Gap {
-        Gap {
+    fn g(s: Millis, e: Millis) -> Uncollected {
+        Uncollected {
             start_at: s * M,
             end_at: e * M,
         }
@@ -116,7 +116,7 @@ mod tests {
             end_at: 500 * M - 10_000,
             clean: false,
         };
-        let cases: Vec<(&str, Vec<CollectorRun>, Millis, Vec<Gap>)> = vec![
+        let cases: Vec<(&str, Vec<CollectorRun>, Millis, Vec<Uncollected>)> = vec![
             ("稼働記録なしは不明", vec![], 500, vec![]),
             (
                 "稼働の外側は空白（最初の稼働より前は不明）",
@@ -151,7 +151,7 @@ mod tests {
             ),
         ];
         for (name, runs, now, want) in cases {
-            assert_eq!(gaps_from_runs(&runs, day, now * M), want, "{name}");
+            assert_eq!(uncollected_from_runs(&runs, day, now * M), want, "{name}");
         }
     }
 
@@ -170,7 +170,7 @@ mod tests {
     #[test]
     fn clipped_to_range() {
         let runs = vec![run(100, 200, true), run(400, 500, false)];
-        let got = gaps_from_runs(&runs, Range::new(250 * M, 350 * M), 500 * M);
+        let got = uncollected_from_runs(&runs, Range::new(250 * M, 350 * M), 500 * M);
         assert_eq!(got, vec![g(250, 350)]);
     }
 }

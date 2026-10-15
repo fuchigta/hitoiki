@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SegmentKind, SegmentView } from "./api";
-import { filterSegments, isUntasked, nextToReview, statusFromParam, toggleId, totalMs } from "./log-util";
+import { filterSegments, isUntasked, nextToReview, statusFromParam, toggleId, totalMs } from "./actual-util";
 
 const seg = (id: string, kind: SegmentKind, task_id: string | null = null): SegmentView =>
   ({ id, kind, task_id, duration_ms: 60000 }) as SegmentView;

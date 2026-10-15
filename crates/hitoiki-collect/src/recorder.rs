@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Claude のスピナーはタイトル先頭の記号だけが毎秒変わるため、正規化せずに区間を切ると行が増えすぎる。
-/// 正規化は帰属判定と同じ規則（`hitoiki_core::rules::normalize_title`）。
+/// 正規化は割り当てと同じ規則（`hitoiki_core::rules::normalize_title`）。
 fn norm_title(t: &str) -> String {
     hitoiki_core::rules::normalize_title(t)
 }

@@ -3,7 +3,7 @@
 use hitoiki_core::model::{MatchField, PatternType, SegmentKind, TaskKind, TaskStatus};
 use hitoiki_core::service::goal::{GoalInput, KeyResultInput};
 use hitoiki_core::service::plan::BlockInput;
-use hitoiki_core::service::review::ReviewSetInput;
+use hitoiki_core::service::review::ConfirmInput;
 use hitoiki_core::service::skill::SkillInput;
 use hitoiki_core::service::task::{RuleInput, TaskFilter};
 use hitoiki_core::Millis;
@@ -49,7 +49,7 @@ impl From<RuleInputDto> for RuleInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct ReviewSetDto {
+pub struct ConfirmDto {
     pub segment: String,
     #[serde(default)]
     pub task: Option<String>,
@@ -61,9 +61,9 @@ pub struct ReviewSetDto {
     pub rule: bool,
 }
 
-impl From<ReviewSetDto> for ReviewSetInput {
-    fn from(r: ReviewSetDto) -> Self {
-        ReviewSetInput {
+impl From<ConfirmDto> for ConfirmInput {
+    fn from(r: ConfirmDto) -> Self {
+        ConfirmInput {
             segment: r.segment,
             task: r.task,
             kind: r.kind,
@@ -169,7 +169,7 @@ mod tests {
 
     #[test]
     fn 列挙はsnake_caseで受ける() {
-        let r: ReviewSetDto =
+        let r: ConfirmDto =
             serde_json::from_str(r#"{"segment":"01","kind":"agent_dialog","rule":true}"#).unwrap();
         assert_eq!(r.kind, Some(SegmentKind::AgentDialog));
     }

@@ -1,4 +1,4 @@
-//! 質問セット（docs/dev/architecture.md「判定器」）。定義の読み込みと、動的選択肢の解決。
+//! 質問セット（docs/dev/architecture.md「自動判定」）。定義の読み込みと、動的選択肢の解決。
 
 use crate::protocol::{OptionSpec, QuestionSpec, QuestionType};
 use anyhow::{bail, Context};

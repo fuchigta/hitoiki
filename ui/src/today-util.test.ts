@@ -7,7 +7,7 @@ import {
   dateParams,
   daySum,
   mergedDoingIds,
-  logPeriodFor,
+  actualPeriodFor,
   shiftDate,
   weekdayLabel,
   sideReducer,
@@ -33,9 +33,9 @@ describe("日付の移動", () => {
     expect(dateParams("2026-10-14", "2026-10-14")).toEqual({ date: undefined });
     expect(dateParams("2026-10-13", "2026-10-14")).toEqual({ date: "2026-10-13" });
     expect(weekdayLabel("2026-10-14")).toBe("水曜日");
-    expect(logPeriodFor("2026-10-14", "2026-10-14")).toBe("today");
-    expect(logPeriodFor("2026-10-13", "2026-10-14")).toBe("yesterday");
-    expect(logPeriodFor("2026-10-01", "2026-10-14")).toBeUndefined();
+    expect(actualPeriodFor("2026-10-14", "2026-10-14")).toBe("today");
+    expect(actualPeriodFor("2026-10-13", "2026-10-14")).toBe("yesterday");
+    expect(actualPeriodFor("2026-10-01", "2026-10-14")).toBeUndefined();
   });
 });
 

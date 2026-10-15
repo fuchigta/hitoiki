@@ -14,7 +14,7 @@ export interface Cfg {
     important_stale_days?: number;
     kr_idle_weekday?: number;
   };
-  review?: { trust_doing?: boolean; auto_break_locked_min?: number };
+  actual?: { trust_doing?: boolean; auto_break_locked_min?: number };
 }
 
 /** 設定の読み込みと書き込み。部品は `ConfigHandle` を受け取り、保存すると全体を読み直す。 */
@@ -101,7 +101,7 @@ export function UpdateCheckToggle({
   );
 }
 
-/** 始めたタスクを信頼する（review.trust_doing）。 */
+/** 始めたタスクを信頼する（actual.trust_doing）。 */
 export function TrustDoingToggle({
   cfg,
   label = "始めたタスクを信頼する（進行中のタスクに仮で当てた時間も、確認待ちにしない）",
@@ -113,9 +113,9 @@ export function TrustDoingToggle({
     <label class="check">
       <input
         type="checkbox"
-        checked={cfg.c.review?.trust_doing === true}
+        checked={cfg.c.actual?.trust_doing === true}
         disabled={cfg.busy}
-        onChange={(e) => cfg.set("review.trust_doing", String(e.currentTarget.checked))}
+        onChange={(e) => cfg.set("actual.trust_doing", String(e.currentTarget.checked))}
       />
       {label}
     </label>

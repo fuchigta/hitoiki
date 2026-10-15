@@ -1,4 +1,4 @@
-//! `segment_correction`（実績の補正 1 回分。ユーザー層）。補正が作った override は `segment_override.correction_id` で結ぶ。
+//! `segment_correction`（実績の補正 1 回分。ユーザー層）。補正が作った確定は `segment_confirmation.correction_id` で結ぶ。
 
 use crate::model::SegmentKind;
 use crate::timefmt::Range;
@@ -12,15 +12,15 @@ pub struct Correction {
     pub end_at: Millis,
     pub task_id: Option<String>,
     pub kind: Option<SegmentKind>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub total_ms: i64,
-    pub offline_ms: i64,
+    pub off_pc_ms: i64,
     pub segment_count: i64,
     pub created_at: Millis,
 }
 
 const COLS: &str =
-    "id, start_at, end_at, task_id, kind, activity_label, total_ms, offline_ms, segment_count, created_at";
+    "id, start_at, end_at, task_id, kind, activity, total_ms, off_pc_ms, segment_count, created_at";
 
 fn from_row(r: &Row<'_>) -> rusqlite::Result<Correction> {
     Ok(Correction {
@@ -29,9 +29,9 @@ fn from_row(r: &Row<'_>) -> rusqlite::Result<Correction> {
         end_at: r.get(2)?,
         task_id: r.get(3)?,
         kind: r.get(4)?,
-        activity_label: r.get(5)?,
+        activity: r.get(5)?,
         total_ms: r.get(6)?,
-        offline_ms: r.get(7)?,
+        off_pc_ms: r.get(7)?,
         segment_count: r.get(8)?,
         created_at: r.get(9)?,
     })
@@ -46,9 +46,9 @@ pub fn insert(conn: &Connection, c: &Correction) -> Result<()> {
             c.end_at,
             c.task_id,
             c.kind,
-            c.activity_label,
+            c.activity,
             c.total_ms,
-            c.offline_ms,
+            c.off_pc_ms,
             c.segment_count,
             c.created_at
         ],
@@ -85,9 +85,9 @@ pub fn list(conn: &Connection, range: Option<Range>, task_id: Option<&str>) -> R
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 補正と、それが作った override を削除する。削除した override の数を返す。
+/// 補正と、それが作った確定を削除する。削除した確定の数を返す。
 pub fn delete(conn: &Connection, id: &str) -> Result<usize> {
-    let n = conn.execute("DELETE FROM segment_override WHERE correction_id = ?1", [id])?;
+    let n = conn.execute("DELETE FROM segment_confirmation WHERE correction_id = ?1", [id])?;
     conn.execute("DELETE FROM segment_correction WHERE id = ?1", [id])?;
     Ok(n)
 }

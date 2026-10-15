@@ -39,9 +39,9 @@ pub struct Status {
     /// 直近の区間（新しい順に最大 5 件）。
     pub recent_segments: Vec<SegmentView>,
     pub today: TodaySummary,
-    /// 全期間の needs_review 件数のうち、`review.min_sec` 以上のもの（仕分け一覧の既定表示と同じ数え方）。
+    /// 全期間の needs_review 件数のうち、`actual.min_sec` 以上のもの（要確認の一覧の既定表示と同じ数え方）。
     pub needs_review_count: i64,
-    /// 全期間の needs_review のうち、`review.min_sec` 未満で既定では隠れている件数。
+    /// 全期間の needs_review のうち、`actual.min_sec` 未満で既定では隠れている件数。
     pub needs_review_short_count: i64,
     /// 当日の配信済みで未応答のプッシュ（見送りにしたものは除く）。
     pub unanswered_pushes: Vec<PushView>,
@@ -114,7 +114,7 @@ pub fn status(ctx: &Ctx) -> Result<Status> {
     let (needs_review_count, needs_review_short_count) = repo::segment::count_by_status_split(
         ctx.conn,
         SegmentStatus::NeedsReview,
-        ctx.cfg.review.min_sec as i64 * 1000,
+        ctx.cfg.actual.min_sec as i64 * 1000,
     )?;
 
     let unanswered_pushes = super::pushlog::list_unanswered(ctx, today_range)?;

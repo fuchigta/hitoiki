@@ -39,17 +39,9 @@ pub enum Cmd {
     /// タスクの操作
     #[command(subcommand)]
     Task(TaskCmd),
-    /// 区間一覧（--raw で生データも）
-    Log {
-        #[command(flatten)]
-        range: RangeOpts,
-        /// window_span / idle_span / agent_event を時系列に混ぜて表示する
-        #[arg(long)]
-        raw: bool,
-    },
-    /// 要確認区間の一覧と確定
+    /// 実績（区間の一覧、要確認の確定、補正、無視）
     #[command(subcommand)]
-    Review(ReviewCmd),
+    Actual(ActualCmd),
     /// 派生層の再計算
     Rebuild {
         /// today / yesterday / this-week / last-week / YYYY-MM-DD
@@ -96,12 +88,12 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: Option<HassleCmd>,
     },
-    /// 活動ルール（アプリ・タイトル等のパターンから活動ラベルを当てる）
+    /// 活動ルール（アプリ・タイトル等のパターンから活動を当てる）
     #[command(subcommand, name = "activity-rule")]
     ActivityRule(ActivityRuleCmd),
-    /// 活動ラベルの候補（自動判定（AI）へ渡す一覧）
-    #[command(subcommand, name = "activity-label")]
-    ActivityLabel(LabelCmd),
+    /// 活動の候補（自動判定（AI）へ渡す一覧）
+    #[command(subcommand, name = "activity")]
+    Activity(LabelCmd),
     /// カレンダーソース（ICS）
     #[command(subcommand)]
     Calendar(CalendarCmd),
@@ -163,7 +155,7 @@ pub enum Cmd {
     Agent(AgentCmd),
     /// ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止）
     Daemon,
-    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|log|tasks|goals|records|report|settings|onboarding（旧名: review・plan・reflect・reflection・checkin・hassle）
+    /// 常駐アプリのウインドウを開く（未起動なら起動する）。screen: today|today/design|actual|tasks|goals|records|report|settings|onboarding（旧名: plan・reflect・reflection・checkin・hassle）
     Ui { screen: Option<String> },
     /// 補助コレクタ用の取り込み
     #[command(subcommand)]
@@ -176,9 +168,9 @@ pub enum Cmd {
     /// 設定
     #[command(subcommand)]
     Config(ConfigCmd),
-    /// 収集状態、エージェントログ、カレンダー、通知、判定器などの診断
+    /// 収集状態、エージェントログ、カレンダー、通知、自動判定などの診断
     Doctor {
-        /// カレンダー取得・判定器への疎通も実際に試す（ネットワークを使う）
+        /// カレンダー取得・自動判定への疎通も実際に試す（ネットワークを使う）
         #[arg(long)]
         network: bool,
     },
@@ -415,7 +407,7 @@ pub enum ActivityRuleCmd {
         /// glob | regex | contains（既定 glob）
         #[arg(long = "type")]
         pattern_type: Option<PatternType>,
-        /// 当てる活動ラベル
+        /// 当てる活動
         #[arg(long)]
         label: String,
         #[arg(long, default_value_t = 0)]
@@ -451,12 +443,12 @@ pub enum LabelCmd {
     Add {
         label: String,
     },
-    /// 名前を変える（同じラベルの活動ルールも付け替える）
+    /// 名前を変える（同じ名前の活動ルールも付け替える）
     Rename {
         from: String,
         to: String,
     },
-    /// 候補から外す（過去の区間・ルールに付いたラベルは残る）
+    /// 候補から外す（過去の区間・ルールに付いた活動は残る）
     Remove {
         label: String,
     },
@@ -522,57 +514,72 @@ pub enum PushCmd {
 }
 
 #[derive(Debug, Subcommand)]
-pub enum ReviewCmd {
-    /// needs_review の区間（既定では短い区間を隠す）
+pub enum ActualCmd {
+    /// 区間一覧（--raw で生データも）
     List {
         #[command(flatten)]
         range: RangeOpts,
-        /// `review.min_sec` 未満の短い区間も含めて全件表示する
+        /// window_span / idle_span / agent_event を時系列に混ぜて表示する
+        #[arg(long)]
+        raw: bool,
+    },
+    /// needs_review（要確認）の区間（既定では短い区間を隠す）
+    Review {
+        #[command(flatten)]
+        range: RangeOpts,
+        /// `actual.min_sec` 未満の短い区間も含めて全件表示する
         #[arg(long)]
         all: bool,
     },
-    /// 区間を確定する。複数の ID を渡すとまとめて同じ割り当てをする。
-    /// `--from` / `--to` を渡すと、時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）
-    Set {
-        /// 区間 ID（前方一致）。複数指定できる（範囲指定のときは不要）
-        #[arg(required_unless_present = "from", conflicts_with_all = ["from", "to"])]
+    /// 区間を確定する。複数の ID を渡すとまとめて同じ割り当てをする
+    Confirm {
+        /// 区間 ID（前方一致）。複数指定できる
+        #[arg(required = true)]
         segments: Vec<String>,
         /// 割り当てるタスク
         #[arg(long)]
         task: Option<String>,
-        #[arg(long, conflicts_with_all = ["from", "to"])]
+        #[arg(long)]
         kind: Option<SegmentKind>,
         #[arg(long)]
         activity: Option<String>,
         /// 区間からルールを生成する
-        #[arg(long, conflicts_with_all = ["from", "to"])]
+        #[arg(long)]
         rule: bool,
+    },
+    /// 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）
+    Correct {
         /// 範囲の開始（ISO 8601 / ローカル日時 / `HH:MM`）。境界にまたがる区間は範囲の内側だけを対象にする
-        #[arg(long, requires = "to")]
-        from: Option<String>,
+        #[arg(long)]
+        from: String,
         /// 範囲の終了
-        #[arg(long, requires = "from")]
-        to: Option<String>,
-        /// 範囲指定のとき、タスクなしにする
-        #[arg(long, requires = "from", conflicts_with_all = ["task", "rest"])]
+        #[arg(long)]
+        to: String,
+        /// 割り当てるタスク
+        #[arg(long)]
+        task: Option<String>,
+        #[arg(long)]
+        activity: Option<String>,
+        /// タスクなしにする
+        #[arg(long, conflicts_with_all = ["task", "rest"])]
         no_task: bool,
-        /// 範囲指定のとき、休憩にする
-        #[arg(long, requires = "from", conflicts_with_all = ["task", "no_task"])]
+        /// 休憩にする
+        #[arg(long, conflicts_with_all = ["task", "no_task"])]
         rest: bool,
-        /// 範囲指定のとき、ユーザー確定済みの区間も対象にする（`review.correct_include_confirmed`）
-        #[arg(long, requires = "from")]
+        /// ユーザー確定済みの区間も対象にする（`actual.correct_include_confirmed`）
+        #[arg(long)]
         include_confirmed: bool,
-        /// 範囲指定のとき、会議の区間も対象にする（`review.correct_include_meeting`）
-        #[arg(long, requires = "from")]
+        /// 会議の区間も対象にする（`actual.correct_include_meeting`）
+        #[arg(long)]
         include_meeting: bool,
-        /// 範囲指定のとき、無操作・記録なしも PC 外の作業として対象にする（`review.correct_include_idle`）
-        #[arg(long, requires = "from")]
+        /// 無操作・記録なしも PC 外の作業として対象にする（`actual.correct_include_idle`）
+        #[arg(long)]
         include_idle: bool,
-        /// 範囲指定のとき、対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`）。複数指定できる
-        #[arg(long, requires = "from", num_args = 1.., value_name = "SEGMENT")]
+        /// 対象から外す区間 ID（記録なしは `uncollected:<開始のミリ秒>`）。複数指定できる
+        #[arg(long, num_args = 1.., value_name = "SEGMENT")]
         exclude: Vec<String>,
-        /// 範囲指定のとき、確定せずに対象と合計だけを表示する
-        #[arg(long, requires = "from")]
+        /// 確定せずに対象と合計だけを表示する
+        #[arg(long)]
         dry_run: bool,
     },
     /// 実績の補正（範囲指定の付け替え）の一覧
@@ -589,7 +596,7 @@ pub enum ReviewCmd {
         /// 補正の ID（前方一致）
         id: String,
     },
-    /// 区間を無視にする（集計・仕分け・レポートに数えない。`review unignore` で取り消せる）
+    /// 区間を無視にする（集計・レポートに数えない。`actual unignore` で取り消せる）
     Ignore {
         /// 区間 ID（前方一致）を 1 つ以上
         #[arg(required = true)]
@@ -601,7 +608,7 @@ pub enum ReviewCmd {
         #[arg(required = true)]
         segments: Vec<String>,
     },
-    /// 無操作の区間に分類をつける: `review idle <区間 ID>... <break|meeting|thinking|away>`
+    /// 無操作の区間に分類をつける: `actual idle <区間 ID>... <break|meeting|thinking|away>`
     /// （休憩 = 種別 break、会議 = 種別 meeting、考えごと = 作業 + 活動「考えごと」、離席 = 休憩 + 活動「離席」）
     Idle {
         /// 区間 ID（前方一致）を 1 つ以上、最後に分類

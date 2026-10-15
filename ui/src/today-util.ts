@@ -29,7 +29,7 @@ export function weekdayLabel(date: string): string {
 }
 
 /** 実績画面の期間指定（`?period=`）で開ける日なら、その値。それ以外は undefined（既定の今週になる）。 */
-export function logPeriodFor(date: string, today: string): "today" | "yesterday" | undefined {
+export function actualPeriodFor(date: string, today: string): "today" | "yesterday" | undefined {
   if (date === today) return "today";
   if (date === shiftDate(today, -1)) return "yesterday";
   return undefined;

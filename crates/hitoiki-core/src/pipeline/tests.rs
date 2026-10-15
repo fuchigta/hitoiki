@@ -7,7 +7,7 @@ const M: Millis = 60_000;
 
 fn base() -> PipelineInput {
     let mut cfg = Config::default();
-    cfg.agent.watch_max_min = 10;
+    cfg.agent.wait_max_min = 10;
     let mut i = PipelineInput::new(Range::new(0, 1000 * M), 1000 * M, &cfg);
     i.auto_confidence_threshold = 0.8;
     i
@@ -51,8 +51,8 @@ fn ev(id: &str, at: i64, sid: &str, kind: AgentEventKind) -> AgentEvent {
     }
 }
 
-fn rule(id: &str, task: &str, field: MatchField, pat: &str, pri: i64) -> TaskMatchRule {
-    TaskMatchRule {
+fn rule(id: &str, task: &str, field: MatchField, pat: &str, pri: i64) -> TaskAssignRule {
+    TaskAssignRule {
         id: id.into(),
         task_id: task.into(),
         field,
@@ -152,7 +152,7 @@ fn term(id: &str, s: i64, e: i64, title: &str) -> WindowSpan {
 
 fn agent_input() -> PipelineInput {
     let mut i = base();
-    i.watch_max = 0; // 見守りは個別のテストで確認する
+    i.wait_max = 0; // 作業待ちは個別のテストで確認する
     i
 }
 
@@ -264,7 +264,7 @@ fn duplicate_and_orphan_response_complete_give_same_result() {
         of_kind(&expect, AgentDialog),
         vec![(0, 2), (3, 4), (20, 30), (40, 44)]
     );
-    assert_eq!(of_kind(&expect, AgentWatch), vec![(2, 3), (44, 45)]);
+    assert_eq!(of_kind(&expect, AgentWait), vec![(2, 3), (44, 45)]);
 
     let mut noisy = clean;
     noisy.extend([
@@ -382,7 +382,7 @@ fn merge_does_not_absorb_other_window_into_dialog() {
 }
 
 #[test]
-fn merge_does_not_absorb_into_confirmed_override() {
+fn merge_does_not_absorb_into_confirmed_confirmation() {
     let mut i = base();
     i.merge_gap = 30_000;
     let mut b = win("B", 0, 0, "H2", "other.exe", "x");
@@ -391,18 +391,18 @@ fn merge_does_not_absorb_into_confirmed_override() {
     let mut a2 = win("A2", 0, 20, "H1", "chrome.exe", "docs");
     a2.start_at = 10 * M + 20_000;
     i.windows = vec![win("A1", 0, 10, "H1", "chrome.exe", "docs"), b, a2];
-    let ov = |id: &str, s: i64, e: i64| SegmentOverride {
+    let ov = |id: &str, s: i64, e: i64| SegmentConfirmation {
         id: id.into(),
         start_at: s,
         end_at: e,
         kind: None,
         task_id: Some("T1".into()),
-        activity_label: None,
+        activity: None,
         created_at: 0,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     };
-    i.overrides = vec![ov("O1", 0, 10 * M), ov("O2", 10 * M + 20_000, 20 * M)];
+    i.confirmations = vec![ov("O1", 0, 10 * M), ov("O2", 10 * M + 20_000, 20 * M)];
     let o = build(&i, None);
     assert_eq!(o.segments.len(), 3);
     assert_eq!(o.segments[1].status, SegmentStatus::NeedsReview);
@@ -655,7 +655,7 @@ fn unbound_prompts_report_exe_only() {
 }
 
 #[test]
-fn watch_stops_at_idle() {
+fn wait_stops_at_idle() {
     let mut i = base();
     i.windows = vec![term("W", 0, 30, "claude")];
     i.idles = vec![idle("I", 8, 30)];
@@ -663,17 +663,17 @@ fn watch_stops_at_idle() {
     let o = build(&i, None);
     assert_eq!(
         shape(&o),
-        vec![(0, 5, AgentDialog), (5, 8, AgentWatch), (8, 30, Idle)]
+        vec![(0, 5, AgentDialog), (5, 8, AgentWait), (8, 30, Idle)]
     );
 }
 
 #[test]
-fn watch_stops_at_watch_max_and_at_window_switch() {
+fn wait_stops_at_wait_max_and_at_window_switch() {
     let mut i = base();
     i.windows = vec![term("W", 0, 30, "claude")];
     i.events = vec![ev("1", 5, "S", PromptSubmit)];
     let o = build(&i, None);
-    assert_eq!(of_kind(&o, AgentWatch), vec![(5, 15)]);
+    assert_eq!(of_kind(&o, AgentWait), vec![(5, 15)]);
     assert_eq!(find(&o, 15).kind, Work);
 
     let mut i = base();
@@ -683,16 +683,16 @@ fn watch_stops_at_watch_max_and_at_window_switch() {
     ];
     i.events = vec![ev("1", 5, "S", PromptSubmit)];
     let o = build(&i, None);
-    assert_eq!(of_kind(&o, AgentWatch), vec![(5, 8)]);
+    assert_eq!(of_kind(&o, AgentWait), vec![(5, 8)]);
 }
 
 #[test]
-fn watch_stops_at_response_complete() {
+fn wait_stops_at_response_complete() {
     let mut i = base();
     i.windows = vec![term("W", 0, 30, "claude")];
     i.events = vec![ev("1", 5, "S", PromptSubmit), ev("2", 7, "S", ResponseComplete)];
     let o = build(&i, None);
-    assert_eq!(of_kind(&o, AgentWatch), vec![(5, 7)]);
+    assert_eq!(of_kind(&o, AgentWait), vec![(5, 7)]);
 }
 
 #[test]
@@ -702,7 +702,7 @@ fn agent_task_by_cwd_rule_then_doing_then_none() {
     let mut e = ev("1", 5, "S", PromptSubmit);
     e.cwd = Some(r"C:\src\foo\bar".into());
     i.events = vec![e];
-    i.task_rules = vec![TaskMatchRule {
+    i.task_rules = vec![TaskAssignRule {
         id: "R".into(),
         task_id: "T1".into(),
         field: MatchField::Cwd,
@@ -778,64 +778,64 @@ fn meeting_app_in_front_during_event_is_meeting() {
     assert_eq!(shape(&o), vec![(0, 10, Work), (10, 30, Meeting), (30, 40, Work)]);
 }
 
-// ===== override / ルール / 判定器 / 統合 / doing =====
+// ===== 確定 / ルール / 自動判定 / 統合 / doing =====
 
 #[test]
-fn override_wins_and_splits() {
+fn confirmation_wins_and_splits() {
     let mut i = base();
     i.windows = vec![win("A", 0, 30, "H1", "a.exe", "docs")];
     i.task_rules = vec![rule("R", "T1", MatchField::Title, "docs", 0)];
-    i.overrides = vec![SegmentOverride {
+    i.confirmations = vec![SegmentConfirmation {
         id: "O".into(),
         start_at: 10 * M,
         end_at: 20 * M,
         kind: Some(Break),
         task_id: Some("T2".into()),
-        activity_label: Some("休憩".into()),
+        activity: Some("休憩".into()),
         created_at: 0,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     }];
     let o = build(&i, None);
     assert_eq!(shape(&o), vec![(0, 10, Work), (10, 20, Break), (20, 30, Work)]);
     let b = find(&o, 10);
     assert_eq!(b.task_id.as_deref(), Some("T2"));
-    assert_eq!(b.activity_label.as_deref(), Some("休憩"));
+    assert_eq!(b.activity.as_deref(), Some("休憩"));
     assert_eq!(
         (b.status, b.decided_by.as_deref()),
-        (SegmentStatus::Confirmed, Some("user"))
+        (SegmentStatus::Confirmed, Some("confirmation"))
     );
     assert_eq!(find(&o, 0).task_id.as_deref(), Some("T1"));
 }
 
 #[test]
-fn override_keeps_unspecified_fields() {
+fn confirmation_keeps_unspecified_fields() {
     let mut i = base();
     i.windows = vec![term("W", 0, 10, "claude")];
-    i.watch_max = 0;
+    i.wait_max = 0;
     i.events = vec![ev("1", 5, "S", PromptSubmit)];
     i.doing_logs = vec![doing("T9", 0, None)];
-    i.overrides = vec![SegmentOverride {
+    i.confirmations = vec![SegmentConfirmation {
         id: "O".into(),
         start_at: 0,
         end_at: 5 * M,
         kind: None,
         task_id: None,
-        activity_label: Some("設計".into()),
+        activity: Some("設計".into()),
         created_at: 0,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     }];
     let o = build(&i, None);
     let s = find(&o, 0);
     assert_eq!(s.kind, AgentDialog);
     assert_eq!(s.task_id.as_deref(), Some("T9"));
-    assert_eq!(s.activity_label.as_deref(), Some("設計"));
+    assert_eq!(s.activity.as_deref(), Some("設計"));
     assert_eq!(s.status, SegmentStatus::Confirmed);
 }
 
 #[test]
-fn rule_priority_and_activity_label() {
+fn rule_priority_and_activity() {
     let mut i = base();
     i.windows = vec![win("A", 0, 10, "H1", "chrome.exe", "Hitoiki docs")];
     i.task_rules = vec![
@@ -848,14 +848,14 @@ fn rule_priority_and_activity_label() {
         field: MatchField::Exe,
         pattern: "chrome.exe".into(),
         pattern_type: PatternType::Glob,
-        activity_label: "調査".into(),
+        activity: "調査".into(),
         priority: 0,
         enabled: true,
     }];
     let o = build(&i, None);
     let s = find(&o, 0);
     assert_eq!(s.task_id.as_deref(), Some("HIGH")); // R2 < R3 の id 順で先
-    assert_eq!(s.activity_label.as_deref(), Some("調査"));
+    assert_eq!(s.activity.as_deref(), Some("調査"));
     assert_eq!(
         (s.decided_by.as_deref(), s.confidence, s.status),
         (Some("rule"), Some(1.0), SegmentStatus::Auto)
@@ -931,7 +931,7 @@ impl SegmentJudge for Mock {
             .map(|s| {
                 (s.title.as_deref() == Some("mystery")).then(|| JudgeAnswer {
                     task_id: Some("TJ".into()),
-                    activity_label: Some("調査".into()),
+                    activity: Some("調査".into()),
                     is_interrupt: None,
                     confidence: 0.9,
                     judge_name: "mock".into(),
@@ -948,7 +948,7 @@ impl SegmentJudge for LowMock {
             .map(|_| {
                 Some(JudgeAnswer {
                     task_id: Some("TJ".into()),
-                    activity_label: None,
+                    activity: None,
                     is_interrupt: None,
                     confidence: 0.4,
                     judge_name: "low".into(),
@@ -972,7 +972,7 @@ fn judge_only_asked_for_unruled_work() {
     assert_eq!(a.task_id.as_deref(), Some("TJ"));
     assert_eq!(a.decided_by.as_deref(), Some("judge:mock"));
     assert_eq!(
-        (a.status, a.activity_label.as_deref()),
+        (a.status, a.activity.as_deref()),
         (SegmentStatus::Auto, Some("調査"))
     );
     assert_eq!(find(&o, 10).decided_by.as_deref(), Some("rule"));
@@ -1254,22 +1254,22 @@ fn transient_with_rule_task_is_not_absorbed() {
 }
 
 #[test]
-fn override_wins_over_transient() {
+fn confirmation_wins_over_transient() {
     let mut i = transient_input();
     i.windows = vec![
         wsec("A", 0, 600, "H1", "devenv.exe", "proj"),
         wsec("E", 600, 630, "H2", "explorer.exe", "x"),
         wsec("B", 630, 1200, "H3", "WINWORD.EXE", "doc"),
     ];
-    i.overrides = vec![SegmentOverride {
+    i.confirmations = vec![SegmentConfirmation {
         id: "O".into(),
         start_at: 600 * S,
         end_at: 630 * S,
         kind: None,
         task_id: Some("T9".into()),
-        activity_label: None,
+        activity: None,
         created_at: 0,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     }];
     let o = build(&i, None);
@@ -1287,7 +1287,7 @@ fn override_wins_over_transient() {
 #[test]
 fn transient_after_agent_dialog_does_not_extend_dialog() {
     let mut i = transient_input();
-    i.watch_max = 0;
+    i.wait_max = 0;
     i.windows = vec![
         term("W", 0, 20, "claude"),
         wsec("E", 1200, 1230, "H2", "explorer.exe", "x"),
@@ -1377,7 +1377,7 @@ fn locked_idle_under_threshold_or_disabled_stays_idle() {
 }
 
 #[test]
-fn user_override_wins_over_locked_break() {
+fn user_confirmation_wins_over_locked_break() {
     let mut i = base();
     i.auto_break_locked = 10 * M;
     i.windows = vec![
@@ -1385,19 +1385,19 @@ fn user_override_wins_over_locked_break() {
         win("B", 40, 50, "H1", "chrome.exe", "x"),
     ];
     i.idles = vec![locked("I1", 10, 38)];
-    i.overrides = vec![SegmentOverride {
+    i.confirmations = vec![SegmentConfirmation {
         id: "O".into(),
         start_at: 10 * M,
         end_at: 38 * M,
         kind: Some(Meeting),
         task_id: None,
-        activity_label: None,
+        activity: None,
         created_at: 0,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     }];
     let s = find(&build(&i, None), 10).clone();
-    assert_eq!((s.kind, s.decided_by.as_deref()), (Meeting, Some("user")));
+    assert_eq!((s.kind, s.decided_by.as_deref()), (Meeting, Some("confirmation")));
 }
 
 #[test]
@@ -1417,81 +1417,81 @@ fn trust_doing_makes_fallback_auto() {
 
 // ===== 実績の補正（PC 外の作業） =====
 
-fn corr_override(id: &str, s: i64, e: i64, offline: bool) -> SegmentOverride {
-    SegmentOverride {
+fn corr_confirmation(id: &str, s: i64, e: i64, off_pc: bool) -> SegmentConfirmation {
+    SegmentConfirmation {
         id: id.into(),
         start_at: s * M,
         end_at: e * M,
-        kind: if offline { Some(Work) } else { None },
+        kind: if off_pc { Some(Work) } else { None },
         task_id: Some("T1".into()),
-        activity_label: None,
+        activity: None,
         created_at: 0,
-        offline,
+        off_pc,
         correction_id: Some("C".into()),
     }
 }
 
 #[test]
-fn offline_override_creates_segment_in_recording_gap() {
+fn off_pc_confirmation_creates_segment_in_recording_gap() {
     let mut i = base();
     i.windows = vec![
         win("A", 0, 10, "H1", "a.exe", "x"),
         win("B", 20, 30, "H1", "a.exe", "x"),
     ];
-    i.overrides = vec![corr_override("O", 10, 20, true)];
+    i.confirmations = vec![corr_confirmation("O", 10, 20, true)];
     let o = build(&i, None);
     assert_eq!(shape(&o), vec![(0, 10, Work), (10, 20, Work), (20, 30, Work)]);
     let g = find(&o, 10);
-    assert!(g.offline);
+    assert!(g.off_pc);
     assert_eq!(
         (g.task_id.as_deref(), g.status),
         (Some("T1"), SegmentStatus::Confirmed)
     );
-    assert!(!find(&o, 0).offline && !find(&o, 20).offline);
+    assert!(!find(&o, 0).off_pc && !find(&o, 20).off_pc);
 }
 
 #[test]
-fn offline_override_turns_idle_into_work_and_fills_the_rest() {
+fn off_pc_confirmation_turns_idle_into_work_and_fills_the_rest() {
     let mut i = base();
     i.windows = vec![win("A", 0, 10, "H1", "a.exe", "x")];
     i.idles = vec![idle("I", 10, 15)];
     // 無操作 10-15 と、その先の記録なし 15-20 をまとめて補正する。
-    i.overrides = vec![corr_override("O", 10, 20, true)];
+    i.confirmations = vec![corr_confirmation("O", 10, 20, true)];
     let o = build(&i, None);
     assert_eq!(shape(&o), vec![(0, 10, Work), (10, 20, Work)]);
-    assert!(find(&o, 10).offline);
+    assert!(find(&o, 10).off_pc);
 }
 
 #[test]
-fn non_offline_override_does_not_fill_gaps() {
+fn non_off_pc_confirmation_does_not_fill_gaps() {
     let mut i = base();
     i.windows = vec![win("A", 0, 10, "H1", "a.exe", "x")];
-    i.overrides = vec![corr_override("O", 10, 20, false)];
+    i.confirmations = vec![corr_confirmation("O", 10, 20, false)];
     let o = build(&i, None);
     assert_eq!(shape(&o), vec![(0, 10, Work)]);
 }
 
 #[test]
-fn offline_fill_stops_at_now_and_range() {
+fn off_pc_fill_stops_at_now_and_range() {
     let mut i = base();
     i.now = 15 * M;
-    i.overrides = vec![corr_override("O", 10, 20, true)];
+    i.confirmations = vec![corr_confirmation("O", 10, 20, true)];
     let o = build(&i, None);
     assert_eq!(shape(&o), vec![(10, 15, Work)]);
     let mut i = base();
     i.range = Range::new(12 * M, 1000 * M);
-    i.overrides = vec![corr_override("O", 10, 20, true)];
+    i.confirmations = vec![corr_confirmation("O", 10, 20, true)];
     assert_eq!(shape(&build(&i, None)), vec![(12, 20, Work)]);
 }
 
 #[test]
-fn empty_task_override_clears_task() {
+fn empty_task_confirmation_clears_task() {
     let mut i = base();
     i.windows = vec![win("A", 0, 30, "H1", "a.exe", "docs")];
     i.task_rules = vec![rule("R", "T1", MatchField::Title, "docs", 0)];
-    let mut ov = corr_override("O", 10, 20, false);
+    let mut ov = corr_confirmation("O", 10, 20, false);
     ov.task_id = Some(String::new());
-    i.overrides = vec![ov];
+    i.confirmations = vec![ov];
     let o = build(&i, None);
     assert_eq!(find(&o, 0).task_id.as_deref(), Some("T1"));
     assert_eq!(find(&o, 10).task_id, None);
@@ -1536,7 +1536,7 @@ fn ignore_exe_long_becomes_ignored_segment() {
     let g = find_sec(&o, 600);
     assert_eq!(g.status, SegmentStatus::Auto);
     assert_eq!(g.decided_by.as_deref(), Some("ignore"));
-    assert_eq!((g.task_id.clone(), g.activity_label.clone()), (None, None));
+    assert_eq!((g.task_id.clone(), g.activity.clone()), (None, None));
     // 生データへの根拠は残る
     assert_eq!(g.window_span_ids, vec!["E"]);
     // 無視は要確認にならない
@@ -1606,25 +1606,25 @@ fn rule_task_on_ignore_exe_is_not_ignored() {
     assert_eq!(o.segments[0].task_id.as_deref(), Some("T3"));
 }
 
-fn ov(id: &str, s: i64, e: i64, kind: Option<SegmentKind>, task: Option<&str>) -> SegmentOverride {
-    SegmentOverride {
+fn ov(id: &str, s: i64, e: i64, kind: Option<SegmentKind>, task: Option<&str>) -> SegmentConfirmation {
+    SegmentConfirmation {
         id: id.into(),
         start_at: s * S,
         end_at: e * S,
         kind,
         task_id: task.map(Into::into),
-        activity_label: None,
+        activity: None,
         created_at: 0,
-        offline: false,
+        off_pc: false,
         correction_id: None,
     }
 }
 
 #[test]
-fn override_wins_over_ignore_exe() {
+fn confirmation_wins_over_ignore_exe() {
     let mut i = ignore_input();
     i.windows = vec![wsec("E", 0, 600, "H2", "explorer.exe", "x")];
-    i.overrides = vec![ov("O", 0, 600, None, Some("T9"))];
+    i.confirmations = vec![ov("O", 0, 600, None, Some("T9"))];
     let o = build(&i, None);
     assert_eq!(shape_sec(&o), vec![(0, 600, Work)]);
     assert_eq!(
@@ -1634,10 +1634,10 @@ fn override_wins_over_ignore_exe() {
 }
 
 #[test]
-fn ignore_override_makes_ignored_segment_without_task() {
+fn ignore_confirmation_makes_ignored_segment_without_task() {
     let mut i = ignore_input();
     i.windows = vec![wsec("A", 0, 600, "H1", "devenv.exe", "proj")];
-    i.overrides = vec![ov("O", 100, 200, Some(Ignored), Some(""))];
+    i.confirmations = vec![ov("O", 100, 200, Some(Ignored), Some(""))];
     let o = build(&i, None);
     assert_eq!(
         shape_sec(&o),
@@ -1646,18 +1646,18 @@ fn ignore_override_makes_ignored_segment_without_task() {
     let g = find_sec(&o, 100);
     assert_eq!(
         (g.task_id.clone(), g.status, g.decided_by.as_deref()),
-        (None, SegmentStatus::Confirmed, Some("user"))
+        (None, SegmentStatus::Confirmed, Some("confirmation"))
     );
-    // 取り消す（override を外す）と元に戻る
-    i.overrides.clear();
+    // 取り消す（確定を外す）と元に戻る
+    i.confirmations.clear();
     assert_eq!(shape_sec(&build(&i, None)), vec![(0, 600, Work)]);
 }
 
 #[test]
-fn ignore_override_ignores_task_even_without_empty_task_id() {
+fn ignore_confirmation_ignores_task_even_without_empty_task_id() {
     let mut i = ignore_input();
     i.windows = vec![wsec("A", 0, 600, "H1", "devenv.exe", "proj")];
-    i.overrides = vec![ov("O", 0, 600, Some(Ignored), None)];
+    i.confirmations = vec![ov("O", 0, 600, Some(Ignored), None)];
     let o = build(&i, None);
     assert_eq!(shape_sec(&o), vec![(0, 600, Ignored)]);
     assert_eq!(o.segments[0].task_id, None);

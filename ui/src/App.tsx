@@ -4,7 +4,7 @@ import { api, on } from "./api";
 import { LeaveConfirm, RuntimeBanner } from "./components";
 import { leaveGuard } from "./edit-util";
 import { SCREENS, hrefOf, loadTimeZone, navigate, useAsync, useLiveTick, useScreen, useTimeZoneVersion, type ScreenId } from "./lib";
-import { Log } from "./screens/Log";
+import { Actual } from "./screens/Actual";
 import { Onboarding } from "./screens/Onboarding";
 import { Goals } from "./screens/Goals";
 import { Popup } from "./screens/Popup";
@@ -17,7 +17,7 @@ import { Today } from "./screens/Today";
 
 const VIEWS: Record<ScreenId, () => preact.JSX.Element> = {
   today: Today,
-  log: Log,
+  actual: Actual,
   tasks: Tasks,
   report: Report,
   records: Records,
@@ -100,7 +100,7 @@ function Main() {
             }}
           >
             {s.label}
-            {s.id === "log" && reviewCount > 0 && (
+            {s.id === "actual" && reviewCount > 0 && (
               <span class="nav-badge" role="status" aria-label={`要確認 ${reviewCount} 件`}>
                 {reviewCount}
               </span>

@@ -29,9 +29,7 @@ describe("routeFromHash", () => {
 
   it("通知の open_screen のような入口もそのまま画面を得る", () => {
     expect(routeFromHash("#/today/design")).toMatchObject({ screen: "today", path: ["design"] });
-    expect(routeFromHash("#/log/01ABC").screen).toBe("log");
-    // 旧名も受け付ける（legacyRoute が写す）。
-    expect(routeFromHash("#/review").screen).toBe("review");
+    expect(routeFromHash("#/actual/01ABC").screen).toBe("actual");
   });
 });
 
@@ -48,16 +46,7 @@ describe("hrefOf", () => {
 });
 
 describe("legacyRoute", () => {
-  it("review は log の要確認へ（他のクエリは残す）", () => {
-    const r = legacyRoute(routeFromHash("#/review"));
-    expect(r.screen).toBe("log");
-    expect(hrefOf(r.screen, r.path, r.params)).toBe("#/log?status=review");
-    const q = legacyRoute(routeFromHash("#/review?period=today"));
-    expect(hrefOf(q.screen, q.path, q.params)).toBe("#/log?period=today&status=review");
-  });
-  it("status 指定があれば変えない・他の画面は恒等", () => {
-    const r = legacyRoute(routeFromHash("#/review?status=all"));
-    expect(r.params.get("status")).toBe("all");
+  it("他の画面は恒等", () => {
     const t = routeFromHash("#/tasks/01ABC?tab=time");
     expect(legacyRoute(t)).toEqual(t);
   });
@@ -82,11 +71,11 @@ describe("legacyRoute: 計画（P4）", () => {
 describe("画面の並び", () => {
   it("ナビは 今日 / 実績 / タスク / 目標 / 記録 / レポート / 設定（はじめにはナビ外）。旧名は含まない", async () => {
     const { SCREENS } = await import("./lib");
-    expect(SCREENS.map((s) => s.id)).toEqual(["today", "log", "tasks", "goals", "records", "report", "settings", "onboarding"]);
+    expect(SCREENS.map((s) => s.id)).toEqual(["today", "actual", "tasks", "goals", "records", "report", "settings", "onboarding"]);
   });
-  it("旧名（review・plan・reflect）も受け付けて、画面としては今日・実績・記録に写す", () => {
-    const screens = ["#/review", "#/plan", "#/reflect", "#/reflection/weekly"].map((h) => legacyRoute(routeFromHash(h)).screen);
-    expect(screens).toEqual(["log", "today", "records", "records"]);
+  it("旧名（plan・reflect）も受け付けて、画面としては今日・記録に写す", () => {
+    const screens = ["#/plan", "#/reflect", "#/reflection/weekly"].map((h) => legacyRoute(routeFromHash(h)).screen);
+    expect(screens).toEqual(["today", "records", "records"]);
   });
 });
 

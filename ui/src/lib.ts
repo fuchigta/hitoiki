@@ -123,7 +123,7 @@ export function fmtFull(ms: Millis): string {
 export const KIND_LABEL: Record<SegmentKind, string> = {
   work: "作業",
   agent_dialog: "AI との対話",
-  agent_watch: "AI の作業待ち",
+  agent_wait: "AI の作業待ち",
   meeting: "会議",
   idle: "無操作",
   break: "休憩",
@@ -134,7 +134,7 @@ export const KIND_LABEL: Record<SegmentKind, string> = {
 export const KIND_ORDER: SegmentKind[] = [
   "work",
   "agent_dialog",
-  "agent_watch",
+  "agent_wait",
   "meeting",
   "interrupt",
   "idle",
@@ -153,7 +153,7 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export const SCREENS = [
   { id: "today", label: "今日" },
-  { id: "log", label: "実績" },
+  { id: "actual", label: "実績" },
   { id: "tasks", label: "タスク" },
   { id: "goals", label: "目標" },
   { id: "records", label: "記録" },
@@ -180,7 +180,7 @@ function safeDecode(s: string): string {
 }
 
 /** 画面としては無くなったが、ハッシュとしては受け付ける旧い ID（`legacyRoute` で新しいルートに写す）。 */
-const LEGACY_IDS: string[] = ["review", "plan", "reflect"];
+const LEGACY_IDS: string[] = ["plan", "reflect"];
 
 /**
  * `#/tasks/<ID>?tab=time` 形式のハッシュをルートに分解する。知らない画面は `today`。
@@ -214,17 +214,11 @@ export function hrefOf(
 /**
  * 旧い画面 ID のルートを、いまのルートへ写す（`hitoiki ui <画面>`・通知の `open_screen`・起動引数が旧名を使うため）。
  * 画面を統合する段階で、ここに足す。
- * - `review` → `log?status=review`（ほかのクエリは残す）
  * - `plan` → `today`（`date` などのクエリは残す。計画は今日の画面に統合された）
  * - `reflect` → `records?kind=reflection`
  * - `reflect/<kind>`（day_start・day_end・weekly）→ `records/new/<kind>`（振り返りの作成フォーム）
  */
 export function legacyRoute(route: Route): Route {
-  if ((route.screen as string) === "review") {
-    const params = new URLSearchParams(route.params);
-    if (!params.has("status")) params.set("status", "review");
-    return { screen: "log", path: route.path, params };
-  }
   if ((route.screen as string) === "plan") {
     return { screen: "today", path: route.path, params: route.params };
   }

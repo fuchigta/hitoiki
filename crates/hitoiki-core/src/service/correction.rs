@@ -1,28 +1,28 @@
 //! 時間帯の範囲指定による実績の補正（docs/dev/architecture.md「実績の補正」）。
 //!
 //! 範囲に含まれる区間（と記録なしの時間帯）を候補として挙げ、チェックされたものを 1 つのタスク（または
-//! 「タスクなし」「休憩」）へ付け替える。補正は `segment_override`（ユーザー確定）として保存し、1 回の付け替えを
+//! 「タスクなし」「休憩」）へ付け替える。補正は `segment_confirmation`（ユーザー確定）として保存し、1 回の付け替えを
 //! `segment_correction` でひとまとまりにして取り消せるようにする。実績を直接入力するのではなく、
-//! 実績は常に `activity_segment` から算出する（override が再計算でも最優先で適用される）。
+//! 実績は常に `activity_segment` から算出する（確定が再計算でも最優先で適用される）。
 //!
-//! - 境界にまたがる区間は、範囲の内側の部分だけを対象にする（override の開始・終了を範囲で切る）。
-//! - 無操作（idle）と記録なしは、割り当てると種別 work の PC 外の時間（`offline`）として計上する。
-//! - 記録なしの時間帯には区間が無いので、`offline` の override から区間を作る（パイプラインが再計算でも作る）。
+//! - 境界にまたがる区間は、範囲の内側の部分だけを対象にする（確定の開始・終了を範囲で切る）。
+//! - 無操作（idle）と記録なしは、割り当てると種別 work の PC 外の時間（`off_pc`）として計上する。
+//! - 記録なしの時間帯には区間が無いので、`off_pc` の確定から区間を作る（パイプラインが再計算でも作る）。
 
 use super::{range_view, task_titles, Ctx, RangeView};
 use crate::id::new_id;
-use crate::model::{ActivitySegment, SegmentKind, SegmentOverride, SegmentStatus};
+use crate::model::{ActivitySegment, SegmentConfirmation, SegmentKind, SegmentStatus};
 use crate::pipeline::SegmentJudge;
 use crate::recording;
-use crate::repo::{self, correction as repo_corr, overrides};
+use crate::repo::{self, confirmation, correction as repo_corr};
 use crate::timefmt::{self, Range};
 use crate::{Error, Millis, Result};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// 記録なしの候補の ID の接頭辞（`gap:<開始のミリ秒>`）。
-pub const GAP_PREFIX: &str = "gap:";
+/// 記録なしの候補の ID の接頭辞（`uncollected:<開始のミリ秒>`）。
+pub const UNCOLLECTED_PREFIX: &str = "uncollected:";
 
 /// 候補の分類。初期のチェックと画面の表示に使う。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,7 +30,7 @@ pub const GAP_PREFIX: &str = "gap:";
 pub enum Category {
     /// 通常の作業（auto / needs_review の work・interrupt）。
     Work,
-    /// エージェント対話・見守り（タスクだけ付け替え、種別は維持する）。
+    /// エージェント対話・作業待ち（タスクだけ付け替え、種別は維持する）。
     AgentDialog,
     /// ユーザー確定済み。
     Confirmed,
@@ -39,7 +39,7 @@ pub enum Category {
     /// 無操作・休憩。
     Idle,
     /// 記録なし（収集器が動いていなかった時間帯）。
-    Gap,
+    Uncollected,
 }
 
 /// 初期チェックの方針（設定 `review.correct_include_*`。CLI のフラグで上書きできる）。
@@ -53,9 +53,9 @@ pub struct Include {
 impl Include {
     pub fn from_config(ctx: &Ctx) -> Self {
         Self {
-            confirmed: ctx.cfg.review.correct_include_confirmed,
-            meeting: ctx.cfg.review.correct_include_meeting,
-            idle: ctx.cfg.review.correct_include_idle,
+            confirmed: ctx.cfg.actual.correct_include_confirmed,
+            meeting: ctx.cfg.actual.correct_include_meeting,
+            idle: ctx.cfg.actual.correct_include_idle,
         }
     }
 }
@@ -63,9 +63,9 @@ impl Include {
 /// 補正の対象になりうる区間（範囲で切った後の部分）。
 #[derive(Debug, Clone, Serialize)]
 pub struct Candidate {
-    /// 区間 ID。記録なしは `gap:<開始のミリ秒>`。
+    /// 区間 ID。記録なしは `uncollected:<開始のミリ秒>`。
     pub id: String,
-    pub gap: bool,
+    pub uncollected: bool,
     /// 範囲で切った後の開始・終了。
     pub start_at: Millis,
     pub end_at: Millis,
@@ -78,14 +78,14 @@ pub struct Candidate {
     pub status: Option<SegmentStatus>,
     pub task_id: Option<String>,
     pub task_title: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub exe_name: Option<String>,
     pub title: Option<String>,
     pub category: Category,
     /// すでに PC 外として計上されている区間。
-    pub offline: bool,
-    /// 割り当てると PC 外の時間（種別 work の `offline`）として計上されるか（無操作・休憩・記録なし）。
-    pub becomes_offline: bool,
+    pub off_pc: bool,
+    /// 割り当てると PC 外の時間（種別 work の `off_pc`）として計上されるか（無操作・休憩・記録なし）。
+    pub becomes_off_pc: bool,
     /// 既定でチェックされるか。
     pub checked: bool,
 }
@@ -94,7 +94,7 @@ pub struct Candidate {
 #[derive(Debug, Clone, Serialize)]
 pub struct CandidateList {
     pub range: RangeView,
-    /// 範囲の端の吸着の幅（秒、`review.snap_sec`）。
+    /// 範囲の端の吸着の幅（秒、`actual.snap_sec`）。
     pub snap_sec: u64,
     pub candidates: Vec<Candidate>,
 }
@@ -105,7 +105,7 @@ fn classify(s: &ActivitySegment) -> Category {
     }
     match s.kind {
         SegmentKind::Work | SegmentKind::Interrupt => Category::Work,
-        SegmentKind::AgentDialog | SegmentKind::AgentWatch => Category::AgentDialog,
+        SegmentKind::AgentDialog | SegmentKind::AgentWait => Category::AgentDialog,
         SegmentKind::Meeting => Category::Meeting,
         SegmentKind::Idle | SegmentKind::Break => Category::Idle,
         // 無視の区間は `candidates` が除くので、ここには来ない。
@@ -174,7 +174,7 @@ pub fn candidates(ctx: &Ctx, start_at: Millis, end_at: Millis, inc: Include) -> 
         let category = classify(s);
         out.push(Candidate {
             id: s.id.clone(),
-            gap: false,
+            uncollected: false,
             start_at: r.start,
             end_at: r.end,
             start: timefmt::fmt_rfc3339(tz, r.start),
@@ -185,22 +185,22 @@ pub fn candidates(ctx: &Ctx, start_at: Millis, end_at: Millis, inc: Include) -> 
             status: Some(s.status),
             task_id: s.task_id.clone(),
             task_title: s.task_id.as_ref().and_then(|id| titles.get(id).cloned()),
-            activity_label: s.activity_label.clone(),
+            activity: s.activity.clone(),
             exe_name: s.exe_name.clone(),
             title: s.title.clone(),
             category,
-            offline: s.offline,
-            becomes_offline: is_idle_like(s.kind),
+            off_pc: s.off_pc,
+            becomes_off_pc: is_idle_like(s.kind),
             checked: default_checked(s, inc),
         });
     }
     // 記録なし（区間が無い時間帯）。すでに区間で覆われた部分（前の補正が作ったものなど）は除く。
     let covered: Vec<(Millis, Millis)> = segs.iter().map(|s| (s.start_at, s.end_at)).collect();
-    for g in recording::gaps(ctx.conn, range, ctx.now())? {
+    for g in recording::uncollected(ctx.conn, range, ctx.now())? {
         for (s, e) in uncovered(g.start_at, g.end_at, &covered) {
             out.push(Candidate {
-                id: format!("{GAP_PREFIX}{s}"),
-                gap: true,
+                id: format!("{UNCOLLECTED_PREFIX}{s}"),
+                uncollected: true,
                 start_at: s,
                 end_at: e,
                 start: timefmt::fmt_rfc3339(tz, s),
@@ -211,12 +211,12 @@ pub fn candidates(ctx: &Ctx, start_at: Millis, end_at: Millis, inc: Include) -> 
                 status: None,
                 task_id: None,
                 task_title: None,
-                activity_label: None,
+                activity: None,
                 exe_name: None,
                 title: None,
-                category: Category::Gap,
-                offline: false,
-                becomes_offline: true,
+                category: Category::Uncollected,
+                off_pc: false,
+                becomes_off_pc: true,
                 checked: inc.idle,
             });
         }
@@ -224,12 +224,12 @@ pub fn candidates(ctx: &Ctx, start_at: Millis, end_at: Millis, inc: Include) -> 
     out.sort_by(|a, b| a.start_at.cmp(&b.start_at).then_with(|| a.id.cmp(&b.id)));
     Ok(CandidateList {
         range: range_view(tz, range),
-        snap_sec: ctx.cfg.review.snap_sec,
+        snap_sec: ctx.cfg.actual.snap_sec,
         candidates: out,
     })
 }
 
-/// 補正の入力。割り当て先は `task` / `no_task` / `rest` のいずれか 1 つ（活動ラベルだけでもよい）。
+/// 補正の入力。割り当て先は `task` / `no_task` / `rest` のいずれか 1 つ（活動だけでもよい）。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct CorrectionInput {
@@ -313,11 +313,11 @@ impl Target {
         }
     }
 
-    /// 候補 1 件分の override。
-    fn make_override(&self, c: &Candidate, correction_id: &str, now: Millis) -> SegmentOverride {
+    /// 候補 1 件分の確定。
+    fn make_confirmation(&self, c: &Candidate, correction_id: &str, now: Millis) -> SegmentConfirmation {
         let kind = if self.rest {
             Some(SegmentKind::Break)
-        } else if c.becomes_offline {
+        } else if c.becomes_off_pc {
             Some(SegmentKind::Work)
         } else {
             None
@@ -329,15 +329,15 @@ impl Target {
         } else {
             None
         };
-        SegmentOverride {
+        SegmentConfirmation {
             id: new_id(),
             start_at: c.start_at,
             end_at: c.end_at,
             kind,
             task_id,
-            activity_label: self.activity.clone(),
+            activity: self.activity.clone(),
             created_at: now,
-            offline: c.becomes_offline,
+            off_pc: c.becomes_off_pc,
             correction_id: Some(correction_id.to_string()),
         }
     }
@@ -353,7 +353,7 @@ pub struct Preview {
     pub selected_count: usize,
     pub total_ms: i64,
     /// うち PC 外（無操作・記録なし）の時間。
-    pub offline_ms: i64,
+    pub off_pc_ms: i64,
     /// 外した（チェックされていない）候補の数。
     pub excluded_count: usize,
     /// 「タスク X に 1時間12分を割り当て（うち PC 外 15分）。外した区間 3 件」の形の説明。
@@ -385,7 +385,7 @@ fn resolve_candidate_id(cands: &[Candidate], prefix: &str) -> Result<String> {
     let upper = p.to_ascii_uppercase();
     let hits: Vec<&Candidate> = cands
         .iter()
-        .filter(|c| c.id == p || (!c.gap && c.id.starts_with(&upper)))
+        .filter(|c| c.id == p || (!c.uncollected && c.id.starts_with(&upper)))
         .collect();
     match hits.len() {
         0 => Err(Error::NotFound(format!("範囲内の区間 {prefix}"))),
@@ -436,13 +436,13 @@ fn select(ctx: &Ctx, input: &CorrectionInput) -> Result<CandidateList> {
 
 fn build_preview(target: &Target, list: CandidateList) -> Preview {
     let mut total = 0;
-    let mut offline = 0;
+    let mut off_pc = 0;
     let mut selected = 0;
     for c in list.candidates.iter().filter(|c| c.checked) {
         selected += 1;
         total += c.duration_ms;
-        if c.becomes_offline {
-            offline += c.duration_ms;
+        if c.becomes_off_pc {
+            off_pc += c.duration_ms;
         }
     }
     let excluded = list.candidates.len() - selected;
@@ -450,8 +450,8 @@ fn build_preview(target: &Target, list: CandidateList) -> Preview {
         format!("{} に割り当てる区間がありません。", target.label())
     } else {
         let mut s = format!("{} に {}を割り当て", target.label(), fmt_jp_duration(total));
-        if offline > 0 {
-            s.push_str(&format!("（うち PC 外 {}）", fmt_jp_duration(offline)));
+        if off_pc > 0 {
+            s.push_str(&format!("（うち PC 外 {}）", fmt_jp_duration(off_pc)));
         }
         s.push('。');
         if excluded > 0 {
@@ -464,7 +464,7 @@ fn build_preview(target: &Target, list: CandidateList) -> Preview {
         target: target.label(),
         selected_count: selected,
         total_ms: total,
-        offline_ms: offline,
+        off_pc_ms: off_pc,
         excluded_count: excluded,
         summary,
         candidates: list.candidates,
@@ -490,9 +490,9 @@ pub struct CorrectionView {
     pub task_title: Option<String>,
     /// `break` のとき休憩への補正。
     pub kind: Option<SegmentKind>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub total_ms: i64,
-    pub offline_ms: i64,
+    pub off_pc_ms: i64,
     pub segment_count: i64,
     pub created_at: Millis,
     pub created: String,
@@ -508,9 +508,9 @@ fn view(tz: chrono_tz::Tz, c: &repo_corr::Correction, titles: &HashMap<String, S
         task_id: c.task_id.clone(),
         task_title: c.task_id.as_ref().and_then(|id| titles.get(id).cloned()),
         kind: c.kind,
-        activity_label: c.activity_label.clone(),
+        activity: c.activity.clone(),
         total_ms: c.total_ms,
-        offline_ms: c.offline_ms,
+        off_pc_ms: c.off_pc_ms,
         segment_count: c.segment_count,
         created_at: c.created_at,
         created: timefmt::fmt_rfc3339(tz, c.created_at),
@@ -521,10 +521,10 @@ fn view(tz: chrono_tz::Tz, c: &repo_corr::Correction, titles: &HashMap<String, S
 pub struct ApplyResult {
     pub correction: CorrectionView,
     pub preview: Preview,
-    pub override_ids: Vec<String>,
+    pub confirmation_ids: Vec<String>,
 }
 
-/// 補正を確定する。チェックされた候補ごとに override を作り、`activity_segment` にも即時に反映する
+/// 補正を確定する。チェックされた候補ごとに確定を作り、`activity_segment` にも即時に反映する
 /// （範囲で切って、記録なしの部分には区間を作る）。1 つのトランザクションで行う。
 pub fn apply(ctx: &Ctx, input: &CorrectionInput) -> Result<ApplyResult> {
     let tz = ctx.tz()?;
@@ -541,27 +541,27 @@ pub fn apply(ctx: &Ctx, input: &CorrectionInput) -> Result<ApplyResult> {
         end_at: input.end_at,
         task_id: target.task_id.clone(),
         kind: target.rest.then_some(SegmentKind::Break),
-        activity_label: target.activity.clone(),
+        activity: target.activity.clone(),
         total_ms: preview.total_ms,
-        offline_ms: preview.offline_ms,
+        off_pc_ms: preview.off_pc_ms,
         segment_count: preview.selected_count as i64,
         created_at: now,
     };
     let tx = ctx.conn.unchecked_transaction()?;
     repo_corr::insert(ctx.conn, &correction)?;
-    let mut override_ids = Vec::new();
+    let mut confirmation_ids = Vec::new();
     for c in preview.candidates.iter().filter(|c| c.checked) {
-        let ov = target.make_override(c, &correction.id, now);
-        overrides::insert(ctx.conn, &ov)?;
+        let ov = target.make_confirmation(c, &correction.id, now);
+        confirmation::insert(ctx.conn, &ov)?;
         patch_derived(ctx.conn, &ov, now)?;
-        override_ids.push(ov.id);
+        confirmation_ids.push(ov.id);
     }
     tx.commit()?;
     let titles = task_titles(ctx.conn)?;
     Ok(ApplyResult {
         correction: view(tz, &correction, &titles),
         preview,
-        override_ids,
+        confirmation_ids,
     })
 }
 
@@ -574,10 +574,10 @@ fn split_row(conn: &Connection, t: Millis) -> Result<()> {
     };
     for id in ids {
         conn.execute(
-            "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity_label, confidence, \
-             decided_by, status, window_span_ids, agent_session_id, exe_name, title, offline) \
-             SELECT ?2, ?3, end_at, kind, task_id, activity_label, confidence, decided_by, status, \
-             window_span_ids, agent_session_id, exe_name, title, offline FROM activity_segment WHERE id = ?1",
+            "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity, confidence, \
+             decided_by, status, window_span_ids, agent_session_id, exe_name, title, off_pc) \
+             SELECT ?2, ?3, end_at, kind, task_id, activity, confidence, decided_by, status, \
+             window_span_ids, agent_session_id, exe_name, title, off_pc FROM activity_segment WHERE id = ?1",
             params![id, new_id(), t],
         )?;
         conn.execute(
@@ -588,27 +588,27 @@ fn split_row(conn: &Connection, t: Millis) -> Result<()> {
     Ok(())
 }
 
-/// override を派生層へ即時に反映する（次の再計算でも同じ結果になるはずの内容）。
-/// 範囲の端で区間を切り、内側を更新し、`offline` なら区間の無い部分に区間を作る。
-fn patch_derived(conn: &Connection, ov: &SegmentOverride, now: Millis) -> Result<()> {
+/// 確定を派生層へ即時に反映する（次の再計算でも同じ結果になるはずの内容）。
+/// 範囲の端で区間を切り、内側を更新し、`off_pc` なら区間の無い部分に区間を作る。
+fn patch_derived(conn: &Connection, ov: &SegmentConfirmation, now: Millis) -> Result<()> {
     split_row(conn, ov.start_at)?;
     split_row(conn, ov.end_at)?;
     conn.execute(
         "UPDATE activity_segment SET kind = COALESCE(?3, kind), \
          task_id = CASE WHEN ?4 = '' THEN NULL ELSE COALESCE(?4, task_id) END, \
-         activity_label = COALESCE(?5, activity_label), status = 'confirmed', decided_by = 'user', \
-         confidence = 1.0, offline = CASE WHEN ?6 THEN 1 ELSE offline END \
+         activity = COALESCE(?5, activity), status = 'confirmed', decided_by = 'confirmation', \
+         confidence = 1.0, off_pc = CASE WHEN ?6 THEN 1 ELSE off_pc END \
          WHERE start_at >= ?1 AND end_at <= ?2",
         params![
             ov.start_at,
             ov.end_at,
             ov.kind,
             ov.task_id,
-            ov.activity_label,
-            ov.offline
+            ov.activity,
+            ov.off_pc
         ],
     )?;
-    if ov.offline {
+    if ov.off_pc {
         let hi = ov.end_at.min(now);
         if ov.start_at < hi {
             let covered: Vec<(Millis, Millis)> = repo::segment::list(conn, Range::new(ov.start_at, hi))?
@@ -617,16 +617,16 @@ fn patch_derived(conn: &Connection, ov: &SegmentOverride, now: Millis) -> Result
                 .collect();
             for (s, e) in uncovered(ov.start_at, hi, &covered) {
                 conn.execute(
-                    "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity_label, \
-                     confidence, decided_by, status, window_span_ids, offline) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1.0, 'user', 'confirmed', '[]', 1)",
+                    "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity, \
+                     confidence, decided_by, status, window_span_ids, off_pc) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, 1.0, 'confirmation', 'confirmed', '[]', 1)",
                     params![
                         new_id(),
                         s,
                         e,
                         ov.kind.unwrap_or(SegmentKind::Work),
                         ov.task_id.as_deref().filter(|t| !t.is_empty()),
-                        ov.activity_label
+                        ov.activity
                     ],
                 )?;
             }
@@ -636,10 +636,10 @@ fn patch_derived(conn: &Connection, ov: &SegmentOverride, now: Millis) -> Result
 }
 
 /// 無操作の期間 [start, end) を、タスクの PC 外の作業として確定する（通知「{タスク名}をしていた」用）。
-/// 範囲指定の補正（[`apply`]）で無操作・記録なしを選んだときと同じ形で保存する: 種別 work・`offline` の
-/// override を期間全体に作り、派生層にも即時に反映する（区間の無い部分には区間を作る）。
+/// 範囲指定の補正（[`apply`]）で無操作・記録なしを選んだときと同じ形で保存する: 種別 work・`off_pc` の
+/// 確定を期間全体に作り、派生層にも即時に反映する（区間の無い部分には区間を作る）。
 /// 補正（`segment_correction`）としても残すので、補正の一覧から取り消せる。戻り値は期間に収まる確定済み区間の数。
-pub fn assign_offline_range(
+pub fn assign_off_pc_range(
     conn: &Connection,
     start: Millis,
     end: Millis,
@@ -657,25 +657,25 @@ pub fn assign_offline_range(
         end_at: end,
         task_id: Some(task_id.to_string()),
         kind: None,
-        activity_label: None,
+        activity: None,
         total_ms: end - start,
-        offline_ms: end - start,
+        off_pc_ms: end - start,
         segment_count: 1,
         created_at: now,
     };
     repo_corr::insert(conn, &correction)?;
-    let ov = SegmentOverride {
+    let ov = SegmentConfirmation {
         id: new_id(),
         start_at: start,
         end_at: end,
         kind: Some(SegmentKind::Work),
         task_id: Some(task_id.to_string()),
-        activity_label: None,
+        activity: None,
         created_at: now,
-        offline: true,
+        off_pc: true,
         correction_id: Some(correction.id.clone()),
     };
-    overrides::insert(conn, &ov)?;
+    confirmation::insert(conn, &ov)?;
     patch_derived(conn, &ov, now)?;
     let n: i64 = conn.query_row(
         "SELECT COUNT(*) FROM activity_segment WHERE start_at >= ?1 AND end_at <= ?2 AND status = 'confirmed'",
@@ -731,14 +731,14 @@ pub fn list(ctx: &Ctx, filter: &CorrectionFilter) -> Result<CorrectionList> {
 #[derive(Debug, Clone, Serialize)]
 pub struct UndoResult {
     pub correction: CorrectionView,
-    /// 削除した override の数。
-    pub overrides_removed: usize,
+    /// 削除した確定の数。
+    pub confirmations_removed: usize,
     /// 再計算した範囲。
     pub range: RangeView,
 }
 
-/// 補正を取り消す: その補正で作った override を削除して、範囲を再計算する。
-/// `judge` は再計算で使う判定器（無ければルールのみ）。
+/// 補正を取り消す: その補正で作った確定を削除して、範囲を再計算する。
+/// `judge` は再計算で使う自動判定（無ければルールのみ）。
 pub fn undo(ctx: &Ctx, id: &str, judge: Option<&dyn SegmentJudge>) -> Result<UndoResult> {
     let tz = ctx.tz()?;
     let c = repo_corr::resolve(ctx.conn, id)?;
@@ -755,7 +755,7 @@ pub fn undo(ctx: &Ctx, id: &str, judge: Option<&dyn SegmentJudge>) -> Result<Und
     )?;
     Ok(UndoResult {
         correction: view(tz, &c, &titles),
-        overrides_removed: removed,
+        confirmations_removed: removed,
         range: range_view(tz, stats.range),
     })
 }
@@ -834,7 +834,7 @@ mod tests {
         );
         assert_eq!(w.full_duration_ms, 20 * MIN);
         let on: Vec<(&str, bool)> = p.candidates.iter().map(|c| (c.id.as_str(), c.checked)).collect();
-        let gap_id = format!("gap:{}", m0 + 60 * MIN);
+        let gap_id = format!("uncollected:{}", m0 + 60 * MIN);
         assert_eq!(
             on,
             vec![
@@ -854,11 +854,11 @@ mod tests {
         let g = p.candidates.last().unwrap();
         assert_eq!(
             (g.category, g.start_at, g.end_at),
-            (Category::Gap, m0 + 60 * MIN, m0 + 90 * MIN)
+            (Category::Uncollected, m0 + 60 * MIN, m0 + 90 * MIN)
         );
         // 合計: 10 + 10 分。外した 4 件。
         assert_eq!(
-            (p.selected_count, p.total_ms, p.offline_ms, p.excluded_count),
+            (p.selected_count, p.total_ms, p.off_pc_ms, p.excluded_count),
             (2, 20 * MIN, 0, 4)
         );
     }
@@ -867,7 +867,7 @@ mod tests {
     fn 設定とフラグで初期のチェックを変えられる() {
         let mut env = Env::new();
         let m0 = setup(&env);
-        env.cfg.review.correct_include_idle = true;
+        env.cfg.actual.correct_include_idle = true;
         let ctx = env.ctx();
         let t = mk_task(&ctx, "T");
         let p = preview(&ctx, &input(m0, 10, 90, &t)).unwrap();
@@ -893,7 +893,7 @@ mod tests {
         assert_eq!(
             (
                 r.correction.total_ms,
-                r.correction.offline_ms,
+                r.correction.off_pc_ms,
                 r.correction.segment_count
             ),
             (20 * MIN, 0, 2)
@@ -906,7 +906,7 @@ mod tests {
         assert_eq!(by(10).task_id.as_deref(), Some(t.as_str()));
         assert_eq!(
             (by(10).status, by(10).decided_by.as_deref()),
-            (SegmentStatus::Confirmed, Some("user"))
+            (SegmentStatus::Confirmed, Some("confirmation"))
         );
         // agent_dialog は kind を維持してタスクだけ付く。
         assert_eq!(by(20).kind, SegmentKind::AgentDialog);
@@ -916,14 +916,14 @@ mod tests {
         assert_eq!(by(40).kind, SegmentKind::Meeting);
         assert_eq!(by(40).task_id, None);
         assert_eq!(by(50).kind, SegmentKind::Idle);
-        // override は範囲で切った期間で保存され、補正に結び付く。
-        // 同じミリ秒に作った override の並び（created_at, id）は ULID の乱数部で決まるので、開始時刻で並べ直す。
-        let mut ovs = repo::overrides::list(ctx.conn, Range::new(m0, m0 + 200 * MIN)).unwrap();
+        // 確定は範囲で切った期間で保存され、補正に結び付く。
+        // 同じミリ秒に作った確定の並び（created_at, id）は ULID の乱数部で決まるので、開始時刻で並べ直す。
+        let mut ovs = repo::confirmation::list(ctx.conn, Range::new(m0, m0 + 200 * MIN)).unwrap();
         ovs.sort_by_key(|o| o.start_at);
         assert_eq!(ovs.len(), 2);
         assert!(ovs
             .iter()
-            .all(|o| o.correction_id.as_deref() == Some(r.correction.id.as_str()) && !o.offline));
+            .all(|o| o.correction_id.as_deref() == Some(r.correction.id.as_str()) && !o.off_pc));
         assert_eq!((ovs[0].start_at, ovs[0].end_at), (m0 + 10 * MIN, m0 + 20 * MIN));
     }
 
@@ -951,7 +951,7 @@ mod tests {
         let p = preview(&ctx, &i).unwrap();
         // W10 + D10 + I10 + 記録なし30 = 60 分、うち PC 外 40 分。外したのは確定済みと会議の 2 件。
         assert_eq!(
-            (p.total_ms, p.offline_ms, p.excluded_count),
+            (p.total_ms, p.off_pc_ms, p.excluded_count),
             (60 * MIN, 40 * MIN, 2)
         );
         assert_eq!(
@@ -964,22 +964,25 @@ mod tests {
         apply(&ctx, &i).unwrap();
         let idle = segs(&env, m0, 50, 60);
         assert_eq!(idle.len(), 1);
-        assert_eq!((idle[0].kind, idle[0].offline), (SegmentKind::Work, true));
+        assert_eq!((idle[0].kind, idle[0].off_pc), (SegmentKind::Work, true));
         assert_eq!(idle[0].task_id.as_deref(), Some(t.as_str()));
         // 記録なしの時間帯に区間ができる（範囲の内側だけ）。
-        let gap = segs(&env, m0, 60, 120);
-        assert_eq!(gap.len(), 1);
-        assert_eq!((gap[0].start_at, gap[0].end_at), (m0 + 60 * MIN, m0 + 90 * MIN));
+        let uncollected = segs(&env, m0, 60, 120);
+        assert_eq!(uncollected.len(), 1);
         assert_eq!(
-            (gap[0].kind, gap[0].offline, gap[0].status),
+            (uncollected[0].start_at, uncollected[0].end_at),
+            (m0 + 60 * MIN, m0 + 90 * MIN)
+        );
+        assert_eq!(
+            (uncollected[0].kind, uncollected[0].off_pc, uncollected[0].status),
             (SegmentKind::Work, true, SegmentStatus::Confirmed)
         );
-        // 通常の作業に offline は付かない。
-        assert!(!segs(&env, m0, 10, 20)[0].offline);
+        // 通常の作業に off_pc は付かない。
+        assert!(!segs(&env, m0, 10, 20)[0].off_pc);
         // ログの「記録なし」からも、計上した部分は消える（残りの 90-120 だけ）。
-        let l = crate::service::log::log(
+        let l = crate::service::actual::list(
             &ctx,
-            &crate::service::log::LogInput {
+            &crate::service::actual::ActualListInput {
                 range: crate::service::RangeArgs {
                     date: None,
                     from: Some(timefmt::fmt_rfc3339(ctx.tz().unwrap(), m0)),
@@ -989,16 +992,16 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(l.gaps.len(), 1);
+        assert_eq!(l.uncollected.len(), 1);
         assert_eq!(
-            (l.gaps[0].start_at, l.gaps[0].end_at),
+            (l.uncollected[0].start_at, l.uncollected[0].end_at),
             (m0 + 90 * MIN, m0 + 120 * MIN)
         );
         // 補正済みの記録なしは、もう記録なしの候補ではない（確定済みの区間として出る）。
         let again = candidates(&ctx, m0 + 60 * MIN, m0 + 90 * MIN, Include::default()).unwrap();
         assert_eq!(again.candidates.len(), 1);
         assert_eq!(
-            (again.candidates[0].gap, again.candidates[0].category),
+            (again.candidates[0].uncollected, again.candidates[0].category),
             (false, Category::Confirmed)
         );
     }
@@ -1012,18 +1015,18 @@ mod tests {
         let mut i = input(m0, 50, 90, &t);
         i.include_idle = Some(true);
         let r = apply(&ctx, &i).unwrap();
-        assert_eq!(r.correction.offline_ms, 40 * MIN);
+        assert_eq!(r.correction.off_pc_ms, 40 * MIN);
         let range = Range::new(m0, m0 + 150 * MIN);
 
-        // 生データが無い範囲を再計算しても、override から区間が作られる（無操作と記録なしは連続して 1 つになる）。
+        // 生データが無い範囲を再計算しても、確定から区間が作られる（無操作と記録なしは連続して 1 つになる）。
         crate::rebuild::rebuild(ctx.conn, ctx.cfg, range, ctx.now()).unwrap();
         let all = repo::segment::list(ctx.conn, range).unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!((all[0].start_at, all[0].end_at), (m0 + 50 * MIN, m0 + 90 * MIN));
-        assert_eq!((all[0].kind, all[0].offline), (SegmentKind::Work, true));
+        assert_eq!((all[0].kind, all[0].off_pc), (SegmentKind::Work, true));
         assert_eq!(all[0].task_id.as_deref(), Some(t.as_str()));
 
-        // 一覧に出て、取り消すと override も区間も消える。
+        // 一覧に出て、取り消すと確定も区間も消える。
         let l = list(
             &ctx,
             &CorrectionFilter {
@@ -1035,12 +1038,12 @@ mod tests {
         assert_eq!(l.count, 1);
         assert_eq!(l.corrections[0].id, r.correction.id);
         let u = undo(&ctx, &r.correction.id[..8], None).unwrap();
-        assert_eq!(u.overrides_removed, 2);
+        assert_eq!(u.confirmations_removed, 2);
         assert!(list(&ctx, &CorrectionFilter::default())
             .unwrap()
             .corrections
             .is_empty());
-        assert!(repo::overrides::list(ctx.conn, range).unwrap().is_empty());
+        assert!(repo::confirmation::list(ctx.conn, range).unwrap().is_empty());
         assert!(repo::segment::list(ctx.conn, range).unwrap().is_empty());
         assert!(matches!(
             undo(&ctx, &r.correction.id, None),

@@ -12,7 +12,7 @@
   --warn: #b0803a;
   --k-work: #5b8f90;
   --k-agent_dialog: #7b8fc4;
-  --k-agent_watch: #a9b6dc;
+  --k-agent_wait: #a9b6dc;
   --k-meeting: #c49a6c;
   --k-interrupt: #b98a9a;
   --k-idle: #cfcbc0;
@@ -56,7 +56,7 @@
     --warn: #d3a460;
     --k-work: #5b9a9b;
     --k-agent_dialog: #7f93cc;
-    --k-agent_watch: #55608a;
+    --k-agent_wait: #55608a;
     --k-meeting: #b48a5c;
     --k-interrupt: #a97888;
     --k-idle: #465050;
@@ -526,9 +526,9 @@ button.ghost:hover:not(:disabled) {
   box-shadow: inset 0 0 0 2px var(--warn);
 }
 /* 記録なし（収集が止まっていた時間帯）: 薄い斜線 */
-.tl-item.gap,
-.vtl-item.gap,
-.dot.gap {
+.tl-item.uncollected,
+.vtl-item.uncollected,
+.dot.uncollected {
   background: repeating-linear-gradient(
     135deg,
     transparent 0 4px,
@@ -546,7 +546,7 @@ button.ghost:hover:not(:disabled) {
 }
 .k-work { background: var(--k-work); }
 .k-agent_dialog { background: var(--k-agent_dialog); }
-.k-agent_watch { background: var(--k-agent_watch); }
+.k-agent_wait { background: var(--k-agent_wait); }
 .k-meeting { background: var(--k-meeting); }
 .k-interrupt { background: var(--k-interrupt); }
 .k-idle { background: var(--k-idle); }
@@ -1015,7 +1015,7 @@ button.primary.attn {
 }
 
 /* 実績の補正（範囲指定の付け替え）・PC 外の作業 */
-.vtl-item.seg.offline {
+.vtl-item.seg.off_pc {
   background-image: repeating-linear-gradient(
     45deg,
     transparent 0 5px,

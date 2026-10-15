@@ -1,8 +1,8 @@
-//! タスクとタスク帰属ルールのユースケース（docs/dev/architecture.md「CLI」）。
+//! タスクとタスクタスクの割り当てルールのユースケース（docs/dev/architecture.md「CLI」）。
 
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{MatchField, PatternType, Task, TaskKind, TaskMatchRule, TaskStatus};
+use crate::model::{MatchField, PatternType, Task, TaskAssignRule, TaskKind, TaskStatus};
 use crate::pipeline::SegmentJudge;
 use crate::repo::{self, goal, rule, skill};
 use crate::timefmt::Range;
@@ -58,8 +58,8 @@ pub struct TaskList {
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskShow {
     pub task: TaskView,
-    pub rules: Vec<TaskMatchRule>,
-    /// このタスクに帰属した区間の合計（全期間、ミリ秒）。
+    pub rules: Vec<TaskAssignRule>,
+    /// このタスクに割り当てられた区間の合計（全期間、ミリ秒）。
     pub tracked_ms: i64,
     pub tracked_segments: i64,
 }
@@ -312,11 +312,11 @@ pub struct DeletePreview {
     /// このタスクに計上済みの区間の数と合計（ミリ秒）。削除後は未割り当てに戻る。
     pub segments: i64,
     pub tracked_ms: i64,
-    /// このタスクを指す確定済みの割り当て（`segment_override`）の数。削除される。
-    pub overrides: i64,
+    /// このタスクを指す確定済みの割り当て（`segment_confirmation`）の数。削除される。
+    pub confirmations: i64,
     /// このタスクへの補正（`segment_correction`）の数。補正ごと削除される。
     pub corrections: i64,
-    /// 帰属ルールの数（削除される）。
+    /// タスクの割り当てルールの数（削除される）。
     pub rules: i64,
     /// スキルの紐付けの数（削除される）。
     pub skills: i64,
@@ -336,19 +336,19 @@ pub struct DeletePreview {
 
 fn summarize(p: &DeletePreview) -> String {
     let mut parts = Vec::new();
-    if p.segments > 0 || p.overrides > 0 {
+    if p.segments > 0 || p.confirmations > 0 {
         parts.push(format!(
             "計上済み {}（{} 区間）と確定した割り当て {} 件が未割り当てに戻ります",
             super::correction::fmt_jp_duration(p.tracked_ms),
             p.segments,
-            p.overrides
+            p.confirmations
         ));
     }
     if p.corrections > 0 {
         parts.push(format!("補正 {} 件も削除されます", p.corrections));
     }
     if p.rules > 0 {
-        parts.push(format!("帰属ルール {} 件も削除されます", p.rules));
+        parts.push(format!("タスクの割り当てルール {} 件も削除されます", p.rules));
     }
     if p.blocks + p.template_items > 0 {
         parts.push(format!(
@@ -388,9 +388,9 @@ fn impact(ctx: &Ctx, t: &Task) -> Result<(DeletePreview, Option<Range>)> {
         [id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
     )?;
-    // 補正が作った override は task_id が付け替え先と同じだが、念のため correction_id でも拾う。
-    let (overrides, _, o_lo, o_hi): Agg = c.query_row(
-        "SELECT COUNT(*), 0, MIN(start_at), MAX(end_at) FROM segment_override \
+    // 補正が作った確定は task_id が付け替え先と同じだが、念のため correction_id でも拾う。
+    let (confirmations, _, o_lo, o_hi): Agg = c.query_row(
+        "SELECT COUNT(*), 0, MIN(start_at), MAX(end_at) FROM segment_confirmation \
          WHERE task_id = ?1 OR correction_id IN (SELECT id FROM segment_correction WHERE task_id = ?1)",
         [id],
         |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
@@ -412,9 +412,9 @@ fn impact(ctx: &Ctx, t: &Task) -> Result<(DeletePreview, Option<Range>)> {
         status: t.status,
         segments,
         tracked_ms,
-        overrides,
+        confirmations,
         corrections,
-        rules: count(c, "SELECT COUNT(*) FROM task_match_rule WHERE task_id = ?1", id)?,
+        rules: count(c, "SELECT COUNT(*) FROM task_assign_rule WHERE task_id = ?1", id)?,
         skills: count(c, "SELECT COUNT(*) FROM task_skill WHERE task_id = ?1", id)?,
         blocks: count(c, "SELECT COUNT(*) FROM time_block WHERE task_id = ?1", id)?,
         template_items: count(
@@ -424,7 +424,7 @@ fn impact(ctx: &Ctx, t: &Task) -> Result<(DeletePreview, Option<Range>)> {
         )?,
         doing_logs: count(c, "SELECT COUNT(*) FROM task_doing_log WHERE task_id = ?1", id)?,
         is_doing: t.status == TaskStatus::Doing,
-        needs_force: segments > 0 || overrides > 0 || corrections > 0,
+        needs_force: segments > 0 || confirmations > 0 || corrections > 0,
         summary: String::new(),
     };
     preview.summary = summarize(&preview);
@@ -440,9 +440,9 @@ pub fn delete_preview(ctx: &Ctx, id: &str) -> Result<DeletePreview> {
 /// 誤入力のタスクを削除する（「やめる」は記録として残す。削除は元から無かったことにする）。
 ///
 /// 1 トランザクションで次を行い、その後に影響した期間を再計算して区間を未割り当てへ戻す。
-/// - タスク本体・帰属ルール・スキルの紐付け・doing の履歴を削除する。
-/// - このタスクへの `segment_override` を削除する。補正（`segment_correction`）は付け替え先が 1 つのタスクなので、
-///   このタスクへの補正は補正ごと（補正が作った override も含めて）削除する。他のタスクへの補正には触れない。
+/// - タスク本体・タスクの割り当てルール・スキルの紐付け・doing の履歴を削除する。
+/// - このタスクへの `segment_confirmation` を削除する。補正（`segment_correction`）は付け替え先が 1 つのタスクなので、
+///   このタスクへの補正は補正ごと（補正が作った確定も含めて）削除する。他のタスクへの補正には触れない。
 /// - `time_block` / `block_template_item` の `task_id` は NULL にして残す（ラベルが空ならタスク名を写す）。
 ///
 /// 計上済み時間・確定済みの割り当て・補正があるとき、`force` が偽ならエラー（引数不正）で影響を知らせる。
@@ -458,12 +458,12 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool, judge: Option<&dyn SegmentJudge>
     let tid = t.id.as_str();
     let c = ctx.conn;
     let tx = c.unchecked_transaction()?;
-    // 補正が作った override → このタスクへの override → 補正 の順。
+    // 補正が作った確定 → このタスクへの確定 → 補正 の順。
     c.execute(
-        "DELETE FROM segment_override WHERE correction_id IN (SELECT id FROM segment_correction WHERE task_id = ?1)",
+        "DELETE FROM segment_confirmation WHERE correction_id IN (SELECT id FROM segment_correction WHERE task_id = ?1)",
         [tid],
     )?;
-    c.execute("DELETE FROM segment_override WHERE task_id = ?1", [tid])?;
+    c.execute("DELETE FROM segment_confirmation WHERE task_id = ?1", [tid])?;
     c.execute("DELETE FROM segment_correction WHERE task_id = ?1", [tid])?;
     // 再計算までの間も参照が残らないよう、派生層は先に未割り当てにしておく。
     c.execute(
@@ -482,7 +482,7 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool, judge: Option<&dyn SegmentJudge>
         params![tid, t.title],
     )?;
     c.execute("DELETE FROM task_doing_log WHERE task_id = ?1", [tid])?;
-    c.execute("DELETE FROM task_match_rule WHERE task_id = ?1", [tid])?;
+    c.execute("DELETE FROM task_assign_rule WHERE task_id = ?1", [tid])?;
     c.execute("DELETE FROM task_skill WHERE task_id = ?1", [tid])?;
     c.execute("DELETE FROM task WHERE id = ?1", [tid])?;
     tx.commit()?;
@@ -499,7 +499,7 @@ pub fn delete(ctx: &Ctx, id: &str, force: bool, judge: Option<&dyn SegmentJudge>
     })
 }
 
-// ===== 帰属ルール =====
+// ===== タスクの割り当てルール =====
 
 #[derive(Debug, Clone)]
 pub struct RuleInput {
@@ -514,7 +514,7 @@ pub struct RuleInput {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RuleList {
-    pub rules: Vec<TaskMatchRule>,
+    pub rules: Vec<TaskAssignRule>,
 }
 
 /// cwd / repo の glob はパス区切りを `/` に正規化する（`\` は glob のエスケープになるため）。
@@ -526,12 +526,12 @@ pub(crate) fn normalize_pattern(field: MatchField, ty: PatternType, pattern: &st
     }
 }
 
-pub fn rule_add(ctx: &Ctx, input: &RuleInput) -> Result<TaskMatchRule> {
+pub fn task_rule_add(ctx: &Ctx, input: &RuleInput) -> Result<TaskAssignRule> {
     let task = repo::task::resolve(ctx.conn, &input.task)?;
     let ty = input.pattern_type.unwrap_or(PatternType::Glob);
     let pattern = normalize_pattern(input.field, ty, &input.pattern);
     rule::validate_pattern(&pattern, ty)?;
-    let r = TaskMatchRule {
+    let r = TaskAssignRule {
         id: new_id(),
         task_id: task.id,
         field: input.field,
@@ -544,7 +544,7 @@ pub fn rule_add(ctx: &Ctx, input: &RuleInput) -> Result<TaskMatchRule> {
     Ok(r)
 }
 
-pub fn rule_list(ctx: &Ctx, task: Option<&str>) -> Result<RuleList> {
+pub fn task_rule_list(ctx: &Ctx, task: Option<&str>) -> Result<RuleList> {
     let tid = match task {
         Some(p) => Some(repo::task::resolve(ctx.conn, p)?.id),
         None => None,
@@ -672,7 +672,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.exit_code(), 3);
         let t = add_task(&ctx, "T");
-        let r = rule_add(
+        let r = task_rule_add(
             &ctx,
             &RuleInput {
                 task: t.task.id.clone(),
@@ -685,8 +685,8 @@ mod tests {
         .unwrap();
         assert_eq!(r.pattern_type, PatternType::Glob);
         assert_eq!(r.pattern, "C:/src/foo/**");
-        assert_eq!(rule_list(&ctx, Some(&t.task.id)).unwrap().rules.len(), 1);
-        assert!(rule_add(
+        assert_eq!(task_rule_list(&ctx, Some(&t.task.id)).unwrap().rules.len(), 1);
+        assert!(task_rule_add(
             &ctx,
             &RuleInput {
                 task: t.task.id,
@@ -706,7 +706,7 @@ mod tests {
         ctx.conn.query_row(sql, [], |r| r.get(0)).unwrap()
     }
 
-    /// 0〜30 分に Code.exe の窓を置き、exe のルールでタスクに帰属させる。
+    /// 0〜30 分に Code.exe の窓を置き、exe のルールでタスクに割り当てる。
     fn tracked_task(env: &Env) -> (String, Millis) {
         let ctx = env.ctx();
         let t = add_task(&ctx, "誤入力").task.id;
@@ -717,7 +717,7 @@ mod tests {
                 rusqlite::params![m0, m0 + 30 * MIN],
             )
             .unwrap();
-        rule_add(
+        task_rule_add(
             &ctx,
             &RuleInput {
                 task: t.clone(),
@@ -773,13 +773,13 @@ mod tests {
 
         let p = delete_preview(&ctx, &t).unwrap();
         assert_eq!((p.segments, p.tracked_ms), (2, 20 * MIN));
-        assert_eq!((p.overrides, p.corrections, p.rules, p.skills), (1, 1, 1, 1));
+        assert_eq!((p.confirmations, p.corrections, p.rules, p.skills), (1, 1, 1, 1));
         assert_eq!((p.blocks, p.template_items, p.doing_logs), (2, 2, 1));
         assert!(p.is_doing && p.needs_force);
         assert!(p
             .summary
             .contains("計上済み 20分（2 区間）と確定した割り当て 1 件が未割り当てに戻ります"));
-        assert!(p.summary.contains("帰属ルール 1 件も削除されます"));
+        assert!(p.summary.contains("タスクの割り当てルール 1 件も削除されます"));
         // プレビューは何も変えない。
         assert_eq!(n(&ctx, "SELECT COUNT(*) FROM task"), 2);
 
@@ -794,7 +794,7 @@ mod tests {
         assert!(r.range.is_some());
         // 各テーブルに参照が残らない。
         for q in [
-            "SELECT COUNT(*) FROM task_match_rule",
+            "SELECT COUNT(*) FROM task_assign_rule",
             "SELECT COUNT(*) FROM task_skill",
             "SELECT COUNT(*) FROM task_doing_log",
             "SELECT COUNT(*) FROM time_block WHERE task_id = (SELECT id FROM task WHERE title = '誤入力')",
@@ -803,13 +803,13 @@ mod tests {
         }
         assert_eq!(n(&ctx, "SELECT COUNT(*) FROM task WHERE title = '誤入力'"), 0);
         assert!(repo::task::list_doing(ctx.conn).unwrap().is_empty());
-        // 別タスクの補正とその override は残る。
+        // 別タスクの補正とその確定は残る。
         assert_eq!(n(&ctx, "SELECT COUNT(*) FROM segment_correction"), 1);
         assert_eq!(
             n(
                 &ctx,
                 &format!(
-                    "SELECT COUNT(*) FROM segment_override WHERE correction_id = '{}'",
+                    "SELECT COUNT(*) FROM segment_confirmation WHERE correction_id = '{}'",
                     other_corr.correction.id
                 )
             ),
@@ -818,7 +818,7 @@ mod tests {
         assert_eq!(
             n(
                 &ctx,
-                &format!("SELECT COUNT(*) FROM segment_override WHERE task_id = '{t}'")
+                &format!("SELECT COUNT(*) FROM segment_confirmation WHERE task_id = '{t}'")
             ),
             0
         );

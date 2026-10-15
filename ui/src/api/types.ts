@@ -5,7 +5,7 @@ export type Millis = number;
 export type SegmentKind =
   | "work"
   | "agent_dialog"
-  | "agent_watch"
+  | "agent_wait"
   | "meeting"
   | "idle"
   | "break"
@@ -48,7 +48,7 @@ export interface SegmentView {
   kind: SegmentKind;
   task_id: string | null;
   task_title: string | null;
-  activity_label: string | null;
+  activity: string | null;
   confidence: number | null;
   decided_by: string | null;
   status: SegmentStatus;
@@ -56,7 +56,7 @@ export interface SegmentView {
   exe_name: string | null;
   title: string | null;
   /** PC 外で過ごした時間（実績の補正で、無操作・記録なしを割り当てたもの）。 */
-  offline?: boolean;
+  off_pc?: boolean;
 }
 
 export interface Task {
@@ -90,7 +90,7 @@ export interface TaskView extends Task {
   key_result: KeyResultRef | null;
 }
 
-export interface TaskMatchRule {
+export interface TaskAssignRule {
   id: string;
   task_id: string;
   field: MatchField;
@@ -120,7 +120,7 @@ export interface TaskInput {
 
 export interface TaskShow {
   task: TaskView;
-  rules: TaskMatchRule[];
+  rules: TaskAssignRule[];
   tracked_ms: number;
   tracked_segments: number;
 }
@@ -132,7 +132,7 @@ export interface TaskDeletePreview {
   status: TaskStatus;
   segments: number;
   tracked_ms: number;
-  overrides: number;
+  confirmations: number;
   corrections: number;
   rules: number;
   skills: number;
@@ -266,7 +266,7 @@ export interface Status {
 }
 
 /** 記録なしの時間帯（収集器が動いていなかった区間。無操作・ロック・スリープとは別）。 */
-export interface GapView {
+export interface UncollectedView {
   start_at: Millis;
   end_at: Millis;
   start: string;
@@ -274,11 +274,11 @@ export interface GapView {
   duration_ms: number;
 }
 
-export interface Log {
+export interface ActualList {
   range: RangeView;
   segments: SegmentView[];
   /** 記録なしの時間帯（時刻順）。 */
-  gaps: GapView[];
+  uncollected: UncollectedView[];
   raw?: unknown[];
 }
 
@@ -286,12 +286,12 @@ export interface ReviewList {
   range: RangeView;
   count: number;
   segments: SegmentView[];
-  /** `review.min_sec` 未満のため隠した件数（全件表示のときは 0）。 */
+  /** `actual.min_sec` 未満のため隠した件数（全件表示のときは 0）。 */
   hidden_short: number;
   min_sec: number;
 }
 
-export interface ReviewSetInput {
+export interface ConfirmInput {
   segment: string;
   task?: string;
   kind?: SegmentKind;
@@ -302,7 +302,7 @@ export interface ReviewSetInput {
 /** 無操作区間のワンタップ分類。休憩=break、会議=meeting、考えごと=作業+活動「考えごと」、離席=休憩+活動「離席」。 */
 export type IdlePreset = "break" | "meeting" | "thinking" | "away";
 
-export interface ReviewBatchInput {
+export interface ConfirmBatchInput {
   segments: string[];
   task?: string;
   kind?: SegmentKind;
@@ -310,10 +310,10 @@ export interface ReviewBatchInput {
   rule?: boolean;
 }
 
-export interface ReviewBatchResult {
+export interface ConfirmBatchResult {
   count: number;
   segments: SegmentView[];
-  override_ids: string[];
+  confirmation_ids: string[];
   rules: CreatedRule[];
 }
 
@@ -352,7 +352,7 @@ export interface IgnoreSuggestion {
 
 export interface UnignoreResult {
   count: number;
-  overrides_removed: number;
+  confirmations_removed: number;
   range: RangeView;
 }
 
@@ -373,19 +373,19 @@ export interface RuleSuggestion extends RuleSuggestionRef {
 }
 
 export interface CreatedRule {
-  rule_type: "task_match_rule" | "activity_rule";
+  rule_type: "task_assign_rule" | "activity_rule";
   id: string;
   field: MatchField;
   pattern: string;
   pattern_type: PatternType;
   task_id: string | null;
-  activity_label: string | null;
+  activity: string | null;
   reused: boolean;
 }
 
-export interface ReviewSetResult {
+export interface ConfirmResult {
   segment: SegmentView;
-  override_id: string;
+  confirmation_id: string;
   rule: CreatedRule | null;
 }
 
@@ -797,7 +797,7 @@ export interface ActivityRule {
   field: MatchField;
   pattern: string;
   pattern_type: PatternType;
-  activity_label: string;
+  activity: string;
   priority: number;
   enabled: boolean;
 }
@@ -806,7 +806,7 @@ export interface ActivityRuleInput {
   field: MatchField;
   pattern: string;
   pattern_type?: PatternType;
-  activity_label: string;
+  activity: string;
   priority?: number;
 }
 
@@ -814,7 +814,7 @@ export interface ActivityRuleEdit {
   field?: MatchField;
   pattern?: string;
   pattern_type?: PatternType;
-  activity_label?: string;
+  activity?: string;
   priority?: number;
   enabled?: boolean;
 }
@@ -977,12 +977,12 @@ export interface CalendarEvent {
 
 // ===== 実績の補正 =====
 
-export type CorrectionCategory = "work" | "agent_dialog" | "confirmed" | "meeting" | "idle" | "gap";
+export type CorrectionCategory = "work" | "agent_dialog" | "confirmed" | "meeting" | "idle" | "uncollected";
 
-/** 補正の対象になりうる区間（範囲で切った後の部分）。記録なしの `id` は `gap:<開始のミリ秒>`。 */
+/** 補正の対象になりうる区間（範囲で切った後の部分）。記録なしの `id` は `uncollected:<開始のミリ秒>`。 */
 export interface CorrectionCandidate {
   id: string;
-  gap: boolean;
+  uncollected: boolean;
   start_at: Millis;
   end_at: Millis;
   start: string;
@@ -993,19 +993,19 @@ export interface CorrectionCandidate {
   status: SegmentStatus | null;
   task_id: string | null;
   task_title: string | null;
-  activity_label: string | null;
+  activity: string | null;
   exe_name: string | null;
   title: string | null;
   category: CorrectionCategory;
-  offline: boolean;
+  off_pc: boolean;
   /** 割り当てると PC 外の時間として計上されるか（無操作・休憩・記録なし）。 */
-  becomes_offline: boolean;
+  becomes_off_pc: boolean;
   checked: boolean;
 }
 
 export interface CorrectionCandidates {
   range: RangeView;
-  /** 範囲の端の吸着の幅（秒、`review.snap_sec`）。 */
+  /** 範囲の端の吸着の幅（秒、`actual.snap_sec`）。 */
   snap_sec: number;
   candidates: CorrectionCandidate[];
 }
@@ -1026,7 +1026,7 @@ export interface CorrectionPreview {
   target: string;
   selected_count: number;
   total_ms: number;
-  offline_ms: number;
+  off_pc_ms: number;
   excluded_count: number;
   summary: string;
   candidates: CorrectionCandidate[];
@@ -1041,9 +1041,9 @@ export interface CorrectionView {
   task_id: string | null;
   task_title: string | null;
   kind: SegmentKind | null;
-  activity_label: string | null;
+  activity: string | null;
   total_ms: number;
-  offline_ms: number;
+  off_pc_ms: number;
   segment_count: number;
   created_at: Millis;
   created: string;
@@ -1052,7 +1052,7 @@ export interface CorrectionView {
 export interface CorrectionApplied {
   correction: CorrectionView;
   preview: CorrectionPreview;
-  override_ids: string[];
+  confirmation_ids: string[];
 }
 
 export interface CorrectionList {
@@ -1062,7 +1062,7 @@ export interface CorrectionList {
 
 export interface CorrectionUndone {
   correction: CorrectionView;
-  overrides_removed: number;
+  confirmations_removed: number;
   range: RangeView;
 }
 

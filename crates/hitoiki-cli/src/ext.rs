@@ -27,10 +27,10 @@ pub fn notify_task(task_id: Option<&str>) {
     });
 }
 
-/// 前後に広げる量（判定器へ渡すカレンダーの範囲）。
+/// 前後に広げる量（自動判定へ渡すカレンダーの範囲）。
 const CAL_MARGIN_MS: i64 = 24 * 60 * 60 * 1000;
 
-/// 再計算に使う判定器（`judge.enabled` が false なら None）。`range` はカレンダーの文脈に使う（None は今日の前後）。
+/// 再計算に使う自動判定（`judge.enabled` が false なら None）。`range` はカレンダーの文脈に使う（None は今日の前後）。
 pub fn judge_for(
     ctx: &Ctx,
     range: Option<Range>,
@@ -132,7 +132,7 @@ fn agent_sessions(date: Option<String>, json: bool) -> Result<()> {
                 "cwd": s.cwd, "git_branch": s.git_branch,
                 "prompt_count": s.prompt_count,
                 "dialog_ms": total(&s.agent, &s.session_id, SegmentKind::AgentDialog),
-                "watch_ms": total(&s.agent, &s.session_id, SegmentKind::AgentWatch),
+                "wait_ms": total(&s.agent, &s.session_id, SegmentKind::AgentWait),
                 "first_prompt": s.first_prompt,
             })
         })
@@ -164,7 +164,7 @@ fn agent_sessions(date: Option<String>, json: bool) -> Result<()> {
                     s.git_branch.clone().unwrap_or_default(),
                     s.prompt_count.to_string(),
                     fmt_duration(r["dialog_ms"].as_i64().unwrap_or(0)),
-                    fmt_duration(r["watch_ms"].as_i64().unwrap_or(0)),
+                    fmt_duration(r["wait_ms"].as_i64().unwrap_or(0)),
                     truncate(s.first_prompt.as_deref().unwrap_or(""), 40),
                 ]
             })
@@ -178,7 +178,7 @@ fn agent_sessions(date: Option<String>, json: bool) -> Result<()> {
                 "branch",
                 "prompt",
                 "対話",
-                "見守り",
+                "作業待ち",
                 "最初のプロンプト",
             ],
             &table_rows,

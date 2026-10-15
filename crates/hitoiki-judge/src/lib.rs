@@ -1,5 +1,5 @@
-//! 判定器（docs/dev/architecture.md「判定器」）。型付き質問セット → 型付き回答＋確信度の差し替え可能な IF と、
-//! 外部コマンド / OpenAI 互換バックエンド、帰属判定パイプラインへのアダプタ。
+//! 自動判定（docs/dev/architecture.md「自動判定」）。型付き質問セット → 型付き回答＋確信度の差し替え可能な IF と、
+//! 外部コマンド / OpenAI 互換バックエンド、割り当てパイプラインへのアダプタ。
 
 mod adapter;
 mod external;
@@ -23,14 +23,13 @@ use hitoiki_core::config::{Config, JudgeBackend};
 use hitoiki_core::pipeline::SegmentJudge;
 use std::time::Duration;
 
-/// 設定のバックエンドから判定器を作る。
+/// 設定のバックエンドから自動判定を作る。
 pub fn backend_from_config(cfg: &Config) -> anyhow::Result<Box<dyn Judge>> {
     let name = &cfg.judge.default;
-    let backend = cfg
-        .judge
-        .backends
-        .get(name)
-        .ok_or_else(|| anyhow!("judge.default が指す判定器 {name} が judge.backends にありません"))?;
+    let backend =
+        cfg.judge.backends.get(name).ok_or_else(|| {
+            anyhow!("judge.default が指す判定の接続先 {name} が judge.backends にありません")
+        })?;
     Ok(match backend {
         JudgeBackend::OpenaiCompatible {
             base_url,
@@ -71,7 +70,7 @@ pub fn from_config(cfg: &Config, mut ctx: JudgeContext) -> anyhow::Result<Option
     if ctx.activity_labels.is_empty() {
         ctx.activity_labels = cfg.activity.labels.clone();
     }
-    let judge = backend_from_config(cfg).context("判定器を構築できません")?;
+    let judge = backend_from_config(cfg).context("自動判定を構築できません")?;
     Ok(Some(Box::new(JudgeAdapter::new(judge, ctx))))
 }
 

@@ -1,11 +1,11 @@
-//! 時間の帰属判定パイプライン（docs/dev/architecture.md「帰属判定パイプライン」）。生データ → `activity_segment` の純粋関数。
+//! 時間の割り当てパイプライン（docs/dev/architecture.md「割り当てパイプライン」）。生データ → `activity_segment` の純粋関数。
 //!
-//! 処理順: タイムライン → エージェント対話 → 会議 → override → ルール → 通過系アプリの吸収・無視 → 判定器 →
+//! 処理順: タイムライン → エージェント対話 → 会議 → 確定 → ルール → 通過系アプリの吸収・無視 → 自動判定 →
 //! 割り込み → doing フォールバック → ロック中の自動休憩 → 状態付け → 統合。
 //! （割り込み検出はルール結果を見る必要があるため doing フォールバックより前に行う。）
 
 mod agent;
-mod attribute;
+mod assign;
 mod meeting;
 mod merge;
 mod piece;
@@ -24,11 +24,11 @@ pub use agent::UnboundPrompt;
 pub(crate) use agent::{norm_title, BROWSER_EXES};
 use piece::Piece;
 
-/// 判定器の答え（docs/dev/architecture.md「判定器」）。
+/// 自動判定の答え（docs/dev/architecture.md「自動判定」）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct JudgeAnswer {
     pub task_id: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub is_interrupt: Option<bool>,
     pub confidence: f64,
     pub judge_name: String,
@@ -50,12 +50,12 @@ pub struct PipelineInput {
     pub idles: Vec<IdleSpan>,
     pub events: Vec<AgentEvent>,
     pub calendar: Vec<CalendarEvent>,
-    pub overrides: Vec<SegmentOverride>,
-    pub task_rules: Vec<TaskMatchRule>,
+    pub confirmations: Vec<SegmentConfirmation>,
+    pub task_rules: Vec<TaskAssignRule>,
     pub activity_rules: Vec<ActivityRule>,
     pub doing_logs: Vec<TaskDoingLog>,
     pub time_blocks: Vec<TimeBlock>,
-    /// 未完了タスク（現状パイプラインでは参照しない。判定器への文脈用に保持）。
+    /// 未完了タスク（現状パイプラインでは参照しない。自動判定への文脈用に保持）。
     pub tasks: Vec<Task>,
     pub idle_threshold: Millis,
     pub merge_gap: Millis,
@@ -67,7 +67,7 @@ pub struct PipelineInput {
     /// 無視するアプリ（`collect.ignore_exes`）。通過系としても扱い、続いた分は `ignored` の区間にする。
     pub ignore_exes: Vec<String>,
     pub transient_max: Millis,
-    pub watch_max: Millis,
+    pub wait_max: Millis,
     pub bind_lookback: Millis,
     pub bind_unlisted: bool,
     pub interrupt_min: Millis,
@@ -88,7 +88,7 @@ impl PipelineInput {
             idles: vec![],
             events: vec![],
             calendar: vec![],
-            overrides: vec![],
+            confirmations: vec![],
             task_rules: vec![],
             activity_rules: vec![],
             doing_logs: vec![],
@@ -103,13 +103,13 @@ impl PipelineInput {
             transient_exes: cfg.collect.transient_exes.clone(),
             ignore_exes: cfg.collect.ignore_exes.clone(),
             transient_max: cfg.collect.transient_max_sec as Millis * 1000,
-            watch_max: cfg.agent.watch_max_min as Millis * 60_000,
+            wait_max: cfg.agent.wait_max_min as Millis * 60_000,
             bind_lookback: cfg.agent.bind_lookback_sec as Millis * 1000,
             bind_unlisted: cfg.agent.bind_unlisted,
             interrupt_min: cfg.collect.interrupt_min_sec as Millis * 1000,
             auto_confidence_threshold: cfg.judge.auto_confidence_threshold,
-            auto_break_locked: cfg.review.auto_break_locked_min as Millis * 60_000,
-            trust_doing: cfg.review.trust_doing,
+            auto_break_locked: cfg.actual.auto_break_locked_min as Millis * 60_000,
+            trust_doing: cfg.actual.trust_doing,
         }
     }
 }
@@ -148,28 +148,28 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
 
     // 3. 会議
     meeting::apply(input, &task_rules, &mut pieces);
-    // 4. override
-    attribute::apply_overrides(input, &mut pieces);
+    // 4. confirmation
+    assign::apply_confirmations(input, &mut pieces);
     // 5. ルール
-    attribute::apply_rules(input, &task_rules, &activity_rules, &mut pieces);
-    // 5b. 通過系アプリの吸収先を決める（吸収する区間は判定器に問い合わせない）
+    assign::apply_rules(input, &task_rules, &activity_rules, &mut pieces);
+    // 5b. 通過系アプリの吸収先を決める（吸収する区間は自動判定に問い合わせない）
     let plan = transient::plan(&pieces);
     // 5c. 無視するアプリの区間のうち、吸収されなかったものを「無視」にする
     transient::apply_ignore(&mut pieces, &plan);
-    // 6. 判定器
+    // 6. 自動判定
     if let Some(j) = judge {
-        attribute::apply_judge(&mut pieces, j, &plan);
+        assign::apply_judge(&mut pieces, j, &plan);
     }
     // 6b. 通過系アプリの区間を前後の作業に吸収する
     transient::apply(&mut pieces, &plan);
     // 10. 割り込み
-    attribute::detect_interrupts(input, &mut pieces);
+    assign::detect_interrupts(input, &mut pieces);
     // 9. doing フォールバック
-    attribute::apply_doing_fallback(input, &mut pieces);
+    assign::apply_doing_fallback(input, &mut pieces);
     // 9b. 長いロック／スリープの無操作を自動で休憩にする
-    attribute::apply_locked_break(input, &mut pieces);
+    assign::apply_locked_break(input, &mut pieces);
     // 7. 状態付け
-    attribute::finalize_status(input, &mut pieces);
+    assign::finalize_status(input, &mut pieces);
     // 8. 統合
     let pieces = merge::merge(pieces, input.merge_gap);
 
@@ -181,7 +181,7 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
             end_at: p.end,
             kind: p.kind,
             task_id: p.task_id,
-            activity_label: p.label,
+            activity: p.label,
             confidence: p.confidence,
             decided_by: p.decided_by,
             status: p.status.unwrap_or(SegmentStatus::NeedsReview),
@@ -189,7 +189,7 @@ pub fn build(input: &PipelineInput, judge: Option<&dyn SegmentJudge>) -> Pipelin
             agent_session_id: p.session,
             exe_name: p.exe,
             title: p.title,
-            offline: p.offline,
+            off_pc: p.off_pc,
         })
         .collect();
     PipelineOutput { segments, bindings }

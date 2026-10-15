@@ -17,7 +17,7 @@ fn emit(app: &AppHandle, name: &str, payload: Value) {
     }
 }
 
-/// 区間（帰属結果）が更新された。
+/// 区間（割り当て結果）が更新された。
 pub fn emit_segments_updated(app: &AppHandle) {
     emit(app, SEGMENTS_UPDATED, json!({}));
 }

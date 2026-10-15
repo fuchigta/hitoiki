@@ -1,8 +1,8 @@
-//! 帰属判定の再計算（docs/dev/architecture.md「帰属判定パイプライン」）。DB から生データを読み、パイプラインを実行して派生層を置き換える。
+//! 割り当ての再計算（docs/dev/architecture.md「割り当てパイプライン」）。DB から生データを読み、パイプラインを実行して派生層を置き換える。
 //!
 //! 再計算の結果は「どの範囲をどの順で再計算してきたか」に依存しないようにする:
 //! - 範囲は、境界をまたぐ既存区間と、範囲内の送信の対象期間の開始まで広げる。
-//! - 判定器の呼び出しは書き込みトランザクションの外で行い、最後の「範囲の確定 → 重なる区間の削除
+//! - 自動判定の呼び出しは書き込みトランザクションの外で行い、最後の「範囲の確定 → 重なる区間の削除
 //!   → 挿入」は 1 つの `BEGIN IMMEDIATE` トランザクションで行う。確定範囲が読み込み時から
 //!   変わっていたら（他の再計算が書き込んでいたら）読み直してやり直す。
 
@@ -16,7 +16,7 @@ use rusqlite::{params, Connection, OptionalExtension, Transaction, TransactionBe
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-/// 範囲の手前から読む生データの量。対話の対象期間や見守りの文脈のため。
+/// 範囲の手前から読む生データの量。対話の対象期間や AI の作業待ちの文脈のため。
 const LOOKBACK_MS: Millis = 6 * 60 * 60 * 1000;
 /// 対話の対象期間による範囲の拡張の上限（要求範囲の開始からどこまで遡るか）。
 /// 1 晩放置したセッションへの送信で毎分の再計算が際限なく重くならないように。
@@ -25,7 +25,7 @@ const MAX_PERIOD_EXTEND_MS: Millis = 24 * 60 * 60 * 1000;
 const RESOLVE_ITER: usize = 16;
 /// 楽観的再試行の上限。最後の 1 回は書き込みロックを取ったまま計算する。
 const MAX_ATTEMPTS: usize = 4;
-/// 判定器キャッシュの保持期間。
+/// 自動判定キャッシュの保持期間。
 const JUDGE_CACHE_TTL_MS: Millis = 30 * 24 * 60 * 60 * 1000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,7 +41,7 @@ pub fn rebuild(conn: &Connection, cfg: &Config, range: Range, now: Millis) -> Re
     rebuild_with_judge(conn, cfg, range, now, None)
 }
 
-/// 判定器つきの再計算。判定器の答えは `judge_cache` にキャッシュし、同じ内容の区間は問い合わせない。
+/// 自動判定つきの再計算。自動判定の答えは `judge_cache` にキャッシュし、同じ内容の区間は問い合わせない。
 pub fn rebuild_with_judge(
     conn: &Connection,
     cfg: &Config,
@@ -63,7 +63,7 @@ pub fn rebuild_with_judge(
             tx.commit()?;
             return Ok(stats);
         }
-        // 判定器の呼び出しを含む計算は書き込みトランザクションの外で行う。
+        // 自動判定の呼び出しを含む計算は書き込みトランザクションの外で行う。
         let (resolved, input) = resolve_range(conn, cfg, range, now)?;
         let out = run_pipeline(conn, &input, cache.as_ref());
         let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate)?;
@@ -139,7 +139,7 @@ fn resolve_range(
     Ok((range, input))
 }
 
-// ---- 判定器のキャッシュ ----
+// ---- 自動判定のキャッシュ ----
 
 /// FNV-1a（64 bit）。キャッシュキー用の安定したハッシュ（Rust のバージョンに依存しない）。
 fn fnv1a(parts: &[&str]) -> u64 {
@@ -153,7 +153,7 @@ fn fnv1a(parts: &[&str]) -> u64 {
     h
 }
 
-/// キーの共通部分: 判定器（judge.default とその設定）、活動ラベル、未完了タスク集合。
+/// キーの共通部分: 自動判定（judge.default とその設定）、活動、未完了タスク集合。
 /// これらが変わると同じ区間でも答えが変わり得るので、キャッシュを無効にする。
 fn cache_prefix(conn: &Connection, cfg: &Config) -> Result<String> {
     let backend = cfg
@@ -187,7 +187,7 @@ fn segment_key(prefix: &str, s: &ActivitySegment) -> String {
 fn answer_to_json(a: &JudgeAnswer) -> String {
     serde_json::json!({
         "task_id": a.task_id,
-        "activity_label": a.activity_label,
+        "activity": a.activity,
         "is_interrupt": a.is_interrupt,
         "confidence": a.confidence,
     })
@@ -199,14 +199,14 @@ fn answer_from_json(json: &str, judge_name: String) -> Option<JudgeAnswer> {
     let s = |k: &str| v.get(k).and_then(|x| x.as_str()).map(String::from);
     Some(JudgeAnswer {
         task_id: s("task_id"),
-        activity_label: s("activity_label"),
+        activity: s("activity"),
         is_interrupt: v.get("is_interrupt").and_then(|x| x.as_bool()),
         confidence: v.get("confidence")?.as_f64()?,
         judge_name,
     })
 }
 
-/// 1 回の再計算（再試行を含む）の間に使う判定器キャッシュ。
+/// 1 回の再計算（再試行を含む）の間に使う自動判定キャッシュ。
 struct JudgeCache<'j> {
     inner: &'j dyn SegmentJudge,
     prefix: String,
@@ -245,7 +245,7 @@ impl<'j> JudgeCache<'j> {
     }
 }
 
-/// キャッシュを引き、無い区間だけを実際の判定器に問い合わせる。
+/// キャッシュを引き、無い区間だけを実際の自動判定に問い合わせる。
 struct CachedJudge<'a, 'j> {
     cache: &'a JudgeCache<'j>,
     conn: &'a Connection,
@@ -265,7 +265,7 @@ impl CachedJudge<'_, '_> {
             Ok(Some((json, name))) => answer_from_json(&json, name),
             Ok(None) => None,
             Err(e) => {
-                tracing::warn!(error = %e, "判定器キャッシュを読めません");
+                tracing::warn!(error = %e, "自動判定キャッシュを読めません");
                 None
             }
         }
@@ -317,8 +317,8 @@ pub fn load_input(conn: &Connection, cfg: &Config, range: Range, now: Millis) ->
     input.idles = raw::idle_spans(conn, wide)?;
     input.events = raw::agent_events(conn, wide)?;
     input.calendar = raw::calendar_events(conn, wide)?;
-    input.overrides = raw::segment_overrides(conn, range)?;
-    input.task_rules = raw::task_match_rules(conn)?;
+    input.confirmations = raw::segment_confirmations(conn, range)?;
+    input.task_rules = raw::task_assign_rules(conn)?;
     input.activity_rules = raw::activity_rules(conn)?;
     input.doing_logs = raw::task_doing_logs(conn, wide)?;
     input.time_blocks = raw::time_blocks(conn, wide)?;
@@ -383,7 +383,7 @@ mod tests {
         );
         exec(
             &conn,
-            "INSERT INTO task_match_rule (id, task_id, field, pattern, pattern_type) VALUES ('R1', 'T1', 'title', 'docs', 'contains')",
+            "INSERT INTO task_assign_rule (id, task_id, field, pattern, pattern_type) VALUES ('R1', 'T1', 'title', 'docs', 'contains')",
             &[],
         );
         let ins_ev = "INSERT INTO agent_event (id, at, agent, session_id, kind, cwd) VALUES (?1, ?2, 'claude-code', 'S1', ?3, 'C:\\src\\x')";
@@ -408,11 +408,11 @@ mod tests {
             vec![
                 (0, 1, Work),
                 (1, 2, AgentDialog),
-                (2, 5, AgentWatch),
+                (2, 5, AgentWait),
                 (5, 10, AgentDialog),
                 (10, 40, Work),
                 (40, 45, AgentDialog),
-                (45, 50, AgentWatch),
+                (45, 50, AgentWait),
             ]
         );
         let mid = &segs[4];
@@ -454,7 +454,7 @@ mod tests {
         );
         exec(
             conn,
-            "INSERT INTO task_match_rule (id, task_id, field, pattern, pattern_type) VALUES ('R1', 'T1', 'title', 'docs', 'contains')",
+            "INSERT INTO task_assign_rule (id, task_id, field, pattern, pattern_type) VALUES ('R1', 'T1', 'title', 'docs', 'contains')",
             &[],
         );
     }
@@ -596,7 +596,7 @@ mod tests {
 
     // ---- 同時実行 ----
 
-    /// 判定のたびに一度だけ、別接続で再計算を割り込ませる判定器。
+    /// 判定のたびに一度だけ、別接続で再計算を割り込ませる自動判定。
     struct Interleave<'a> {
         other: std::cell::RefCell<Option<Box<dyn FnOnce() + 'a>>>,
     }
@@ -624,7 +624,7 @@ mod tests {
         seed_rules(&a);
         sync_raw(&a, &wins, &[], now);
 
-        // A が判定器を呼んでいる間（書き込みトランザクションの外）に B が [0, 60) を書き込む。
+        // A が自動判定を呼んでいる間（書き込みトランザクションの外）に B が [0, 60) を書き込む。
         let path_b = path.clone();
         let cfg_b = cfg.clone();
         let judge = Interleave {
@@ -642,7 +642,7 @@ mod tests {
         assert_eq!(shape, vec![(0, 25), (25, 90)]);
     }
 
-    // ---- 判定器のキャッシュ ----
+    // ---- 自動判定のキャッシュ ----
 
     struct Counting {
         asked: std::cell::Cell<usize>,
@@ -655,7 +655,7 @@ mod tests {
                 .map(|_| {
                     Some(JudgeAnswer {
                         task_id: Some("T1".into()),
-                        activity_label: Some("調査".into()),
+                        activity: Some("調査".into()),
                         is_interrupt: None,
                         confidence: 0.9,
                         judge_name: "count".into(),
@@ -705,7 +705,7 @@ mod tests {
         rebuild_with_judge(&conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
         assert_eq!(j.asked.get(), 6);
 
-        // 判定器（judge.default）が変われば問い合わせ直す
+        // 自動判定（judge.default）が変われば問い合わせ直す
         cfg.judge.default = "other".into();
         rebuild_with_judge(&conn, &cfg, Range::new(0, 53 * M), 53 * M, Some(&j)).unwrap();
         assert_eq!(j.asked.get(), 9);

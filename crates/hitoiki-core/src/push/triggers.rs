@@ -50,18 +50,18 @@ fn delivered_today(ctx: &PushContext, trigger: PushTrigger) -> bool {
 fn is_working(s: &ActivitySegment) -> bool {
     matches!(
         s.kind,
-        SegmentKind::Work | SegmentKind::AgentDialog | SegmentKind::AgentWatch
+        SegmentKind::Work | SegmentKind::AgentDialog | SegmentKind::AgentWait
     )
 }
 
-/// 「同じタスク/活動」を表すキー。task_id > agent セッション > activity_label。
+/// 「同じタスク/活動」を表すキー。task_id > agent セッション > activity。
 fn focus_key(s: &ActivitySegment) -> Option<String> {
     if let Some(t) = &s.task_id {
         Some(format!("task:{t}"))
     } else if let Some(a) = &s.agent_session_id {
         Some(format!("agent:{a}"))
     } else {
-        s.activity_label.as_ref().map(|l| format!("label:{l}"))
+        s.activity.as_ref().map(|l| format!("label:{l}"))
     }
 }
 
@@ -288,7 +288,7 @@ fn weekly(ctx: &PushContext, cfg: &Push) -> Option<PushPayload> {
     (reached && !delivered_since(ctx, PushTrigger::Weekly, week.start)).then(payload::weekly)
 }
 
-/// long_focus: 同一キー（task_id / agent セッション / activity_label）の作業系区間が、
+/// long_focus: 同一キー（task_id / agent セッション / activity）の作業系区間が、
 /// 隙間 `focus_gap_sec` 以内でつながったまま `long_focus_min` 分以上続いている。
 /// 間に idle 等の別区間が挟まれば途切れる。同じ連続の中で再通知するのは、前回配信から
 /// さらに `long_focus_min` 分経ってから。
@@ -316,10 +316,7 @@ fn long_focus(ctx: &PushContext, cfg: &Push, segs: &[&ActivitySegment]) -> Optio
     if last_push.is_some_and(|at| ctx.now - at < cfg.long_focus_min as Millis * MIN_MS) {
         return None;
     }
-    Some(payload::long_focus(
-        minutes as u64,
-        last.activity_label.as_deref(),
-    ))
+    Some(payload::long_focus(minutes as u64, last.activity.as_deref()))
 }
 
 /// switch_spike: 直近 `window_min` 分の切替回数が `count` を超えている。
@@ -418,7 +415,7 @@ fn log_task_id(l: &crate::model::PushLog) -> Option<String> {
     serde_json::from_str::<PushPayload>(&l.payload_json).ok()?.task_id
 }
 
-/// いま取り組んでいるタスクの ID（作業系の最終区間が帰属しているタスク）。
+/// いま取り組んでいるタスクの ID（作業系の最終区間が割り当てられているタスク）。
 fn active_task_id(ctx: &PushContext, segs: &[&ActivitySegment]) -> Option<String> {
     active_work_segment(ctx, segs)?.task_id.clone()
 }
@@ -432,7 +429,7 @@ fn has_block(ctx: &PushContext, task_id: &str, only_upcoming: bool) -> bool {
 
 /// urgent_task: 勤務時間内に、緊急のしるしが付いた未完了のタスクがあり、それに取り組んでいない。
 /// 次のタスクは対象から外す。
-/// - いま作業している（作業系の最終区間の帰属、または doing）。対象のどれかに取り組み中なら、そもそも出さない。
+/// - いま作業している（作業系の最終区間の割り当て、または doing）。対象のどれかに取り組み中なら、そもそも出さない。
 /// - 今日の time_block が割り当てられ、終了がまだ先（予定済み・進行中）。
 ///
 /// 前回の urgent_task の配信から `push.urgent_task_interval_min` 分以上（0 で無効）。

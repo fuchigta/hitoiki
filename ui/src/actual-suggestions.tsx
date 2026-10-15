@@ -52,11 +52,11 @@ function RuleLine({ sg, onDone }: { sg: RuleSuggestion; onDone: () => void }) {
   const act = useAction();
   const ref = { task_id: sg.task_id, field: sg.field, pattern: sg.pattern, pattern_type: sg.pattern_type };
   const accept = async () => {
-    if (await act.run(() => api.reviewSuggestAccept(ref))) onDone();
+    if (await act.run(() => api.actualSuggestAccept(ref))) onDone();
   };
   const dismiss = async () => {
     const r = await act.run(async () => {
-      await api.reviewSuggestDismiss(ref);
+      await api.actualSuggestDismiss(ref);
       return true;
     });
     if (r) onDone();

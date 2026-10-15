@@ -24,10 +24,10 @@ const IGNORE_HELP =
 
 export function RulesTab() {
   const tasks = useAsync(() => api.taskList(["todo", "doing", "done", "dropped"]), []);
-  const taskRules = useAsync(() => api.ruleList(), []);
+  const taskRules = useAsync(() => api.taskRuleList(), []);
   const actRules = useAsync(() => api.activityRuleList(), []);
   const ignore = useAsync(() => api.ignoreList(), []);
-  const labels = useAsync(() => api.activityLabelList(), []);
+  const labels = useAsync(() => api.activityList(), []);
   const [kind, setKind] = useState<RuleFilter>("all");
   const [taskId, setTaskId] = useState("");
   const [sel, setSel] = useState<string | null>(null); // 行の key か "new"
@@ -46,7 +46,7 @@ export function RulesTab() {
   return (
     <Section
       title="ルール"
-      help="時間の行き先を決めるルールです。「タスク」はウインドウなどのパターンからタスクへ、「活動」は活動ラベルへ、「無視」は特定のアプリを集計から外します。無効にするとルールを残したまま判定に使いません。"
+      help="時間の行き先を決めるルールです。「タスク」はウインドウなどのパターンからタスクへ、「活動」は活動へ、「無視」は特定のアプリを集計から外します。無効にするとルールを残したまま判定に使いません。"
     >
       <ErrorBox error={taskRules.error ?? actRules.error ?? ignore.error ?? tasks.error} />
       <ListDetail
@@ -186,13 +186,13 @@ function RuleListRow({
 }
 
 function removeRule(i: RuleItem) {
-  if (i.kind === "task") return api.ruleDelete(i.id);
+  if (i.kind === "task") return api.taskRuleDelete(i.id);
   if (i.kind === "activity") return api.activityRuleDelete(i.id);
   return api.ignoreRemove(i.id);
 }
 
 function patchEnabled(i: RuleItem, enabled: boolean): Promise<unknown> {
-  return i.kind === "task" ? api.ruleEdit(i.id, { enabled }) : api.activityRuleEdit(i.id, { enabled });
+  return i.kind === "task" ? api.taskRuleEdit(i.id, { enabled }) : api.activityRuleEdit(i.id, { enabled });
 }
 
 /** 右側の編集フォーム。`item` が null なら新規（種類を選べる）。 */
@@ -245,8 +245,8 @@ function RuleDetail({
     }
     if (kind === "task") {
       const r = isNew
-        ? await act.run(() => api.ruleAdd({ task, field: d.field, pattern, pattern_type: d.type, priority }))
-        : await act.run(() => api.ruleEdit(item.id, { field: d.field, pattern, pattern_type: d.type, priority, enabled }));
+        ? await act.run(() => api.taskRuleAdd({ task, field: d.field, pattern, pattern_type: d.type, priority }))
+        : await act.run(() => api.taskRuleEdit(item.id, { field: d.field, pattern, pattern_type: d.type, priority, enabled }));
       if (r) {
         onChanged();
         onDone(`task:${r.id}`);
@@ -255,9 +255,9 @@ function RuleDetail({
     }
     const label = d.label.trim();
     const r = isNew
-      ? await act.run(() => api.activityRuleAdd({ field: d.field, pattern, pattern_type: d.type, activity_label: label, priority }))
+      ? await act.run(() => api.activityRuleAdd({ field: d.field, pattern, pattern_type: d.type, activity: label, priority }))
       : await act.run(() =>
-          api.activityRuleEdit(item.id, { field: d.field, pattern, pattern_type: d.type, activity_label: label, priority, enabled }),
+          api.activityRuleEdit(item.id, { field: d.field, pattern, pattern_type: d.type, activity: label, priority, enabled }),
         );
     if (r) {
       onChanged();
@@ -323,7 +323,7 @@ function RuleDetail({
               </p>
             )
           ) : (
-            <Field label="活動ラベル">
+            <Field label="活動">
               <input
                 list="rule-labels"
                 value={d.label}

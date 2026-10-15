@@ -13,8 +13,8 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{ReflectionKind, TaskStatus};
 use hitoiki_core::service::block_template as bt;
 use hitoiki_core::service::{
-    self, context, correction, erg, heatmap, log as log_svc, plan, pushlog, quick, record, reflect, report,
-    review, skill, status, task, Ctx, RangeArgs,
+    self, actual as actual_svc, context, correction, erg, heatmap, plan, pushlog, quick, record, reflect,
+    report, review, skill, status, task, Ctx, RangeArgs,
 };
 use hitoiki_core::{db, paths, timefmt, Result, SystemClock};
 use serde::Serialize;
@@ -290,16 +290,6 @@ fn run(cli: Cli) -> Result<()> {
             emit(json, &st, || render::status(tz, &st))
         }
         Cmd::Task(t) => task_cmd(&ctx, t, json),
-        Cmd::Log { range, raw } => {
-            let l = log_svc::log(
-                &ctx,
-                &log_svc::LogInput {
-                    range: range_args(&range),
-                    raw,
-                },
-            )?;
-            emit(json, &l, || render::log(tz, &l))
-        }
         Cmd::Push(p) => match p {
             PushCmd::List { range, unanswered } => {
                 let l = pushlog::list(&ctx, &range_args(&range), unanswered)?;
@@ -351,60 +341,32 @@ fn run(cli: Cli) -> Result<()> {
                 emit(json, &r, || render::push_answered(&r))
             }
         },
-        Cmd::Review(r) => match r {
-            ReviewCmd::List { range, all } => {
-                let l = review::list_with(&ctx, &range_args(&range), all)?;
-                emit(json, &l, || render::review_list(tz, &l))
+        Cmd::Actual(r) => match r {
+            ActualCmd::List { range, raw } => {
+                let l = actual_svc::list(
+                    &ctx,
+                    &actual_svc::ActualListInput {
+                        range: range_args(&range),
+                        raw,
+                    },
+                )?;
+                emit(json, &l, || render::actual_list(tz, &l))
             }
-            ReviewCmd::Set {
+            ActualCmd::Review { range, all } => {
+                let l = review::list_with(&ctx, &range_args(&range), all)?;
+                emit(json, &l, || render::actual_review(tz, &l))
+            }
+            ActualCmd::Confirm {
                 mut segments,
                 task,
                 kind,
                 activity,
                 rule,
-                from,
-                to,
-                no_task,
-                rest,
-                include_confirmed,
-                include_meeting,
-                include_idle,
-                exclude,
-                dry_run,
             } => {
-                if let (Some(from), Some(to)) = (from, to) {
-                    // 範囲指定の付け替え（実績の補正）。
-                    let range = ctx.range(&RangeArgs {
-                        date: None,
-                        from: Some(from),
-                        to: Some(to),
-                    })?;
-                    let flag = |b: bool| b.then_some(true);
-                    let input = correction::CorrectionInput {
-                        start_at: range.start,
-                        end_at: range.end,
-                        task,
-                        no_task,
-                        rest,
-                        activity,
-                        selected: None,
-                        include_confirmed: flag(include_confirmed),
-                        include_meeting: flag(include_meeting),
-                        include_idle: flag(include_idle),
-                        exclude,
-                    };
-                    if dry_run {
-                        let p = correction::preview(&ctx, &input)?;
-                        emit(json, &p, || render::correction_preview(tz, &p))
-                    } else {
-                        let r = correction::apply(&ctx, &input)?;
-                        ext::notify_data("segments");
-                        emit(json, &r, || render::correction_applied(tz, &r))
-                    }
-                } else if segments.len() == 1 {
-                    let r = review::set(
+                if segments.len() == 1 {
+                    let r = review::confirm(
                         &ctx,
-                        &review::ReviewSetInput {
+                        &review::ConfirmInput {
                             segment: segments.remove(0),
                             task,
                             kind,
@@ -413,11 +375,11 @@ fn run(cli: Cli) -> Result<()> {
                         },
                     )?;
                     ext::notify_data("segments");
-                    emit(json, &r, || render::review_set(tz, &r))
+                    emit(json, &r, || render::actual_confirm(tz, &r))
                 } else {
-                    let r = review::set_many(
+                    let r = review::confirm_many(
                         &ctx,
-                        &review::ReviewBatchInput {
+                        &review::ConfirmBatchInput {
                             segments,
                             task,
                             kind,
@@ -426,37 +388,79 @@ fn run(cli: Cli) -> Result<()> {
                         },
                     )?;
                     ext::notify_data("segments");
-                    emit(json, &r, || render::review_batch(tz, &r))
+                    emit(json, &r, || render::actual_batch(tz, &r))
                 }
             }
-            ReviewCmd::Corrections { task, date } => {
+            ActualCmd::Correct {
+                from,
+                to,
+                task,
+                activity,
+                no_task,
+                rest,
+                include_confirmed,
+                include_meeting,
+                include_idle,
+                exclude,
+                dry_run,
+            } => {
+                // 範囲指定の付け替え（実績の補正）。
+                let range = ctx.range(&RangeArgs {
+                    date: None,
+                    from: Some(from),
+                    to: Some(to),
+                })?;
+                let flag = |b: bool| b.then_some(true);
+                let input = correction::CorrectionInput {
+                    start_at: range.start,
+                    end_at: range.end,
+                    task,
+                    no_task,
+                    rest,
+                    activity,
+                    selected: None,
+                    include_confirmed: flag(include_confirmed),
+                    include_meeting: flag(include_meeting),
+                    include_idle: flag(include_idle),
+                    exclude,
+                };
+                if dry_run {
+                    let p = correction::preview(&ctx, &input)?;
+                    emit(json, &p, || render::correction_preview(tz, &p))
+                } else {
+                    let r = correction::apply(&ctx, &input)?;
+                    ext::notify_data("segments");
+                    emit(json, &r, || render::correction_applied(tz, &r))
+                }
+            }
+            ActualCmd::Corrections { task, date } => {
                 let l = correction::list(&ctx, &correction::CorrectionFilter { task, date })?;
                 emit(json, &l, || render::corrections(tz, &l))
             }
-            ReviewCmd::UndoCorrection { id } => {
+            ActualCmd::UndoCorrection { id } => {
                 let judge = ext::judge_for(&ctx, None)?;
                 let r = correction::undo(&ctx, &id, judge.as_deref())?;
                 ext::notify_data("segments");
                 emit(json, &r, || render::correction_undone(tz, &r))
             }
-            ReviewCmd::Ignore { segments } => {
+            ActualCmd::Ignore { segments } => {
                 let r = review::ignore(&ctx, &segments)?;
                 ext::notify_data("segments");
-                emit(json, &r, || render::review_batch(tz, &r))
+                emit(json, &r, || render::actual_batch(tz, &r))
             }
-            ReviewCmd::Unignore { segments } => {
+            ActualCmd::Unignore { segments } => {
                 let judge = ext::judge_for(&ctx, None)?;
                 let r = review::unignore(&ctx, &segments, judge.as_deref())?;
                 ext::notify_data("segments");
                 emit(json, &r, || render::unignored(&r))
             }
-            ReviewCmd::Idle { mut args } => {
+            ActualCmd::Idle { mut args } => {
                 let preset: review::IdlePreset = args.pop().unwrap_or_default().parse()?;
                 let r = review::set_idle(&ctx, &args, preset)?;
                 ext::notify_data("segments");
-                emit(json, &r, || render::review_batch(tz, &r))
+                emit(json, &r, || render::actual_batch(tz, &r))
             }
-            ReviewCmd::Suggest { accept, dismiss } => {
+            ActualCmd::Suggest { accept, dismiss } => {
                 let list = review::suggest_rules(&ctx)?;
                 let pick = |n: usize| {
                     n.checked_sub(1).and_then(|i| list.get(i)).ok_or_else(|| {
@@ -608,7 +612,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Check { cmd: Some(sub), .. } => manage::check_sub(&ctx, json, sub),
         Cmd::Hassle { cmd: Some(sub), .. } => manage::hassle_sub(&ctx, json, sub),
         Cmd::ActivityRule(c) => manage::activity_rule_sub(&ctx, json, c),
-        Cmd::ActivityLabel(c) => manage::label_sub(&ctx, json, c),
+        Cmd::Activity(c) => manage::label_sub(&ctx, json, c),
         Cmd::Calendar(c) => manage::calendar_sub(&ctx, json, c),
         Cmd::Check {
             energy,
@@ -972,7 +976,7 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
             pattern_type,
             priority,
         }) => {
-            let r = task::rule_add(
+            let r = task::task_rule_add(
                 ctx,
                 &task::RuleInput {
                     task: id,
@@ -993,8 +997,8 @@ fn task_cmd(ctx: &Ctx, cmd: TaskCmd, json: bool) -> Result<()> {
             })
         }
         TaskCmd::Rule(RuleCmd::List { id }) => {
-            let l = task::rule_list(ctx, id.as_deref())?;
-            emit(json, &l, || render::rule_list(&l))
+            let l = task::task_rule_list(ctx, id.as_deref())?;
+            emit(json, &l, || render::task_rule_list(&l))
         }
         TaskCmd::Rule(r) => manage::task_rule_sub(ctx, json, r),
     }

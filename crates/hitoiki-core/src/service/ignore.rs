@@ -31,7 +31,7 @@ const SYSTEM_LONG_MS: Millis = 30 * 60_000;
 /// 要確認に何度も出ているとみなす件数と、その平均の長さの上限。
 const REVIEW_MIN_COUNT: u32 = 10;
 const REVIEW_MAX_AVG_MS: Millis = 60_000;
-/// ユーザーが仕分けで「無視」「タスクなし」にした回数の下限。
+/// ユーザーが手動で「無視」「タスクなし」にした回数の下限。
 const USER_IGNORED_MIN: u32 = 2;
 const USER_NO_TASK_MIN: u32 = 5;
 
@@ -286,16 +286,14 @@ pub fn suggest(ctx: &Ctx, days: i64) -> Result<Vec<IgnoreSuggestion>> {
         if e.exe.is_empty() {
             e.exe = exe.to_string();
         }
-        let user = s.decided_by.as_deref() == Some("user") && s.status == SegmentStatus::Confirmed;
+        let user = s.decided_by.as_deref() == Some("confirmation") && s.status == SegmentStatus::Confirmed;
         match s.kind {
             SegmentKind::Work | SegmentKind::Interrupt if s.status == SegmentStatus::NeedsReview => {
                 e.review += 1;
                 e.review_ms += ms;
             }
             SegmentKind::Ignored if user => e.user_ignored += 1,
-            SegmentKind::Work
-                if user && s.task_id.is_none() && !s.offline && s.agent_session_id.is_none() =>
-            {
+            SegmentKind::Work if user && s.task_id.is_none() && !s.off_pc && s.agent_session_id.is_none() => {
                 e.user_no_task += 1
             }
             _ => {}
@@ -348,13 +346,13 @@ pub fn suggest(ctx: &Ctx, days: i64) -> Result<Vec<IgnoreSuggestion>> {
         if st.user_ignored >= USER_IGNORED_MIN {
             reasons.push(IgnoreReason {
                 code: "user_ignored",
-                text: format!("仕分けで {} 回「無視」にした", st.user_ignored),
+                text: format!("手動で {} 回「無視」にした", st.user_ignored),
             });
         }
         if st.user_no_task >= USER_NO_TASK_MIN {
             reasons.push(IgnoreReason {
                 code: "user_no_task",
-                text: format!("仕分けで {} 回「タスクなし」にした", st.user_no_task),
+                text: format!("手動で {} 回「タスクなし」にした", st.user_no_task),
             });
         }
         if reasons.is_empty() {
@@ -527,7 +525,7 @@ mod tests {
         }
         ctx.conn
             .execute(
-                "UPDATE activity_segment SET exe_name = 'popup.exe', decided_by = 'user' WHERE status = 'confirmed'",
+                "UPDATE activity_segment SET exe_name = 'popup.exe', decided_by = 'confirmation' WHERE status = 'confirmed'",
                 [],
             )
             .unwrap();

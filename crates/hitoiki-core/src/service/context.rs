@@ -1,7 +1,7 @@
 //! AI 振り返り用コンテキストの組み立て（docs/dev/architecture.md「AI 振り返り」）。
 //!
 //! 集計は [`super::report`] を再利用する。AI が読みやすいよう、時刻はローカル RFC 3339、時間は分で表す。
-//! プライバシーのため、ウインドウタイトルの全文・プロンプト抜粋は含めず、タスク名・活動ラベル・集計値を中心にする。
+//! プライバシーのため、ウインドウタイトルの全文・プロンプト抜粋は含めず、タスク名・活動・集計値を中心にする。
 
 use super::report::{self, Report, ReportBy, ReportInput, ReportRow};
 use super::{range_view, Ctx, RangeArgs, RangeView};
@@ -103,7 +103,7 @@ pub struct InterruptView {
     pub end: String,
     pub minutes: i64,
     pub task_title: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -279,7 +279,7 @@ fn interrupts(ctx: &Ctx, range: Range, tz: Tz) -> Result<Interrupts> {
             end: timefmt::fmt_rfc3339(tz, s.end_at.min(range.end)),
             minutes: ms / 60_000,
             task_title: s.task_id.as_ref().and_then(|id| titles.get(id).cloned()),
-            activity_label: s.activity_label.clone(),
+            activity: s.activity.clone(),
         });
     }
     Ok(Interrupts {
@@ -318,12 +318,12 @@ fn plan_view(ctx: &Ctx, range: Range, tz: Tz) -> Result<Plan> {
     })
 }
 
-/// 要確認の件数。仕分け一覧の既定表示と同じく `review.min_sec` 以上のものだけを数える。
+/// 要確認の件数。要確認の一覧の既定表示と同じく `actual.min_sec` 以上のものだけを数える。
 fn needs_review_count(ctx: &Ctx) -> Result<i64> {
     Ok(crate::repo::segment::count_by_status_split(
         ctx.conn,
         SegmentStatus::NeedsReview,
-        ctx.cfg.review.min_sec as i64 * 1000,
+        ctx.cfg.actual.min_sec as i64 * 1000,
     )?
     .0)
 }

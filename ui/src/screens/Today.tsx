@@ -36,7 +36,7 @@ import {
   dateFromParam,
   dateParams,
   daySum,
-  logPeriodFor,
+  actualPeriodFor,
   mergedDoingIds,
   shiftDate,
   sideReducer,
@@ -88,7 +88,7 @@ export function Today() {
   const designRequested = route.path[0] === "design";
 
   const st = useAsync(() => api.status(), [tick]);
-  const log = useAsync(() => api.log({ date }), [date, tick]);
+  const log = useAsync(() => api.actualList({ date }), [date, tick]);
   const blocks = useAsync(() => api.blockList({ date }), [date, tick]);
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), [tick]);
   const cal = useAsync(() => api.calendarList({ date }).catch(() => [] as CalendarEvent[]), [date, tick]);
@@ -104,7 +104,7 @@ export function Today() {
     return !dismissed && !(Array.isArray(src.value) && src.value.length > 0);
   }, []);
   const snap = useAsync(
-    () => api.configGet("review.snap_sec").then((r) => (typeof r.value === "number" ? r.value : 120)).catch(() => 120),
+    () => api.configGet("actual.snap_sec").then((r) => (typeof r.value === "number" ? r.value : 120)).catch(() => 120),
     [],
   );
   const labels = useAsync(
@@ -279,7 +279,7 @@ export function Today() {
               onTasksChanged={tasks.reload}
             />
             <p class="row hint">
-              <a href={hrefOf("log", [openedSeg.id], { period: logPeriodFor(date, today), status: "all" })}>実績で開く</a>
+              <a href={hrefOf("actual", [openedSeg.id], { period: actualPeriodFor(date, today), status: "all" })}>実績で開く</a>
               <span class="spacer" />
               <button type="button" class="ghost" onClick={() => dispatch({ type: "close" })}>
                 閉じる
@@ -475,7 +475,7 @@ export function Today() {
               {s.needs_review_count > 0 ? (
                 <>
                   {digest.reviewMs > 0 && `今日の分は約 ${Math.max(1, Math.round(digest.reviewMs / 60000))} 分 ・ `}
-                  <a href={hrefOf("log", [], { status: "review", period: "today" })}>実績で確認する</a>
+                  <a href={hrefOf("actual", [], { status: "review", period: "today" })}>実績で確認する</a>
                 </>
               ) : (
                 "確認が必要な区間はありません"
@@ -572,7 +572,7 @@ export function Today() {
                 blocks={blockList}
                 segments={log.data.segments}
                 events={events}
-                gaps={log.data.gaps}
+                uncollected={log.data.uncollected}
                 now={isToday ? now : undefined}
                 reload={blocks.reload}
                 draft={panel?.kind === "block" ? panel.draft : null}
@@ -594,7 +594,7 @@ export function Today() {
                     {KIND_LABEL[k]}
                   </li>
                 ))}
-                {(log.data.gaps ?? []).length > 0 && (<li><i class="dot gap" />記録なし</li>)}
+                {(log.data.uncollected ?? []).length > 0 && (<li><i class="dot uncollected" />記録なし</li>)}
               </ul>
               {!isToday && blockList.length === 0 && segs.length === 0 && <Empty>この日の記録はありません。</Empty>}
             </>

@@ -9,6 +9,7 @@ use hitoiki_core::config::{self, Config};
 use hitoiki_core::model::{
     AbcRecord, CalendarEvent, Checkin, ErgChoice, ErgLabel, ErgRecordKind, Hassle, Reflection, TimeBlock,
 };
+use hitoiki_core::service::actual::{self as actual_svc, ActualList, ActualListInput};
 use hitoiki_core::service::block_template::{
     self as btpl, ApplyInput, ApplyResult, Preview, SaveFromInput, Suggestion, TemplateInput, TemplateList,
     TemplateView, UndoResult,
@@ -24,14 +25,13 @@ use hitoiki_core::service::heatmap::{self, Heatmap, HeatmapInput};
 use hitoiki_core::service::hint;
 use hitoiki_core::service::ignore;
 use hitoiki_core::service::link_suggestion;
-use hitoiki_core::service::log::{self as log_svc, Log, LogInput};
 use hitoiki_core::service::onboarding::{self, OnboardingStatus};
 use hitoiki_core::service::plan::{self, BlockList};
 use hitoiki_core::service::record::{self as record_svc, AbcInput, CheckInput, HassleInput, Listing};
 use hitoiki_core::service::reflect;
 use hitoiki_core::service::report::{self, Report, ReportBy, ReportInput};
 use hitoiki_core::service::review::{
-    self, CreatedRule, IdlePreset, ReviewBatchInput, ReviewBatchResult, ReviewList, ReviewSetResult,
+    self, ConfirmBatchInput, ConfirmBatchResult, ConfirmResult, CreatedRule, IdlePreset, ReviewList,
     RuleSuggestion, RuleSuggestionRef,
 };
 use hitoiki_core::service::skill::{self, PresetImport, SkillList};
@@ -127,39 +127,39 @@ pub fn task_delete(app: AppHandle, state: S, id: String) -> AppResult<task::Dele
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn rule_add(state: S, input: RuleInputDto) -> AppResult<hitoiki_core::model::TaskMatchRule> {
+pub fn task_rule_add(state: S, input: RuleInputDto) -> AppResult<hitoiki_core::model::TaskAssignRule> {
     let input = input.into();
-    let v = state.with_ctx(|c| task::rule_add(c, &input))?;
+    let v = state.with_ctx(|c| task::task_rule_add(c, &input))?;
     state.request_rebuild();
     Ok(v)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn rule_list(state: S, task: Option<String>) -> AppResult<RuleList> {
-    state.with_ctx(|c| task::rule_list(c, task.as_deref()))
+pub fn task_rule_list(state: S, task: Option<String>) -> AppResult<RuleList> {
+    state.with_ctx(|c| task::task_rule_list(c, task.as_deref()))
 }
 
-// ===== 区間・仕分け =====
+// ===== 区間・要確認 =====
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn log(state: S, range: Option<RangeArgs>, raw: Option<bool>) -> AppResult<Log> {
-    let input = LogInput {
+pub fn actual_list(state: S, range: Option<RangeArgs>, raw: Option<bool>) -> AppResult<ActualList> {
+    let input = ActualListInput {
         range: range.unwrap_or_default(),
         raw: raw.unwrap_or(false),
     };
-    state.with_ctx(|c| log_svc::log(c, &input))
+    state.with_ctx(|c| actual_svc::list(c, &input))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_list(state: S, range: Option<RangeArgs>, all: Option<bool>) -> AppResult<ReviewList> {
+pub fn actual_review(state: S, range: Option<RangeArgs>, all: Option<bool>) -> AppResult<ReviewList> {
     let args = range.unwrap_or_default();
     state.with_ctx(|c| review::list_with(c, &args, all.unwrap_or(false)))
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_set(app: AppHandle, state: S, input: ReviewSetDto) -> AppResult<ReviewSetResult> {
+pub fn actual_confirm(app: AppHandle, state: S, input: ConfirmDto) -> AppResult<ConfirmResult> {
     let input = input.into();
-    let v = state.with_ctx(|c| review::set(c, &input))?;
+    let v = state.with_ctx(|c| review::confirm(c, &input))?;
     events::emit_segments_updated(&app);
     state.request_rebuild();
     Ok(v)
@@ -167,8 +167,12 @@ pub fn review_set(app: AppHandle, state: S, input: ReviewSetDto) -> AppResult<Re
 
 /// 複数の区間にまとめて同じ割り当てをする。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_set_many(app: AppHandle, state: S, input: ReviewBatchInput) -> AppResult<ReviewBatchResult> {
-    let v = state.with_ctx(|c| review::set_many(c, &input))?;
+pub fn actual_confirm_many(
+    app: AppHandle,
+    state: S,
+    input: ConfirmBatchInput,
+) -> AppResult<ConfirmBatchResult> {
+    let v = state.with_ctx(|c| review::confirm_many(c, &input))?;
     events::emit_segments_updated(&app);
     state.request_rebuild();
     Ok(v)
@@ -176,12 +180,12 @@ pub fn review_set_many(app: AppHandle, state: S, input: ReviewBatchInput) -> App
 
 /// 無操作の区間に分類（休憩・会議・考えごと・離席）をつける。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_idle(
+pub fn actual_idle(
     app: AppHandle,
     state: S,
     segments: Vec<String>,
     preset: IdlePreset,
-) -> AppResult<ReviewBatchResult> {
+) -> AppResult<ConfirmBatchResult> {
     let v = state.with_ctx(|c| review::set_idle(c, &segments, preset))?;
     events::emit_segments_updated(&app);
     state.request_rebuild();
@@ -190,13 +194,13 @@ pub fn review_idle(
 
 /// ルール化の提案の一覧。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_suggestions(state: S) -> AppResult<Vec<RuleSuggestion>> {
+pub fn actual_suggestions(state: S) -> AppResult<Vec<RuleSuggestion>> {
     state.with_ctx(review::suggest_rules)
 }
 
 /// 提案を受け入れてルールを追加する。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_suggest_accept(app: AppHandle, state: S, input: RuleSuggestionRef) -> AppResult<CreatedRule> {
+pub fn actual_suggest_accept(app: AppHandle, state: S, input: RuleSuggestionRef) -> AppResult<CreatedRule> {
     let v = state.with_ctx(|c| review::accept_suggestion(c, &input))?;
     events::emit_segments_updated(&app);
     state.request_rebuild();
@@ -205,7 +209,7 @@ pub fn review_suggest_accept(app: AppHandle, state: S, input: RuleSuggestionRef)
 
 /// 提案を断る（一定期間は同じ提案を出さない）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_suggest_dismiss(state: S, input: RuleSuggestionRef) -> AppResult<()> {
+pub fn actual_suggest_dismiss(state: S, input: RuleSuggestionRef) -> AppResult<()> {
     state.with_ctx(|c| review::dismiss_suggestion(c, &input))
 }
 
@@ -213,7 +217,7 @@ pub fn review_suggest_dismiss(state: S, input: RuleSuggestionRef) -> AppResult<(
 
 /// 区間（まとめて指定可）を無視にする。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_ignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResult<ReviewBatchResult> {
+pub fn actual_ignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResult<ConfirmBatchResult> {
     let v = state.with_ctx(|c| review::ignore(c, &segments))?;
     events::emit_segments_updated(&app);
     state.request_rebuild();
@@ -222,7 +226,7 @@ pub fn review_ignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResu
 
 /// 無視にした区間を元に戻す（確定を削除して再計算する）。
 #[tauri::command(rename_all = "snake_case")]
-pub fn review_unignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResult<review::UnignoreResult> {
+pub fn actual_unignore(app: AppHandle, state: S, segments: Vec<String>) -> AppResult<review::UnignoreResult> {
     let v = state.with_ctx(|c| {
         let day = c.range(&RangeArgs::default())?;
         let judge = hitoiki_daemon::build_judge(c.conn, c.cfg, day);
@@ -676,7 +680,7 @@ pub fn config_get(key: String) -> AppResult<Value> {
 pub fn config_set(app: AppHandle, state: S, key: String, value: String) -> AppResult<Value> {
     let path = paths::config_file();
     config::set_value(&path, &key, &value)?;
-    // 再計算・カレンダー・プッシュ・判定器に反映する（収集器の設定は再起動が必要）。
+    // 再計算・カレンダー・プッシュ・自動判定に反映する（収集器の設定は再起動が必要）。
     state.apply_config();
     if key == "general.autostart" {
         crate::apply_autostart(&app);

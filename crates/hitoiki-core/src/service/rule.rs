@@ -1,17 +1,17 @@
-//! 帰属ルール（`task_match_rule`）と活動ルール（`activity_rule`）の編集・削除・有効/無効。
+//! タスクの割り当てルール（`task_assign_rule`）と活動ルール（`activity_rule`）の編集・削除・有効/無効。
 //!
-//! ルールを変えると派生層（区間の帰属・活動ラベル）が変わりうる。再計算は呼び出し側
+//! ルールを変えると派生層（区間の割り当て・活動）が変わりうる。再計算は呼び出し側
 //! （CLI はデーモンへの通知、アプリは `request_rebuild`）が行い、過去の日は `hitoiki rebuild` で作り直す。
 
 use super::task::normalize_pattern;
 use super::Ctx;
 use crate::id::new_id;
-use crate::model::{ActivityRule, MatchField, PatternType, TaskMatchRule};
+use crate::model::{ActivityRule, MatchField, PatternType, TaskAssignRule};
 use crate::repo::{self, edit, rule};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 
-/// 帰属ルールの編集。`None` は「変更しない」。
+/// タスクの割り当てルールの編集。`None` は「変更しない」。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct TaskRuleEdit {
@@ -30,7 +30,7 @@ pub struct ActivityRuleInput {
     /// 省略時は glob。
     #[serde(default)]
     pub pattern_type: Option<PatternType>,
-    pub activity_label: String,
+    pub activity: String,
     #[serde(default)]
     pub priority: i64,
 }
@@ -42,7 +42,7 @@ pub struct ActivityRuleEdit {
     pub field: Option<MatchField>,
     pub pattern: Option<String>,
     pub pattern_type: Option<PatternType>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub priority: Option<i64>,
     pub enabled: Option<bool>,
 }
@@ -62,16 +62,16 @@ pub struct RuleDeleted<T> {
 fn check_label(label: &str) -> Result<String> {
     let l = label.trim();
     if l.is_empty() {
-        return Err(Error::InvalidArgument("活動ラベルが空です".into()));
+        return Err(Error::InvalidArgument("活動が空です".into()));
     }
     Ok(l.to_string())
 }
 
-pub fn task_rule_get(ctx: &Ctx, id: &str) -> Result<TaskMatchRule> {
-    edit::get_task_rule(ctx.conn, &repo::resolve_prefix(ctx.conn, "task_match_rule", id)?)
+pub fn task_rule_get(ctx: &Ctx, id: &str) -> Result<TaskAssignRule> {
+    edit::get_task_rule(ctx.conn, &repo::resolve_prefix(ctx.conn, "task_assign_rule", id)?)
 }
 
-pub fn task_rule_edit(ctx: &Ctx, id: &str, input: &TaskRuleEdit) -> Result<TaskMatchRule> {
+pub fn task_rule_edit(ctx: &Ctx, id: &str, input: &TaskRuleEdit) -> Result<TaskAssignRule> {
     let mut r = task_rule_get(ctx, id)?;
     if let Some(f) = input.field {
         r.field = f;
@@ -94,7 +94,7 @@ pub fn task_rule_edit(ctx: &Ctx, id: &str, input: &TaskRuleEdit) -> Result<TaskM
     Ok(r)
 }
 
-pub fn task_rule_delete(ctx: &Ctx, id: &str, dry_run: bool) -> Result<RuleDeleted<TaskMatchRule>> {
+pub fn task_rule_delete(ctx: &Ctx, id: &str, dry_run: bool) -> Result<RuleDeleted<TaskAssignRule>> {
     let r = task_rule_get(ctx, id)?;
     if !dry_run {
         edit::delete_task_rule(ctx.conn, &r.id)?;
@@ -115,7 +115,7 @@ pub fn activity_rule_add(ctx: &Ctx, input: &ActivityRuleInput) -> Result<Activit
         field: input.field,
         pattern,
         pattern_type: ty,
-        activity_label: check_label(&input.activity_label)?,
+        activity: check_label(&input.activity)?,
         priority: input.priority,
         enabled: true,
     };
@@ -146,8 +146,8 @@ pub fn activity_rule_edit(ctx: &Ctx, id: &str, input: &ActivityRuleEdit) -> Resu
     }
     r.pattern = normalize_pattern(r.field, r.pattern_type, &r.pattern);
     rule::validate_pattern(&r.pattern, r.pattern_type)?;
-    if let Some(l) = &input.activity_label {
-        r.activity_label = check_label(l)?;
+    if let Some(l) = &input.activity {
+        r.activity = check_label(l)?;
     }
     if let Some(p) = input.priority {
         r.priority = p;
@@ -177,7 +177,7 @@ mod tests {
     use crate::service::task::{self, RuleInput, TaskInput};
     use crate::service::testutil::Env;
 
-    fn rule_for_task(ctx: &Ctx) -> TaskMatchRule {
+    fn rule_for_task(ctx: &Ctx) -> TaskAssignRule {
         let t = task::add(
             ctx,
             &TaskInput {
@@ -186,7 +186,7 @@ mod tests {
             },
         )
         .unwrap();
-        task::rule_add(
+        task::task_rule_add(
             ctx,
             &RuleInput {
                 task: t.task.id,
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn 帰属ルールの編集と無効化と削除() {
+    fn タスクの割り当てルールの編集と無効化と削除() {
         let env = Env::new();
         let ctx = env.ctx();
         let r = rule_for_task(&ctx);
@@ -230,7 +230,7 @@ mod tests {
         )
         .unwrap();
         assert!(!e.enabled);
-        assert!(!task::rule_list(&ctx, None).unwrap().rules[0].enabled);
+        assert!(!task::task_rule_list(&ctx, None).unwrap().rules[0].enabled);
         // 不正な正規表現は拒否し、元の値を保つ
         assert!(task_rule_edit(
             &ctx,
@@ -249,9 +249,9 @@ mod tests {
         assert!(task_rule_edit(&ctx, "ZZZ", &TaskRuleEdit::default()).is_err());
         let d = task_rule_delete(&ctx, &r.id, true).unwrap();
         assert!(!d.deleted);
-        assert_eq!(task::rule_list(&ctx, None).unwrap().rules.len(), 1);
+        assert_eq!(task::task_rule_list(&ctx, None).unwrap().rules.len(), 1);
         assert!(task_rule_delete(&ctx, &r.id, false).unwrap().deleted);
-        assert!(task::rule_list(&ctx, None).unwrap().rules.is_empty());
+        assert!(task::task_rule_list(&ctx, None).unwrap().rules.is_empty());
         assert!(task_rule_delete(&ctx, &r.id, false).is_err());
     }
 
@@ -265,19 +265,19 @@ mod tests {
                 field: MatchField::Exe,
                 pattern: "slack*".into(),
                 pattern_type: None,
-                activity_label: " コミュニケーション ".into(),
+                activity: " コミュニケーション ".into(),
                 priority: 1,
             },
         )
         .unwrap();
-        assert_eq!(r.activity_label, "コミュニケーション");
+        assert_eq!(r.activity, "コミュニケーション");
         assert!(activity_rule_add(
             &ctx,
             &ActivityRuleInput {
                 field: MatchField::Exe,
                 pattern: "".into(),
                 pattern_type: None,
-                activity_label: "x".into(),
+                activity: "x".into(),
                 priority: 0,
             }
         )
@@ -286,7 +286,7 @@ mod tests {
             &ctx,
             &r.id,
             &ActivityRuleEdit {
-                activity_label: Some("会議".into()),
+                activity: Some("会議".into()),
                 enabled: Some(false),
                 pattern_type: Some(PatternType::Contains),
                 pattern: Some("zoom".into()),
@@ -295,7 +295,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            (e.activity_label.as_str(), e.enabled, e.pattern.as_str()),
+            (e.activity.as_str(), e.enabled, e.pattern.as_str()),
             ("会議", false, "zoom")
         );
         let l = activity_rule_list(&ctx).unwrap();
@@ -304,7 +304,7 @@ mod tests {
             &ctx,
             &r.id,
             &ActivityRuleEdit {
-                activity_label: Some("".into()),
+                activity: Some("".into()),
                 ..Default::default()
             }
         )

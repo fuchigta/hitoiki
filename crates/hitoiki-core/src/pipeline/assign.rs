@@ -1,4 +1,4 @@
-//! docs/dev/architecture.md「帰属判定パイプライン」: override・ルール・判定器・割り込み・doing フォールバック・状態付け。
+//! docs/dev/architecture.md「割り当てパイプライン」: 確定・ルール・自動判定・割り込み・doing フォールバック・状態付け。
 
 use super::piece::{relabel, split_at, Piece};
 use super::{doing_at, JudgeAnswer, PipelineInput, SegmentJudge};
@@ -7,13 +7,13 @@ use crate::model::*;
 use crate::rules::{ActivityRuleSet, MatchTarget, TaskRuleSet};
 use std::collections::HashMap;
 
-/// ユーザー確定（override）。最優先で、確定状態にする。None の項目は元の値を保つ。
+/// ユーザー確定（確定）。最優先で、確定状態にする。None の項目は元の値を保つ。
 /// `task_id` が空文字列なら「タスクなし」（元のタスクを外す）。
-/// `offline` の override は、範囲のうち区間が無い部分（記録なし）にも区間を作る（PC 外で過ごした時間）。
-pub(crate) fn apply_overrides(input: &PipelineInput, pieces: &mut Vec<Piece>) {
-    let mut ovs: Vec<&SegmentOverride> = input.overrides.iter().collect();
+/// `off_pc` の確定は、範囲のうち区間が無い部分（記録なし）にも区間を作る（PC 外で過ごした時間）。
+pub(crate) fn apply_confirmations(input: &PipelineInput, pieces: &mut Vec<Piece>) {
+    let mut ovs: Vec<&SegmentConfirmation> = input.confirmations.iter().collect();
     ovs.sort_by(|a, b| a.created_at.cmp(&b.created_at).then_with(|| a.id.cmp(&b.id)));
-    let apply = |o: &SegmentOverride, p: &mut Piece| {
+    let apply = |o: &SegmentConfirmation, p: &mut Piece| {
         if let Some(k) = o.kind {
             p.kind = k;
         }
@@ -22,11 +22,11 @@ pub(crate) fn apply_overrides(input: &PipelineInput, pieces: &mut Vec<Piece>) {
             Some(t) => p.task_id = Some(t.to_string()),
             None => {}
         }
-        if let Some(l) = &o.activity_label {
+        if let Some(l) = &o.activity {
             p.label = Some(l.clone());
         }
-        if o.offline {
-            p.offline = true;
+        if o.off_pc {
+            p.off_pc = true;
         }
         // 無視の区間はタスクにも活動にも属さない。
         if p.kind == SegmentKind::Ignored {
@@ -34,24 +34,24 @@ pub(crate) fn apply_overrides(input: &PipelineInput, pieces: &mut Vec<Piece>) {
             p.label = None;
         }
         p.status = Some(SegmentStatus::Confirmed);
-        p.decided_by = Some("user".into());
+        p.decided_by = Some("confirmation".into());
         p.confidence = Some(1.0);
         p.fixed = true;
     };
     for o in ovs {
         relabel(pieces, o.start_at, o.end_at, |_| true, |p| apply(o, p));
-        if o.offline {
+        if o.off_pc {
             fill_uncovered(input, pieces, o, |p| apply(o, p));
         }
     }
 }
 
-/// `offline` の override の範囲（出力範囲と現在時刻に切る）のうち、区間が無い部分に区間を作る。
-/// 収集器が動いていなかった時間（記録なし）を、PC 外の作業として計上するため。種別は override に従い、無ければ作業。
+/// `off_pc` の確定の範囲（出力範囲と現在時刻に切る）のうち、区間が無い部分に区間を作る。
+/// 収集器が動いていなかった時間（記録なし）を、PC 外の作業として計上するため。種別は確定に従い、無ければ作業。
 fn fill_uncovered(
     input: &PipelineInput,
     pieces: &mut Vec<Piece>,
-    o: &SegmentOverride,
+    o: &SegmentConfirmation,
     apply: impl Fn(&mut Piece),
 ) {
     let lo = o.start_at.max(input.range.start);
@@ -88,7 +88,7 @@ fn fill_uncovered(
     pieces.sort_by_key(|p| (p.start, p.end));
 }
 
-/// task_match_rule → activity_rule。
+/// task_assign_rule → activity_rule。
 pub(crate) fn apply_rules(
     _input: &PipelineInput,
     task_rules: &TaskRuleSet,
@@ -127,7 +127,7 @@ fn to_segment(p: &Piece) -> ActivitySegment {
         end_at: p.end,
         kind: p.kind,
         task_id: p.task_id.clone(),
-        activity_label: p.label.clone(),
+        activity: p.label.clone(),
         confidence: p.confidence,
         decided_by: p.decided_by.clone(),
         status: SegmentStatus::NeedsReview,
@@ -135,11 +135,11 @@ fn to_segment(p: &Piece) -> ActivitySegment {
         agent_session_id: p.session.clone(),
         exe_name: p.exe.clone(),
         title: p.title.clone(),
-        offline: p.offline,
+        off_pc: p.off_pc,
     }
 }
 
-/// ルールで task が決まらなかった作業区間を判定器に問い合わせる。
+/// ルールで task が決まらなかった作業区間を自動判定に問い合わせる。
 pub(crate) fn apply_judge(pieces: &mut [Piece], judge: &dyn SegmentJudge, absorb: &HashMap<usize, usize>) {
     let idx: Vec<usize> = pieces
         .iter()
@@ -161,7 +161,7 @@ pub(crate) fn apply_judge(pieces: &mut [Piece], judge: &dyn SegmentJudge, absorb
     for (&i, a) in idx.iter().zip(answers) {
         let Some(JudgeAnswer {
             task_id,
-            activity_label,
+            activity,
             is_interrupt,
             confidence,
             judge_name,
@@ -169,15 +169,15 @@ pub(crate) fn apply_judge(pieces: &mut [Piece], judge: &dyn SegmentJudge, absorb
         else {
             continue;
         };
-        if task_id.is_none() && activity_label.is_none() && is_interrupt.is_none() {
+        if task_id.is_none() && activity.is_none() && is_interrupt.is_none() {
             continue;
         }
         let p = &mut pieces[i];
         if task_id.is_some() {
             p.task_id = task_id;
         }
-        if activity_label.is_some() {
-            p.label = activity_label;
+        if activity.is_some() {
+            p.label = activity;
         }
         p.confidence = Some(confidence);
         p.decided_by = Some(format!("judge:{judge_name}"));
@@ -201,8 +201,8 @@ fn context(input: &PipelineInput, t: crate::Millis) -> Option<Option<String>> {
         .map(|b| b.task_id.clone())
 }
 
-/// 割り込みの検出（docs/dev/architecture.md「帰属判定パイプライン」）。
-/// コミュニケーション系アプリが前面になり、その後「元のタスクに帰属しない作業」が
+/// 割り込みの検出（docs/dev/architecture.md「割り当てパイプライン」）。
+/// コミュニケーション系アプリが前面になり、その後「元のタスクに割り当てられない作業」が
 /// interrupt_min 以上続いたら、その通信区間から元のタスクに戻る手前までを interrupt にする。
 pub(crate) fn detect_interrupts(input: &PipelineInput, pieces: &mut [Piece]) {
     let is_comm = |p: &Piece| {
@@ -267,7 +267,7 @@ pub(crate) fn apply_doing_fallback(input: &PipelineInput, pieces: &mut Vec<Piece
                 p.task_id = Some(t.to_string());
                 p.decided_by = Some("doing".into());
                 p.confidence = Some(0.5);
-                // `review.trust_doing` なら、始めたタスクを信頼して要確認にしない。
+                // `actual.trust_doing` なら、始めたタスクを信頼して要確認にしない。
                 p.status = Some(if input.trust_doing {
                     SegmentStatus::Auto
                 } else {
@@ -278,7 +278,7 @@ pub(crate) fn apply_doing_fallback(input: &PipelineInput, pieces: &mut Vec<Piece
     }
 }
 
-/// 画面ロック／スリープによる無操作が `review.auto_break_locked_min` 以上なら、その無操作区間を
+/// 画面ロック／スリープによる無操作が `actual.auto_break_locked_min` 以上なら、その無操作区間を
 /// 自動で休憩（break、decided_by `rule:locked`、auto）にする。ユーザー確定済みの区間（decided_by あり）は対象外。
 /// 隣り合う無操作の記録（無操作 → ロック）は 1 つの区間にまとまっているので、区間に重なる
 /// ロック／スリープの記録の合計時間（区間への重なりのみ）で判定する。

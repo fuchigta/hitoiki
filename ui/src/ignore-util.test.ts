@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CorrectionCandidate, IgnoreSuggestion } from "./api";
 import { fmtTotal, hasExe, ignorableIds, normalizeExe, suggestionLine } from "./ignore-util";
 
-const cand = (id: string, checked: boolean, gap = false) => ({ id, checked, gap }) as CorrectionCandidate;
+const cand = (id: string, checked: boolean, uncollected = false) => ({ id, checked, uncollected }) as CorrectionCandidate;
 
 describe("ignore-util", () => {
   it("normalizeExe はパスと空白を除く", () => {
@@ -15,7 +15,7 @@ describe("ignore-util", () => {
     expect(hasExe(["a.exe"], "b.exe")).toBe(false);
   });
   it("ignorableIds はチェック済みで記録なし以外", () => {
-    expect(ignorableIds([cand("a", true), cand("b", false), cand("gap:1", true, true)])).toEqual(["a"]);
+    expect(ignorableIds([cand("a", true), cand("b", false), cand("uncollected:1", true, true)])).toEqual(["a"]);
   });
   it("fmtTotal", () => {
     expect(fmtTotal(30_000)).toBe("30秒");

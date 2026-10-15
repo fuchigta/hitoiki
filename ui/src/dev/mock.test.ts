@@ -44,9 +44,9 @@ describe("モック IPC", () => {
   });
 
   it("empty はデータなし、default は今日の区間がある", async () => {
-    const empty = (await createMock("empty").call("log", { range: { date: "today" } })) as { segments: unknown[] };
+    const empty = (await createMock("empty").call("actual_list", { range: { date: "today" } })) as { segments: unknown[] };
     expect(empty.segments).toHaveLength(0);
-    const def = (await createMock("default").call("log", { range: { date: "today" } })) as { segments: unknown[] };
+    const def = (await createMock("default").call("actual_list", { range: { date: "today" } })) as { segments: unknown[] };
     expect(def.segments.length).toBeGreaterThan(3);
   });
 });

@@ -16,11 +16,11 @@ export default {
 
     // 活動ルールを追加（「＋ ルール」→ 種類は活動が既定）。
     await page.getByRole("button", { name: "＋ ルール", exact: true }).click();
-    await page.getByRole("combobox", { name: "活動ラベル" }).fill("操作確認");
+    await page.getByRole("combobox", { name: "活動", exact: true }).fill("操作確認");
     await page.getByRole("textbox", { name: "パターン" }).fill("flowtest*");
     await page.getByRole("button", { name: "追加", exact: true }).click();
     await until(
-      () => mockState(page, (s) => s.activityRules.some((r) => r.pattern === "flowtest*" && r.activity_label === "操作確認" && r.enabled)),
+      () => mockState(page, (s) => s.activityRules.some((r) => r.pattern === "flowtest*" && r.activity === "操作確認" && r.enabled)),
       "活動ルールがモックの状態に増えません",
     );
     // 追加すると一覧に出て、選択される。

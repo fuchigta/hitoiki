@@ -25,7 +25,7 @@ fn seg(kind: SegmentKind, start: Millis, end: Millis) -> ActivitySegment {
         end_at: end,
         kind,
         task_id: None,
-        activity_label: None,
+        activity: None,
         confidence: None,
         decided_by: None,
         status: SegmentStatus::Auto,
@@ -33,7 +33,7 @@ fn seg(kind: SegmentKind, start: Millis, end: Millis) -> ActivitySegment {
         agent_session_id: None,
         exe_name: None,
         title: None,
-        offline: false,
+        off_pc: false,
     }
 }
 
@@ -227,15 +227,15 @@ fn long_focus_uses_agent_session_and_label() {
     let mut ctx = PushContext::new(now, TZ);
     let mut a = seg(SegmentKind::AgentDialog, t(12, 9, 0), t(12, 10, 0));
     a.agent_session_id = Some("S".into());
-    let mut b = seg(SegmentKind::AgentWatch, t(12, 10, 0), now);
+    let mut b = seg(SegmentKind::AgentWait, t(12, 10, 0), now);
     b.agent_session_id = Some("S".into());
     ctx.recent_segments = vec![a, b];
     assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LongFocus]);
 
     let mut a = seg(SegmentKind::Work, t(12, 9, 0), t(12, 10, 0));
-    a.activity_label = Some("開発".into());
+    a.activity = Some("開発".into());
     let mut b = seg(SegmentKind::Work, t(12, 10, 0), now);
-    b.activity_label = Some("開発".into());
+    b.activity = Some("開発".into());
     ctx.recent_segments = vec![a, b];
     assert_eq!(delivered(&evaluate(&ctx, &cfg())), vec![PushTrigger::LongFocus]);
 }
@@ -960,7 +960,7 @@ fn idle_return_can_be_disabled_and_is_not_repeated() {
 }
 
 #[test]
-fn idle_return_button_saves_override_and_labels_segment() {
+fn idle_return_button_saves_confirmation_and_labels_segment() {
     let conn = db::open_in_memory().unwrap();
     let (s, e) = (t(12, 10, 0), t(12, 10, 30));
     conn.execute(
@@ -991,7 +991,7 @@ fn idle_return_button_saves_override_and_labels_segment() {
     assert_eq!(out.idle_labeled, 1);
     let (kind, label, status): (String, Option<String>, String) = conn
         .query_row(
-            "SELECT kind, activity_label, status FROM activity_segment WHERE id = 'IDLE1'",
+            "SELECT kind, activity, status FROM activity_segment WHERE id = 'IDLE1'",
             [],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -1000,8 +1000,8 @@ fn idle_return_button_saves_override_and_labels_segment() {
         (kind.as_str(), label.as_deref(), status.as_str()),
         ("work", Some("考えごと"), "confirmed")
     );
-    // 再計算でも残る override が期間全体に保存されている。
-    let ovs = crate::repo::overrides::list(&conn, crate::timefmt::Range::new(s, e)).unwrap();
+    // 再計算でも残る確定が期間全体に保存されている。
+    let ovs = crate::repo::confirmation::list(&conn, crate::timefmt::Range::new(s, e)).unwrap();
     assert_eq!(ovs.len(), 1);
     assert_eq!((ovs[0].start_at, ovs[0].end_at), (s, e));
     assert!(store::get_log(&conn, &id).unwrap().responded_at.is_some());
@@ -1151,7 +1151,7 @@ fn urgent_task_not_without_target_or_outside_hours_or_idle() {
 #[test]
 fn urgent_task_skipped_while_working_on_a_target() {
     let now = t(12, 10, 0);
-    // 作業系の最終区間がその緊急タスクに帰属している。
+    // 作業系の最終区間がその緊急タスクに割り当てられている。
     let mut ctx = urgent_ctx(now);
     ctx.recent_segments = vec![work("A", t(12, 9, 30), now)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
@@ -1365,7 +1365,7 @@ fn important_task_excludes_urgent_blocked_and_active() {
     assert!(evaluate(&ctx, &cfg()).is_empty());
     ctx.time_blocks = vec![block(Some("I1"), t(12, 15, 0), t(12, 16, 0))];
     assert!(evaluate(&ctx, &cfg()).is_empty());
-    // いま取り組み中（作業の帰属 / doing）。
+    // いま取り組み中（作業の割り当て / doing）。
     let mut ctx = important_ctx(now);
     ctx.recent_segments = vec![work("I1", t(12, 9, 30), now)];
     assert!(evaluate(&ctx, &cfg()).is_empty());
@@ -1864,7 +1864,7 @@ fn idle_return_asks_after_locked_auto_break_only_with_candidate() {
         let mut s = locked.clone();
         match mutate {
             0 => s.status = SegmentStatus::Confirmed,
-            1 => s.decided_by = Some("user".into()),
+            1 => s.decided_by = Some("confirmation".into()),
             _ => s.kind = SegmentKind::Meeting,
         }
         c.recent_segments = vec![s];
@@ -1877,7 +1877,7 @@ fn idle_return_asks_after_locked_auto_break_only_with_candidate() {
 }
 
 #[test]
-fn idle_task_answer_confirms_range_as_offline_work_and_survives_rebuild() {
+fn idle_task_answer_confirms_range_as_off_pc_work_and_survives_rebuild() {
     use crate::config::Config;
     use crate::model::{IdleReason, IdleSpan, Task, TaskKind, TaskStatus};
     use crate::repo::collect as rc;
@@ -1943,7 +1943,7 @@ fn idle_task_answer_confirms_range_as_offline_work_and_survives_rebuild() {
         let g = &segs[0];
         assert_eq!((g.start_at, g.end_at), (s, e));
         assert_eq!(
-            (g.kind, g.offline, g.status),
+            (g.kind, g.off_pc, g.status),
             (SegmentKind::Work, true, SegmentStatus::Confirmed)
         );
         assert_eq!(g.task_id.as_deref(), Some("TASKA"));
@@ -1952,10 +1952,10 @@ fn idle_task_answer_confirms_range_as_offline_work_and_survives_rebuild() {
     // 再計算でも、そのタスクの実績（PC 外の作業）として残る。
     crate::rebuild::rebuild(&conn, &cfg, range, now).unwrap();
     check(&conn);
-    // 範囲指定の補正と同じ形で保存される: offline の override が補正に結び付く。
-    let ovs = crate::repo::overrides::list(&conn, range).unwrap();
+    // 範囲指定の補正と同じ形で保存される: off_pc の確定が補正に結び付く。
+    let ovs = crate::repo::confirmation::list(&conn, range).unwrap();
     assert_eq!(ovs.len(), 1);
-    assert!(ovs[0].offline && ovs[0].correction_id.is_some());
+    assert!(ovs[0].off_pc && ovs[0].correction_id.is_some());
     assert_eq!(
         (ovs[0].kind, ovs[0].task_id.as_deref()),
         (Some(SegmentKind::Work), Some("TASKA"))

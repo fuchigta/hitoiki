@@ -232,7 +232,7 @@ function TaskDetail({
             <span class="meta"> （{tracked_segments} 区間）</span>
           </p>
           <p>
-            <a href={hrefOf("log", [], { status: "all", task: task.id })}>このタスクの区間を実績で見る</a>
+            <a href={hrefOf("actual", [], { status: "all", task: task.id })}>このタスクの区間を実績で見る</a>
           </p>
         </Section>
         <Corrections
@@ -343,8 +343,8 @@ function Corrections({ taskId, onUndone }: { taskId: string; onUndone: () => voi
                 {fmtDateTime(c.start_at)}–{fmtTime(c.end_at)}
               </span>{" "}
               <strong>{fmtDur(c.total_ms)}</strong>
-              {c.offline_ms > 0 && <span class="tag">うち PC 外 {fmtDur(c.offline_ms)}</span>}
-              {c.activity_label && <span class="meta"> {c.activity_label}</span>}
+              {c.off_pc_ms > 0 && <span class="tag">うち PC 外 {fmtDur(c.off_pc_ms)}</span>}
+              {c.activity && <span class="meta"> {c.activity}</span>}
               <OverflowMenu
                 label="補正の操作"
                 items={[{ label: "取り消す", onSelect: () => undo(c.id), disabled: act.busy }]}
@@ -520,7 +520,7 @@ function RuleForm({ taskId, onAdded }: { taskId: string; onAdded: () => void }) 
       onSubmit={async (e) => {
         e.preventDefault();
         const r = await act.run(() =>
-          api.ruleAdd({ task: taskId, field, pattern: pattern.trim(), pattern_type: ptype }),
+          api.taskRuleAdd({ task: taskId, field, pattern: pattern.trim(), pattern_type: ptype }),
         );
         if (r) {
           setPattern("");

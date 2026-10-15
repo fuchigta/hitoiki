@@ -1,14 +1,14 @@
 import { useState } from "preact/hooks";
 import { api, type SegmentView } from "../api";
 import { EmptyState, ErrorBox } from "../components";
-import { SuggestionBand } from "../log-suggestions";
-import { LOG_STATUSES, filterSegments, nextToReview, statusFromParam, toggleId, type LogStatus } from "../log-util";
+import { SuggestionBand } from "../actual-suggestions";
+import { ACTUAL_STATUSES, filterSegments, nextToReview, statusFromParam, toggleId, type ActualStatus } from "../actual-util";
 import { KIND_LABEL, fmtDateTime, fmtDur, fmtTime, hrefOf, navigate, useAsync, useLiveTick, useRoute } from "../lib";
 import { SegmentPanel } from "../segment-panel";
 import type { PeriodId } from "../ui/period-util";
 import { ListDetail, ObjectList, ObjectRow, PeriodSelect } from "../ui/parts";
 
-const STATUS_LABEL_JA: Record<LogStatus, string> = { review: "要確認", untasked: "タスクなし", all: "すべて" };
+const STATUS_LABEL_JA: Record<ActualStatus, string> = { review: "要確認", untasked: "タスクなし", all: "すべて" };
 const PERIODS: PeriodId[] = ["today", "yesterday", "this-week", "last-week"];
 
 /** 短い区間のしきい値の表記（「1分」「90秒」）。 */
@@ -16,7 +16,7 @@ function fmtShortLimit(sec: number): string {
   return sec >= 60 && sec % 60 === 0 ? `${sec / 60}分` : `${sec}秒`;
 }
 
-export function Log() {
+export function Actual() {
   const route = useRoute();
   const tick = useLiveTick();
   const selectedId = route.path[0] ?? null;
@@ -28,14 +28,14 @@ export function Log() {
   const [checked, setChecked] = useState<string[]>([]);
 
   // 要確認の件数は、どの絞り込みでもチップに出すので常に取る。
-  const review = useAsync(() => api.reviewList({ date: period }, showShort), [period, showShort, tick]);
-  const all = useAsync(() => (status === "review" ? Promise.resolve(null) : api.log({ date: period })), [period, status, tick]);
+  const review = useAsync(() => api.actualReview({ date: period }, showShort), [period, showShort, tick]);
+  const all = useAsync(() => (status === "review" ? Promise.resolve(null) : api.actualList({ date: period })), [period, status, tick]);
   const tasks = useAsync(() => api.taskList(["todo", "doing"]), [tick]);
-  const suggestions = useAsync(() => api.reviewSuggestions(), [tick]);
+  const suggestions = useAsync(() => api.actualSuggestions(), [tick]);
   const ignoreSuggestions = useAsync(() => api.ignoreSuggestions(), [tick]);
 
   const hrefWith = (id: string | null, over: Record<string, string | undefined> = {}) =>
-    hrefOf("log", id ? [id] : [], {
+    hrefOf("actual", id ? [id] : [], {
       period: period === "this-week" ? undefined : period,
       status: status === "review" ? undefined : status,
       task: taskFilter ?? undefined,
@@ -80,7 +80,7 @@ export function Log() {
     <div class="stack">
       <div class="list-head">
         <PeriodSelect value={period} onChange={(p) => setFilter({ period: p === "this-week" ? undefined : p })} />
-        {LOG_STATUSES.map((s) => (
+        {ACTUAL_STATUSES.map((s) => (
           <button
             key={s}
             type="button"
@@ -154,7 +154,7 @@ export function Log() {
             tags={[
               ...(s.task_title ? [s.task_title] : []),
               ...(s.status === "needs_review" ? ["要確認"] : []),
-              ...(s.offline ? ["PC 外"] : []),
+              ...(s.off_pc ? ["PC 外"] : []),
             ]}
             meta={`${sameDay ? fmtTime(s.start_at) : fmtDateTime(s.start_at)}–${fmtTime(s.end_at)} ${fmtDur(s.duration_ms)}`}
             onSelect={() => {

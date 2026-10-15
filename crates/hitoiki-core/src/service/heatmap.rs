@@ -1,6 +1,6 @@
 //! 活動量ヒートマップ（日別の集計と濃淡の段階）。
 //!
-//! 時間の集計の軸は `activity_segment`（`segment_override` 適用後の派生層）から、記録の集計の軸は
+//! 時間の集計の軸は `activity_segment`（`segment_confirmation` 適用後の派生層）から、記録の集計の軸は
 //! `checkin` / `hassle` / `abc_record` / `reflection` の `at` から、ローカル日付ごとに集計する。
 //! 日付の区切りは設定のタイムゾーンの 0 時。週は月曜始まり。
 //!

@@ -71,7 +71,7 @@ str_enum!(
     SegmentKind {
         Work => "work",
         AgentDialog => "agent_dialog",
-        AgentWatch => "agent_watch",
+        AgentWait => "agent_wait",
         Meeting => "meeting",
         Idle => "idle",
         Break => "break",
@@ -268,9 +268,9 @@ pub struct ActivitySegment {
     pub end_at: Millis,
     pub kind: SegmentKind,
     pub task_id: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub confidence: Option<f64>,
-    /// 'rule' | 'judge:<name>' | 'calendar' | 'user' | 'doing' | 'agent'
+    /// 'rule' | 'judge:<name>' | 'calendar' | 'confirmation' | 'doing' | 'agent'
     pub decided_by: Option<String>,
     pub status: SegmentStatus,
     pub window_span_ids: Vec<String>,
@@ -279,7 +279,7 @@ pub struct ActivitySegment {
     pub title: Option<String>,
     /// PC 外で過ごした時間（実績の補正で無操作・記録なしの範囲を割り当てたもの）。
     #[serde(default)]
-    pub offline: bool,
+    pub off_pc: bool,
 }
 
 // ===== ユーザー層 =====
@@ -312,7 +312,7 @@ pub struct TaskDoingLog {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TaskMatchRule {
+pub struct TaskAssignRule {
     pub id: String,
     pub task_id: String,
     pub field: MatchField,
@@ -328,25 +328,25 @@ pub struct ActivityRule {
     pub field: MatchField,
     pub pattern: String,
     pub pattern_type: PatternType,
-    pub activity_label: String,
+    pub activity: String,
     pub priority: i64,
     pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SegmentOverride {
+pub struct SegmentConfirmation {
     pub id: String,
     pub start_at: Millis,
     pub end_at: Millis,
     pub kind: Option<SegmentKind>,
     /// 割り当てるタスク。空文字列は「タスクなし」（元のタスクを外す）。None は元の値を保つ。
     pub task_id: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub created_at: Millis,
     /// PC 外の時間の印。true なら、範囲のうち区間が無い部分（記録なし）にも区間を作る。
     #[serde(default)]
-    pub offline: bool,
-    /// この override を作った補正（`segment_correction.id`）。補正以外は None。
+    pub off_pc: bool,
+    /// この確定を作った補正（`segment_correction.id`）。補正以外は None。
     #[serde(default)]
     pub correction_id: Option<String>,
 }

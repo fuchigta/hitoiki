@@ -1,4 +1,4 @@
-//! 帰属判定パイプラインの入力（生データ層・ユーザー層）の読み出しと、
+//! 割り当てパイプラインの入力（生データ層・ユーザー層）の読み出しと、
 //! パイプラインが出力する `agent_session_window` の置き換え。
 
 use crate::model::*;
@@ -94,36 +94,36 @@ pub fn calendar_events(conn: &Connection, range: Range) -> Result<Vec<CalendarEv
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 範囲と重なる `segment_override`（作成順）。
-pub fn segment_overrides(conn: &Connection, range: Range) -> Result<Vec<SegmentOverride>> {
+/// 範囲と重なる `segment_confirmation`（作成順）。
+pub fn segment_confirmations(conn: &Connection, range: Range) -> Result<Vec<SegmentConfirmation>> {
     let mut stmt = conn.prepare(
-        "SELECT id, start_at, end_at, kind, task_id, activity_label, created_at, offline, correction_id
-         FROM segment_override WHERE start_at < ?2 AND end_at > ?1 ORDER BY created_at, id",
+        "SELECT id, start_at, end_at, kind, task_id, activity, created_at, off_pc, correction_id
+         FROM segment_confirmation WHERE start_at < ?2 AND end_at > ?1 ORDER BY created_at, id",
     )?;
     let rows = stmt.query_map(params![range.start, range.end], |r| {
-        Ok(SegmentOverride {
+        Ok(SegmentConfirmation {
             id: r.get(0)?,
             start_at: r.get(1)?,
             end_at: r.get(2)?,
             kind: r.get(3)?,
             task_id: r.get(4)?,
-            activity_label: r.get(5)?,
+            activity: r.get(5)?,
             created_at: r.get(6)?,
-            offline: r.get::<_, i64>(7)? != 0,
+            off_pc: r.get::<_, i64>(7)? != 0,
             correction_id: r.get(8)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-/// 有効な `task_match_rule` すべて。
-pub fn task_match_rules(conn: &Connection) -> Result<Vec<TaskMatchRule>> {
+/// 有効な `task_assign_rule` すべて。
+pub fn task_assign_rules(conn: &Connection) -> Result<Vec<TaskAssignRule>> {
     let mut stmt = conn.prepare(
         "SELECT id, task_id, field, pattern, pattern_type, priority, enabled
-         FROM task_match_rule WHERE enabled = 1 ORDER BY priority DESC, id",
+         FROM task_assign_rule WHERE enabled = 1 ORDER BY priority DESC, id",
     )?;
     let rows = stmt.query_map([], |r| {
-        Ok(TaskMatchRule {
+        Ok(TaskAssignRule {
             id: r.get(0)?,
             task_id: r.get(1)?,
             field: r.get(2)?,
@@ -139,7 +139,7 @@ pub fn task_match_rules(conn: &Connection) -> Result<Vec<TaskMatchRule>> {
 /// 有効な `activity_rule` すべて。
 pub fn activity_rules(conn: &Connection) -> Result<Vec<ActivityRule>> {
     let mut stmt = conn.prepare(
-        "SELECT id, field, pattern, pattern_type, activity_label, priority, enabled
+        "SELECT id, field, pattern, pattern_type, activity, priority, enabled
          FROM activity_rule WHERE enabled = 1 ORDER BY priority DESC, id",
     )?;
     let rows = stmt.query_map([], |r| {
@@ -148,7 +148,7 @@ pub fn activity_rules(conn: &Connection) -> Result<Vec<ActivityRule>> {
             field: r.get(1)?,
             pattern: r.get(2)?,
             pattern_type: r.get(3)?,
-            activity_label: r.get(4)?,
+            activity: r.get(4)?,
             priority: r.get(5)?,
             enabled: r.get(6)?,
         })

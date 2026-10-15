@@ -1,5 +1,5 @@
 import { useState } from "preact/hooks";
-import { api, type ActivityRule, type DeleteOutcome, type MatchField, type PatternType, type TaskMatchRule } from "./api";
+import { api, type ActivityRule, type DeleteOutcome, type MatchField, type PatternType, type TaskAssignRule } from "./api";
 import { ErrorBox, Field } from "./components";
 import { useConfirmDelete } from "./confirm-delete";
 import { useAction } from "./lib";
@@ -31,7 +31,7 @@ export interface Draft {
 
 /**
  * 設定の「ルール」タブの編集フォームが使う、対象・種類・パターン・優先度の欄（ラベルつき）。
- * タスク・活動のどちらも同じ形。行き先（タスク・活動ラベル）の欄は呼び出し側が足す。
+ * タスク・活動のどちらも同じ形。行き先（タスク・活動）の欄は呼び出し側が足す。
  */
 export function RuleFields({ d, set }: { d: Draft; set: (d: Draft) => void }) {
   return (
@@ -77,7 +77,7 @@ function EditFields({ d, set, withLabel }: { d: Draft; set: (d: Draft) => void; 
       </select>
       <input class="grow" value={d.pattern} onInput={(e) => set({ ...d, pattern: e.currentTarget.value })} aria-label="パターン" />
       {withLabel && (
-        <input class="narrow" value={d.label} onInput={(e) => set({ ...d, label: e.currentTarget.value })} placeholder="活動" aria-label="活動ラベル" />
+        <input class="narrow" value={d.label} onInput={(e) => set({ ...d, label: e.currentTarget.value })} placeholder="活動" aria-label="活動" />
       )}
       <input
         class="narrow"
@@ -102,7 +102,7 @@ interface RowProps<R> {
 }
 
 /** タスクの割り当てルール 1 行。有効/無効の切り替え、編集、削除。 */
-export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
+export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskAssignRule>) {
   const mk = (): Draft => ({ field: r.field, type: r.pattern_type, pattern: r.pattern, priority: String(r.priority), label: "" });
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Draft>(mk);
@@ -110,12 +110,12 @@ export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
   const del = useConfirmDelete({
     what: "タスクの割り当てルール",
     preview: async () => noImpact(r.id, `${FIELD_LABEL[r.field]} ${r.pattern}`),
-    commit: () => api.ruleDelete(r.id),
+    commit: () => api.taskRuleDelete(r.id),
     onDeleted: onChanged,
   });
   const save = async () => {
     const x = await act.run(() =>
-      api.ruleEdit(r.id, { field: d.field, pattern_type: d.type, pattern: d.pattern.trim(), priority: priorityOf(d.priority) }),
+      api.taskRuleEdit(r.id, { field: d.field, pattern_type: d.type, pattern: d.pattern.trim(), priority: priorityOf(d.priority) }),
     );
     if (x) {
       setEditing(false);
@@ -148,7 +148,7 @@ export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
               checked={r.enabled}
               disabled={act.busy}
               onChange={async (e) => {
-                if (await act.run(() => api.ruleEdit(r.id, { enabled: e.currentTarget.checked }))) onChanged();
+                if (await act.run(() => api.taskRuleEdit(r.id, { enabled: e.currentTarget.checked }))) onChanged();
               }}
               aria-label="有効"
             />
@@ -178,14 +178,14 @@ export function TaskRuleRow({ rule: r, onChanged }: RowProps<TaskMatchRule>) {
   );
 }
 
-/** 活動ルール 1 行（アプリ・タイトル等 → 活動ラベル）。 */
+/** 活動ルール 1 行（アプリ・タイトル等 → 活動）。 */
 export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) {
   const mk = (): Draft => ({
     field: r.field,
     type: r.pattern_type,
     pattern: r.pattern,
     priority: String(r.priority),
-    label: r.activity_label,
+    label: r.activity,
   });
   const [editing, setEditing] = useState(false);
   const [d, setD] = useState<Draft>(mk);
@@ -202,7 +202,7 @@ export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) 
         field: d.field,
         pattern_type: d.type,
         pattern: d.pattern.trim(),
-        activity_label: d.label.trim(),
+        activity: d.label.trim(),
         priority: priorityOf(d.priority),
       }),
     );
@@ -243,7 +243,7 @@ export function ActivityRuleRow({ rule: r, onChanged }: RowProps<ActivityRule>) 
             />
           </label>
           <code class={r.enabled ? "grow" : "grow meta"}>
-            {FIELD_LABEL[r.field]} {PTYPE_LABEL[r.pattern_type]} {r.pattern} → {r.activity_label}
+            {FIELD_LABEL[r.field]} {PTYPE_LABEL[r.pattern_type]} {r.pattern} → {r.activity}
             {r.priority !== 0 && ` （優先度 ${r.priority}）`}
           </code>
           <OverflowMenu

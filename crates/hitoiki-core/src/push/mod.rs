@@ -138,7 +138,7 @@ pub struct TaskNudge {
     pub important: bool,
     /// doing（着手を宣言している。doing ログが開いている）。
     pub doing: bool,
-    /// 作業系の区間（時間が入った区間）に帰属した最後の終了時刻。一度も無ければ None。
+    /// 作業系の区間（時間が入った区間）に割り当てられた最後の終了時刻。一度も無ければ None。
     pub last_worked_at: Option<Millis>,
     pub created_at: Millis,
 }

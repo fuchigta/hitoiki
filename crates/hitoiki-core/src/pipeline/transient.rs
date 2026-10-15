@@ -1,4 +1,4 @@
-//! docs/dev/architecture.md「帰属判定パイプライン」の通過系アプリの吸収。
+//! docs/dev/architecture.md「割り当てパイプライン」の通過系アプリの吸収。
 //!
 //! タスクバー・スタートメニュー・Alt+Tab などを担う exe（`collect.transient_exes`、既定は explorer.exe など）が
 //! 作業の合間に一瞬だけ前面になった区間を、独立した要確認区間にせず直前（無ければ直後）の作業に吸収する。
@@ -50,13 +50,13 @@ pub(crate) fn mark(input: &PipelineInput, pieces: &mut [Piece]) {
     }
 }
 
-/// 吸収の候補: 印があり、まだ何にも帰属していない（ルールで決まっていない）作業区間。
+/// 吸収の候補: 印があり、まだ何にも割り当てられていない（ルールで決まっていない）作業区間。
 fn is_candidate(p: &Piece) -> bool {
     p.transient && p.kind == SegmentKind::Work && !p.fixed && p.task_id.is_none() && p.label.is_none()
 }
 
 /// 吸収先にしてよい区間: 確定していない通常の作業区間。
-/// エージェント対話・見守り（そのウインドウにいた時間だけを計上する）、会議、無操作、override は伸ばさない。
+/// エージェント対話・作業待ち（そのウインドウにいた時間だけを計上する）、会議、無操作、確定は伸ばさない。
 fn is_target(p: &Piece) -> bool {
     p.kind == SegmentKind::Work && !p.fixed && !p.transient && !p.ignore && p.win.is_some()
 }
@@ -92,7 +92,7 @@ pub(crate) fn plan(pieces: &[Piece]) -> HashMap<usize, usize> {
     out
 }
 
-/// 吸収する区間に、吸収先の帰属（種別・タスク・活動・確信度・根拠・表示用の exe/title）を写す。
+/// 吸収する区間に、吸収先の割り当て（種別・タスク・活動・確信度・根拠・表示用の exe/title）を写す。
 /// 以降の割り込み検出・統合では吸収先と同じ内容の区間として扱われ、`merge` が 1 区間にまとめる。
 pub(crate) fn apply(pieces: &mut [Piece], plan: &HashMap<usize, usize>) {
     for (&k, &t) in plan {
@@ -113,8 +113,8 @@ pub(crate) fn apply(pieces: &mut [Piece], plan: &HashMap<usize, usize>) {
 }
 
 /// 無視するアプリ（`ignore_exes`）の作業区間のうち、吸収されなかったもの（`plan` に無いもの）を `ignored` にする。
-/// 吸収の候補と同じく、ルールでタスクや活動が決まった区間と override 済みの区間は対象外。
-/// 無視の区間はタスクにも活動にも属さず、確信度 1.0・`auto`（`decided_by = ignore`）で、後続の段階（判定器・割り込み・
+/// 吸収の候補と同じく、ルールでタスクや活動が決まった区間と確定 済みの区間は対象外。
+/// 無視の区間はタスクにも活動にも属さず、確信度 1.0・`auto`（`decided_by = ignore`）で、後続の段階（自動判定・割り込み・
 /// doing フォールバック・統合）では動かない。
 pub(crate) fn apply_ignore(pieces: &mut [Piece], plan: &HashMap<usize, usize>) {
     for (i, p) in pieces.iter_mut().enumerate() {

@@ -5,8 +5,8 @@ use crate::timefmt::Range;
 use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
-const COLS: &str = "id, start_at, end_at, kind, task_id, activity_label, confidence, decided_by, status, \
-                    window_span_ids, agent_session_id, exe_name, title, offline";
+const COLS: &str = "id, start_at, end_at, kind, task_id, activity, confidence, decided_by, status, \
+                    window_span_ids, agent_session_id, exe_name, title, off_pc";
 
 fn from_row(r: &Row<'_>) -> rusqlite::Result<ActivitySegment> {
     let ids: String = r.get(9)?;
@@ -16,7 +16,7 @@ fn from_row(r: &Row<'_>) -> rusqlite::Result<ActivitySegment> {
         end_at: r.get(2)?,
         kind: r.get(3)?,
         task_id: r.get(4)?,
-        activity_label: r.get(5)?,
+        activity: r.get(5)?,
         confidence: r.get(6)?,
         decided_by: r.get(7)?,
         status: r.get(8)?,
@@ -24,7 +24,7 @@ fn from_row(r: &Row<'_>) -> rusqlite::Result<ActivitySegment> {
         agent_session_id: r.get(10)?,
         exe_name: r.get(11)?,
         title: r.get(12)?,
-        offline: r.get::<_, i64>(13)? != 0,
+        off_pc: r.get::<_, i64>(13)? != 0,
     })
 }
 
@@ -95,7 +95,7 @@ pub fn replace_range(conn: &Connection, range: Range, segments: &[ActivitySegmen
                 s.end_at,
                 s.kind,
                 s.task_id,
-                s.activity_label,
+                s.activity,
                 s.confidence,
                 s.decided_by,
                 s.status,
@@ -103,7 +103,7 @@ pub fn replace_range(conn: &Connection, range: Range, segments: &[ActivitySegmen
                 s.agent_session_id,
                 s.exe_name,
                 s.title,
-                s.offline as i64,
+                s.off_pc as i64,
             ])?;
         }
     }
@@ -123,7 +123,7 @@ pub fn kind_label(kind: SegmentKind) -> &'static str {
     match kind {
         SegmentKind::Work => "作業",
         SegmentKind::AgentDialog => "AI との対話",
-        SegmentKind::AgentWatch => "AI の作業待ち",
+        SegmentKind::AgentWait => "AI の作業待ち",
         SegmentKind::Meeting => "会議",
         SegmentKind::Idle => "無操作",
         SegmentKind::Break => "休憩",
@@ -132,14 +132,14 @@ pub fn kind_label(kind: SegmentKind) -> &'static str {
     }
 }
 
-/// 未完了（todo / doing）のタスクごとの、作業系の区間（work / agent_dialog / agent_watch）に帰属した
-/// 最後の終了時刻。一度も帰属していないタスクは含まない。プッシュ通知の「最後に手をつけた時刻」の材料。
+/// 未完了（todo / doing）のタスクごとの、作業系の区間（work / agent_dialog / agent_wait）に割り当てられた
+/// 最後の終了時刻。一度も割り当てられていないタスクは含まない。プッシュ通知の「最後に手をつけた時刻」の材料。
 pub fn last_worked_by_open_task(
     conn: &Connection,
 ) -> Result<std::collections::HashMap<String, crate::Millis>> {
     let mut stmt = conn.prepare(
         "SELECT task_id, MAX(end_at) FROM activity_segment
-         WHERE kind IN ('work', 'agent_dialog', 'agent_watch')
+         WHERE kind IN ('work', 'agent_dialog', 'agent_wait')
            AND task_id IN (SELECT id FROM task WHERE status IN ('todo', 'doing'))
          GROUP BY task_id",
     )?;
@@ -161,7 +161,7 @@ mod tests {
             end_at: e,
             kind: SegmentKind::Work,
             task_id: None,
-            activity_label: None,
+            activity: None,
             confidence: None,
             decided_by: None,
             status: SegmentStatus::NeedsReview,
@@ -169,7 +169,7 @@ mod tests {
             agent_session_id: None,
             exe_name: Some("Code.exe".into()),
             title: Some("x".into()),
-            offline: false,
+            off_pc: false,
         }
     }
 

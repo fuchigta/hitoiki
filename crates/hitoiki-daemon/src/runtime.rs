@@ -130,7 +130,7 @@ impl RuntimeHandle {
         self.shared.request_rebuild();
     }
 
-    /// 設定を差し替える。再計算・カレンダー・プッシュ・判定器に次回から反映される
+    /// 設定を差し替える。再計算・カレンダー・プッシュ・自動判定に次回から反映される
     /// （収集器とログ監視の設定は再起動が必要）。
     pub fn set_config(&self, cfg: Config) {
         if let Ok(mut w) = self.shared.cfg.write() {
@@ -319,9 +319,9 @@ fn rebuild_loop(
     }
 }
 
-/// 直近 `collect.rebuild_window_min` 分を再計算する。判定器が有効なら毎回構築する。
+/// 直近 `collect.rebuild_window_min` 分を再計算する。自動判定が有効なら毎回構築する。
 /// 範囲より前から始まる対話の対象期間や境界をまたぐ区間の分は `rebuild_with_judge` が範囲を広げるので、
-/// 結果は全範囲を再計算した場合と同じになる。判定器の答えはキャッシュされ、同じ区間は問い合わせ直さない。
+/// 結果は全範囲を再計算した場合と同じになる。自動判定の答えはキャッシュされ、同じ区間は問い合わせ直さない。
 fn run_rebuild(sh: &Shared, conn: &mut Connection) -> anyhow::Result<RebuildStats> {
     let cfg = sh.cfg();
     let now = sh.clock.now_ms();
@@ -331,7 +331,7 @@ fn run_rebuild(sh: &Shared, conn: &mut Connection) -> anyhow::Result<RebuildStat
     Ok(rebuild_with_judge(conn, &cfg, range, now, judge.as_deref())?)
 }
 
-/// 設定から判定器を構築する（無効・構築失敗のときは None）。取り消しなど、再計算を行う呼び出し側でも使う。
+/// 設定から自動判定を構築する（無効・構築失敗のときは None）。取り消しなど、再計算を行う呼び出し側でも使う。
 pub fn build_judge(conn: &Connection, cfg: &Config, range: Range) -> Option<Box<dyn SegmentJudge>> {
     if !cfg.judge.enabled {
         return None;
@@ -345,7 +345,7 @@ pub fn build_judge(conn: &Connection, cfg: &Config, range: Range) -> Option<Box<
     match hitoiki_judge::from_config(cfg, ctx) {
         Ok(j) => j,
         Err(e) => {
-            tracing::warn!(error = %format!("{e:#}"), "判定器を構築できないためルールのみで再計算します");
+            tracing::warn!(error = %format!("{e:#}"), "自動判定を構築できないためルールのみで再計算します");
             None
         }
     }

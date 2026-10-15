@@ -3,6 +3,7 @@
 //! 入力は構造体、出力は `Serialize` 可能な構造体。時刻は `Clock` 経由、日付境界は設定の
 //! タイムゾーンで扱う。JSON 出力のスキーマ版は [`SCHEMA_VERSION`]（CLI が `"version"` として付与する）。
 
+pub mod actual;
 pub mod block_template;
 pub mod context;
 pub mod correction;
@@ -16,7 +17,6 @@ pub mod ingest;
 pub mod key_result_progress;
 mod key_result_summary;
 pub mod link_suggestion;
-pub mod log;
 pub mod onboarding;
 pub mod plan;
 pub mod pushlog;
@@ -137,7 +137,7 @@ pub struct SegmentView {
     pub kind: SegmentKind,
     pub task_id: Option<String>,
     pub task_title: Option<String>,
-    pub activity_label: Option<String>,
+    pub activity: Option<String>,
     pub confidence: Option<f64>,
     pub decided_by: Option<String>,
     pub status: SegmentStatus,
@@ -145,7 +145,7 @@ pub struct SegmentView {
     pub exe_name: Option<String>,
     pub title: Option<String>,
     /// PC 外で過ごした時間（実績の補正）。
-    pub offline: bool,
+    pub off_pc: bool,
 }
 
 pub(crate) fn task_titles(conn: &Connection) -> Result<HashMap<String, String>> {
@@ -165,14 +165,14 @@ pub(crate) fn segment_view(tz: Tz, s: &ActivitySegment, titles: &HashMap<String,
         kind: s.kind,
         task_id: s.task_id.clone(),
         task_title: s.task_id.as_ref().and_then(|id| titles.get(id).cloned()),
-        activity_label: s.activity_label.clone(),
+        activity: s.activity.clone(),
         confidence: s.confidence,
         decided_by: s.decided_by.clone(),
         status: s.status,
         agent_session_id: s.agent_session_id.clone(),
         exe_name: s.exe_name.clone(),
         title: s.title.clone(),
-        offline: s.offline,
+        off_pc: s.off_pc,
     }
 }
 
@@ -240,7 +240,7 @@ pub(crate) mod testutil {
             end_at: end,
             kind,
             task_id: task_id.map(Into::into),
-            activity_label: None,
+            activity: None,
             confidence: None,
             decided_by: None,
             status,
@@ -248,10 +248,10 @@ pub(crate) mod testutil {
             agent_session_id: None,
             exe_name: Some("Code.exe".into()),
             title: Some("main.rs".into()),
-            offline: false,
+            off_pc: false,
         };
         conn.execute(
-            "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity_label, confidence, \
+            "INSERT INTO activity_segment (id, start_at, end_at, kind, task_id, activity, confidence, \
              decided_by, status, window_span_ids, agent_session_id, exe_name, title) \
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,'[]',?10,?11,?12)",
             rusqlite::params![
@@ -260,7 +260,7 @@ pub(crate) mod testutil {
                 seg.end_at,
                 seg.kind,
                 seg.task_id,
-                seg.activity_label,
+                seg.activity,
                 seg.confidence,
                 seg.decided_by,
                 seg.status,

@@ -1,4 +1,4 @@
-//! `hitoiki log`: 区間一覧と、`--raw` での生データの時系列表示（docs/dev/architecture.md「CLI」）。
+//! `hitoiki actual list`: 区間一覧と、`--raw` での生データの時系列表示（docs/dev/architecture.md「CLI」）。
 
 use super::{range_view, segment_view, task_titles, Ctx, RangeArgs, RangeView, SegmentView};
 use crate::repo;
@@ -7,7 +7,7 @@ use rusqlite::params;
 use serde::Serialize;
 
 #[derive(Debug, Clone, Default)]
-pub struct LogInput {
+pub struct ActualListInput {
     pub range: RangeArgs,
     pub raw: bool,
 }
@@ -25,7 +25,7 @@ pub struct RawEntry {
 
 /// 記録が無かった時間帯（収集器が動いていなかった区間）。無操作・ロック・スリープとは別。
 #[derive(Debug, Clone, Serialize)]
-pub struct GapView {
+pub struct UncollectedView {
     pub start_at: Millis,
     pub end_at: Millis,
     pub start: String,
@@ -34,17 +34,17 @@ pub struct GapView {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct Log {
+pub struct ActualList {
     pub range: RangeView,
     pub segments: Vec<SegmentView>,
     /// 記録なしの時間帯（時刻順）。
-    pub gaps: Vec<GapView>,
+    pub uncollected: Vec<UncollectedView>,
     /// `raw` 指定時のみ。時刻順。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw: Option<Vec<RawEntry>>,
 }
 
-pub fn log(ctx: &Ctx, input: &LogInput) -> Result<Log> {
+pub fn list(ctx: &Ctx, input: &ActualListInput) -> Result<ActualList> {
     let tz = ctx.tz()?;
     let range = ctx.range(&input.range)?;
     let titles = task_titles(ctx.conn)?;
@@ -53,13 +53,13 @@ pub fn log(ctx: &Ctx, input: &LogInput) -> Result<Log> {
     // 実績の補正で PC 外の時間として計上した部分は、もう「記録なし」ではない。
     let covered: Vec<(Millis, Millis)> = segs
         .iter()
-        .filter(|s| s.offline)
+        .filter(|s| s.off_pc)
         .map(|s| (s.start_at, s.end_at))
         .collect();
-    let gaps = crate::recording::gaps(ctx.conn, range, ctx.now())?
+    let uncollected = crate::recording::uncollected(ctx.conn, range, ctx.now())?
         .into_iter()
         .flat_map(|g| super::correction::uncovered(g.start_at, g.end_at, &covered))
-        .map(|(s, e)| GapView {
+        .map(|(s, e)| UncollectedView {
             start_at: s,
             end_at: e,
             start: crate::timefmt::fmt_rfc3339(tz, s),
@@ -72,10 +72,10 @@ pub fn log(ctx: &Ctx, input: &LogInput) -> Result<Log> {
     } else {
         None
     };
-    Ok(Log {
+    Ok(ActualList {
         range: range_view(tz, range),
         segments,
-        gaps,
+        uncollected,
         raw,
     })
 }
@@ -217,13 +217,13 @@ mod tests {
                 params![d + 300],
             )
             .unwrap();
-        let plain = log(&ctx, &LogInput::default()).unwrap();
+        let plain = list(&ctx, &ActualListInput::default()).unwrap();
         assert!(plain.raw.is_none());
-        assert!(plain.gaps.is_empty());
+        assert!(plain.uncollected.is_empty());
         assert_eq!(plain.segments.len(), 1);
-        let l = log(
+        let l = list(
             &ctx,
-            &LogInput {
+            &ActualListInput {
                 raw: true,
                 ..Default::default()
             },
@@ -245,9 +245,9 @@ mod tests {
         repo::touch_run(ctx.conn, now - 60 * 60_000, true).unwrap();
         repo::begin_run(ctx.conn, now - 30 * 60_000).unwrap();
         repo::touch_run(ctx.conn, now - 1_000, false).unwrap();
-        let l = log(&ctx, &LogInput::default()).unwrap();
-        assert_eq!(l.gaps.len(), 1);
-        assert_eq!(l.gaps[0].start_at, now - 60 * 60_000);
-        assert_eq!(l.gaps[0].duration_ms, 30 * 60_000);
+        let l = list(&ctx, &ActualListInput::default()).unwrap();
+        assert_eq!(l.uncollected.len(), 1);
+        assert_eq!(l.uncollected[0].start_at, now - 60 * 60_000);
+        assert_eq!(l.uncollected[0].duration_ms, 30 * 60_000);
     }
 }

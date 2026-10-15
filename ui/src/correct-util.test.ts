@@ -23,7 +23,7 @@ const T0 = 1_700_000_000_000 - (1_700_000_000_000 % (60 * MIN)); // 時の頭
 function cand(id: string, s: number, e: number, over: Partial<CorrectionCandidate> = {}): CorrectionCandidate {
   return {
     id,
-    gap: false,
+    uncollected: false,
     start_at: T0 + s * MIN,
     end_at: T0 + e * MIN,
     start: "",
@@ -34,26 +34,26 @@ function cand(id: string, s: number, e: number, over: Partial<CorrectionCandidat
     status: "needs_review",
     task_id: null,
     task_title: null,
-    activity_label: null,
+    activity: null,
     exe_name: null,
     title: null,
     category: "work",
-    offline: false,
-    becomes_offline: false,
+    off_pc: false,
+    becomes_off_pc: false,
     checked: true,
     ...over,
   };
 }
 
 const idle = (id: string, s: number, e: number, checked = false) =>
-  cand(id, s, e, { kind: "idle", category: "idle", becomes_offline: true, checked });
-const gap = (s: number, e: number, checked = false) =>
-  cand(`gap:${s}`, s, e, {
-    gap: true,
+  cand(id, s, e, { kind: "idle", category: "idle", becomes_off_pc: true, checked });
+const uncollected = (s: number, e: number, checked = false) =>
+  cand(`uncollected:${s}`, s, e, {
+    uncollected: true,
     kind: null,
     status: null,
-    category: "gap",
-    becomes_offline: true,
+    category: "uncollected",
+    becomes_off_pc: true,
     checked,
   });
 
@@ -130,12 +130,12 @@ describe("チェックリスト", () => {
     cand("W2", 20, 30, { task_id: "T1", task_title: "A" }),
     cand("C1", 30, 40, { status: "confirmed", category: "confirmed", checked: false }),
     idle("I1", 40, 50),
-    gap(50, 80),
+    uncollected(50, 80),
   ];
 
   it("絞り込み: 未確定だけ・タスクなしだけ", () => {
-    expect(cands.filter((c) => matchesFilter(c, "unconfirmed")).map((c) => c.id)).toEqual(["W1", "W2", "I1", "gap:50"]);
-    expect(cands.filter((c) => matchesFilter(c, "no_task")).map((c) => c.id)).toEqual(["W1", "C1", "I1", "gap:50"]);
+    expect(cands.filter((c) => matchesFilter(c, "unconfirmed")).map((c) => c.id)).toEqual(["W1", "W2", "I1", "uncollected:50"]);
+    expect(cands.filter((c) => matchesFilter(c, "no_task")).map((c) => c.id)).toEqual(["W1", "C1", "I1", "uncollected:50"]);
     expect(cands.filter((c) => matchesFilter(c, "all"))).toHaveLength(5);
   });
 
@@ -148,7 +148,7 @@ describe("チェックリスト", () => {
   it("無操作・記録なしのスイッチは該当するものだけを切り替える", () => {
     expect(idleIncluded(cands)).toBe(false);
     const on = setIdleIncluded(cands, true);
-    expect(on.filter((c) => c.checked).map((c) => c.id)).toEqual(["W1", "W2", "I1", "gap:50"]);
+    expect(on.filter((c) => c.checked).map((c) => c.id)).toEqual(["W1", "W2", "I1", "uncollected:50"]);
     expect(idleIncluded(on)).toBe(true);
     const off = setIdleIncluded(on, false);
     expect(off.filter((c) => c.checked).map((c) => c.id)).toEqual(["W1", "W2"]);
@@ -165,20 +165,20 @@ describe("チェックリスト", () => {
 describe("合計", () => {
   it("対象の合計・PC 外・外した件数", () => {
     const cands = setIdleIncluded(
-      [cand("W1", 0, 20), cand("C1", 20, 30, { checked: false, status: "confirmed" }), idle("I1", 30, 45), gap(45, 90)],
+      [cand("W1", 0, 20), cand("C1", 20, 30, { checked: false, status: "confirmed" }), idle("I1", 30, 45), uncollected(45, 90)],
       true,
     );
     expect(sumSelected(cands, "all")).toEqual({
       selected: 3,
       total_ms: (20 + 15 + 45) * MIN,
-      offline_ms: (15 + 45) * MIN,
+      off_pc_ms: (15 + 45) * MIN,
       excluded: 1,
     });
     // 絞り込みで隠れた分も「外した」に数える
     expect(sumSelected(cands, "no_task")).toEqual({
       selected: 3,
       total_ms: (20 + 15 + 45) * MIN,
-      offline_ms: (15 + 45) * MIN,
+      off_pc_ms: (15 + 45) * MIN,
       excluded: 1,
     });
     expect(sumSelected(cands, "unconfirmed").excluded).toBe(1);
@@ -193,13 +193,13 @@ describe("合計", () => {
   });
 
   it("説明文", () => {
-    expect(describeTotals("タスク X", { selected: 4, total_ms: 72 * MIN, offline_ms: 15 * MIN, excluded: 3 })).toBe(
+    expect(describeTotals("タスク X", { selected: 4, total_ms: 72 * MIN, off_pc_ms: 15 * MIN, excluded: 3 })).toBe(
       "タスク X に 1時間12分を割り当て（うち PC 外 15分）。外した区間 3 件",
     );
-    expect(describeTotals("「休憩」", { selected: 1, total_ms: 10 * MIN, offline_ms: 0, excluded: 0 })).toBe(
+    expect(describeTotals("「休憩」", { selected: 1, total_ms: 10 * MIN, off_pc_ms: 0, excluded: 0 })).toBe(
       "「休憩」 に 10分を割り当て。",
     );
-    expect(describeTotals("タスク X", { selected: 0, total_ms: 0, offline_ms: 0, excluded: 2 })).toBe(
+    expect(describeTotals("タスク X", { selected: 0, total_ms: 0, off_pc_ms: 0, excluded: 2 })).toBe(
       "タスク X に割り当てる区間がありません。",
     );
   });

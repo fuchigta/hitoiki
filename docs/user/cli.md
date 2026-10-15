@@ -20,7 +20,7 @@
 | `hitoiki status` | 現在の doing タスク、直近の区間、今日の集計、未応答の問いかけ（時刻・種類・タイトル・ID）、（`general.update_check = true` で新版が見つかっていれば）新しいバージョンの案内。ネットワークには出ず、保存済みの確認結果を使う |
 | `hitoiki push list [--unanswered] [--date D] [--from F] [--to T]` | 配信された通知の一覧（既定は今日）。状態（未回答／回答済み／見送り）、種類の日本語名、タイトル、本文、無操作の対象時間帯を出す。`--unanswered` で未回答だけ。JSON は `pushes` |
 | `hitoiki push answer <ID> [--energy N] [--mood N] [--stress N] [--hassle TEXT] [--idle break\|meeting\|thinking\|away\|task] [--task start\|later\|skip_week\|kr_skip_week\|skip] [--dismiss]` | 通知に答える。調子・気になったことの時刻は通知の時刻。`--idle` は「無操作から戻った」通知のみ。`--idle task` は通知に「◯◯をしていた」がある場合に、その無操作の期間をそのタスクの PC 外の作業として確定する（補正の一覧から取り消せる）。`--task` は「緊急のタスク」「重要なタスク」「計画ブロックの開始」「時間が入っていない成果の指標」の通知のみで、`start` は対象のタスクを進行中にし、`later` は記録だけ、`skip_week` は今週その通知の対象から外す、`skip` は計画ブロックの開始を今回はやめる（記録だけ）、`kr_skip_week` は「時間が入っていない成果の指標」の通知の「今週は見送る」（記録だけ。この通知は週 1 回までなので今週はもう出ない）。`--dismiss`（答えない）は一覧から外すが応答率では無応答のまま。`--dismiss`・`--idle`・`--task` はほかの回答と同時に指定できない。ID は前方一致。終了コード: 2 引数（値の範囲・組み合わせ・回答なし）、3 通知なし、4 ID が曖昧 |
-| `hitoiki log [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `gaps`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
+| `hitoiki actual list [--date D] [--from F] [--to T] [--raw]` | 区間一覧。収集が止まっていた時間帯は「記録なし」の行で表示（JSON は `uncollected`）。`--raw` で生データ（window_span / idle_span / agent_event）を時系列に混ぜて表示 |
 | `hitoiki heatmap [--by 集計の軸] [--from D] [--to D] [--json]` | 日別の活動量を、月曜始まりの 7 行 × 週の濃淡（`·░▒▓█`）で表示する。既定は今日を含む直近 53 週。`--by` は `time`（既定。作業系の時間。無操作・休憩・無視を除く）/ `kind:<種別>`（`work` など）/ `task:<ID またはタイトル>` / `skill:<名前または ID>`（子スキルを含む）/ `key_result:<ID またはタイトル>`（`key-result show` と同じ成果の指標の時間。成果の指標のスキル（子スキルを含む）が付いた作業と、紐付けたタスクの和集合）/ `records`（調子・気になったこと・捉え直し・振り返りの件数。`records:checkin` / `hassle` / `abc` / `reflection` で種類別）。濃淡は値のある日の分布を 4 等分した段階（0 は値なし）。`--json` は日ごとの `date` / `value`（ミリ秒または件数）/ `level`（0〜4）を返す。曖昧な指定は終了コード 4、無いタスク・スキルは 3 |
 | `hitoiki report [--period P] [--from F] [--to T] [--by 集計の軸] [--include-idle]` | 期間内の集計。`--by` は `task`（既定）/ `activity` / `urgent_important` / `key_result` / `skill` / `agent` / `kind`。`--include-idle` で無操作・休憩も合計に含める |
 
@@ -40,19 +40,19 @@
 | `hitoiki task rule add <ID> --field F --pattern P [--type T] [--priority N]` | タスクの割り当てルールを追加。`--field` は `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`、`--type` は `glob`（既定）/ `regex` / `contains` |
 | `hitoiki task rule list [ID]` | タスクの割り当てルールの一覧 |
 
-### 仕分け・再計算
+### 確定・再計算
 
 | コマンド | 内容 |
 |---|---|
-| `hitoiki review list [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`review.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
-| `hitoiki review set <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間からタスクの割り当てルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `override_ids` / `rules` |
-| `hitoiki review set --from F --to T (--task ID \| --no-task \| --rest) [--activity A] [--include-confirmed] [--include-meeting] [--include-idle] [--exclude SEGMENT...] [--dry-run]` | 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）。区間 ID とは併用できない。境界にまたがる区間は範囲の内側だけが対象。最初のチェックは通常の作業と AI との対話が ON で、確定済み・会議・無操作と記録なしは OFF（`--include-*` か設定 `review.correct_include_*` で ON）。`--exclude` には対象から外す区間 ID（記録なしは `gap:<開始のミリ秒>`。`--dry-run` の出力で分かる）。無操作・記録なしは種別 work の「PC 外」として計上される。`--dry-run` は確定せず、候補（`checked`）と合計を表示する。`--json` は適用時 `correction` / `preview` / `override_ids`、`--dry-run` 時は `preview` の内容（`summary` / `total_ms` / `offline_ms` / `excluded_count` / `candidates`） |
-| `hitoiki review corrections [--task ID] [--date D]` | 補正の一覧（新しい順）。`--task` でそのタスクへの補正だけ、`--date` でその日と重なるものだけ |
-| `hitoiki review undo-correction <ID>` | 補正を取り消す。その補正で作った確定を削除して、範囲を再計算する（ID は前方一致。存在しなければ終了コード 3） |
-| `hitoiki review idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
-| `hitoiki review suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目のタスクの割り当てルールを追加、`--dismiss N` で断る（`review.rule_suggest_snooze_days` 日は再提案しない） |
-| `hitoiki review ignore <SEGMENT>...` | 区間を「無視」にする（種別 `ignored`・タスクなしの確定として保存。集計・レポート・タスクの実績に数えない。再計算でも残る）。1 つでも解決できなければ何も変更しない（終了コード 3） |
-| `hitoiki review unignore <SEGMENT>...` | `review ignore` で無視にした区間を元に戻す（確定を削除して再計算）。無視でない区間、または無視リスト（`collect.ignore_exes`）による無視は終了コード 2 |
+| `hitoiki actual review [--date D] [--from F] [--to T] [--all]` | 要確認（needs_review）の区間。`actual.min_sec`（既定 60 秒）未満の短い区間は既定で隠し、末尾に件数を示す。`--all` で全件。`--json` には隠した件数 `hidden_short` が入る |
+| `hitoiki actual confirm <SEGMENT>... [--task T] [--kind K] [--activity A] [--rule]` | 区間を確定。`--rule` で区間からタスクの割り当てルールを作る。ID を複数渡すと、まとめて同じ割り当てをする（1 つでも解決できなければ何も変更しない）。複数のときの `--json` は `count` / `segments` / `confirmation_ids` / `rules` |
+| `hitoiki actual correct --from F --to T (--task ID \| --no-task \| --rest) [--activity A] [--include-confirmed] [--include-meeting] [--include-idle] [--exclude SEGMENT...] [--dry-run]` | 時間帯の範囲に含まれる区間をまとめて付け替える（実績の補正）。境界にまたがる区間は範囲の内側だけが対象。最初のチェックは通常の作業と AI との対話が ON で、確定済み・会議・無操作と記録なしは OFF（`--include-*` か設定 `actual.correct_include_*` で ON）。`--exclude` には対象から外す区間 ID（記録なしは `uncollected:<開始のミリ秒>`。`--dry-run` の出力で分かる）。無操作・記録なしは種別 work の「PC 外」として計上される。`--dry-run` は確定せず、候補（`checked`）と合計を表示する。`--json` は適用時 `correction` / `preview` / `confirmation_ids`、`--dry-run` 時は `preview` の内容（`summary` / `total_ms` / `off_pc_ms` / `excluded_count` / `candidates`） |
+| `hitoiki actual corrections [--task ID] [--date D]` | 補正の一覧（新しい順）。`--task` でそのタスクへの補正だけ、`--date` でその日と重なるものだけ |
+| `hitoiki actual undo-correction <ID>` | 補正を取り消す。その補正で作った確定を削除して、範囲を再計算する（ID は前方一致。存在しなければ終了コード 3） |
+| `hitoiki actual idle <SEGMENT>... <PRESET>` | 無操作の区間に分類をつける。`PRESET` は `break`（休憩）、`meeting`（会議）、`thinking`（作業 + 活動「考えごと」）、`away`（休憩 + 活動「離席」）。確定として保存し、再計算でも残る |
+| `hitoiki actual suggest [--accept N] [--dismiss N]` | ルール化の提案を一覧する。`--accept N` で N 番目のタスクの割り当てルールを追加、`--dismiss N` で断る（`actual.rule_suggest_snooze_days` 日は再提案しない） |
+| `hitoiki actual ignore <SEGMENT>...` | 区間を「無視」にする（種別 `ignored`・タスクなしの確定として保存。集計・レポート・タスクの実績に数えない。再計算でも残る）。1 つでも解決できなければ何も変更しない（終了コード 3） |
+| `hitoiki actual unignore <SEGMENT>...` | `actual ignore` で無視にした区間を元に戻す（確定を削除して再計算）。無視でない区間、または無視リスト（`collect.ignore_exes`）による無視は終了コード 2 |
 | `hitoiki ignore list` | 無視リスト（`collect.ignore_exes`）の一覧。`--json` は `exes` / `default_exes` / `customized` |
 | `hitoiki ignore add <EXE>` / `ignore remove <EXE>` | 無視リストに追加／から削除し（設定ファイルの `collect.ignore_exes` だけを書き換える。既定のままなら既定＋追加の形）、直近 7 日を再計算する。すでにある追加は `changed: false`、無い exe の削除は終了コード 3、空の exe は 2 |
 | `hitoiki ignore suggest [--accept EXE] [--dismiss EXE] [--days N]` | 無視の提案を一覧する（既定は直近 7 日。区間数・合計・短い区間の割合・要確認件数と理由つき）。`--accept` は `ignore add` と同じ、`--dismiss` はそのアプリを 30 日間提案しない。`--days` が 1 未満なら終了コード 2 |
@@ -129,9 +129,9 @@
 | `hitoiki skill delete <SKILL> [--children reparent\|delete] [--force] [--dry-run]` | スキルを削除。タスクへの付与は外れる。子スキルは `reparent`（既定。親を付け替え）か `delete`（一緒に削除） |
 | `hitoiki task rule edit <RULE> [--field F] [--pattern P] [--type T] [--priority N] [--enable \| --disable]` | タスクの割り当てルールを編集・有効/無効の切り替え |
 | `hitoiki task rule delete <RULE> [--dry-run]` | タスクの割り当てルールを削除 |
-| `hitoiki activity-rule list` / `add --field F --pattern P --label L [--type T] [--priority N]` | 活動ルール（パターンから活動ラベルを当てる）の一覧・追加 |
+| `hitoiki activity-rule list` / `add --field F --pattern P --label L [--type T] [--priority N]` | 活動ルール（パターンから活動を当てる）の一覧・追加 |
 | `hitoiki activity-rule edit <RULE> [--field F] [--pattern P] [--type T] [--label L] [--priority N] [--enable \| --disable]` / `delete <RULE> [--dry-run]` | 活動ルールの編集・削除 |
-| `hitoiki activity-label list` / `add <L>` / `rename <FROM> <TO>` / `remove <L>` | 活動ラベルの候補（`activity.labels`）。`rename` は同じラベルの活動ルールも付け替える。`remove` しても過去の区間のラベルは残る |
+| `hitoiki activity list` / `add <L>` / `rename <FROM> <TO>` / `remove <L>` | 活動の候補（`activity.labels`）。`rename` は同じ名前の活動ルールも付け替える。`remove` しても過去の区間の活動は残る |
 | `hitoiki calendar list` / `add <NAME> <URL>` | カレンダーソース（ICS）の一覧・追加。URL は表示しない（ホスト名のみ） |
 | `hitoiki calendar edit <NAME> [--new-name N] [--url U]` / `delete <NAME> [--force] [--dry-run]` | 編集・削除。削除すると取得済みの予定のコピーも消える（カレンダー側は変わらない） |
 
@@ -183,7 +183,7 @@ ERG は、記録の内容から AI が判定します（存在 = 体や生活の
 |---|---|
 | `hitoiki daemon` | ヘッドレス常駐（UI とトースト通知なし。Ctrl+C で停止） |
 | `hitoiki ui [画面]` | 常駐アプリのウインドウを開く。未起動なら同じフォルダの `hitoiki-app.exe` を起動 |
-| `hitoiki doctor [--network]` | 収集状態（直近 24 時間の記録停止を含む）、エージェントログ（ウインドウに対応付けできなかったプロンプトを含む）、カレンダー、通知、判定器などの診断。`--network` でカレンダー取得・判定器への疎通も試す（ネットワークを使う） |
+| `hitoiki doctor [--network]` | 収集状態（直近 24 時間の記録停止を含む）、エージェントログ（ウインドウに対応付けできなかったプロンプトを含む）、カレンダー、通知、自動判定などの診断。`--network` でカレンダー取得・自動判定への疎通も試す（ネットワークを使う） |
 | `hitoiki config path` | 設定ファイルのパス |
 | `hitoiki config get <KEY>` / `hitoiki config set <KEY> <VALUE>` | ドット区切りのキーで読み書き。値は TOML として解釈し、書き換え後に全体を検証 |
 | `hitoiki version [--check]` | バージョン表示。`--check` で GitHub Releases の最新版を確認（手動で実行したときのほか、`general.update_check = true` の常駐が 1 日 1 回行う確認と同じ処理） |
@@ -192,7 +192,7 @@ ERG は、記録の内容から AI が判定します（存在 = 体や生活の
 
 ## `hitoiki ui` の画面名
 
-`today`、`log`、`tasks`、`goals`、`records`、`report`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「実績」「タスク」「目標」「記録」「レポート」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。旧名として `review`、`plan`、`reflect` も受け付けます。`plan` は「計画」の画面の旧名で、いまは計画が入った今日の画面（`today`）を開きます。`review` は実績の「要確認」の絞り込みを開く旧名として残しています。`reflect` は、記録画面に統合される前の「振り返り」の呼び名で、いまは記録画面で振り返りだけに絞った一覧（`reflect/day_start` のように種別まで指定すると、その種別の振り返りの作成フォーム）を開きます。`reflection`（通知が使う名前）も同じです。`checkin` / `hassle` は記録画面の調子・気になったことの作成フォームを開きます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
+`today`、`actual`、`tasks`、`goals`、`records`、`report`、`settings`、`onboarding`。それぞれ画面の名前は「今日」「実績」「タスク」「目標」「記録」「レポート」「設定」「はじめに」です（[日々の使い方](./daily-use.md)）。旧名として `plan`、`reflect` も受け付けます。`plan` は「計画」の画面の旧名で、いまは計画が入った今日の画面（`today`）を開きます。`reflect` は、記録画面に統合される前の「振り返り」の呼び名で、いまは記録画面で振り返りだけに絞った一覧（`reflect/day_start` のように種別まで指定すると、その種別の振り返りの作成フォーム）を開きます。`reflection`（通知が使う名前）も同じです。`checkin` / `hassle` は記録画面の調子・気になったことの作成フォームを開きます。`today/design` は今日の画面を「今日のデザイン」モードで開きます（始業の通知の本体をクリックしたときも同じ）。未知の名前は `today` になります。
 
 ## エージェントからの利用
 

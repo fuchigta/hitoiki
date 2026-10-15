@@ -18,6 +18,7 @@ const MIGRATIONS: &[(i64, &str)] = &[
     (9, include_str!("../migrations/0009_kr_progress.sql")),
     (10, include_str!("../migrations/0010_kr_suggest_reject.sql")),
     (11, include_str!("../migrations/0011_rename_goal.sql")),
+    (13, include_str!("../migrations/0013_rename_actual.sql")),
 ];
 
 /// DB を開き、未適用のマイグレーションを適用する。
@@ -249,6 +250,85 @@ mod tests {
             rows,
             vec![("checkin".into(), "C1".into(), "growth/user".into(), 1000)]
         );
+    }
+
+    /// 0013: 実績まわりのテーブル・列・保存済みの文字列値が新しい名前に移る。
+    #[test]
+    fn migration_0013_実績まわりの名前と値が書き換わる() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        ensure_migration_table(&conn).unwrap();
+        for (v, sql) in MIGRATIONS.iter().filter(|(v, _)| *v < 13) {
+            conn.execute_batch(sql).unwrap();
+            conn.execute("INSERT INTO schema_migration(version) VALUES (?1)", [v])
+                .unwrap();
+        }
+        conn.execute_batch(
+            "INSERT INTO task (id, title, created_at, updated_at) VALUES ('T1', 't', 0, 0);
+             INSERT INTO activity_segment (id, start_at, end_at, kind, activity_label, decided_by, status, offline)
+               VALUES ('S1', 0, 10, 'agent_watch', '開発', 'user', 'confirmed', 1),
+                      ('S2', 10, 20, 'work', NULL, 'rule', 'auto', 0);
+             INSERT INTO segment_override (id, start_at, end_at, kind, task_id, activity_label, created_at, offline, correction_id)
+               VALUES ('O1', 0, 10, 'agent_watch', 'T1', '調査', 5, 1, 'C1');
+             INSERT INTO segment_correction (id, start_at, end_at, task_id, kind, activity_label, total_ms, offline_ms, segment_count, created_at)
+               VALUES ('C1', 0, 10, 'T1', 'agent_watch', '調査', 10, 4, 1, 5);
+             INSERT INTO activity_rule (id, field, pattern, activity_label) VALUES ('A1', 'exe', 'x', '連絡');
+             INSERT INTO task_match_rule (id, task_id, field, pattern) VALUES ('R1', 'T1', 'exe', 'code*');
+             INSERT INTO setting (key, value_json) VALUES
+               ('review.rule_suggest_dismissed', '[1]'), ('review.ignore_suggest_dismissed', '[2]');
+             INSERT INTO judge_cache (key, answer_json, judge_name, created_at) VALUES ('k', '{}', 'j', 0);",
+        )
+        .unwrap();
+        assert!(pending_versions(&conn).unwrap().contains(&13));
+        migrate(&mut conn).unwrap();
+
+        let row = |sql: &str| -> String { conn.query_row(sql, [], |r| r.get::<_, String>(0)).unwrap() };
+        assert_eq!(
+            row("SELECT kind || '/' || activity || '/' || decided_by || '/' || off_pc FROM activity_segment WHERE id = 'S1'"),
+            "agent_wait/開発/confirmation/1"
+        );
+        assert_eq!(
+            row("SELECT decided_by FROM activity_segment WHERE id = 'S2'"),
+            "rule"
+        );
+        assert_eq!(
+            row("SELECT kind || '/' || activity || '/' || off_pc || '/' || correction_id FROM segment_confirmation"),
+            "agent_wait/調査/1/C1"
+        );
+        assert_eq!(
+            row("SELECT kind || '/' || activity || '/' || off_pc_ms FROM segment_correction"),
+            "agent_wait/調査/4"
+        );
+        assert_eq!(row("SELECT activity FROM activity_rule"), "連絡");
+        assert_eq!(
+            row("SELECT task_id || '/' || pattern || '/' || pattern_type FROM task_assign_rule"),
+            "T1/code*/contains"
+        );
+        // 作り直したテーブルの既定の種類は glob（CLI・サービスの既定と同じ）。
+        conn.execute(
+            "INSERT INTO task_assign_rule (id, task_id, field, pattern) VALUES ('R2', 'T1', 'exe', 'y')",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            row("SELECT pattern_type FROM task_assign_rule WHERE id = 'R2'"),
+            "glob"
+        );
+        assert_eq!(
+            row("SELECT group_concat(key) FROM (SELECT key FROM setting ORDER BY key)"),
+            "actual.ignore_suggest_dismissed,actual.rule_suggest_dismissed"
+        );
+        let n: i64 = conn
+            .query_row("SELECT COUNT(*) FROM judge_cache", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
+        let gone: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('segment_override', 'task_match_rule')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(gone, 0);
     }
 
     #[test]

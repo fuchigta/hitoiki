@@ -17,7 +17,7 @@ pub struct Config {
     pub ai: Ai,
     pub calendar: Calendar,
     pub task: TaskConfig,
-    pub review: Review,
+    pub actual: Actual,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,15 +64,15 @@ pub struct Collect {
     pub transient_max_sec: u64,
     /// 無視するアプリの exe 名（大文字小文字を区別しない）。ノイズになるシステム系のアプリ向け。
     /// 前面の時間は、`transient_max_sec` 未満なら通過系と同じく前後の作業に吸収し、それ以上続いたものは
-    /// 「無視」の区間（`ignored`）にして、集計・仕分け・レポート・タスクの実績・通知に数えない。
+    /// 「無視」の区間（`ignored`）にして、集計・レポート・タスクの実績・通知に数えない。
     /// ここに入れた exe は `transient_exes` にも入っているものとして扱う。生データ（`window_span`）は変えない。
     pub ignore_exes: Vec<String>,
     /// 除外区間を丸ごと破棄する（false なら exe 名のみ保持。docs/dev/architecture.md「収集器（Windows）」）。
     pub drop_excluded: bool,
     pub exclude: Vec<ExcludeRule>,
-    /// 割り込み判定: コミュニケーション系の後に元タスク外作業が続く最小時間（docs/dev/architecture.md「帰属判定パイプライン」）。
+    /// 割り込み判定: コミュニケーション系の後に元タスク外作業が続く最小時間（docs/dev/architecture.md「割り当てパイプライン」）。
     pub interrupt_min_sec: u64,
-    /// 帰属判定の定期実行で再計算する直近の範囲（分）。
+    /// 割り当ての定期実行で再計算する直近の範囲（分）。
     pub rebuild_window_min: u64,
     /// Hitoiki 自身のウインドウ（hitoiki-app.exe / 自プロセス）を前面にしている時間も記録する。
     /// false（既定）なら記録の空白になる。
@@ -216,8 +216,8 @@ pub struct Agent {
     pub enabled: Vec<String>,
     /// 0 でプロンプト抜粋を保存しない。
     pub prompt_excerpt_chars: usize,
-    pub watch_max_min: u64,
-    /// prompt_submit 時に前面がターミナル以外だった場合に遡る秒数（docs/dev/architecture.md「帰属判定パイプライン」）。
+    pub wait_max_min: u64,
+    /// prompt_submit 時に前面がターミナル以外だった場合に遡る秒数（docs/dev/architecture.md「割り当てパイプライン」）。
     pub bind_lookback_sec: u64,
     /// true なら、`prompt_submit` 時の前面が一覧（`terminal_exes` / `agent_host_exes`）に無いアプリでも、
     /// 除外・通過系・Hitoiki 自身・ブラウザ・コミュニケーション/会議系でなければそのウインドウにいたとみなして対応付ける。
@@ -229,7 +229,7 @@ impl Default for Agent {
         Self {
             enabled: vec!["claude-code".into(), "codex".into()],
             prompt_excerpt_chars: 200,
-            watch_max_min: 10,
+            wait_max_min: 10,
             bind_lookback_sec: 5,
             bind_unlisted: true,
         }
@@ -346,11 +346,11 @@ impl Default for Activity {
     }
 }
 
-/// 仕分け（要確認の一覧）の設定。
+/// 実績（要確認の一覧・補正）の設定。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Review {
-    /// 仕分け一覧で既定表示する最小の長さ（秒）。これ未満の区間は既定で隠す（データは変えない）。
+pub struct Actual {
+    /// 要確認の一覧で既定表示する最小の長さ（秒）。これ未満の区間は既定で隠す（データは変えない）。
     pub min_sec: u64,
     /// 画面ロック／スリープによる無操作がこの分数以上なら、自動で休憩（break）にする。0 で無効。
     pub auto_break_locked_min: u64,
@@ -371,7 +371,7 @@ pub struct Review {
     pub correct_include_idle: bool,
 }
 
-impl Default for Review {
+impl Default for Actual {
     fn default() -> Self {
         Self {
             min_sec: 60,
@@ -422,7 +422,7 @@ pub enum JudgeBackend {
         command: Vec<String>,
         #[serde(default = "default_judge_timeout")]
         timeout_sec: u64,
-        /// true なら複数区間を `states` 配列でまとめて送る（docs/dev/architecture.md「判定器」のバッチモード）。
+        /// true なら複数区間を `states` 配列でまとめて送る（docs/dev/architecture.md「自動判定」のバッチモード）。
         #[serde(default)]
         batch: bool,
     },
@@ -778,32 +778,32 @@ command = ["python", "x.py"]
     }
 
     #[test]
-    fn review_と_push_の新しいキーの既定値() {
+    fn actual_と_push_の新しいキーの既定値() {
         let c = Config::default();
-        assert_eq!(c.review.auto_break_locked_min, 10);
-        assert!(!c.review.trust_doing);
+        assert_eq!(c.actual.auto_break_locked_min, 10);
+        assert!(!c.actual.trust_doing);
         assert_eq!(
-            (c.review.rule_suggest_min_count, c.review.rule_suggest_snooze_days),
+            (c.actual.rule_suggest_min_count, c.actual.rule_suggest_snooze_days),
             (3, 14)
         );
         assert_eq!(c.push.idle_return_min, 15);
         assert_eq!(c.push.urgent_task_interval_min, 120);
         assert_eq!(c.push.important_stale_days, 3);
         assert_eq!(c.push.kr_idle_weekday, 3);
-        assert_eq!(c.review.snap_sec, 120);
+        assert_eq!(c.actual.snap_sec, 120);
         assert!(
-            !c.review.correct_include_confirmed
-                && !c.review.correct_include_meeting
-                && !c.review.correct_include_idle
+            !c.actual.correct_include_confirmed
+                && !c.actual.correct_include_meeting
+                && !c.actual.correct_include_idle
         );
         let c: Config = toml::from_str(
-            "[review]
+            "[actual]
 trust_doing = true
 auto_break_locked_min = 0
 ",
         )
         .unwrap();
-        assert!(c.review.trust_doing);
-        assert_eq!((c.review.auto_break_locked_min, c.review.min_sec), (0, 60));
+        assert!(c.actual.trust_doing);
+        assert_eq!((c.actual.auto_break_locked_min, c.actual.min_sec), (0, 60));
     }
 }

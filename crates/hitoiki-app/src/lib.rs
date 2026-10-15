@@ -104,18 +104,18 @@ pub fn run() {
             commands::task_drop,
             commands::task_delete_preview,
             commands::task_delete,
-            commands::rule_add,
-            commands::rule_list,
-            commands::log,
-            commands::review_list,
-            commands::review_set,
-            commands::review_set_many,
-            commands::review_idle,
-            commands::review_suggestions,
-            commands::review_suggest_accept,
-            commands::review_suggest_dismiss,
-            commands::review_ignore,
-            commands::review_unignore,
+            commands::task_rule_add,
+            commands::task_rule_list,
+            commands::actual_list,
+            commands::actual_review,
+            commands::actual_confirm,
+            commands::actual_confirm_many,
+            commands::actual_idle,
+            commands::actual_suggestions,
+            commands::actual_suggest_accept,
+            commands::actual_suggest_dismiss,
+            commands::actual_ignore,
+            commands::actual_unignore,
             commands::ignore_list,
             commands::ignore_add,
             commands::ignore_remove,
@@ -182,8 +182,8 @@ pub fn run() {
             manage::key_result_delete,
             manage::skill_edit,
             manage::skill_delete,
-            manage::rule_edit,
-            manage::rule_delete,
+            manage::task_rule_edit,
+            manage::task_rule_delete,
             manage::activity_rule_list,
             manage::activity_rule_add,
             manage::activity_rule_edit,
@@ -198,10 +198,10 @@ pub fn run() {
             manage::calendar_source_add,
             manage::calendar_source_edit,
             manage::calendar_source_delete,
-            manage::activity_label_list,
-            manage::activity_label_add,
-            manage::activity_label_rename,
-            manage::activity_label_remove,
+            manage::activity_list,
+            manage::activity_add,
+            manage::activity_rename,
+            manage::activity_remove,
             commands::report,
             commands::heatmap,
             commands::config_all,
@@ -315,8 +315,8 @@ mod tests {
 
     #[test]
     fn 引数の値を取る() {
-        let a: Vec<String> = ["app", "--screen", "review"].map(String::from).to_vec();
-        assert_eq!(arg_value(&a, "--screen").as_deref(), Some("review"));
+        let a: Vec<String> = ["app", "--screen", "actual"].map(String::from).to_vec();
+        assert_eq!(arg_value(&a, "--screen").as_deref(), Some("actual"));
         assert_eq!(arg_value(&a, "--x"), None);
     }
 }

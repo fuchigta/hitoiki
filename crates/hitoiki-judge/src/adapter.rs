@@ -1,4 +1,4 @@
-//! 帰属判定パイプラインとの接続。区間 → 問い合わせ状態、回答 → `JudgeAnswer`。
+//! 割り当てパイプラインとの接続。区間 → 問い合わせ状態、回答 → `JudgeAnswer`。
 
 use crate::openai::value_valid;
 use crate::protocol::{Answers, Judge, OptionSpec, QuestionSpec, SegmentState, State, StateContext};
@@ -124,7 +124,7 @@ impl JudgeAdapter {
                     "exe": r.exe_name,
                     "title": r.title,
                     "task_id": r.task_id,
-                    "activity": r.activity_label,
+                    "activity": r.activity,
                 })
             })
             .collect();
@@ -168,10 +168,10 @@ impl JudgeAdapter {
                 .filter(|s| *s != "none" && self.task_ids.iter().any(|t| t == s))
                 .map(String::from);
         }
-        let mut activity_label = None;
+        let mut activity = None;
         if let Some(a) = valid("activity") {
             confs.push(a.confidence);
-            activity_label = a
+            activity = a
                 .value
                 .as_str()
                 .filter(|s| self.labels.iter().any(|l| l == s))
@@ -182,7 +182,7 @@ impl JudgeAdapter {
             confs.push(a.confidence);
             is_interrupt = a.value.as_bool();
         }
-        if task_id.is_none() && activity_label.is_none() && is_interrupt.is_none() {
+        if task_id.is_none() && activity.is_none() && is_interrupt.is_none() {
             return None;
         }
         let confidence = confs
@@ -191,7 +191,7 @@ impl JudgeAdapter {
             .fold(1.0, f64::min);
         Some(JudgeAnswer {
             task_id,
-            activity_label,
+            activity,
             is_interrupt,
             confidence,
             judge_name: self.judge.name().to_string(),
@@ -255,7 +255,7 @@ mod tests {
             end_at: e,
             kind: SegmentKind::Work,
             task_id: None,
-            activity_label: None,
+            activity: None,
             confidence: None,
             decided_by: None,
             status: SegmentStatus::NeedsReview,
@@ -263,7 +263,7 @@ mod tests {
             agent_session_id: None,
             exe_name: Some("a.exe".into()),
             title: Some("t".into()),
-            offline: false,
+            off_pc: false,
         }
     }
 
@@ -313,7 +313,7 @@ mod tests {
         let r = a.judge(&[seg(0, 1000)]);
         let r = r[0].clone().unwrap();
         assert_eq!(r.task_id.as_deref(), Some("T1"));
-        assert_eq!(r.activity_label.as_deref(), Some("開発"));
+        assert_eq!(r.activity.as_deref(), Some("開発"));
         assert_eq!(r.is_interrupt, Some(false));
         assert!((r.confidence - 0.7).abs() < 1e-9);
         assert_eq!(r.judge_name, "fixed");

@@ -301,7 +301,7 @@ fn 編集と削除_force_dry_run_終了コード() {
         0
     );
     let l = run(h, &["--json", "activity-rule", "list"]).json();
-    assert_eq!(l["rules"][0]["activity_label"], "連絡");
+    assert_eq!(l["rules"][0]["activity"], "連絡");
     assert_eq!(l["rules"][0]["enabled"], false);
     assert_eq!(run(h, &["activity-rule", "delete", &a]).code, 0);
 
@@ -356,7 +356,7 @@ fn 編集と削除_force_dry_run_終了コード() {
     // 引数なしのハッスルは引数エラー
     assert_eq!(run(h, &["hassle"]).code, 2);
 
-    // カレンダーソース・活動ラベル: URL は出力に出ない
+    // カレンダーソース・活動: URL は出力に出ない
     let a = run(
         h,
         &[
@@ -378,16 +378,11 @@ fn 編集と削除_force_dry_run_終了コード() {
     assert_eq!(run(h, &["calendar", "delete", "仕事", "--dry-run"]).code, 0);
     assert_eq!(run(h, &["calendar", "delete", "仕事"]).code, 0);
     assert_eq!(run(h, &["calendar", "delete", "仕事"]).code, 3);
-    assert_eq!(run(h, &["activity-label", "add", "運動"]).code, 0);
-    assert_eq!(
-        run(h, &["activity-label", "rename", "運動", "トレーニング"]).code,
-        0
-    );
-    assert!(run(h, &["activity-label", "list"])
-        .stdout
-        .contains("トレーニング"));
-    assert_eq!(run(h, &["activity-label", "remove", "トレーニング"]).code, 0);
-    assert_eq!(run(h, &["activity-label", "remove", "トレーニング"]).code, 3);
+    assert_eq!(run(h, &["activity", "add", "運動"]).code, 0);
+    assert_eq!(run(h, &["activity", "rename", "運動", "トレーニング"]).code, 0);
+    assert!(run(h, &["activity", "list"]).stdout.contains("トレーニング"));
+    assert_eq!(run(h, &["activity", "remove", "トレーニング"]).code, 0);
+    assert_eq!(run(h, &["activity", "remove", "トレーニング"]).code, 3);
 }
 
 #[test]
@@ -539,10 +534,13 @@ fn report_and_review_flow() {
 
     assert_eq!(run(h, &["report", "--by", "nope"]).code, 2);
 
-    let rl = run(h, &["--json", "review", "list", "--date", "2026-01-05"]);
+    let rl = run(h, &["--json", "actual", "review", "--date", "2026-01-05"]);
     assert_eq!(rl.json()["count"], 1);
 
-    let set = run(h, &["--json", "review", "set", "SEGB", "--task", &tid, "--rule"]);
+    let set = run(
+        h,
+        &["--json", "actual", "confirm", "SEGB", "--task", &tid, "--rule"],
+    );
     assert_eq!(set.code, 0, "{}", set.stderr);
     let sv = set.json();
     assert_eq!(sv["segment"]["status"], "confirmed");
@@ -550,13 +548,13 @@ fn report_and_review_flow() {
     assert_eq!(sv["rule"]["pattern_type"], "contains");
 
     assert_eq!(
-        run(h, &["--json", "review", "list", "--date", "2026-01-05"]).json()["count"],
+        run(h, &["--json", "actual", "review", "--date", "2026-01-05"]).json()["count"],
         0
     );
     let rules = run(h, &["--json", "task", "rule", "list", &tid]);
     assert_eq!(rules.json()["rules"].as_array().unwrap().len(), 1);
 
-    let lg = run(h, &["log", "--date", "2026-01-05", "--raw"]);
+    let lg = run(h, &["actual", "list", "--date", "2026-01-05", "--raw"]);
     assert_eq!(lg.code, 0, "{}", lg.stderr);
     assert!(lg.stdout.contains("SEGA"));
 }
@@ -1038,14 +1036,14 @@ fn review_list_hides_short_segments_unless_all() {
     );
 
     // 既定: 短い区間は隠し、件数を示す
-    let v = run(h, &["--json", "review", "list", "--date", "2026-01-05"]);
+    let v = run(h, &["--json", "actual", "review", "--date", "2026-01-05"]);
     assert_eq!(v.code, 0, "{}", v.stderr);
     let j = v.json();
     assert_eq!(j["count"], 1);
     assert_eq!(j["hidden_short"], 1);
     assert_eq!(j["min_sec"], 60);
     assert_eq!(j["version"], 1);
-    let human = run(h, &["review", "list", "--date", "2026-01-05"]);
+    let human = run(h, &["actual", "review", "--date", "2026-01-05"]);
     assert!(
         human
             .stdout
@@ -1055,7 +1053,11 @@ fn review_list_hides_short_segments_unless_all() {
     );
 
     // --all: 全件、隠した件数は 0
-    let j = run(h, &["--json", "review", "list", "--date", "2026-01-05", "--all"]).json();
+    let j = run(
+        h,
+        &["--json", "actual", "review", "--date", "2026-01-05", "--all"],
+    )
+    .json();
     assert_eq!(j["count"], 2);
     assert_eq!(j["hidden_short"], 0);
 
@@ -1315,7 +1317,7 @@ fn review_set_by_range_dry_run_apply_list_and_undo() {
     seg("CONFSEG", "10:30", "10:40", "work", "confirmed");
     seg("IDLESEG", "10:40", "10:50", "idle", "needs_review");
     let range = ["--from", "2026-01-05 10:10", "--to", "2026-01-05 10:45"];
-    let mut base = vec!["--json", "review", "set"];
+    let mut base = vec!["--json", "actual", "correct"];
     base.extend(range);
 
     // --dry-run: 変更せず、対象と合計を返す。境界にまたがる区間は範囲の内側だけ（10:10-10:30 の 20 分）。
@@ -1333,12 +1335,12 @@ fn review_set_by_range_dry_run_apply_list_and_undo() {
     assert_eq!(cands[0]["full_duration_ms"], 30 * 60_000);
     assert_eq!(cands[2]["category"], "idle");
     assert_eq!(cands[2]["checked"], false);
-    assert!(run(h, &["--json", "review", "corrections"]).json()["corrections"]
+    assert!(run(h, &["--json", "actual", "corrections"]).json()["corrections"]
         .as_array()
         .unwrap()
         .is_empty());
     // 人間向けの出力にも確定前である旨と合計が出る。
-    let mut human = vec!["review", "set"];
+    let mut human = vec!["actual", "correct"];
     human.extend(range);
     human.extend(["--task", &tid, "--dry-run"]);
     let h_out = run(h, &human);
@@ -1352,34 +1354,34 @@ fn review_set_by_range_dry_run_apply_list_and_undo() {
     assert_eq!(o.code, 0, "{}", o.stderr);
     let j = o.json();
     assert_eq!(j["preview"]["total_ms"], 25 * 60_000);
-    assert_eq!(j["preview"]["offline_ms"], 5 * 60_000);
+    assert_eq!(j["preview"]["off_pc_ms"], 5 * 60_000);
     let cid = j["correction"]["id"].as_str().unwrap().to_string();
 
-    let l = run(h, &["--json", "review", "corrections", "--task", &tid[..14]]).json();
+    let l = run(h, &["--json", "actual", "corrections", "--task", &tid[..14]]).json();
     assert_eq!(l["count"], 1);
     assert_eq!(l["corrections"][0]["id"], cid.as_str());
-    assert_eq!(l["corrections"][0]["offline_ms"], 5 * 60_000);
+    assert_eq!(l["corrections"][0]["off_pc_ms"], 5 * 60_000);
     assert_eq!(
-        run(h, &["--json", "review", "corrections", "--date", "2026-01-06"]).json()["count"],
+        run(h, &["--json", "actual", "corrections", "--date", "2026-01-06"]).json()["count"],
         0
     );
-    let log = run(h, &["--json", "log", "--date", "2026-01-05"]).json();
+    let log = run(h, &["--json", "actual", "list", "--date", "2026-01-05"]).json();
     let segs = log["segments"].as_array().unwrap();
     let idle = segs
         .iter()
         .find(|s| s["start_at"] == ms("2026-01-05 10:40"))
         .unwrap();
     assert_eq!(
-        (idle["kind"].as_str(), idle["offline"].as_bool()),
+        (idle["kind"].as_str(), idle["off_pc"].as_bool()),
         (Some("work"), Some(true))
     );
 
     // 取り消し。
-    let u = run(h, &["--json", "review", "undo-correction", &cid[..12]]);
+    let u = run(h, &["--json", "actual", "undo-correction", &cid[..12]]);
     assert_eq!(u.code, 0, "{}", u.stderr);
-    assert_eq!(u.json()["overrides_removed"], 2);
-    assert_eq!(run(h, &["--json", "review", "corrections"]).json()["count"], 0);
-    assert_eq!(run(h, &["review", "undo-correction", &cid]).code, 3);
+    assert_eq!(u.json()["confirmations_removed"], 2);
+    assert_eq!(run(h, &["--json", "actual", "corrections"]).json()["count"], 0);
+    assert_eq!(run(h, &["actual", "undo-correction", &cid]).code, 3);
 }
 
 #[test]
@@ -1399,16 +1401,16 @@ fn review_set_range_argument_errors() {
     );
     // 区間 ID と範囲は併用できない / --from には --to が必要 / 割り当て先が無い。
     let both = [
-        "review", "set", "WORKSEG", "--from", "10:00", "--to", "11:00", "--task", &tid,
+        "actual", "correct", "WORKSEG", "--from", "10:00", "--to", "11:00", "--task", &tid,
     ];
     assert_eq!(run(h, &both).code, 2);
     assert_eq!(
-        run(h, &["review", "set", "--from", "10:00", "--task", &tid]).code,
+        run(h, &["actual", "correct", "--from", "10:00", "--task", &tid]).code,
         2
     );
     let no_target = [
-        "review",
-        "set",
+        "actual",
+        "correct",
         "--from",
         "2026-01-05 10:00",
         "--to",
@@ -1417,8 +1419,8 @@ fn review_set_range_argument_errors() {
     assert_eq!(run(h, &no_target).code, 2);
     // 存在しない除外 ID は対象なし(3)。
     let bad_exclude = [
-        "review",
-        "set",
+        "actual",
+        "correct",
         "--from",
         "2026-01-05 10:00",
         "--to",
@@ -1574,10 +1576,10 @@ fn ignore_list_add_remove_suggest_and_segments() {
         None,
         "needs_review",
     );
-    let o = run(h, &["review", "ignore", "IGN1", "--json"]);
+    let o = run(h, &["actual", "ignore", "IGN1", "--json"]);
     assert_eq!(o.code, 0, "{}", o.stderr);
     assert_eq!(o.json()["segments"][0]["kind"], "ignored");
-    assert_eq!(run(h, &["review", "ignore", "NOPE"]).code, 3);
+    assert_eq!(run(h, &["actual", "ignore", "NOPE"]).code, 3);
     // 無視でない区間の取り消しは引数エラー
     insert_segment(
         h,
@@ -1588,9 +1590,9 @@ fn ignore_list_add_remove_suggest_and_segments() {
         None,
         "needs_review",
     );
-    assert_eq!(run(h, &["review", "unignore", "WRK1"]).code, 2);
+    assert_eq!(run(h, &["actual", "unignore", "WRK1"]).code, 2);
     // 取り消し（確定を削除して再計算）
-    assert_eq!(run(h, &["review", "unignore", "IGN1"]).code, 0);
+    assert_eq!(run(h, &["actual", "unignore", "IGN1"]).code, 0);
 }
 
 #[test]

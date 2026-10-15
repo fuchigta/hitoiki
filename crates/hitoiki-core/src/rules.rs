@@ -1,7 +1,7 @@
-//! ルールのパターンマッチ（docs/dev/architecture.md「帰属判定パイプライン」）。glob / regex / contains を、パス区切り（`\` と `/`）と
+//! ルールのパターンマッチ（docs/dev/architecture.md「割り当てパイプライン」）。glob / regex / contains を、パス区切り（`\` と `/`）と
 //! 大文字小文字を無視して評価する。
 
-use crate::model::{ActivityRule, MatchField, PatternType, TaskMatchRule};
+use crate::model::{ActivityRule, MatchField, PatternType, TaskAssignRule};
 use crate::{Error, Result};
 use globset::{GlobBuilder, GlobMatcher};
 use regex::{Regex, RegexBuilder};
@@ -134,21 +134,21 @@ impl Matcher {
     }
 }
 
-/// priority 降順（同順位は id 順）に並べた task_match_rule 群。不正なパターンは無視する。
+/// priority 降順（同順位は id 順）に並べた task_assign_rule 群。不正なパターンは無視する。
 pub struct TaskRuleSet {
     rules: Vec<(Matcher, String)>,
 }
 
 impl TaskRuleSet {
-    pub fn new(rules: &[TaskMatchRule]) -> Self {
-        let mut rs: Vec<&TaskMatchRule> = rules.iter().filter(|r| r.enabled).collect();
+    pub fn new(rules: &[TaskAssignRule]) -> Self {
+        let mut rs: Vec<&TaskAssignRule> = rules.iter().filter(|r| r.enabled).collect();
         rs.sort_by(|a, b| b.priority.cmp(&a.priority).then_with(|| a.id.cmp(&b.id)));
         let rules = rs
             .into_iter()
             .filter_map(|r| match Matcher::new(r.field, &r.pattern, r.pattern_type) {
                 Ok(m) => Some((m, r.task_id.clone())),
                 Err(e) => {
-                    tracing::warn!("task_match_rule {} を無視します: {e}", r.id);
+                    tracing::warn!("task_assign_rule {} を無視します: {e}", r.id);
                     None
                 }
             })
@@ -177,7 +177,7 @@ impl ActivityRuleSet {
         let rules = rs
             .into_iter()
             .filter_map(|r| match Matcher::new(r.field, &r.pattern, r.pattern_type) {
-                Ok(m) => Some((m, r.activity_label.clone())),
+                Ok(m) => Some((m, r.activity.clone())),
                 Err(e) => {
                     tracing::warn!("activity_rule {} を無視します: {e}", r.id);
                     None
@@ -196,7 +196,7 @@ impl ActivityRuleSet {
 }
 
 /// ウインドウタイトルの比較用正規化。先頭の記号（Claude Code のスピナー ✳ ⠂ ⠐ · * など）と空白を除く。
-/// 帰属判定（セッションとウインドウの対応付け）と収集（区間の切り替え判定）で同じ規則を使う。
+/// 割り当て（セッションとウインドウの対応付け）と収集（区間の切り替え判定）で同じ規則を使う。
 pub fn normalize_title(t: &str) -> String {
     t.trim_start_matches(|c: char| !c.is_alphanumeric())
         .trim()
@@ -269,7 +269,7 @@ mod tests {
 
     #[test]
     fn rule_set_priority_then_id() {
-        let mk = |id: &str, task: &str, pri: i64| TaskMatchRule {
+        let mk = |id: &str, task: &str, pri: i64| TaskAssignRule {
             id: id.into(),
             task_id: task.into(),
             field: MatchField::Title,

@@ -1,6 +1,6 @@
 import type { ComponentChildren, RefObject } from "preact";
 import { useRef, useState } from "preact/hooks";
-import type { BlockView, CalendarEvent, GapView, Millis, SegmentView } from "./api";
+import type { BlockView, CalendarEvent, UncollectedView, Millis, SegmentView } from "./api";
 import { KIND_LABEL, fmtTime } from "./lib";
 import { boundaryTimes, pickRange, yToMinute } from "./correct-util";
 import { clickRange, currentBlock, dragRange, moveRange, nowPercent, resizeRange, timeToPercent, type TimeSpan } from "./plan-util";
@@ -38,7 +38,7 @@ export interface DayGridProps {
   segments: SegmentView[];
   events: CalendarEvent[];
   /** 記録なしの時間帯（実績の列に斜線で重ねる）。 */
-  gaps?: GapView[];
+  uncollected?: UncollectedView[];
   /** 現在時刻の線と「いまのブロック」を出すときに渡す。 */
   now?: Millis;
   /** 選択中の範囲（作成・編集のポップオーバーを開いている間、または配置のプレビュー）。 */
@@ -62,7 +62,7 @@ export interface DayGridProps {
   onClickActual?: (segmentId: string) => void;
   /** 実績の補正で選択中の範囲。 */
   actualSelection?: TimeSpan | null;
-  /** 範囲の端を区間の境目へ吸着させる幅（ミリ秒、`review.snap_sec`）。 */
+  /** 範囲の端を区間の境目へ吸着させる幅（ミリ秒、`actual.snap_sec`）。 */
   snapMs?: number;
   /** サイドパネルで開いている区間（実績の列で強調する）。 */
   selectedSegmentId?: string | null;
@@ -132,7 +132,7 @@ export function DayGrid(p: DayGridProps) {
   };
 
   // 実績の列のドラッグ（補正する範囲の選択）。端は区間の境目に吸着する。
-  const boundaries = boundaryTimes([...p.segments, ...(p.gaps ?? [])]);
+  const boundaries = boundaryTimes([...p.segments, ...(p.uncollected ?? [])]);
   const actualHeight = () => actualRef.current?.clientHeight || height;
   const actualY = (e: PointerEvent) => e.clientY - actualRef.current!.getBoundingClientRect().top;
   const pickActual = (a: ActualDrag): TimeSpan | null =>
@@ -259,15 +259,15 @@ export function DayGrid(p: DayGridProps) {
         {p.segments.map((s) => (
           <div
             key={s.id}
-            class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}${s.offline ? " offline" : ""}${p.selectedSegmentId === s.id ? " selected" : ""}`}
+            class={`vtl-item seg k-${s.kind}${s.status === "needs_review" ? " review" : ""}${s.off_pc ? " off_pc" : ""}${p.selectedSegmentId === s.id ? " selected" : ""}`}
             style={pos(s.start_at, s.end_at)}
-            title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.offline ? "（PC 外）" : ""}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}`}
+            title={`${fmtTime(s.start_at)}–${fmtTime(s.end_at)} ${KIND_LABEL[s.kind]}${s.off_pc ? "（PC 外）" : ""}${s.task_title ? " / " + s.task_title : ""}${s.exe_name ? " / " + s.exe_name : ""}`}
           />
         ))}
-        {(p.gaps ?? []).map((g) => (
+        {(p.uncollected ?? []).map((g) => (
           <div
-            key={`gap-${g.start_at}`}
-            class="vtl-item gap"
+            key={`uncollected-${g.start_at}`}
+            class="vtl-item uncollected"
             style={pos(g.start_at, g.end_at)}
             title={`${fmtTime(g.start_at)}–${fmtTime(g.end_at)} 記録なし（収集が止まっていた時間帯です）`}
           />

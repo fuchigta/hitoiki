@@ -7,7 +7,7 @@
 | 設定ファイル | `%APPDATA%\hitoiki\config.toml` |
 | DB | `%LOCALAPPDATA%\hitoiki\hitoiki.db` |
 | ログ | `%LOCALAPPDATA%\hitoiki\logs\` |
-| 判定器・プラグイン | `%APPDATA%\hitoiki\plugins\` |
+| 自動判定・プラグイン | `%APPDATA%\hitoiki\plugins\` |
 | 質問セット | `%APPDATA%\hitoiki\questions\` |
 | 振り返りテンプレート | `%APPDATA%\hitoiki\templates\` |
 
@@ -21,7 +21,7 @@ hitoiki config set general.timezone '"UTC"'
 hitoiki config get push.daily_limit
 ```
 
-設定の変更は、再計算・カレンダー・通知・判定器には次回から反映されます。**収集器とログ監視の設定の変更には、常駐アプリの再起動が必要**です。
+設定の変更は、再計算・カレンダー・通知・自動判定には次回から反映されます。**収集器とログ監視の設定の変更には、常駐アプリの再起動が必要**です。
 
 ## 主なキー
 
@@ -29,8 +29,8 @@ hitoiki config get push.daily_limit
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true: ログオン時に自動起動）、`update_check`（未設定: 確認しない）、`quick_entry_shortcut`（`Ctrl+Alt+Space`）。[更新の確認](#更新の確認)、[クイック入力のショートカット](#クイック入力のショートカット) を参照 |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
-| `review` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
-| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
+| `actual` | `min_sec`（60）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（いずれも false） |
+| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`wait_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday` / `weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min` / `switch_spike.count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`kr_idle_weekday`（3）、`toast_persistent`（true）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`（`aigw`）、`auto_confidence_threshold`（0.8）、`backends.<名前>` |
@@ -47,16 +47,16 @@ hitoiki config get push.daily_limit
 - `agent.bind_unlisted`: true（既定）なら、プロンプトを送った時に前面だったアプリが `terminal_exes` / `agent_host_exes` に無くても、そのウインドウで対話していたものとして数えます。ブラウザ、`explorer.exe` などの通過系、コミュニケーション・会議系、Hitoiki 自身、除外したウインドウ、入力が無い（無操作・ロック中の）時刻の送信は数えません。別のアプリで作業している裏でエージェントが動く使い方で、その作業が対話時間に混ざるときは false にして、一覧のアプリだけにします。
 - `collect.interrupt_min_sec`: コミュニケーション系アプリの後に別の作業が続いたとき、割り込みとみなす最小の長さ。
 - `collect.transient_exes` / `collect.transient_max_sec`: タスクバー、スタートメニュー、Alt+Tab などを担う「通過系」アプリの exe 名（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellExperienceHost.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`）と、通過とみなす最大の連続時間（秒）。通過系アプリが前面だった時間がこの長さ未満なら、独立した区間にせず直前の作業（無ければ直後の作業）に含めます。この長さ以上続いたとき（ファイラーで作業したときなど）は通常の区間のままです。記録（`window_span`）は変えないので、値を変えて `hitoiki rebuild` すると過去分にも反映できます。
-- `collect.ignore_exes`: 「無視する」アプリの exe 名（大文字小文字を区別しない。既定は `explorer.exe`、`ShellExperienceHost.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`。`ApplicationFrameHost.exe` は UWP アプリの実体なので入れません）。ここに入れたアプリは `transient_exes` にも入っているものとして扱い、前面の時間が `transient_max_sec` 未満なら前後の作業に含めます（時間は保たれます）。それ以上続いたものは「無視」の区間になり、集計・実績の要確認・レポート・タスクの実績・通知（長時間の集中など）に数えません。ルールでタスクや活動が決まった区間と、手で仕分けた区間は無視しません。`transient_exes` との違いは、長く続いた分を通常の作業として残すか（`transient_exes` だけ）、数えない時間にするか（`ignore_exes`）です。記録（`window_span`）は消えず、リストから外して再計算（`hitoiki rebuild`。`hitoiki ignore remove` は直近 7 日を自動で再計算）すると元に戻ります。設定画面の「ルール」タブ（種類「無視」）、`hitoiki ignore list|add|remove`、実績画面の「今後も無視」から変更できます。既定のままの設定に追加するときは、既定の一覧に追記した形で `config.toml` に書き込みます。
-- `review.min_sec`: 実績の「要確認」の一覧で既定表示する区間の最小の長さ（秒）。これ未満の短い要確認区間は既定で隠します（削除はしません）。「確認待ち」の件数も同じ基準で数えます。
-- `review.auto_break_locked_min`: 画面ロック・スリープによる無操作がこの分数以上なら、自動で休憩（根拠 `rule:locked`）にします。`0` で無効。ユーザーが確定した区間は変えません。
-- `review.trust_doing`: true にすると、進行中（doing）のタスクを仮で当てた区間を、確認待ちにせず自動（根拠 `doing`）にします。既定は false（確認待ち）。
-- `review.snap_sec`: 今日画面の「実績」の列で補正する範囲をドラッグするとき、端をこの秒数以内の区間の境目に吸着させます（既定 120 秒、`0` で吸着しない）。
-- `review.correct_include_confirmed` / `review.correct_include_meeting` / `review.correct_include_idle`: 実績の補正（[日々の使い方](./daily-use.md#実績の補正)）で、ユーザー確定済みの区間・会議・無操作と記録なしを最初からチェックするか（いずれも既定 false）。CLI の `--include-confirmed` / `--include-meeting` / `--include-idle` はこの設定を true に上書きします。
-- `review.rule_suggest_min_count` / `review.rule_suggest_snooze_days`: 同じ exe（または作業ディレクトリ）を同じタスクにこの回数以上確定したらルール化を提案します（`0` で提案しない）。断った組み合わせは、この日数のあいだ再提案しません。
-- `collect.rebuild_window_min`: 帰属判定を定期的に再計算する直近の範囲（分）。
+- `collect.ignore_exes`: 「無視する」アプリの exe 名（大文字小文字を区別しない。既定は `explorer.exe`、`ShellExperienceHost.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe`、`SearchApp.exe`、`ShellHost.exe`、`LockApp.exe`、`TextInputHost.exe`。`ApplicationFrameHost.exe` は UWP アプリの実体なので入れません）。ここに入れたアプリは `transient_exes` にも入っているものとして扱い、前面の時間が `transient_max_sec` 未満なら前後の作業に含めます（時間は保たれます）。それ以上続いたものは「無視」の区間になり、集計・実績の要確認・レポート・タスクの実績・通知（長時間の集中など）に数えません。ルールでタスクや活動が決まった区間と、手で確定た区間は無視しません。`transient_exes` との違いは、長く続いた分を通常の作業として残すか（`transient_exes` だけ）、数えない時間にするか（`ignore_exes`）です。記録（`window_span`）は消えず、リストから外して再計算（`hitoiki rebuild`。`hitoiki ignore remove` は直近 7 日を自動で再計算）すると元に戻ります。設定画面の「ルール」タブ（種類「無視」）、`hitoiki ignore list|add|remove`、実績画面の「今後も無視」から変更できます。既定のままの設定に追加するときは、既定の一覧に追記した形で `config.toml` に書き込みます。
+- `actual.min_sec`: 実績の「要確認」の一覧で既定表示する区間の最小の長さ（秒）。これ未満の短い要確認区間は既定で隠します（削除はしません）。「確認待ち」の件数も同じ基準で数えます。
+- `actual.auto_break_locked_min`: 画面ロック・スリープによる無操作がこの分数以上なら、自動で休憩（根拠 `rule:locked`）にします。`0` で無効。ユーザーが確定した区間は変えません。
+- `actual.trust_doing`: true にすると、進行中（doing）のタスクを仮で当てた区間を、確認待ちにせず自動（根拠 `doing`）にします。既定は false（確認待ち）。
+- `actual.snap_sec`: 今日画面の「実績」の列で補正する範囲をドラッグするとき、端をこの秒数以内の区間の境目に吸着させます（既定 120 秒、`0` で吸着しない）。
+- `actual.correct_include_confirmed` / `actual.correct_include_meeting` / `actual.correct_include_idle`: 実績の補正（[日々の使い方](./daily-use.md#実績の補正)）で、ユーザー確定済みの区間・会議・無操作と記録なしを最初からチェックするか（いずれも既定 false）。CLI の `--include-confirmed` / `--include-meeting` / `--include-idle` はこの設定を true に上書きします。
+- `actual.rule_suggest_min_count` / `actual.rule_suggest_snooze_days`: 同じ exe（または作業ディレクトリ）を同じタスクにこの回数以上確定したらルール化を提案します（`0` で提案しない）。断った組み合わせは、この日数のあいだ再提案しません。
+- `collect.rebuild_window_min`: 割り当てを定期的に再計算する直近の範囲（分）。
 - `agent.prompt_excerpt_chars`: プロンプトの抜粋として保存する文字数。0 にすると抜粋を保存しません。
-- `agent.watch_max_min`: エージェントの応答待ち（見守り）として計上する最大の長さ（分）。
+- `agent.wait_max_min`: エージェントの作業待ちとして計上する最大の長さ（分）。
 
 ## 除外ルール
 
@@ -132,9 +132,9 @@ structured = "auto"   # auto | on | off
 
 - 問いのテンプレートは組み込みですが、`%APPDATA%\hitoiki\templates`（`ai.templates_dir` で変更可）に同名の `day_start.md`、`day_end.md`、`weekly.md`、`abc_dispute.md` を置くとそちらが優先されます。構造化出力用には `day_start_structured.md`、`day_end_structured.md`、`weekly_structured.md` があり、同じ場所に置けば優先されます（使う問いの種類と数の指示は、このテンプレートに書いてあります）。
 
-## 判定器
+## 自動判定
 
-ルールで帰属が決まらなかった作業区間を、外部の判定器に問い合わせて分類させる仕組みです。`judge.enabled`（既定 false）が false の間は、タスクの割り当てルールと進行中のタスクだけで判定します。
+ルールで割り当てが決まらなかった作業区間を、外部の自動判定に問い合わせて分類させる仕組みです。`judge.enabled`（既定 false）が false の間は、タスクの割り当てルールと進行中のタスクだけで判定します。
 
 ```toml
 [judge]
@@ -162,7 +162,7 @@ timeout_sec = 10
 - 答えは一定期間キャッシュされ、同じ内容の区間を何度も問い合わせません。
 - 質問セットは、`%APPDATA%\hitoiki\questions\*.toml` に置くと差し替えられます。
 
-判定器には、区間のアプリ名・ウインドウタイトル・作業ディレクトリ、進行中のタスクなどが渡されます。`openai-compatible` や、外部に通信する `external-command` を使うと、これらが接続先に送られます。会社の PC では、接続先が許可されているか確認してください（[プライバシー](./privacy.md)）。
+自動判定には、区間のアプリ名・ウインドウタイトル・作業ディレクトリ、進行中のタスクなどが渡されます。`openai-compatible` や、外部に通信する `external-command` を使うと、これらが接続先に送られます。会社の PC では、接続先が許可されているか確認してください（[プライバシー](./privacy.md)）。
 
 ## 通知
 

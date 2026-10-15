@@ -1,4 +1,4 @@
-//! docs/dev/architecture.md「帰属判定パイプライン」のエージェント対話時間の算出。
+//! docs/dev/architecture.md「割り当てパイプライン」のエージェント対話時間の算出。
 //!
 //! 計上するのは「ユーザーがそのセッションのウインドウにいた時間」だけ。
 //! 応答完了から次の送信までのラグ中に別ウインドウにいた時間は通常の作業として残る。
@@ -142,8 +142,8 @@ fn bind(input: &PipelineInput, wl: &[WPiece], idle: &[(Millis, Millis)], t: Mill
     None
 }
 
-/// セッションに紐づくタスク帰属の決定結果。
-struct Attribution {
+/// セッションに紐づくタスク割り当ての決定結果。
+struct Assignment {
     task_id: Option<String>,
     decided_by: Option<String>,
     confidence: Option<f64>,
@@ -157,9 +157,9 @@ struct Job {
     t: Millis,
     /// 対象期間の開始（直前の応答完了 / 送信 / セッション開始）。None はバックトラックで決める。
     period_start: Option<Millis>,
-    /// 次の応答完了または次の送信（見守りの打ち切り）。
+    /// 次の応答完了または次の送信（作業待ちの打ち切り）。
     stop: Option<Millis>,
-    attr: Attribution,
+    assignment: Assignment,
 }
 
 fn order(k: AgentEventKind) -> u8 {
@@ -171,29 +171,29 @@ fn order(k: AgentEventKind) -> u8 {
     }
 }
 
-fn attribution(
+fn assignment(
     task_rules: &TaskRuleSet,
     cwd: Option<&str>,
     branch: Option<&str>,
     doing: Option<&String>,
-) -> Attribution {
+) -> Assignment {
     let target = MatchTarget::session(cwd, branch);
     if let Some(tid) = task_rules.find(&target) {
-        Attribution {
+        Assignment {
             task_id: Some(tid.to_string()),
             decided_by: Some("rule".into()),
             confidence: Some(1.0),
             status: SegmentStatus::Auto,
         }
     } else if let Some(tid) = doing {
-        Attribution {
+        Assignment {
             task_id: Some(tid.clone()),
             decided_by: Some("doing".into()),
             confidence: Some(0.5),
             status: SegmentStatus::NeedsReview,
         }
     } else {
-        Attribution {
+        Assignment {
             task_id: None,
             decided_by: None,
             confidence: None,
@@ -262,7 +262,7 @@ fn build_jobs(input: &PipelineInput, task_rules: &TaskRuleSet) -> Vec<Job> {
                     };
                     let cwd = latest(&|x| x.cwd.as_deref());
                     let branch = latest(&|x| x.git_branch.as_deref());
-                    let attr = attribution(task_rules, cwd, branch, doing.as_ref());
+                    let assignment = assignment(task_rules, cwd, branch, doing.as_ref());
                     // 送信の後の最初の応答完了か次の送信（2 件目以降の応答完了は見ない）。
                     let stop = evs[i + 1..]
                         .iter()
@@ -280,7 +280,7 @@ fn build_jobs(input: &PipelineInput, task_rules: &TaskRuleSet) -> Vec<Job> {
                         t: e.at,
                         period_start: boundary,
                         stop,
-                        attr,
+                        assignment,
                     });
                     boundary = Some(e.at);
                     pending_submit = true;
@@ -359,8 +359,8 @@ pub(crate) fn earliest_period_start(
 }
 
 /// 同じ (hwnd, 正規化タイトル) に結び付いた別セッションと対象期間が重なる場合に、
-/// [s, e) のうち `plans[j]` のセッションに帰属する部分を返す（ベストエフォート）。
-/// 区別できない時間は「その時点の最も近い過去の送信を持つセッション」に帰属させる。
+/// [s, e) のうち `plans[j]` のセッションに割り当てする部分を返す（ベストエフォート）。
+/// 区別できない時間は「その時点の最も近い過去の送信を持つセッション」に割り当てる。
 /// どちらにも過去の送信が無ければ、送信が早い方。
 fn owned_parts(plans: &[Plan], j: usize, s: Millis, e: Millis) -> Vec<(Millis, Millis)> {
     let me = &plans[j];
@@ -439,12 +439,12 @@ pub(crate) fn apply(
             });
         }
 
-        // agent_watch: 送信後、同じウインドウが前面のまま続いた時間。
-        let mut limit = job.t + input.watch_max;
+        // agent_wait: 送信後、同じウインドウが前面のまま続いた時間。
+        let mut limit = job.t + input.wait_max;
         if let Some(s) = job.stop {
             limit = limit.min(s);
         }
-        let mut watch: Vec<(Millis, Millis)> = Vec::new();
+        let mut waits: Vec<(Millis, Millis)> = Vec::new();
         let mut cur = job.t;
         for p in pieces.iter() {
             if cur >= limit {
@@ -456,11 +456,11 @@ pub(crate) fn apply(
             if p.start > cur || !piece_matches(input, p, b) {
                 break;
             }
-            watch.push((cur, p.end.min(limit)));
+            waits.push((cur, p.end.min(limit)));
             cur = p.end;
         }
-        for (s, e) in watch {
-            mark(pieces, s, e, input, b, job, SegmentKind::AgentWatch);
+        for (s, e) in waits {
+            mark(pieces, s, e, input, b, job, SegmentKind::AgentWait);
         }
 
         // agent_dialog: 対象期間のうち、そのウインドウが前面で無操作でない部分。
@@ -514,10 +514,10 @@ fn mark(
         |p| {
             p.kind = kind;
             p.session = Some(job.key.clone());
-            p.task_id = job.attr.task_id.clone();
-            p.decided_by = job.attr.decided_by.clone();
-            p.confidence = job.attr.confidence;
-            p.status = Some(job.attr.status);
+            p.task_id = job.assignment.task_id.clone();
+            p.decided_by = job.assignment.decided_by.clone();
+            p.confidence = job.assignment.confidence;
+            p.status = Some(job.assignment.status);
             p.fixed = true;
         },
     );

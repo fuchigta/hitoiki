@@ -20,7 +20,7 @@ pub(crate) struct Piece {
     pub session: Option<String>,
     pub exe: Option<String>,
     pub title: Option<String>,
-    /// 対話・会議・override などで確定済み（ルール判定やフォールバックの対象外）。
+    /// 対話・会議・確定などで確定済み（ルール判定やフォールバックの対象外）。
     pub fixed: bool,
     /// exe/title の代表値を選ぶための、元になった最長区間の長さ。
     pub rep_len: Millis,
@@ -28,8 +28,8 @@ pub(crate) struct Piece {
     pub transient: bool,
     /// 無視するアプリ（`collect.ignore_exes`）の区間。吸収されなかったものは `ignored` にする。
     pub ignore: bool,
-    /// PC 外で過ごした時間（override の `offline`）。
-    pub offline: bool,
+    /// PC 外で過ごした時間（確定の `off_pc`）。
+    pub off_pc: bool,
 }
 
 impl Piece {
@@ -52,7 +52,7 @@ impl Piece {
             rep_len: end - start,
             transient: false,
             ignore: false,
-            offline: false,
+            off_pc: false,
         }
     }
 
@@ -75,7 +75,7 @@ impl Piece {
             rep_len: end - start,
             transient: false,
             ignore: false,
-            offline: false,
+            off_pc: false,
         }
     }
 

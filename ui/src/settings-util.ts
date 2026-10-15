@@ -1,12 +1,12 @@
 // 設定画面の純粋ロジック（タブの解決、ルールの統合一覧）。表示に依存しない。
-import type { ActivityRule, MatchField, PatternType, TaskMatchRule, TaskView } from "./api";
+import type { ActivityRule, MatchField, PatternType, TaskAssignRule, TaskView } from "./api";
 
 export const SETTINGS_TABS = [
   { id: "general", label: "全般" },
   { id: "notify", label: "通知" },
-  { id: "review", label: "判定" },
+  { id: "actual", label: "実績" },
   { id: "rules", label: "ルール" },
-  { id: "labels", label: "活動ラベル" },
+  { id: "labels", label: "活動" },
   { id: "calendar", label: "カレンダー" },
   { id: "templates", label: "テンプレート" },
   { id: "data", label: "設定ファイル" },
@@ -51,7 +51,7 @@ export const RULE_FILTERS: { id: RuleFilter; label: string }[] = [
 
 const KIND_ORDER: Record<RuleKind, number> = { task: 0, activity: 1, ignore: 2 };
 
-/** 一覧の 1 行。タスクは task_id / 対象タスク名、活動は活動ラベル、無視は exe 名だけ。 */
+/** 一覧の 1 行。タスクは task_id / 対象タスク名、活動は活動、無視は exe 名だけ。 */
 export interface RuleItem {
   key: string;
   kind: RuleKind;
@@ -63,12 +63,12 @@ export interface RuleItem {
   priority: number;
   enabled: boolean;
   taskId?: string;
-  /** 行に出す「行き先」（タスク名・活動ラベル）。無視は空。 */
+  /** 行に出す「行き先」（タスク名・活動）。無視は空。 */
   target: string;
 }
 
 export function mergeRules(
-  taskRules: TaskMatchRule[],
+  taskRules: TaskAssignRule[],
   activityRules: ActivityRule[],
   ignoreExes: string[],
   tasks: Pick<TaskView, "id" | "title">[],
@@ -99,7 +99,7 @@ export function mergeRules(
         pattern: r.pattern,
         priority: r.priority,
         enabled: r.enabled,
-        target: r.activity_label,
+        target: r.activity,
       }),
     ),
     ...ignoreExes.map(

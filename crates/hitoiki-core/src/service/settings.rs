@@ -1,4 +1,4 @@
-//! 設定ファイルにある「ユーザーが作る一覧」（カレンダーソース、活動ラベル）の追加・編集・削除。
+//! 設定ファイルにある「ユーザーが作る一覧」（カレンダーソース、活動）の追加・編集・削除。
 //!
 //! 設定ファイルを直接書き換える代わりに、検証つきで更新する。ICS の URL は秘密情報なので、
 //! 一覧や結果には出さない（ホスト名だけ見せる）。
@@ -160,7 +160,7 @@ pub fn calendar_delete(
     Ok(DeleteOutcome::new(mode, im, go))
 }
 
-// ===== 活動ラベル =====
+// ===== 活動 =====
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LabelList {
@@ -192,7 +192,7 @@ pub fn labels_add(path: &Path, label: &str) -> Result<LabelList> {
     Ok(LabelList { labels })
 }
 
-/// 判定器へ渡す候補から外す。過去の区間や活動ルールに付いたラベルはそのまま残る。
+/// 自動判定へ渡す候補から外す。過去の区間や活動ルールに付いたラベルはそのまま残る。
 pub fn labels_remove(path: &Path, label: &str) -> Result<LabelList> {
     let mut labels = Config::load_from(path)?.activity.labels;
     let before = labels.len();
@@ -204,7 +204,7 @@ pub fn labels_remove(path: &Path, label: &str) -> Result<LabelList> {
     Ok(LabelList { labels })
 }
 
-/// ラベルの名前を変える（位置は保つ）。活動ルールの `activity_label` も同じ名前に付け替える。
+/// ラベルの名前を変える（位置は保つ）。活動ルールの `activity` も同じ名前に付け替える。
 pub fn labels_rename(conn: &Connection, path: &Path, from: &str, to: &str) -> Result<LabelList> {
     let to = to.trim();
     if to.is_empty() {
@@ -221,7 +221,7 @@ pub fn labels_rename(conn: &Connection, path: &Path, from: &str, to: &str) -> Re
     labels[idx] = to.to_string();
     save_labels(path, &labels)?;
     conn.execute(
-        "UPDATE activity_rule SET activity_label = ?2 WHERE activity_label = ?1",
+        "UPDATE activity_rule SET activity = ?2 WHERE activity = ?1",
         rusqlite::params![from, to],
     )?;
     Ok(LabelList { labels })
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn 活動ラベルの追加_改名_削除() {
+    fn 活動の追加_改名_削除() {
         let (_d, p) = tmp();
         let conn = db::open_in_memory().unwrap();
         let n0 = Config::default().activity.labels.len();
@@ -308,7 +308,7 @@ mod tests {
                 field: MatchField::Exe,
                 pattern: "x".into(),
                 pattern_type: PatternType::Contains,
-                activity_label: "運動".into(),
+                activity: "運動".into(),
                 priority: 0,
                 enabled: true,
             },
@@ -317,7 +317,7 @@ mod tests {
         let l = labels_rename(&conn, &p, "運動", "トレーニング").unwrap();
         assert_eq!(l.labels.last().map(String::as_str), Some("トレーニング"));
         assert_eq!(
-            rule::list_activity_rules(&conn).unwrap()[0].activity_label,
+            rule::list_activity_rules(&conn).unwrap()[0].activity,
             "トレーニング"
         );
         assert!(labels_rename(&conn, &p, "トレーニング", "開発").is_err());

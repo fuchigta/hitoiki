@@ -1,4 +1,4 @@
-//! docs/dev/architecture.md「帰属判定パイプライン」の統合: 隣接する同一内容の区間の統合と、短い中断の吸収。
+//! docs/dev/architecture.md「割り当てパイプライン」の統合: 隣接する同一内容の区間の統合と、短い中断の吸収。
 
 use super::piece::Piece;
 use crate::model::{SegmentKind, SegmentStatus};
@@ -10,16 +10,16 @@ fn same_content(a: &Piece, b: &Piece) -> bool {
         && a.label == b.label
         && a.status == b.status
         && a.session == b.session
-        && a.offline == b.offline
+        && a.off_pc == b.off_pc
 }
 
 /// 前後の区間として、間の短い中断を吸収してよいか。
-/// エージェント対話・見守りは「そのウインドウにいた時間だけ」を計上するため（docs/dev/architecture.md「帰属判定パイプライン」、ラグを計上しない）、
-/// ユーザー確定（override）はユーザーが決めた範囲を広げないため、無視の区間は作業時間として数えない時間を挟んで作業を水増ししないため、吸収しない。
+/// エージェント対話・作業待ちは「そのウインドウにいた時間だけ」を計上するため（docs/dev/architecture.md「割り当てパイプライン」、ラグを計上しない）、
+/// ユーザー確定（確定）はユーザーが決めた範囲を広げないため、無視の区間は作業時間として数えない時間を挟んで作業を水増ししないため、吸収しない。
 fn can_absorb_around(p: &Piece) -> bool {
     !matches!(
         p.kind,
-        SegmentKind::AgentDialog | SegmentKind::AgentWatch | SegmentKind::Ignored
+        SegmentKind::AgentDialog | SegmentKind::AgentWait | SegmentKind::Ignored
     ) && p.status != Some(SegmentStatus::Confirmed)
 }
 

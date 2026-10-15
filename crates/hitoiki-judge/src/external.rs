@@ -1,4 +1,4 @@
-//! 外部コマンド判定器（docs/dev/architecture.md「判定器」）。標準入力に JSON、標準出力から JSON。
+//! 外部コマンド型の自動判定（docs/dev/architecture.md「自動判定」）。標準入力に JSON、標準出力から JSON。
 
 use crate::protocol::{Answers, Judge, JudgeRequest, JudgeResponse, QuestionSpec, State, PROTOCOL_VERSION};
 use anyhow::{anyhow, bail, Context};
@@ -65,7 +65,7 @@ impl Judge for ExternalCommandJudge {
         let input = serde_json::to_vec(req)?;
         let out = run_command(&self.command, &input, self.timeout)?;
         // 前後に余計な出力があっても、JSON 全体が解釈できなければエラーにする。
-        serde_json::from_slice(&out).context("判定器の出力が JSON として不正です")
+        serde_json::from_slice(&out).context("自動判定の出力が JSON として不正です")
     }
 
     fn ask_batch(&self, states: &[State], questions: &[QuestionSpec]) -> Vec<Option<Answers>> {
@@ -76,7 +76,7 @@ impl Judge for ExternalCommandJudge {
                     |s| match self.ask(&JudgeRequest::single(s.clone(), questions.to_vec())) {
                         Ok(r) => r.answers,
                         Err(e) => {
-                            tracing::warn!("判定器 {} の問い合わせに失敗: {e:#}", self.name);
+                            tracing::warn!("判定の接続先 {} の問い合わせに失敗: {e:#}", self.name);
                             None
                         }
                     },
@@ -88,7 +88,7 @@ impl Judge for ExternalCommandJudge {
             match self.ask_chunk(chunk, questions) {
                 Ok(rs) => out.extend(rs.into_iter().map(Some)),
                 Err(e) => {
-                    tracing::warn!("判定器 {} のバッチ問い合わせに失敗: {e:#}", self.name);
+                    tracing::warn!("判定の接続先 {} のバッチ問い合わせに失敗: {e:#}", self.name);
                     out.extend(chunk.iter().map(|_| None));
                 }
             }

@@ -37,7 +37,7 @@ export const api = {
   taskDrop: (id: string) => call<T.TaskView>("task_drop", { id }),
   taskDeletePreview: (id: string) => call<T.TaskDeletePreview>("task_delete_preview", { id }),
   taskDelete: (id: string) => call<T.TaskDeleteResult>("task_delete", { id }),
-  ruleAdd: (input: T.RuleInput) => call<T.TaskMatchRule>("rule_add", { input }),
+  taskRuleAdd: (input: T.RuleInput) => call<T.TaskAssignRule>("task_rule_add", { input }),
   // クイック入力（割り込みなどで素早くタスクを切り替える）
   quickPrevious: () => call<T.TaskView | null>("quick_previous"),
   quickSwitch: (input: { query: string; new?: boolean; interrupt?: boolean }) =>
@@ -47,22 +47,22 @@ export const api = {
   quickShortcutState: () => call<T.QuickShortcutState>("quick_shortcut_state"),
   quickShortcutSet: (shortcut: string) => call<{ shortcut: string; registered: string | null }>("quick_shortcut_set", { shortcut }),
 
-  ruleList: (task?: string) => call<{ rules: T.TaskMatchRule[] }>("rule_list", { task }),
+  taskRuleList: (task?: string) => call<{ rules: T.TaskAssignRule[] }>("task_rule_list", { task }),
 
-  // 区間・仕分け
-  log: (range?: T.RangeArgs, raw = false) => call<T.Log>("log", { range, raw }),
-  reviewList: (range?: T.RangeArgs, all = false) => call<T.ReviewList>("review_list", { range, all }),
-  reviewSet: (input: T.ReviewSetInput) => call<T.ReviewSetResult>("review_set", { input }),
-  reviewSetMany: (input: T.ReviewBatchInput) => call<T.ReviewBatchResult>("review_set_many", { input }),
-  reviewIdle: (segments: string[], preset: T.IdlePreset) =>
-    call<T.ReviewBatchResult>("review_idle", { segments, preset }),
-  reviewSuggestions: () => call<T.RuleSuggestion[]>("review_suggestions"),
-  reviewSuggestAccept: (input: T.RuleSuggestionRef) => call<T.CreatedRule>("review_suggest_accept", { input }),
-  reviewSuggestDismiss: (input: T.RuleSuggestionRef) => call<void>("review_suggest_dismiss", { input }),
+  // 区間・要確認
+  actualList: (range?: T.RangeArgs, raw = false) => call<T.ActualList>("actual_list", { range, raw }),
+  actualReview: (range?: T.RangeArgs, all = false) => call<T.ReviewList>("actual_review", { range, all }),
+  actualConfirm: (input: T.ConfirmInput) => call<T.ConfirmResult>("actual_confirm", { input }),
+  actualConfirmMany: (input: T.ConfirmBatchInput) => call<T.ConfirmBatchResult>("actual_confirm_many", { input }),
+  actualIdle: (segments: string[], preset: T.IdlePreset) =>
+    call<T.ConfirmBatchResult>("actual_idle", { segments, preset }),
+  actualSuggestions: () => call<T.RuleSuggestion[]>("actual_suggestions"),
+  actualSuggestAccept: (input: T.RuleSuggestionRef) => call<T.CreatedRule>("actual_suggest_accept", { input }),
+  actualSuggestDismiss: (input: T.RuleSuggestionRef) => call<void>("actual_suggest_dismiss", { input }),
 
   // 無視するアプリ・区間
-  reviewIgnore: (segments: string[]) => call<T.ReviewBatchResult>("review_ignore", { segments }),
-  reviewUnignore: (segments: string[]) => call<T.UnignoreResult>("review_unignore", { segments }),
+  actualIgnore: (segments: string[]) => call<T.ConfirmBatchResult>("actual_ignore", { segments }),
+  actualUnignore: (segments: string[]) => call<T.UnignoreResult>("actual_unignore", { segments }),
   ignoreList: () => call<T.IgnoreList>("ignore_list"),
   ignoreAdd: (exe: string) => call<T.IgnoreChange>("ignore_add", { exe }),
   ignoreRemove: (exe: string) => call<T.IgnoreChange>("ignore_remove", { exe }),
@@ -166,8 +166,8 @@ export const api = {
     call<T.DeleteOutcome>("skill_delete", { key, children, mode }),
 
   // ルール
-  ruleEdit: (id: string, input: T.TaskRuleEdit) => call<T.TaskMatchRule>("rule_edit", { id, input }),
-  ruleDelete: (id: string) => call<unknown>("rule_delete", { id }),
+  taskRuleEdit: (id: string, input: T.TaskRuleEdit) => call<T.TaskAssignRule>("task_rule_edit", { id, input }),
+  taskRuleDelete: (id: string) => call<unknown>("task_rule_delete", { id }),
   activityRuleList: () => call<{ rules: T.ActivityRule[] }>("activity_rule_list"),
   activityRuleAdd: (input: T.ActivityRuleInput) => call<T.ActivityRule>("activity_rule_add", { input }),
   activityRuleEdit: (id: string, input: T.ActivityRuleEdit) =>
@@ -183,7 +183,7 @@ export const api = {
   abcEdit: (id: string, input: T.AbcEditInput) => call<T.AbcRecord>("abc_edit", { id, input }),
   abcDelete: (id: string, mode?: T.DeleteMode) => call<T.DeleteOutcome>("abc_delete", { id, mode }),
 
-  // カレンダーソース・活動ラベル（設定）
+  // カレンダーソース・活動（設定）
   calendarSourceList: () => call<{ sources: T.CalendarSourceView[] }>("calendar_source_list"),
   calendarSourceAdd: (name: string, url: string) =>
     call<T.CalendarSourceView>("calendar_source_add", { name, url }),
@@ -191,11 +191,11 @@ export const api = {
     call<T.CalendarSourceView>("calendar_source_edit", { name, new_name: newName, url }),
   calendarSourceDelete: (name: string, mode: T.DeleteMode) =>
     call<T.DeleteOutcome>("calendar_source_delete", { name, mode }),
-  activityLabelList: () => call<{ labels: string[] }>("activity_label_list"),
-  activityLabelAdd: (label: string) => call<{ labels: string[] }>("activity_label_add", { label }),
-  activityLabelRename: (from: string, to: string) =>
-    call<{ labels: string[] }>("activity_label_rename", { from, to }),
-  activityLabelRemove: (label: string) => call<{ labels: string[] }>("activity_label_remove", { label }),
+  activityList: () => call<{ labels: string[] }>("activity_list"),
+  activityAdd: (label: string) => call<{ labels: string[] }>("activity_add", { label }),
+  activityRename: (from: string, to: string) =>
+    call<{ labels: string[] }>("activity_rename", { from, to }),
+  activityRemove: (label: string) => call<{ labels: string[] }>("activity_remove", { label }),
 
   // レポート
   report: (by: T.ReportBy, range?: T.RangeArgs, includeIdle = false) =>

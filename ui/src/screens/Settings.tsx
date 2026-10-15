@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import { api } from "../api";
 import { Card, ErrorBox, Field } from "../components";
-import { ActivityLabelsCard, CalendarSourcesCard } from "../data-settings";
+import { ActivityCard, CalendarSourcesCard } from "../data-settings";
 import { QuickShortcutCard } from "../quick-shortcut";
 import { hrefOf, navigate, useAction, useAsync, useRoute } from "../lib";
 import { AutostartToggle, NumberSetting, TrustDoingToggle, UpdateCheckToggle, useConfig, type ConfigHandle } from "../settings-parts";
@@ -28,9 +28,9 @@ export function Settings() {
       <div class="settings-body stack" role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
         {tab === "general" && <GeneralTab />}
         {tab === "notify" && <NotifyTab />}
-        {tab === "review" && <ReviewTab />}
+        {tab === "actual" && <ActualTab />}
         {tab === "rules" && <RulesTab />}
-        {tab === "labels" && <ActivityLabelsCard />}
+        {tab === "labels" && <ActivityCard />}
         {tab === "calendar" && <CalendarSourcesCard />}
         {tab === "templates" && <TemplatesTab />}
         {tab === "data" && <DataTab />}
@@ -146,7 +146,7 @@ function NotifyTab() {
   );
 }
 
-function ReviewTab() {
+function ActualTab() {
   const cfg = useConfig();
   return (
     <>
@@ -156,10 +156,10 @@ function ReviewTab() {
           <TrustDoingToggle cfg={cfg} />
           <NumberSetting
             cfg={cfg}
-            k="review.auto_break_locked_min"
+            k="actual.auto_break_locked_min"
             label="ロック・スリープで自動休憩"
             help="ロック・スリープがこの分数以上なら、その時間を自動で休憩にします。"
-            value={cfg.c.review?.auto_break_locked_min ?? 10}
+            value={cfg.c.actual?.auto_break_locked_min ?? 10}
             unit="分以上"
             zeroOff
           />

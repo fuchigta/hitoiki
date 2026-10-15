@@ -24,7 +24,7 @@
     "reason": "実績の「提案」帯の見出しは補助的な帯なので小さくしている"
   },
   {
-    "pattern": "^shift\\|log(-selected)?\\|select:期間$",
+    "pattern": "^shift\\|actual(-selected)?\\|select:期間$",
     "reason": "chip のラベルに件数（要確認 N）が入っていて、期間を変えると件数の桁が変わって幅が変わる"
   }
 ]

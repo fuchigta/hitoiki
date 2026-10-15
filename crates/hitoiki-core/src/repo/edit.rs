@@ -2,7 +2,7 @@
 //!
 //! 外部キーが有効なので、参照されている行を消す前に参照側を外す（NULL 化または削除）。
 
-use crate::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskMatchRule};
+use crate::model::{AbcRecord, ActivityRule, Checkin, Goal, Hassle, KeyResult, Skill, TaskAssignRule};
 use crate::{Error, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -177,12 +177,12 @@ pub fn set_skill_parent(conn: &Connection, skill_id: &str, parent: Option<&str>)
 
 // ===== ルール =====
 
-pub fn get_task_rule(conn: &Connection, id: &str) -> Result<TaskMatchRule> {
+pub fn get_task_rule(conn: &Connection, id: &str) -> Result<TaskAssignRule> {
     conn.query_row(
-        "SELECT id, task_id, field, pattern, pattern_type, priority, enabled FROM task_match_rule WHERE id = ?1",
+        "SELECT id, task_id, field, pattern, pattern_type, priority, enabled FROM task_assign_rule WHERE id = ?1",
         [id],
         |r| {
-            Ok(TaskMatchRule {
+            Ok(TaskAssignRule {
                 id: r.get(0)?,
                 task_id: r.get(1)?,
                 field: r.get(2)?,
@@ -197,22 +197,22 @@ pub fn get_task_rule(conn: &Connection, id: &str) -> Result<TaskMatchRule> {
     .ok_or_else(|| Error::NotFound(format!("ルール {id}")))
 }
 
-pub fn update_task_rule(conn: &Connection, r: &TaskMatchRule) -> Result<()> {
+pub fn update_task_rule(conn: &Connection, r: &TaskAssignRule) -> Result<()> {
     conn.execute(
-        "UPDATE task_match_rule SET field = ?2, pattern = ?3, pattern_type = ?4, priority = ?5, enabled = ?6 WHERE id = ?1",
+        "UPDATE task_assign_rule SET field = ?2, pattern = ?3, pattern_type = ?4, priority = ?5, enabled = ?6 WHERE id = ?1",
         params![r.id, r.field, r.pattern, r.pattern_type, r.priority, r.enabled],
     )?;
     Ok(())
 }
 
 pub fn delete_task_rule(conn: &Connection, id: &str) -> Result<()> {
-    conn.execute("DELETE FROM task_match_rule WHERE id = ?1", [id])?;
+    conn.execute("DELETE FROM task_assign_rule WHERE id = ?1", [id])?;
     Ok(())
 }
 
 pub fn get_activity_rule(conn: &Connection, id: &str) -> Result<ActivityRule> {
     conn.query_row(
-        "SELECT id, field, pattern, pattern_type, activity_label, priority, enabled FROM activity_rule WHERE id = ?1",
+        "SELECT id, field, pattern, pattern_type, activity, priority, enabled FROM activity_rule WHERE id = ?1",
         [id],
         |r| {
             Ok(ActivityRule {
@@ -220,7 +220,7 @@ pub fn get_activity_rule(conn: &Connection, id: &str) -> Result<ActivityRule> {
                 field: r.get(1)?,
                 pattern: r.get(2)?,
                 pattern_type: r.get(3)?,
-                activity_label: r.get(4)?,
+                activity: r.get(4)?,
                 priority: r.get(5)?,
                 enabled: r.get::<_, i64>(6)? != 0,
             })
@@ -232,8 +232,8 @@ pub fn get_activity_rule(conn: &Connection, id: &str) -> Result<ActivityRule> {
 
 pub fn update_activity_rule(conn: &Connection, r: &ActivityRule) -> Result<()> {
     conn.execute(
-        "UPDATE activity_rule SET field = ?2, pattern = ?3, pattern_type = ?4, activity_label = ?5, priority = ?6, enabled = ?7 WHERE id = ?1",
-        params![r.id, r.field, r.pattern, r.pattern_type, r.activity_label, r.priority, r.enabled],
+        "UPDATE activity_rule SET field = ?2, pattern = ?3, pattern_type = ?4, activity = ?5, priority = ?6, enabled = ?7 WHERE id = ?1",
+        params![r.id, r.field, r.pattern, r.pattern_type, r.activity, r.priority, r.enabled],
     )?;
     Ok(())
 }

@@ -19,7 +19,7 @@ function fail(code: string, message: string): never {
   throw { code, message };
 }
 
-const COUNTED: T.SegmentKind[] = ["work", "agent_dialog", "agent_watch", "meeting", "interrupt"];
+const COUNTED: T.SegmentKind[] = ["work", "agent_dialog", "agent_wait", "meeting", "interrupt"];
 
 // ===== 変換 =====
 
@@ -98,7 +98,7 @@ function group(segs: SegRec[], from: number, to: number, keyOf: (x: SegRec) => [
 const KIND_LABELS: Record<T.SegmentKind, string> = {
   work: "作業",
   agent_dialog: "AI との対話",
-  agent_watch: "AI の作業待ち",
+  agent_wait: "AI の作業待ち",
   meeting: "会議",
   idle: "無操作",
   break: "休憩",
@@ -148,7 +148,7 @@ function buildReport(s: State, by: T.ReportBy, a: T.RangeArgs | undefined, inclu
       map = group(segs, from, to, (x) => [x.task_id ? [x.task_id, task(x)?.title ?? "（削除済み）"] : [null, "（タスクなし）"]]);
       break;
     case "activity":
-      map = group(segs, from, to, (x) => [x.activity_label ? [x.activity_label, x.activity_label] : [null, "（活動なし）"]]);
+      map = group(segs, from, to, (x) => [x.activity ? [x.activity, x.activity] : [null, "（活動なし）"]]);
       break;
     case "urgent_important":
       map = group(segs, from, to, (x) => [urgentImportant(task(x))]);
@@ -370,14 +370,14 @@ function createdRule(s: State, seg: SegRec, taskId: string | null, activity: str
   if (!seg.exe_name) return null;
   if (taskId) {
     const dup = s.taskRules.find((r) => r.task_id === taskId && r.field === "exe" && r.pattern === seg.exe_name);
-    const r: T.TaskMatchRule = dup ?? { id: nid(s, "rule"), task_id: taskId, field: "exe", pattern: seg.exe_name, pattern_type: "contains", priority: 0, enabled: true };
+    const r: T.TaskAssignRule = dup ?? { id: nid(s, "rule"), task_id: taskId, field: "exe", pattern: seg.exe_name, pattern_type: "contains", priority: 0, enabled: true };
     if (!dup) s.taskRules.push(r);
-    return { rule_type: "task_match_rule", id: r.id, field: r.field, pattern: r.pattern, pattern_type: r.pattern_type, task_id: taskId, activity_label: null, reused: !!dup };
+    return { rule_type: "task_assign_rule", id: r.id, field: r.field, pattern: r.pattern, pattern_type: r.pattern_type, task_id: taskId, activity: null, reused: !!dup };
   }
   if (activity) {
-    const r: T.ActivityRule = { id: nid(s, "arule"), field: "exe", pattern: seg.exe_name, pattern_type: "contains", activity_label: activity, priority: 0, enabled: true };
+    const r: T.ActivityRule = { id: nid(s, "arule"), field: "exe", pattern: seg.exe_name, pattern_type: "contains", activity: activity, priority: 0, enabled: true };
     s.activityRules.push(r);
-    return { rule_type: "activity_rule", id: r.id, field: r.field, pattern: r.pattern, pattern_type: r.pattern_type, task_id: null, activity_label: activity, reused: false };
+    return { rule_type: "activity_rule", id: r.id, field: r.field, pattern: r.pattern, pattern_type: r.pattern_type, task_id: null, activity: activity, reused: false };
   }
   return null;
 }
@@ -388,12 +388,12 @@ function setSegment(s: State, id: string, input: { task?: string; kind?: T.Segme
   const task = input.task ? needTask(s, input.task) : undefined;
   if (task) seg.task_id = task.id;
   if (input.kind) seg.kind = input.kind;
-  if (input.activity) seg.activity_label = input.activity;
+  if (input.activity) seg.activity = input.activity;
   seg.status = "confirmed";
-  seg.decided_by = "user";
+  seg.decided_by = "confirmation";
   seg.confidence = 1;
   const rule = input.rule ? createdRule(s, seg, task?.id ?? null, input.activity ?? null) : null;
-  return { seg, rule, overrideId: nid(s, "ovr") };
+  return { seg, rule, confirmationId: nid(s, "ovr") };
 }
 
 function applyIdle(seg: SegRec, preset: T.IdlePreset) {
@@ -403,19 +403,19 @@ function applyIdle(seg: SegRec, preset: T.IdlePreset) {
       break;
     case "meeting":
       seg.kind = "meeting";
-      seg.activity_label = "会議";
+      seg.activity = "会議";
       break;
     case "thinking":
       seg.kind = "work";
-      seg.activity_label = "考えごと";
+      seg.activity = "考えごと";
       break;
     case "away":
       seg.kind = "break";
-      seg.activity_label = "離席";
+      seg.activity = "離席";
       break;
   }
   seg.status = "confirmed";
-  seg.decided_by = "user";
+  seg.decided_by = "confirmation";
 }
 
 function startTask(s: State, t: TaskRec): T.TaskChange {
@@ -467,7 +467,7 @@ function deletePreview(s: State, t: TaskRec): T.TaskDeletePreview {
     status: t.status,
     segments: segs.length,
     tracked_ms: tracked,
-    overrides: segs.filter((x) => x.decided_by === "user").length,
+    confirmations: segs.filter((x) => x.decided_by === "confirmation").length,
     corrections: s.corrections.filter((c) => c.task_id === t.id).length,
     rules,
     skills: t.skills.length,
@@ -486,7 +486,7 @@ function candidatesFor(s: State, from: number, to: number): T.CorrectionCandidat
   const segs = inRange(s, from, to);
   const out: T.CorrectionCandidate[] = [];
   const mk = (o: Partial<T.CorrectionCandidate> & { id: string; start_at: number; end_at: number; full: number; category: T.CorrectionCategory }): T.CorrectionCandidate => ({
-    gap: false,
+    uncollected: false,
     start: isoJst(o.start_at),
     end: isoJst(o.end_at),
     duration_ms: o.end_at - o.start_at,
@@ -495,11 +495,11 @@ function candidatesFor(s: State, from: number, to: number): T.CorrectionCandidat
     status: null,
     task_id: null,
     task_title: null,
-    activity_label: null,
+    activity: null,
     exe_name: null,
     title: null,
-    offline: false,
-    becomes_offline: o.category === "idle" || o.category === "gap",
+    off_pc: false,
+    becomes_off_pc: o.category === "idle" || o.category === "uncollected",
     checked: o.category === "work" || o.category === "agent_dialog",
     ...o,
   });
@@ -507,9 +507,9 @@ function candidatesFor(s: State, from: number, to: number): T.CorrectionCandidat
   for (const x of segs) {
     const st = Math.max(x.start_at, from);
     const en = Math.min(x.end_at, to);
-    if (st > cursor + MIN) out.push(mk({ id: `gap:${cursor}`, gap: true, start_at: cursor, end_at: st, full: st - cursor, category: "gap" }));
+    if (st > cursor + MIN) out.push(mk({ id: `uncollected:${cursor}`, uncollected: true, start_at: cursor, end_at: st, full: st - cursor, category: "uncollected" }));
     const category: T.CorrectionCategory =
-      x.status === "confirmed" ? "confirmed" : x.kind === "meeting" ? "meeting" : x.kind === "agent_dialog" || x.kind === "agent_watch" ? "agent_dialog" : x.kind === "idle" || x.kind === "break" || x.kind === "ignored" ? "idle" : "work";
+      x.status === "confirmed" ? "confirmed" : x.kind === "meeting" ? "meeting" : x.kind === "agent_dialog" || x.kind === "agent_wait" ? "agent_dialog" : x.kind === "idle" || x.kind === "break" || x.kind === "ignored" ? "idle" : "work";
     out.push(
       mk({
         id: x.id,
@@ -521,15 +521,15 @@ function candidatesFor(s: State, from: number, to: number): T.CorrectionCandidat
         status: x.status,
         task_id: x.task_id,
         task_title: s.tasks.find((t) => t.id === x.task_id)?.title ?? null,
-        activity_label: x.activity_label,
+        activity: x.activity,
         exe_name: x.exe_name,
         title: x.title,
-        offline: !!x.offline,
+        off_pc: !!x.off_pc,
       }),
     );
     cursor = Math.max(cursor, en);
   }
-  if (to > cursor + MIN) out.push(mk({ id: `gap:${cursor}`, gap: true, start_at: cursor, end_at: to, full: to - cursor, category: "gap" }));
+  if (to > cursor + MIN) out.push(mk({ id: `uncollected:${cursor}`, uncollected: true, start_at: cursor, end_at: to, full: to - cursor, category: "uncollected" }));
   return out;
 }
 
@@ -545,14 +545,14 @@ function correctionPreview(s: State, i: T.CorrectionInput): T.CorrectionPreview 
   const sel = i.selected ? new Set(i.selected) : new Set(cands.filter((c) => c.checked).map((c) => c.id));
   const chosen = cands.filter((c) => sel.has(c.id));
   const total = chosen.reduce((n, c) => n + c.duration_ms, 0);
-  const off = chosen.filter((c) => c.becomes_offline && !i.rest).reduce((n, c) => n + c.duration_ms, 0);
+  const off = chosen.filter((c) => c.becomes_off_pc && !i.rest).reduce((n, c) => n + c.duration_ms, 0);
   const target = correctionTarget(s, i);
   return {
     range: rangeView(i.start_at, i.end_at),
     target,
     selected_count: chosen.length,
     total_ms: total,
-    offline_ms: off,
+    off_pc_ms: off,
     excluded_count: cands.length - chosen.length,
     summary: `${target} に ${fmtMin(total)}を割り当て${off > 0 ? `（うち PC 外 ${fmtMin(off)}）` : ""}`,
     candidates: cands.map((c) => ({ ...c, checked: sel.has(c.id) })),
@@ -583,9 +583,9 @@ function correctionView(s: State, c: CorrectionRec): T.CorrectionView {
     task_id: c.task_id,
     task_title: s.tasks.find((t) => t.id === c.task_id)?.title ?? null,
     kind: c.kind,
-    activity_label: c.activity_label,
+    activity: c.activity,
     total_ms: c.total_ms,
-    offline_ms: c.offline_ms,
+    off_pc_ms: c.off_pc_ms,
     segment_count: c.segment_count,
     created_at: c.created_at,
     created: isoJst(c.created_at),
@@ -746,7 +746,7 @@ const H: Record<string, Handler> = {
   status: (s) => {
     const [from, to] = range(s, { date: "this-week" });
     const needs = inRange(s, from, to).filter((x) => x.status === "needs_review");
-    const minMs = Number(configGet(s, "review.min_sec")) * 1000;
+    const minMs = Number(configGet(s, "actual.min_sec")) * 1000;
     const status: T.Status = {
       now: s.now,
       now_local: isoJst(s.now),
@@ -831,9 +831,9 @@ const H: Record<string, Handler> = {
     delete s.doingSince[t.id];
     return { deleted: p, range: null } satisfies T.TaskDeleteResult;
   },
-  rule_add: (s, a) => {
+  task_rule_add: (s, a) => {
     const i = a.input as T.RuleInput;
-    const r: T.TaskMatchRule = { id: nid(s, "rule"), task_id: needTask(s, i.task).id, field: i.field, pattern: i.pattern, pattern_type: i.pattern_type ?? "contains", priority: i.priority ?? 0, enabled: true };
+    const r: T.TaskAssignRule = { id: nid(s, "rule"), task_id: needTask(s, i.task).id, field: i.field, pattern: i.pattern, pattern_type: i.pattern_type ?? "contains", priority: i.priority ?? 0, enabled: true };
     s.taskRules.push(r);
     return r;
   },
@@ -864,74 +864,74 @@ const H: Record<string, Handler> = {
     s.quickShortcut = a.shortcut;
     return { shortcut: a.shortcut, registered: a.shortcut || null };
   },
-  rule_list: (s, a) => ({ rules: s.taskRules.filter((r) => !a.task || r.task_id === a.task) }),
+  task_rule_list: (s, a) => ({ rules: s.taskRules.filter((r) => !a.task || r.task_id === a.task) }),
 
-  // 区間・仕分け
-  log: (s, a) => {
+  // 区間・要確認
+  actual_list: (s, a) => {
     const [from, to] = range(s, a.range);
     const segs = inRange(s, from, to);
-    const gaps: T.GapView[] = [];
+    const uncollected: T.UncollectedView[] = [];
     for (let i = 1; i < segs.length; i++) {
       const g0 = segs[i - 1].end_at;
       const g1 = segs[i].start_at;
-      if (g1 - g0 >= 2 * MIN) gaps.push({ start_at: g0, end_at: g1, start: isoJst(g0), end: isoJst(g1), duration_ms: g1 - g0 });
+      if (g1 - g0 >= 2 * MIN) uncollected.push({ start_at: g0, end_at: g1, start: isoJst(g0), end: isoJst(g1), duration_ms: g1 - g0 });
     }
-    return { range: rangeView(from, to), segments: segs.map((x) => segView(s, x)), gaps } satisfies T.Log;
+    return { range: rangeView(from, to), segments: segs.map((x) => segView(s, x)), uncollected } satisfies T.ActualList;
   },
-  review_list: (s, a) => {
+  actual_review: (s, a) => {
     const [from, to] = range(s, a.range);
-    const minSec = Number(configGet(s, "review.min_sec"));
+    const minSec = Number(configGet(s, "actual.min_sec"));
     const all = inRange(s, from, to).filter((x) => x.status === "needs_review");
     const shown = a.all ? all : all.filter((x) => x.end_at - x.start_at >= minSec * 1000);
     return { range: rangeView(from, to), count: shown.length, segments: shown.map((x) => segView(s, x)), hidden_short: all.length - shown.length, min_sec: minSec } satisfies T.ReviewList;
   },
-  review_set: (s, a) => {
-    const i = a.input as T.ReviewSetInput;
+  actual_confirm: (s, a) => {
+    const i = a.input as T.ConfirmInput;
     const r = setSegment(s, i.segment, i);
-    return { segment: segView(s, r.seg), override_id: r.overrideId, rule: r.rule } satisfies T.ReviewSetResult;
+    return { segment: segView(s, r.seg), confirmation_id: r.confirmationId, rule: r.rule } satisfies T.ConfirmResult;
   },
-  review_set_many: (s, a) => {
-    const i = a.input as T.ReviewBatchInput;
+  actual_confirm_many: (s, a) => {
+    const i = a.input as T.ConfirmBatchInput;
     const rs = i.segments.map((id) => setSegment(s, id, i));
-    return { count: rs.length, segments: rs.map((r) => segView(s, r.seg)), override_ids: rs.map((r) => r.overrideId), rules: rs.map((r) => r.rule).filter((r): r is T.CreatedRule => !!r) } satisfies T.ReviewBatchResult;
+    return { count: rs.length, segments: rs.map((r) => segView(s, r.seg)), confirmation_ids: rs.map((r) => r.confirmationId), rules: rs.map((r) => r.rule).filter((r): r is T.CreatedRule => !!r) } satisfies T.ConfirmBatchResult;
   },
-  review_idle: (s, a) => {
+  actual_idle: (s, a) => {
     const segs = (a.segments as string[]).map((id) => {
       const seg = s.segments.find((x) => x.id === id);
       if (!seg) fail("not_found", `区間が見つかりません: ${id}`);
       applyIdle(seg, a.preset);
       return seg;
     });
-    return { count: segs.length, segments: segs.map((x) => segView(s, x)), override_ids: segs.map(() => nid(s, "ovr")), rules: [] } satisfies T.ReviewBatchResult;
+    return { count: segs.length, segments: segs.map((x) => segView(s, x)), confirmation_ids: segs.map(() => nid(s, "ovr")), rules: [] } satisfies T.ConfirmBatchResult;
   },
-  review_suggestions: (s) => s.ruleSuggestions,
-  review_suggest_accept: (s, a) => {
+  actual_suggestions: (s) => s.ruleSuggestions,
+  actual_suggest_accept: (s, a) => {
     const i = a.input as T.RuleSuggestionRef;
-    const r: T.TaskMatchRule = { id: nid(s, "rule"), task_id: i.task_id, field: i.field, pattern: i.pattern, pattern_type: i.pattern_type, priority: 0, enabled: true };
+    const r: T.TaskAssignRule = { id: nid(s, "rule"), task_id: i.task_id, field: i.field, pattern: i.pattern, pattern_type: i.pattern_type, priority: 0, enabled: true };
     s.taskRules.push(r);
     s.ruleSuggestions = s.ruleSuggestions.filter((x) => !(x.task_id === i.task_id && x.pattern === i.pattern));
-    return { rule_type: "task_match_rule", id: r.id, field: r.field, pattern: r.pattern, pattern_type: r.pattern_type, task_id: r.task_id, activity_label: null, reused: false } satisfies T.CreatedRule;
+    return { rule_type: "task_assign_rule", id: r.id, field: r.field, pattern: r.pattern, pattern_type: r.pattern_type, task_id: r.task_id, activity: null, reused: false } satisfies T.CreatedRule;
   },
-  review_suggest_dismiss: (s, a) => {
+  actual_suggest_dismiss: (s, a) => {
     const i = a.input as T.RuleSuggestionRef;
     s.ruleSuggestions = s.ruleSuggestions.filter((x) => !(x.task_id === i.task_id && x.pattern === i.pattern));
     return null;
   },
-  review_ignore: (s, a) => {
+  actual_ignore: (s, a) => {
     const segs = (a.segments as string[]).map((id) => {
       const seg = s.segments.find((x) => x.id === id);
       if (!seg) fail("not_found", `区間が見つかりません: ${id}`);
       seg.kind = "ignored";
       seg.status = "confirmed";
-      seg.decided_by = "user";
+      seg.decided_by = "confirmation";
       return seg;
     });
-    return { count: segs.length, segments: segs.map((x) => segView(s, x)), override_ids: [], rules: [] } satisfies T.ReviewBatchResult;
+    return { count: segs.length, segments: segs.map((x) => segView(s, x)), confirmation_ids: [], rules: [] } satisfies T.ConfirmBatchResult;
   },
-  review_unignore: (s, a) => {
+  actual_unignore: (s, a) => {
     const ids = a.segments as string[];
     for (const x of s.segments) if (ids.includes(x.id)) Object.assign(x, { kind: "work", status: "needs_review", decided_by: "heuristic" });
-    return { count: ids.length, overrides_removed: ids.length, range: rangeView(dayStart(s.now), dayStart(s.now) + DAY) } satisfies T.UnignoreResult;
+    return { count: ids.length, confirmations_removed: ids.length, range: rangeView(dayStart(s.now), dayStart(s.now) + DAY) } satisfies T.UnignoreResult;
   },
   ignore_list: (s) => ({ exes: s.ignoreExes, default_exes: DEFAULT_IGNORE_EXES, customized: s.ignoreCustomized }) satisfies T.IgnoreList,
   ignore_add: (s, a) => {
@@ -954,7 +954,7 @@ const H: Record<string, Handler> = {
   },
 
   // 実績の補正
-  correction_candidates: (s, a) => ({ range: rangeView(a.start_at, a.end_at), snap_sec: Number(configGet(s, "review.snap_sec")), candidates: candidatesFor(s, a.start_at, a.end_at) }) satisfies T.CorrectionCandidates,
+  correction_candidates: (s, a) => ({ range: rangeView(a.start_at, a.end_at), snap_sec: Number(configGet(s, "actual.snap_sec")), candidates: candidatesFor(s, a.start_at, a.end_at) }) satisfies T.CorrectionCandidates,
   correction_preview: (s, a) => correctionPreview(s, a.input),
   correction_apply: (s, a) => {
     const i = a.input as T.CorrectionInput;
@@ -965,8 +965,8 @@ const H: Record<string, Handler> = {
     for (const c of preview.candidates) {
       if (!c.checked) continue;
       let seg: SegRec;
-      if (c.gap) {
-        seg = { id: nid(s, "seg"), start_at: c.start_at, end_at: c.end_at, kind: "work", task_id: null, activity_label: null, confidence: 1, decided_by: "user", status: "confirmed", agent_session_id: null, exe_name: null, title: null };
+      if (c.uncollected) {
+        seg = { id: nid(s, "seg"), start_at: c.start_at, end_at: c.end_at, kind: "work", task_id: null, activity: null, confidence: 1, decided_by: "confirmation", status: "confirmed", agent_session_id: null, exe_name: null, title: null };
         s.segments.push(seg);
       } else {
         const orig = s.segments.find((x) => x.id === c.id);
@@ -975,15 +975,15 @@ const H: Record<string, Handler> = {
       }
       seg.task_id = i.rest || i.no_task ? null : task?.id ?? seg.task_id;
       seg.kind = i.rest ? "break" : seg.kind === "idle" || seg.kind === "break" ? "work" : seg.kind;
-      if (i.activity) seg.activity_label = i.activity;
-      seg.offline = c.becomes_offline && !i.rest;
+      if (i.activity) seg.activity = i.activity;
+      seg.off_pc = c.becomes_off_pc && !i.rest;
       seg.status = "confirmed";
-      seg.decided_by = "user";
+      seg.decided_by = "confirmation";
       n += 1;
     }
-    const rec: CorrectionRec = { id: nid(s, "corr"), start_at: i.start_at, end_at: i.end_at, task_id: task?.id ?? null, kind: i.rest ? "break" : null, activity_label: i.activity ?? null, total_ms: preview.total_ms, offline_ms: preview.offline_ms, segment_count: n, created_at: s.now, before };
+    const rec: CorrectionRec = { id: nid(s, "corr"), start_at: i.start_at, end_at: i.end_at, task_id: task?.id ?? null, kind: i.rest ? "break" : null, activity: i.activity ?? null, total_ms: preview.total_ms, off_pc_ms: preview.off_pc_ms, segment_count: n, created_at: s.now, before };
     s.corrections.unshift(rec);
-    return { correction: correctionView(s, rec), preview, override_ids: [] } satisfies T.CorrectionApplied;
+    return { correction: correctionView(s, rec), preview, confirmation_ids: [] } satisfies T.CorrectionApplied;
   },
   correction_list: (s, a) => {
     let list = s.corrections;
@@ -1000,7 +1000,7 @@ const H: Record<string, Handler> = {
     s.segments = s.segments.filter((x) => !(x.end_at > c.start_at && x.start_at < c.end_at));
     s.segments.push(...c.before.map((x) => ({ ...x })));
     s.corrections = s.corrections.filter((x) => x.id !== c.id);
-    return { correction: correctionView(s, c), overrides_removed: c.segment_count, range: rangeView(c.start_at, c.end_at) } satisfies T.CorrectionUndone;
+    return { correction: correctionView(s, c), confirmations_removed: c.segment_count, range: rangeView(c.start_at, c.end_at) } satisfies T.CorrectionUndone;
   },
 
   // 計画
@@ -1252,7 +1252,7 @@ const H: Record<string, Handler> = {
   }),
   erg_classify: (s, a) => {
     const [from, to] = range(s, a.range);
-    return { range: rangeView(from, to), dry_run: false, skipped: "判定器が設定されていないため、判定しませんでした。", targets: 0, adopted: 0, pending: 0, unread: 0, items: [] } satisfies T.ErgClassifyOutcome;
+    return { range: rangeView(from, to), dry_run: false, skipped: "自動判定が設定されていないため、判定しませんでした。", targets: 0, adopted: 0, pending: 0, unread: 0, items: [] } satisfies T.ErgClassifyOutcome;
   },
   erg_set: (s, a) => upsertErg(s, a.record_kind, a.record_id, { tag: a.tag, source: "user", confidence: null, reason: null }),
   erg_confirm: (s, a) => upsertErg(s, a.record_kind, a.record_id, { source: "user" }),
@@ -1427,20 +1427,20 @@ const H: Record<string, Handler> = {
   },
 
   // ルール
-  rule_edit: (s, a) => {
+  task_rule_edit: (s, a) => {
     const r = s.taskRules.find((x) => x.id === a.id);
     if (!r) fail("not_found", "ルールが見つかりません。");
     Object.assign(r, a.input);
     return r;
   },
-  rule_delete: (s, a) => {
+  task_rule_delete: (s, a) => {
     s.taskRules = s.taskRules.filter((x) => x.id !== a.id);
     return { deleted: true };
   },
   activity_rule_list: (s) => ({ rules: s.activityRules }),
   activity_rule_add: (s, a) => {
     const i = a.input as T.ActivityRuleInput;
-    const r: T.ActivityRule = { id: nid(s, "arule"), field: i.field, pattern: i.pattern, pattern_type: i.pattern_type ?? "contains", activity_label: i.activity_label, priority: i.priority ?? 0, enabled: true };
+    const r: T.ActivityRule = { id: nid(s, "arule"), field: i.field, pattern: i.pattern, pattern_type: i.pattern_type ?? "contains", activity: i.activity, priority: i.priority ?? 0, enabled: true };
     s.activityRules.push(r);
     return r;
   },
@@ -1493,7 +1493,7 @@ const H: Record<string, Handler> = {
     return deleteOutcome("abc", r.id, r.activating_event, [], a.mode, () => (s.abcs = s.abcs.filter((x) => x.id !== r.id)));
   },
 
-  // カレンダーソース・活動ラベル
+  // カレンダーソース・活動
   calendar_source_list: (s) => ({ sources: s.calendarSources }),
   calendar_source_add: (s, a) => {
     let host = "calendar.example.com";
@@ -1520,19 +1520,19 @@ const H: Record<string, Handler> = {
       s.calendarEvents = s.calendarEvents.filter((e) => e.source !== v.name);
     });
   },
-  activity_label_list: (s) => ({ labels: s.activityLabels }),
-  activity_label_add: (s, a) => {
+  activity_list: (s) => ({ labels: s.activityLabels }),
+  activity_add: (s, a) => {
     if (!s.activityLabels.includes(a.label)) s.activityLabels.push(a.label);
     return { labels: s.activityLabels };
   },
-  activity_label_rename: (s, a) => {
+  activity_rename: (s, a) => {
     s.activityLabels = s.activityLabels.map((l) => (l === a.from ? a.to : l));
     s.segments.forEach((x) => {
-      if (x.activity_label === a.from) x.activity_label = a.to;
+      if (x.activity === a.from) x.activity = a.to;
     });
     return { labels: s.activityLabels };
   },
-  activity_label_remove: (s, a) => {
+  activity_remove: (s, a) => {
     s.activityLabels = s.activityLabels.filter((l) => l !== a.label);
     return { labels: s.activityLabels };
   },
@@ -1588,7 +1588,7 @@ const H: Record<string, Handler> = {
 };
 
 /** 状態を変えるコマンド（実行後に再取得用のイベントを出す）。 */
-const MUTATING = /_(add|edit|delete|set|set_many|start|done|drop|apply|undo|link|unlink|accept|reject|dismiss|ignore|unignore|progress|respond|answer|answer_structured|import_preset|switch|back|complete|reset|idle|save_from|update|rename|remove|generate)$/;
+const MUTATING = /_(add|edit|delete|set|confirm|confirm_many|start|done|drop|apply|undo|link|unlink|accept|reject|dismiss|ignore|unignore|progress|respond|answer|answer_structured|import_preset|switch|back|complete|reset|idle|save_from|update|rename|remove|generate)$/;
 
 export interface Mock {
   state: State;

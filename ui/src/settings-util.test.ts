@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { ActivityRule, TaskMatchRule } from "./api";
+import type { ActivityRule, TaskAssignRule } from "./api";
 import { filterRules, mergeRules, settingsTab } from "./settings-util";
 
-const tr = (id: string, task_id: string, pattern: string, priority = 0, enabled = true): TaskMatchRule => ({
+const tr = (id: string, task_id: string, pattern: string, priority = 0, enabled = true): TaskAssignRule => ({
   id,
   task_id,
   field: "exe",
@@ -16,7 +16,7 @@ const ar = (id: string, pattern: string, label: string, priority = 0): ActivityR
   field: "exe",
   pattern,
   pattern_type: "glob",
-  activity_label: label,
+  activity: label,
   priority,
   enabled: true,
 });
@@ -62,7 +62,7 @@ describe("filterRules", () => {
     expect(filterRules(items, "activity").map((i) => i.id)).toEqual(["d"]);
     expect(filterRules(items, "ignore").map((i) => i.id)).toEqual(["x.exe"]);
   });
-  it("タスクで絞ると帰属ルールだけになる", () => {
+  it("タスクで絞るとタスクの割り当てルールだけになる", () => {
     expect(filterRules(items, "all", "t2").map((i) => i.id)).toEqual(["b"]);
     expect(filterRules(items, "activity", "t1")).toEqual([]);
   });

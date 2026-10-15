@@ -29,12 +29,12 @@ const CATEGORY_LABEL: Record<CorrectionCandidate["category"], string> = {
   confirmed: "確定済み",
   meeting: "会議",
   idle: "無操作",
-  gap: "記録なし",
+  uncollected: "記録なし",
 };
 
 function candidateTitle(c: CorrectionCandidate): string {
-  if (c.gap) return "記録なし（収集が止まっていた時間帯）";
-  const parts = [c.kind ? KIND_LABEL[c.kind] : "", c.task_title ?? "", c.activity_label ?? "", c.exe_name ?? ""];
+  if (c.uncollected) return "記録なし（収集が止まっていた時間帯）";
+  const parts = [c.kind ? KIND_LABEL[c.kind] : "", c.task_title ?? "", c.activity ?? "", c.exe_name ?? ""];
   return parts.filter(Boolean).join(" / ");
 }
 
@@ -43,7 +43,7 @@ interface Props {
   span: TimeSpan;
   /** 割り当て先に選べるタスク。 */
   tasks: TaskView[];
-  /** 活動ラベルの候補。 */
+  /** 活動の候補。 */
   labels?: string[];
   onClose: () => void;
   /** 補正した（または取り消した）あとに呼ぶ。一覧の再取得に使う。 */
@@ -55,7 +55,7 @@ export function CorrectionPanel(p: Props) {
   const list = useAsync(() => api.correctionCandidates(p.span.start, p.span.end), [p.span.start, p.span.end]);
   // 範囲内で無視にした区間（元に戻せるように並べる）。
   const ignored = useAsync(
-    () => api.log({ from: new Date(p.span.start).toISOString(), to: new Date(p.span.end).toISOString() }),
+    () => api.actualList({ from: new Date(p.span.start).toISOString(), to: new Date(p.span.end).toISOString() }),
     [p.span.start, p.span.end],
   );
   const [cands, setCands] = useState<CorrectionCandidate[]>([]);
@@ -79,7 +79,7 @@ export function CorrectionPanel(p: Props) {
   const label = targetLabel(choice, task?.title);
   const needTask = choice !== "none" && choice !== "rest" && !task;
   const visible = cands.filter((c) => matchesFilter(c, filter));
-  const hasIdle = cands.some((c) => c.becomes_offline);
+  const hasIdle = cands.some((c) => c.becomes_off_pc);
 
   const confirm = async () => {
     const selected = cands.filter((c) => c.checked && matchesFilter(c, filter)).map((c) => c.id);
@@ -102,7 +102,7 @@ export function CorrectionPanel(p: Props) {
   const ignoreChecked = async () => {
     const ids = ignorableIds(cands.filter((c) => matchesFilter(c, filter)));
     if (ids.length === 0) return;
-    if (await act.run(() => api.reviewIgnore(ids))) {
+    if (await act.run(() => api.actualIgnore(ids))) {
       list.reload();
       ignored.reload();
       p.onChanged();
@@ -111,7 +111,7 @@ export function CorrectionPanel(p: Props) {
 
   // 無視にした区間を元に戻す。
   const restore = async (id: string) => {
-    if (await act.run(() => api.reviewUnignore([id]))) {
+    if (await act.run(() => api.actualUnignore([id]))) {
       list.reload();
       ignored.reload();
       p.onChanged();
@@ -231,7 +231,7 @@ export function CorrectionPanel(p: Props) {
                   </label>
                   <span class="corr-tags">
                     <span class="tag">{CATEGORY_LABEL[c.category]}</span>
-                    {c.becomes_offline && <span class="tag">PC 外</span>}
+                    {c.becomes_off_pc && <span class="tag">PC 外</span>}
                     {c.full_duration_ms > c.duration_ms && (
                       <span class="meta">（範囲の内側 {fmtDur(c.duration_ms)} / 全体 {fmtDur(c.full_duration_ms)}）</span>
                     )}
@@ -274,7 +274,7 @@ export function CorrectionPanel(p: Props) {
                       </span>
                       <span class="corr-dur">{fmtDur(s.duration_ms)}</span>
                       <span class="corr-what">{s.exe_name ?? ""}</span>
-                      {s.decided_by === "user" ? (
+                      {s.decided_by === "confirmation" ? (
                         <button type="button" class="ghost" disabled={act.busy} onClick={() => restore(s.id)}>
                           元に戻す
                         </button>

@@ -1,4 +1,4 @@
-//! 判定器のプロトコル型（docs/dev/architecture.md「判定器」）。外部コマンドの JSON と同じ形。
+//! 自動判定のプロトコル型（docs/dev/architecture.md「自動判定」）。外部コマンドの JSON と同じ形。
 //! 将来の Jev（Choice / Score / Bool の型付き問い + 確率）に合わせた形にしてある。
 
 use serde::{Deserialize, Serialize};
@@ -115,7 +115,7 @@ pub struct JudgeResponse {
     pub results: Option<Vec<BatchResult>>,
 }
 
-/// 判定器。差し替え可能（OpenAI 互換 / 外部コマンド / 将来の Jev）。
+/// 自動判定。差し替え可能（OpenAI 互換 / 外部コマンド / 将来の Jev）。
 pub trait Judge: Send + Sync {
     fn name(&self) -> &str;
     fn ask(&self, req: &JudgeRequest) -> anyhow::Result<JudgeResponse>;
@@ -129,7 +129,7 @@ pub trait Judge: Send + Sync {
                 |s| match self.ask(&JudgeRequest::single(s.clone(), questions.to_vec())) {
                     Ok(r) => r.answers,
                     Err(e) => {
-                        tracing::warn!("判定器 {} の問い合わせに失敗: {e:#}", self.name());
+                        tracing::warn!("判定の接続先 {} の問い合わせに失敗: {e:#}", self.name());
                         None
                     }
                 },

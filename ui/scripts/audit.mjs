@@ -49,11 +49,11 @@ const SELECTED = [
   { name: "records-reflection-selected", screen: "records", hash: (s) => s.reflections[0] && `#/records/reflection/${s.reflections[0].id}` },
   { name: "records-new-abc", screen: "records", fixed: "#/records/new/abc" },
   {
-    name: "log-selected",
-    screen: "log",
+    name: "actual-selected",
+    screen: "actual",
     hash: (s) => {
       const x = s.segments.filter((y) => y.status === "needs_review" && y.end_at - y.start_at >= 120000).sort((a, b) => b.start_at - a.start_at)[0];
-      return x && `#/log/${x.id}`;
+      return x && `#/actual/${x.id}`;
     },
   },
 ];

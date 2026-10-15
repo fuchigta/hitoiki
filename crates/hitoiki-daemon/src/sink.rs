@@ -7,7 +7,7 @@ use hitoiki_core::timefmt::Range;
 /// 常駐処理からの通知を受ける側。全メソッドは任意のスレッドから呼ばれる。
 /// 重い処理を行わず、速やかに戻ること。
 pub trait RuntimeSink: Send + Sync {
-    /// 帰属判定の再計算が終わり、`range` の区間が更新された。
+    /// 割り当ての再計算が終わり、`range` の区間が更新された。
     fn segments_updated(&self, range: Range);
     /// プッシュ通知を出す。`push_id` は `push_log.id`（応答の保存に使う）。
     fn push(&self, push_id: &str, payload: &PushPayload);

@@ -2,9 +2,10 @@
 
 use crate::table::{pad, table, truncate};
 use chrono_tz::Tz;
-use hitoiki_core::model::{Checkin, Goal, Hassle, KeyResult, TaskMatchRule, TimeBlock};
+use hitoiki_core::model::{Checkin, Goal, Hassle, KeyResult, TaskAssignRule, TimeBlock};
 use hitoiki_core::repo::segment::kind_label;
 use hitoiki_core::service::{
+    actual::ActualList,
     correction::{
         ApplyResult as CorrApplied, Candidate, CorrectionList, CorrectionView, Preview as CorrPreview,
         UndoResult as CorrUndone,
@@ -13,10 +14,9 @@ use hitoiki_core::service::{
     heatmap::Heatmap,
     key_result_progress::{KeyResultHistory, ProgressRecorded},
     link_suggestion::{DecisionResult, Suggestions},
-    log::Log,
     plan::BlockList,
     report::{Report, ReportBy, ReportRow},
-    review::{CreatedRule, ReviewBatchResult, ReviewList, ReviewSetResult, RuleSuggestion},
+    review::{ConfirmBatchResult, ConfirmResult, CreatedRule, ReviewList, RuleSuggestion},
     skill::{PresetImport, SkillList},
     status::Status,
     task::{DeletePreview, DeleteResult, RuleList, TaskList, TaskShow, TaskView},
@@ -151,7 +151,7 @@ pub fn task_deleted(tz: Tz, r: &DeleteResult) -> String {
     s
 }
 
-pub fn rules_table(rules: &[TaskMatchRule]) -> String {
+pub fn rules_table(rules: &[TaskAssignRule]) -> String {
     if rules.is_empty() {
         return "ルールはありません。".into();
     }
@@ -171,12 +171,12 @@ pub fn rules_table(rules: &[TaskMatchRule]) -> String {
     table(&["ID", "タスク", "フィールド", "種類", "優先", "パターン"], &rows)
 }
 
-pub fn rule_list(l: &RuleList) -> String {
+pub fn task_rule_list(l: &RuleList) -> String {
     rules_table(&l.rules)
 }
 
 fn seg_row(tz: Tz, s: &SegmentView) -> Vec<String> {
-    let target = match (&s.task_title, &s.activity_label) {
+    let target = match (&s.task_title, &s.activity) {
         (Some(t), Some(a)) => format!("{t} [{a}]"),
         (Some(t), None) => t.clone(),
         (None, Some(a)) => format!("[{a}]"),
@@ -209,7 +209,7 @@ pub fn segments(tz: Tz, segs: &[SegmentView]) -> String {
     table(&SEG_HEADERS, &rows)
 }
 
-pub fn review_list(tz: Tz, l: &ReviewList) -> String {
+pub fn actual_review(tz: Tz, l: &ReviewList) -> String {
     let hidden = if l.hidden_short > 0 {
         format!(
             "\n{}未満の短い区間が {} 件あります（--all で表示）",
@@ -249,7 +249,7 @@ pub fn rule_line(r: &CreatedRule) -> String {
     )
 }
 
-pub fn review_set(tz: Tz, r: &ReviewSetResult) -> String {
+pub fn actual_confirm(tz: Tz, r: &ConfirmResult) -> String {
     let mut s = format!(
         "確定しました:\n{}",
         segments(tz, std::slice::from_ref(&r.segment))
@@ -260,7 +260,7 @@ pub fn review_set(tz: Tz, r: &ReviewSetResult) -> String {
     s
 }
 
-pub fn review_batch(tz: Tz, r: &ReviewBatchResult) -> String {
+pub fn actual_batch(tz: Tz, r: &ConfirmBatchResult) -> String {
     let mut s = format!(
         "{} 件を確定しました:
 {}",
@@ -295,7 +295,7 @@ pub fn suggestions(list: &[RuleSuggestion]) -> String {
     s
 }
 
-fn gap_line(tz: Tz, g: &hitoiki_core::service::log::GapView) -> String {
+fn uncollected_line(tz: Tz, g: &hitoiki_core::service::actual::UncollectedView) -> String {
     format!(
         "{}-{}  記録なし（収集が止まっていた時間帯・{}）",
         fmt_hm(tz, g.start_at),
@@ -304,14 +304,14 @@ fn gap_line(tz: Tz, g: &hitoiki_core::service::log::GapView) -> String {
     )
 }
 
-pub fn log(tz: Tz, l: &Log) -> String {
+pub fn actual_list(tz: Tz, l: &ActualList) -> String {
     let Some(raw) = &l.raw else {
         let mut s = segments(tz, &l.segments);
-        for g in &l.gaps {
+        for g in &l.uncollected {
             s += &format!(
                 "
 {}",
-                gap_line(tz, g)
+                uncollected_line(tz, g)
             );
         }
         return s;
@@ -348,8 +348,8 @@ pub fn log(tz: Tz, l: &Log) -> String {
             ),
         ));
     }
-    for g in &l.gaps {
-        lines.push((g.start_at, 1, gap_line(tz, g)));
+    for g in &l.uncollected {
+        lines.push((g.start_at, 1, uncollected_line(tz, g)));
     }
     lines.sort_by_key(|a| (a.0, a.1));
     if lines.is_empty() {
@@ -522,7 +522,7 @@ pub fn status(tz: Tz, st: &Status) -> String {
     s += &format!("\n要確認の区間: {} 件", st.needs_review_count);
     if st.needs_review_short_count > 0 {
         s += &format!(
-            "（ほかに短い区間 {} 件は仕分けで既定非表示）",
+            "（ほかに短い区間 {} 件は既定で非表示）",
             st.needs_review_short_count
         );
     }
@@ -1193,11 +1193,11 @@ pub fn template_suggest(s: &Suggestion) -> String {
 // ===== 実績の補正 =====
 
 fn candidate_row(tz: Tz, c: &Candidate) -> Vec<String> {
-    let what = if c.gap {
+    let what = if c.uncollected {
         "記録なし".to_string()
     } else {
         let kind = c.kind.map(kind_label).unwrap_or("-");
-        match (&c.task_title, &c.activity_label) {
+        match (&c.task_title, &c.activity) {
             (Some(t), Some(a)) => format!("{kind} {} / {a}", truncate(t, 24)),
             (Some(t), None) => format!("{kind} {}", truncate(t, 24)),
             (None, Some(a)) => format!("{kind} / {a}"),
@@ -1206,11 +1206,11 @@ fn candidate_row(tz: Tz, c: &Candidate) -> Vec<String> {
     };
     vec![
         if c.checked { "[x]".into() } else { "[ ]".into() },
-        if c.gap { c.id.clone() } else { short(&c.id) },
+        if c.uncollected { c.id.clone() } else { short(&c.id) },
         format!("{}-{}", fmt_hm(tz, c.start_at), fmt_hm(tz, c.end_at)),
         dur(c.duration_ms),
         what,
-        if c.becomes_offline {
+        if c.becomes_off_pc {
             "PC 外".into()
         } else {
             String::new()
@@ -1237,7 +1237,7 @@ pub fn correction_preview(tz: Tz, p: &CorrPreview) -> String {
 pub fn correction_applied(tz: Tz, r: &CorrApplied) -> String {
     format!(
         "補正しました（ID {}）: {}
-取り消すには `hitoiki review undo-correction {}`",
+取り消すには `hitoiki actual undo-correction {}`",
         short(&r.correction.id),
         r.preview.summary,
         short(&r.correction.id)
@@ -1256,7 +1256,7 @@ fn correction_target(c: &CorrectionView) -> String {
         (None, Some(_)) => "休憩".to_string(),
         (None, None) => "タスクなし".to_string(),
     };
-    match &c.activity_label {
+    match &c.activity {
         Some(a) => format!("{base} / {a}"),
         None => base,
     }
@@ -1274,8 +1274,8 @@ pub fn corrections(tz: Tz, l: &CorrectionList) -> String {
                 short(&c.id),
                 format!("{} - {}", dt(tz, c.start_at), fmt_hm(tz, c.end_at)),
                 dur(c.total_ms),
-                if c.offline_ms > 0 {
-                    dur(c.offline_ms)
+                if c.off_pc_ms > 0 {
+                    dur(c.off_pc_ms)
                 } else {
                     String::new()
                 },
@@ -1292,7 +1292,7 @@ pub fn correction_undone(tz: Tz, r: &CorrUndone) -> String {
         "補正を取り消しました: {} {}（確定 {} 件を削除して再計算）",
         short(&r.correction.id),
         dt(tz, r.correction.start_at),
-        r.overrides_removed
+        r.confirmations_removed
     )
 }
 
@@ -1342,7 +1342,7 @@ pub fn ignore_suggestions(list: &[hitoiki_core::service::ignore::IgnoreSuggestio
 pub fn unignored(r: &hitoiki_core::service::review::UnignoreResult) -> String {
     format!(
         "{} 件の無視を取り消しました（確定 {} 件を削除して再計算）。",
-        r.count, r.overrides_removed
+        r.count, r.confirmations_removed
     )
 }
 

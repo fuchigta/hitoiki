@@ -225,7 +225,7 @@ fn external_batch_ok_in_order() {
     let j = ext("ok", Duration::from_secs(10)).with_batch(20);
     let r = j.ask_batch(&states(4), &req.questions);
     assert_eq!(r.len(), 4);
-    // エコー判定器は bool を「添字が奇数なら true」で返す（順序確認）。
+    // エコーの自動判定は bool を「添字が奇数なら true」で返す（順序確認）。
     for (i, a) in r.iter().enumerate() {
         let a = a.as_ref().unwrap();
         assert_eq!(a["is_interrupt"].value, json!(i % 2 == 1));

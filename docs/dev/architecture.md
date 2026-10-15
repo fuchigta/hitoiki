@@ -13,7 +13,7 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 - **評価を押し付けない**: 目的は時間の使い方の可視化であり、良し悪しの断定ではない。通知文言や AI 振り返りのテンプレートもこの方針に従う。
 - **ローカル完結**: データはすべてローカルの SQLite に保存する。同期・クラウド保存・テレメトリは無い。
 - **CLI ファースト**: すべての機能は CLI から操作できる。GUI は CLI と同じ `hitoiki-core` のロジックの上に乗る。
-- **拡張点を残す**: OS 収集器、エージェントアダプタ、カレンダーアダプタ、判定器は差し替え可能な境界で分離する。
+- **拡張点を残す**: OS 収集器、エージェントアダプタ、カレンダーアダプタ、自動判定は差し替え可能な境界で分離する。
 
 ### 1.2 禁止事項（セキュリティ・プライバシー）
 
@@ -21,7 +21,7 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 - キー入力の内容も回数も記録しない。低レベルのキーボード/マウスフック（`WH_KEYBOARD_LL` 等）、DLL インジェクション、他プロセスのメモリ読み取りは使わない。管理者権限を要求しない。
 - UI は Tauri の WebView 内でのみ表示する。ブラウザ向け配信やローカル HTTP サーバは持たない（`tauri.conf.json` の CSP は `default-src 'self'` ベース）。
 - ウインドウタイトル、プロンプト内容、カレンダー ICS URL はログ・診断メッセージに出さない。
-- ネットワークに出るのは、設定で明示した場合の「ICS 取得」「OpenAI 互換判定器」と、`hitoiki version --check` の実行時、`general.update_check = true` のときの 1 日 1 回の最新版確認だけ。AI 振り返りは外部コマンドに委ね、Hitoiki 自身は通信しない。
+- ネットワークに出るのは、設定で明示した場合の「ICS 取得」「OpenAI 互換の自動判定」と、`hitoiki version --check` の実行時、`general.update_check = true` のときの 1 日 1 回の最新版確認だけ。AI 振り返りは外部コマンドに委ね、Hitoiki 自身は通信しない。
 
 ### 1.3 スコープ外
 
@@ -33,12 +33,12 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 
 | 場所 | 役割 |
 |---|---|
-| `crates/hitoiki-core` | ドメインモデル（`model.rs`）、スキーマ（`migrations/`、`db.rs`）、設定（`config.rs`）、時刻（`timefmt.rs`、`clock.rs`）、帰属判定パイプライン（`pipeline/`）、再計算（`rebuild.rs`）、ルール（`rules.rs`）、プッシュ判定（`push/`）、サービス層（`service/`）、リポジトリ（`repo/`）。OS 非依存 |
+| `crates/hitoiki-core` | ドメインモデル（`model.rs`）、スキーマ（`migrations/`、`db.rs`）、設定（`config.rs`）、時刻（`timefmt.rs`、`clock.rs`）、割り当てパイプライン（`pipeline/`）、再計算（`rebuild.rs`）、ルール（`rules.rs`）、プッシュ判定（`push/`）、サービス層（`service/`）、リポジトリ（`repo/`）。OS 非依存 |
 | `crates/hitoiki-collect` | 収集器のトレイト（前面・無操作・セッション）、イベント型、DB へ書く状態機械 `Recorder`、テスト用 `MockCollector` |
 | `crates/hitoiki-collect-win` | Windows 収集器の実装。非 Windows ではビルドは通るが何も収集しない |
 | `crates/hitoiki-agents` | エージェント（Claude Code / Codex）のセッションログ取り込み、ファイル監視 |
 | `crates/hitoiki-calendar` | ICS カレンダーの取得・解析（RRULE/EXDATE/TZID 対応） |
-| `crates/hitoiki-judge` | 判定器（外部コマンド、OpenAI 互換）、質問セット、パイプラインへのアダプタ。`bin/hitoiki-echo-judge` は動作確認用 |
+| `crates/hitoiki-judge` | 自動判定（外部コマンド、OpenAI 互換）、質問セット、パイプラインへのアダプタ。`bin/hitoiki-echo-judge` は動作確認用 |
 | `crates/hitoiki-ipc` | 名前付きパイプ（Windows）/ Unix ドメインソケット（テスト・開発用）による通知 |
 | `crates/hitoiki-daemon` | 常駐ランタイム（収集・取り込み・再計算・カレンダー・プッシュ・IPC の各スレッド）、ヘッドレス実行、`doctor` |
 | `crates/hitoiki-cli` | `hitoiki` CLI。引数の解釈と出力整形のみで、ロジックは core の `service` を呼ぶ |
@@ -61,7 +61,7 @@ Hitoiki（一息）は、個人用の自己管理ツールです。タスク・�
 
 | スレッド | 内容 |
 |---|---|
-| `hitoiki-rebuild` | 帰属判定の再計算。起動直後に 1 回、以降は 60 秒ごと、および要求から 3 秒のデバウンス後。直近 `collect.rebuild_window_min`（既定 180 分）を再計算する |
+| `hitoiki-rebuild` | 割り当ての再計算。起動直後に 1 回、以降は 60 秒ごと、および要求から 3 秒のデバウンス後。直近 `collect.rebuild_window_min`（既定 180 分）を再計算する |
 | `hitoiki-recorder` + 収集スレッド | 前面ウインドウ・無操作・ロック/スリープの収集と DB への書き込み |
 | `hitoiki-agent-bridge` | エージェントログの増分取り込み。完了ごとに再計算を要求する |
 | `hitoiki-calendar` | `calendar.fetch_interval_min`（既定 15 分）ごとに ICS を同期 |
@@ -79,8 +79,8 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 - **除外**: `collect.exclude`（exe 名、タイトル正規表現。両方指定すると両方一致で除外）に一致したウインドウは `excluded = 1` とし、exe パスとタイトルを保存しない。`collect.drop_excluded = true` なら区間自体を作らない。既定でパスワードマネージャ（KeePass 系、1Password、Bitwarden）とプライベートブラウズのタイトルを除外する。
 - **Hitoiki 自身**: 前面ウインドウが Hitoiki 自身（exe 名 `hitoiki-app.exe`、または自プロセスの pid）の間は区間を作らない（記録の空白になる）。`collect.record_self = true` で記録する。
 - **異常終了への備え**: `Recorder` はハートビートを保存し、起動時に前回の未終了区間（`end_at` が NULL）を最後のハートビートで閉じる。
-- **稼働の記録と「記録なし」**: `Recorder` は起動時に `setting` の `collector.runs`（JSON 配列。開始・最終ハートビート・正常停止か。60 日・400 件まで）へ新しい稼働を追加し、10 秒ごとのハートビートで最新の稼働の終了時刻を進め、正常停止時に `clean` を立てる。`recording::gaps` は、稼働と稼働のあいだ（クラッシュ、PC 終了、アプリ未起動）と、最後の稼働が止まってから現在まで（最後のハートビートが 30 秒より古い、または正常停止済み）を「記録なし」の区間として返す。1 分未満の空白と、最初の稼働より前（稼働の記録を持たない古い版の期間）は含めない。無操作・ロック・スリープ（`idle_span`）、Hitoiki 自身の前面（`record_self = false`）、除外の破棄は収集器が動いたうえでの空白なので「記録なし」ではない。スリープ中はプロセスごと止まるが、復帰後の最初のハートビートで稼働が続いたものになり、その間は `idle_span`（sleep）が説明する。前面・無操作・セッションの収集スレッドのどれかが停止要求なしに終了したときは、エラーをログに出して稼働のハートビートを止める（以降が「記録なし」に見える）。
-- **見える化**: `hitoiki log` と UI のログ取得（`Log.gaps`）は記録なしの区間を含み、今日画面のタイムラインは斜線で重ねる。`hitoiki doctor` の `collect` は直近 24 時間の記録停止を合計して 10 分以上なら警告する。トレイの先頭（とツールチップ）は、DB のハートビート（30 秒以内）から「記録中」/「記録停止中」を出す（`External` のときは daemon 側で収集中である旨を添える）。
+- **稼働の記録と「記録なし」**: `Recorder` は起動時に `setting` の `collector.runs`（JSON 配列。開始・最終ハートビート・正常停止か。60 日・400 件まで）へ新しい稼働を追加し、10 秒ごとのハートビートで最新の稼働の終了時刻を進め、正常停止時に `clean` を立てる。`recording::uncollected` は、稼働と稼働のあいだ（クラッシュ、PC 終了、アプリ未起動）と、最後の稼働が止まってから現在まで（最後のハートビートが 30 秒より古い、または正常停止済み）を「記録なし」の区間として返す。1 分未満の空白と、最初の稼働より前（稼働の記録を持たない古い版の期間）は含めない。無操作・ロック・スリープ（`idle_span`）、Hitoiki 自身の前面（`record_self = false`）、除外の破棄は収集器が動いたうえでの空白なので「記録なし」ではない。スリープ中はプロセスごと止まるが、復帰後の最初のハートビートで稼働が続いたものになり、その間は `idle_span`（sleep）が説明する。前面・無操作・セッションの収集スレッドのどれかが停止要求なしに終了したときは、エラーをログに出して稼働のハートビートを止める（以降が「記録なし」に見える）。
+- **見える化**: `hitoiki actual list` と UI の実績の取得（`ActualList.uncollected`）は記録なしの区間を含み、今日画面のタイムラインは斜線で重ねる。`hitoiki doctor` の `collect` は直近 24 時間の記録停止を合計して 10 分以上なら警告する。トレイの先頭（とツールチップ）は、DB のハートビート（30 秒以内）から「記録中」/「記録停止中」を出す（`External` のときは daemon 側で収集中である旨を添える）。
 
 ### 2.4.1 ログ
 
@@ -100,7 +100,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 ## 3. データモデル
 
-時刻はすべて UTC の Unix ミリ秒（`INTEGER`）、ID は ULID（`TEXT`）。スキーマは `crates/hitoiki-core/migrations/*.sql` にあり、起動時に自動適用される。既存 DB にマイグレーションを適用する前には、`hitoiki.db.bak-<日時>` へ `VACUUM INTO` でバックアップする。マイグレーションは現在 `0001_init.sql`（初期スキーマ）、`0002_judge_cache.sql`（判定器キャッシュ）、`0003_block_template.sql`（ブロックのテンプレート）、`0004_correction.sql`（実績の補正）。
+時刻はすべて UTC の Unix ミリ秒（`INTEGER`）、ID は ULID（`TEXT`）。スキーマは `crates/hitoiki-core/migrations/*.sql` にあり、起動時に自動適用される。既存 DB にマイグレーションを適用する前には、`hitoiki.db.bak-<日時>` へ `VACUUM INTO` でバックアップする。マイグレーションは現在 `0001_init.sql`（初期スキーマ）、`0002_judge_cache.sql`（自動判定キャッシュ）、`0003_block_template.sql`（ブロックのテンプレート）、`0004_correction.sql`（実績の補正）。
 
 ### 3.1 データの 3 層
 
@@ -110,7 +110,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | 派生層（derived） | 生データ + ユーザー層のルール/確定から計算した結果。いつでも作り直せる | 範囲単位で全置換 |
 | ユーザー層（user） | ユーザーの入力・確定・設定。失ってはならないもの | 対象外 |
 
-派生層が壊れても、生データとユーザー層から再構築できることが設計の前提である。ユーザーによる区間の確定は派生層を直接書き換えず、ユーザー層の `segment_override` に残し、再計算のたびに最優先で適用する。
+派生層が壊れても、生データとユーザー層から再構築できることが設計の前提である。ユーザーによる区間の確定は派生層を直接書き換えず、ユーザー層の `segment_confirmation` に残し、再計算のたびに最優先で適用する。
 
 ### 3.2 生データ層
 
@@ -121,14 +121,14 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `agent_event` | エージェントのイベント（`agent`, `session_id`, `kind`, `cwd`, `git_branch`, `prompt_excerpt`, `source_file`, `source_offset`）。`kind` は `session_start` / `prompt_submit` / `response_complete` / `session_end`。`(agent, session_id, kind, at)` で一意 |
 | `agent_ingest_offset` | ログファイルごとの取り込み済みオフセット（増分取り込み用） |
 | `agent_session_window` | セッションと hwnd の結び付け（`bound_at`）。パイプラインの出力で、再計算で作り直される |
-| `context_hint` | 補助コレクタ（ブラウザ拡張のネイティブホストなど）が送る詳細コンテキスト（`source`, `hwnd`, `kind`, `value`）。現状は保存のみで、帰属判定パイプラインでは使っていない |
+| `context_hint` | 補助コレクタ（ブラウザ拡張のネイティブホストなど）が送る詳細コンテキスト（`source`, `hwnd`, `kind`, `value`）。現状は保存のみで、割り当てパイプラインでは使っていない |
 | `calendar_event` | カレンダー予定（`source`, `external_id`, 開始・終了, `all_day`, `title`, `location`, `is_busy`）。`(source, external_id, start_at)` で一意 |
 
 `agent_session_window` はパイプラインが生成するが、位置づけは生データ層に置かれており、再計算の範囲ごとに置き換える。
 
 ### 3.3 派生層
 
-`activity_segment`: 帰属判定の結果。`kind`（`work` / `agent_dialog` / `agent_watch` / `meeting` / `idle` / `break` / `interrupt` / `ignored`。`ignored` は集計・実績・通知に数えない時間で、4.8 参照）、`task_id`、`activity_label`、`confidence`、`decided_by`（`rule` / `judge:<name>` / `calendar` / `user` / `doing`）、`status`（`auto` / `needs_review` / `confirmed`）、根拠の `window_span_ids`（JSON 配列）、`agent_session_id`、表示・判定用に非正規化した `exe_name` / `title`、PC 外の印 `offline` を持つ。
+`activity_segment`: 割り当ての結果。`kind`（`work` / `agent_dialog` / `agent_wait` / `meeting` / `idle` / `break` / `interrupt` / `ignored`。`ignored` は集計・実績・通知に数えない時間で、4.8 参照）、`task_id`、`activity`、`confidence`、`decided_by`（`rule` / `judge:<name>` / `calendar` / `user` / `doing`）、`status`（`auto` / `needs_review` / `confirmed`）、根拠の `window_span_ids`（JSON 配列）、`agent_session_id`、表示・判定用に非正規化した `exe_name` / `title`、PC 外の印 `off_pc` を持つ。
 
 ### 3.4 ユーザー層
 
@@ -136,10 +136,10 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 |---|---|
 | `task` | タスク。`status`（`todo` / `doing` / `done` / `dropped`）、`kind`（`normal` / `interrupt`）、`urgent` / `important`、`estimate_min`、計画時刻、`key_result_id`、`external_url` |
 | `task_doing_log` | doing の履歴。「その時点の doing タスク」を再計算で復元するために使う |
-| `task_match_rule` | 行動ログ → タスクの帰属ルール（`field`: `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`、`pattern_type`: `glob` / `regex` / `contains`、`priority`、`enabled`） |
-| `activity_rule` | 行動ログ → 活動ラベルのルール（タスク非依存） |
-| `segment_override` | ユーザーによる区間の確定（期間と、`kind` / `task_id` / `activity_label` の上書き。NULL の項目は元の値を保つ。`task_id` が空文字列なら「タスクなし」に外す）。`offline`（PC 外の印）と `correction_id`（作った補正）を持つ（3.6） |
-| `segment_correction` | 実績の補正 1 回分（期間、割り当て先の `task_id` / `kind`（休憩は `break`）/ `activity_label`、合計と PC 外の時間、区間数）。取り消しの単位（3.6） |
+| `task_assign_rule` | 行動ログ → タスクのタスクの割り当てルール（`field`: `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`、`pattern_type`: `glob` / `regex` / `contains`、`priority`、`enabled`） |
+| `activity_rule` | 行動ログ → 活動のルール（タスク非依存） |
+| `segment_confirmation` | ユーザーによる区間の確定（期間と、`kind` / `task_id` / `activity` の上書き。NULL の項目は元の値を保つ。`task_id` が空文字列なら「タスクなし」に外す）。`off_pc`（PC 外の印）と `correction_id`（作った補正）を持つ（3.6） |
+| `segment_correction` | 実績の補正 1 回分（期間、割り当て先の `task_id` / `kind`（休憩は `break`）/ `activity`、合計と PC 外の時間、区間数）。取り消しの単位（3.6） |
 | `time_block` | 計画（タイムブロッキング）。`focus` が 1 のものは集中ブロック |
 | `block_template` / `block_template_item` | ブロックのテンプレート（働き方のパターン）。`block_template` は名前（一意）・説明・割り当てた曜日（`weekdays`、JSON 配列、1=月 … 7=日）、`block_template_item` はローカル時刻の 0 時からの分（`start_min` 0〜1439、`end_min` 1〜1440）・`label`・`focus`・任意の `task_id` |
 | `block_template_application` | テンプレートの適用履歴（テンプレート名、適用先のローカル日付、作成した `time_block.id` の JSON 配列、`undone_at`）。直前の適用を取り消すために使う |
@@ -154,7 +154,7 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `reflection` | AI 振り返り（`kind`: `day_start` / `day_end` / `weekly`、`context_json`, `questions_md`, `answers_md`, `structured_json`, `answers_json`） |
 | `push_log` | 通知ログ（トリガー、配信済みか、応答、`snoozed_until`、`suppressed_reason`） |
 | `setting` | キー・値の設定（収集器の稼働は `collector.heartbeat` と `collector.runs`） |
-| `judge_cache` | 判定器の答えのキャッシュ（`key`, `answer_json`, `judge_name`, `created_at`）。保持期間 30 日 |
+| `judge_cache` | 自動判定の答えのキャッシュ（`key`, `answer_json`, `judge_name`, `created_at`）。保持期間 30 日 |
 
 予実について、実績入力フィールドは作らない。実績は常に `activity_segment` から算出する。
 
@@ -167,11 +167,11 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 | `goal` | 配下の `key_result` も消す。成果の指標に紐付いた `task.key_result_id` は NULL に戻す（タスクは残す） |
 | `key_result` | 紐付いた `task.key_result_id` を NULL に戻す（タスクは残す）。`key_result_skill` の該当行と`key_result_progress` の履歴・`link_suggestion_reject` の記録も消す（影響の件数には数えず、`--force` の要否に影響しない） |
 | `skill` | `task_skill`・`key_result_skill`・`activity_skill_rule` の該当行を消す。子スキルは `reparent`（削除するスキルの親へ付け替え。既定）か `delete`（子孫ごと削除）を選ぶ。プリセットのスキルも消せ、`skill import-preset` で戻せる。名前の変更・親の付け替えは循環と重複名を拒否する |
-| `task_match_rule` / `activity_rule` | 行を消す（他から参照されない）。`enabled` で無効化だけもできる。編集・削除すると派生層（区間の帰属と活動ラベル）が変わりうるので、常駐側へ再計算を要求する（CLI は `segments` の通知、アプリは `request_rebuild`）。再計算の既定範囲は今日で、過去の日は `hitoiki rebuild` で作り直す |
+| `task_assign_rule` / `activity_rule` | 行を消す（他から参照されない）。`enabled` で無効化だけもできる。編集・削除すると派生層（区間の割り当てと活動）が変わりうるので、常駐側へ再計算を要求する（CLI は `segments` の通知、アプリは `request_rebuild`）。再計算の既定範囲は今日で、過去の日は `hitoiki rebuild` で作り直す |
 | `hassle` | それを元にした `abc_record.hassle_id` を NULL に戻す（ABC 記録は残す） |
 | `checkin` / `abc_record` | 行を消す（参照なし） |
 | カレンダーソース（設定 `calendar.sources`） | 設定ファイルから外し、`calendar_event` のそのソースの行（取得済みコピー）も消す。名前の変更では `calendar_event.source` も付け替える（重複取り込みを防ぐ）。URL は秘密情報なので一覧・結果には出さずホスト名だけ見せる（`service::settings`） |
-| 活動ラベル（設定 `activity.labels`） | 判定器へ渡す候補の一覧。外しても過去の区間・ルールのラベルは残る。名前の変更では `activity_rule.activity_label` も付け替える |
+| 活動（設定 `activity.labels`） | 自動判定へ渡す候補の一覧。外しても過去の区間・ルールの活動は残る。名前の変更では `activity_rule.activity` も付け替える |
 
 チェックイン・ハッスル・ABC の編集は内容の置き換えで、時刻（`at`）は変えない。reflection の回答は既存の `reflect answer` で上書きできる。
 
@@ -190,15 +190,15 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 ### 3.6 実績の補正（`service/correction.rs`）
 
-「実績入力フィールドは作らない」を保ったまま、時間帯の範囲指定でまとめて付け替える。補正は `segment_override`（ユーザー確定、再計算でも最優先）として保存し、1 回の付け替えを `segment_correction` と `segment_override.correction_id` でひとまとまりにする。CLI の `review set --from/--to`・`review corrections`・`review undo-correction` と Tauri の `correction_*` コマンドはこの `service::correction` の薄いラッパー。
+「実績入力フィールドは作らない」を保ったまま、時間帯の範囲指定でまとめて付け替える。補正は `segment_confirmation`（ユーザー確定、再計算でも最優先）として保存し、1 回の付け替えを `segment_correction` と `segment_confirmation.correction_id` でひとまとまりにする。CLI の `review set --from/--to`・`actual corrections`・`actual undo-correction` と Tauri の `correction_*` コマンドはこの `service::correction` の薄いラッパー。
 
-- **候補**（`candidates`）: 範囲 `[from, to)` と重なる `activity_segment` を、範囲で切った部分（境界にまたがる区間は内側だけ）として挙げる。さらに `recording::gaps` のうち区間で覆われていない部分を「記録なし」の候補（ID は `gap:<開始のミリ秒>`）として挙げる。分類（`Category`）は 確定済み（status が confirmed）→ 会議 → 無操作・休憩 → エージェント対話・見守り → 作業・割り込み の順に決まる。
-- **初期のチェック**: 作業とエージェント対話は ON。確定済みは `review.correct_include_confirmed`、会議は `correct_include_meeting`、無操作・休憩・記録なしは `correct_include_idle` が true のときだけ ON（確定済みの会議は両方が必要）。CLI の `--include-*` が設定を上書きし、`selected`（UI のチェックリスト）か `exclude`（CLI）で最終的な選択を決める。
-- **割り当て先**: `task` / `no_task` / `rest` のどれか 1 つ（活動ラベルだけでもよい）。候補ごとに override を 1 つ作る。タスクは `task_id`、「タスクなし」「休憩」は `task_id = ''`（パイプラインが元のタスクを外す）で表し、休憩は `kind = break`。エージェント対話・見守り・会議などは `kind` を変えず、タスクだけを付け替える。
-- **PC 外の作業**: 候補が無操作・休憩・記録なしなら、override は `kind = work`（休憩への補正は `break`）で `offline = 1` にする。パイプラインの `apply_overrides` は、`offline` の override について、既存の区間を書き換えるだけでなく、範囲（出力範囲と現在時刻で切る）のうち区間が無い部分に区間（確定・`decided_by = user`・`offline`）を**生成する**。収集器が動いていなかった「記録なし」の時間帯には `window_span` も `idle_span` も無く、通常の override は何にも当たらないため。再計算（`rebuild`）でも override から同じ区間が作られるので保持される。`offline` は統合（`merge.rs`）の同一内容の条件にも入り、通常の作業とは連結しない。`offline` でない override は区間を生成しない。
-- **確定の反映**: `apply` は 1 つのトランザクションで補正と override を保存し、`activity_segment` にも即時に反映する（範囲の端で区間を切り、内側を更新し、`offline` なら覆われていない部分に区間を挿入する）。判定器を呼ぶ再計算を伴わないので、直近 `collect.rebuild_window_min` より前の日にも使える。次の再計算で同じ内容になる。`log` の「記録なし」からは、計上済み（`offline`）の部分を除く。
-- **取り消し**（`undo`）: 補正と、その `correction_id` を持つ override を削除し、補正の期間を `rebuild_with_judge` で再計算する（判定器は呼び出し側が渡す。CLI は `judge.enabled` から構築、アプリは `hitoiki_daemon::build_judge`）。派生層の復元は再計算で行うため、その期間の判定は最新のルール・doing で作り直される。
-- **プレビュー**（`preview`）: 対象の合計、うち PC 外（無操作・休憩・記録なし）の時間、外した候補の数と、説明文（`summary`）を返す。DB は変更しない。UI は、チェックの切り替えごとに同じ数え方を `ui/src/correct-util.ts` で再計算し、範囲選択の吸着（端を 1 分刻みに丸めて、`review.snap_sec` 以内の区間の境目へ寄せる）もそこにある。
+- **候補**（`candidates`）: 範囲 `[from, to)` と重なる `activity_segment` を、範囲で切った部分（境界にまたがる区間は内側だけ）として挙げる。さらに `recording::uncollected` のうち区間で覆われていない部分を「記録なし」の候補（ID は `uncollected:<開始のミリ秒>`）として挙げる。分類（`Category`）は確定済み（status が confirmed）→ 会議 → 無操作・休憩 → エージェント対話・作業待ち → 作業・割り込み の順に決まる。
+- **初期のチェック**: 作業とエージェント対話は ON。確定済みは `actual.correct_include_confirmed`、会議は `correct_include_meeting`、無操作・休憩・記録なしは `correct_include_idle` が true のときだけ ON（確定済みの会議は両方が必要）。CLI の `--include-*` が設定を上書きし、`selected`（UI のチェックリスト）か `exclude`（CLI）で最終的な選択を決める。
+- **割り当て先**: `task` / `no_task` / `rest` のどれか 1 つ（活動だけでもよい）。候補ごとに確定を 1 つ作る。タスクは `task_id`、「タスクなし」「休憩」は `task_id = ''`（パイプラインが元のタスクを外す）で表し、休憩は `kind = break`。エージェント対話・作業待ち・会議などは `kind` を変えず、タスクだけを付け替える。
+- **PC 外の作業**: 候補が無操作・休憩・記録なしなら、確定は `kind = work`（休憩への補正は `break`）で `off_pc = 1` にする。パイプラインの `apply_confirmations` は、`off_pc` の確定について、既存の区間を書き換えるだけでなく、範囲（出力範囲と現在時刻で切る）のうち区間が無い部分に区間（確定・`decided_by = confirmation`・`off_pc`）を**生成する**。収集器が動いていなかった「記録なし」の時間帯には `window_span` も `idle_span` も無く、通常の確定は何にも当たらないため。再計算（`rebuild`）でも確定から同じ区間が作られるので保持される。`off_pc` は統合（`merge.rs`）の同一内容の条件にも入り、通常の作業とは連結しない。`off_pc` でない確定は区間を生成しない。
+- **確定の反映**: `apply` は 1 つのトランザクションで補正と確定を保存し、`activity_segment` にも即時に反映する（範囲の端で区間を切り、内側を更新し、`off_pc` なら覆われていない部分に区間を挿入する）。自動判定を呼ぶ再計算を伴わないので、直近 `collect.rebuild_window_min` より前の日にも使える。次の再計算で同じ内容になる。`log` の「記録なし」からは、計上済み（`off_pc`）の部分を除く。
+- **取り消し**（`undo`）: 補正と、その `correction_id` を持つ確定を削除し、補正の期間を `rebuild_with_judge` で再計算する（自動判定は呼び出し側が渡す。CLI は `judge.enabled` から構築、アプリは `hitoiki_daemon::build_judge`）。派生層の復元は再計算で行うため、その期間の判定は最新のルール・doing で作り直される。
+- **プレビュー**（`preview`）: 対象の合計、うち PC 外（無操作・休憩・記録なし）の時間、外した候補の数と、説明文（`summary`）を返す。DB は変更しない。UI は、チェックの切り替えごとに同じ数え方を `ui/src/correct-util.ts` で再計算し、範囲選択の吸着（端を 1 分刻みに丸めて、`actual.snap_sec` 以内の区間の境目へ寄せる）もそこにある。
 
 ### 3.7 タスクの削除と参照の扱い（`service/task.rs` の `delete` / `delete_preview`）
 
@@ -206,17 +206,17 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 | 参照 | 削除時の扱い |
 |---|---|
-| `task_match_rule.task_id` / `task_skill.task_id` / `task_doing_log.task_id` | 削除（外部キー制約のため先に消す） |
-| `segment_override.task_id` | 削除（その時間は未割り当てに戻る） |
-| `segment_correction.task_id` | 補正ごと削除。補正は付け替え先が 1 つのタスクなので「他のタスクも含む補正」は無い。補正が作った override（`correction_id`）も消す。他のタスクへの補正には触れない |
+| `task_assign_rule.task_id` / `task_skill.task_id` / `task_doing_log.task_id` | 削除（外部キー制約のため先に消す） |
+| `segment_confirmation.task_id` | 削除（その時間は未割り当てに戻る） |
+| `segment_correction.task_id` | 補正ごと削除。補正は付け替え先が 1 つのタスクなので「他のタスクも含む補正」は無い。補正が作った確定（`correction_id`）も消す。他のタスクへの補正には触れない |
 | `activity_segment.task_id` | トランザクション内で NULL（確定済みは needs_review）にし、直後の再計算で作り直す |
 | `time_block.task_id` / `block_template_item.task_id` | NULL にして残す。`label` が空ならタスク名を写す |
 | `checkin` / `hassle` / `abc_record` / `reflection` / `push_log` | タスクへの参照列が無い（`reflection.context_json` や `push_log.payload_json` に ID が入ることはあるが、履歴のスナップショットなので触れない） |
-| `activity_rule` / `activity_skill_rule` / `judge_cache` | タスクを指さない（判定器キャッシュのキーは未完了タスク集合のハッシュを含むので、削除後は自然に引き直される） |
+| `activity_rule` / `activity_skill_rule` / `judge_cache` | タスクを指さない（自動判定キャッシュのキーは未完了タスク集合のハッシュを含むので、削除後は自然に引き直される） |
 
-流れは、`impact` で影響（区間数と時間、override・補正・ルール・スキル・ブロック・テンプレート項目・doing ログの件数、再計算する期間）を見積もる → 計上済み・確定・補正があって `force` が偽ならエラー（引数不正、終了コード 2） → 1 トランザクションで上表を処理しタスクを削除 → 影響期間（区間・override・補正の最小〜最大）を `rebuild_with_judge` で再計算、の順。doing だったタスクは `task_doing_log` を消すので「doing なし」になり、以後の判定に使われない。`delete_preview` は何も変更しない。
+流れは、`impact` で影響（区間数と時間、確定・補正・ルール・スキル・ブロック・テンプレート項目・doing ログの件数、再計算する期間）を見積もる → 計上済み・確定・補正があって `force` が偽ならエラー（引数不正、終了コード 2） → 1 トランザクションで上表を処理しタスクを削除 → 影響期間（区間・確定・補正の最小〜最大）を `rebuild_with_judge` で再計算、の順。doing だったタスクは `task_doing_log` を消すので「doing なし」になり、以後の判定に使われない。`delete_preview` は何も変更しない。
 
-## 4. 帰属判定パイプライン
+## 4. 割り当てパイプライン
 
 `crates/hitoiki-core/src/pipeline/` は、生データを入力とし `activity_segment` と `agent_session_window` を出力する純粋関数 `build`（`pipeline/mod.rs`）である。現在時刻は `PipelineInput.now` で受け取る。
 
@@ -225,20 +225,20 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 `build` の実行順は次のとおり。
 
 1. **タイムライン構築**（`timeline.rs`）: `window_span` の重なりを「後から始まった方を優先」で解消し（進行中の区間は `now` で閉じる）、`idle_span` を重ねて作業区間と無操作区間の列にする。
-2. **エージェント対話**（`agent.rs`）: `agent_dialog` と `agent_watch` を付ける（4.2）。この後、出力範囲に区間を切り取る。
+2. **エージェント対話**（`agent.rs`）: `agent_dialog` と `agent_wait` を付ける（4.2）。この後、出力範囲に区間を切り取る。
 3. **会議**（`meeting.rs`）: カレンダーの予定（busy、終日でない）と重なる無操作区間と、会議アプリ（`collect.meeting_exes`）が前面の作業区間を `meeting` にする（4.3）。
-4. **override**: `segment_override` を作成順に適用し、`confirmed` / `decided_by = user` / 確信度 1.0 にする（`attribute.rs`）。`offline` の override は、区間の無い部分（記録なし）にも区間を作る（3.6）。
-5. **ルール**: `task_match_rule` でタスクを決め（`decided_by = rule`、確信度 1.0）、`activity_rule` で活動ラベルを付ける。
-6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_watch`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、override（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま（`ignore_exes` の区間は次の無視になる）。`collect.ignore_exes` の exe は通過系としても扱う（和集合）。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と override 済みの区間は対象外。吸収する区間は判定器に問い合わせず、吸収先の帰属（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
-   - **無視**（`transient.rs` の `apply_ignore`）: `collect.ignore_exes` の `work` 区間のうち、吸収されなかったもの（`transient_max_sec` 以上続いた、または吸収先が無い）を `kind = ignored`（`decided_by = ignore`、確信度 1.0、`auto`、タスク・ラベルなし、`fixed`）にする。ルールで帰属が決まった区間と override 済みの区間は対象外。`ignored` は判定器・割り込み検出・doing フォールバック・統合での吸収（短い作業を間に挟んで取り込まない）の対象にならず、隣り合う無視は 1 区間にまとまる。
-7. **判定器**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
-8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに帰属しない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・判定器の結果を見るため、doing フォールバックより前に行う。
-9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing` で付ける。状態は `needs_review`。ただし `review.trust_doing = true` なら `auto`（始めたタスクを信頼する）。doing の開始・終了時刻で区間を分割する。
-   - **ロック中の自動休憩**（`apply_locked_break`）: 判定の決まっていない（`decided_by` なし）無操作区間のうち、重なる `idle_span` の理由が `locked` / `sleep` のものの合計が `review.auto_break_locked_min`（既定 10 分、0 で無効）以上なら、`break`（`decided_by = rule:locked`、確信度 1.0、`auto`）にする。override と予定との突き合わせ（会議）は先に適用済みなので影響しない。
+4. **確定**: `segment_confirmation` を作成順に適用し、`confirmed` / `decided_by = confirmation` / 確信度 1.0 にする（`assign.rs`）。`off_pc` の確定は、区間の無い部分（記録なし）にも区間を作る（3.6）。
+5. **ルール**: `task_assign_rule` でタスクを決め（`decided_by = rule`、確信度 1.0）、`activity_rule` で活動を付ける。
+6. **通過系アプリの吸収**（`transient.rs`）: `collect.transient_exes`（既定は `explorer.exe`、`StartMenuExperienceHost.exe`、`SearchHost.exe` など。`ApplicationFrameHost.exe` は UWP アプリの実体なので含めない。exe 名は大文字小文字を区別しない）の `work` 区間が隙間なく連続し、その合計が `collect.transient_max_sec`（既定 60 秒）未満なら、独立した区間にせず**直前の作業区間に吸収**する。直前が無い（その日の最初、無操作明けなど）なら直後。吸収先は、隙間なく接する確定前の通常の `work` 区間だけで、`agent_dialog` / `agent_wait`（そのウインドウにいた時間だけを計上するため伸ばさない）、会議、無操作、確定（`confirmed`）は吸収先にならない。前後とも吸収先にならなければ通常の区間のまま（`ignore_exes` の区間は次の無視になる）。`collect.ignore_exes` の exe は通過系としても扱う（和集合）。連続時間は出力範囲に切り取る前の長さで測る。ルールでタスクや活動が決まった区間と確定 済みの区間は対象外。吸収する区間は自動判定に問い合わせず、吸収先の割り当て（種別・タスク・ラベル・確信度・根拠・exe/title）を写して、以降は吸収先と同じ内容として扱う（割り込み検出で通信アプリの一部になり、統合で 1 区間になる）。`window_span` と `window_span_ids`（根拠）は変えない。
+   - **無視**（`transient.rs` の `apply_ignore`）: `collect.ignore_exes` の `work` 区間のうち、吸収されなかったもの（`transient_max_sec` 以上続いた、または吸収先が無い）を `kind = ignored`（`decided_by = ignore`、確信度 1.0、`auto`、タスク・ラベルなし、`fixed`）にする。ルールで割り当てが決まった区間と確定 済みの区間は対象外。`ignored` は自動判定・割り込み検出・doing フォールバック・統合での吸収（短い作業を間に挟んで取り込まない）の対象にならず、隣り合う無視は 1 区間にまとまる。
+7. **自動判定**: ルールでタスクが決まらなかった `work` 区間だけを問い合わせる（4.5）。
+8. **割り込み検出**: コミュニケーション系アプリ（`collect.communication_exes`）が前面になり、その後に元のタスクに割り当てられない作業が `collect.interrupt_min_sec`（既定 180 秒）以上続いたら、その区間から元のタスクへ戻る手前までを `interrupt`（`needs_review`）にする。「元のタスク」は、その時点の doing タスク、無ければ `focus` の `time_block` のタスク。ルール・自動判定の結果を見るため、doing フォールバックより前に行う。
+9. **doing フォールバック**: どれにも該当しない `work` 区間に、その時点の doing タスクを確信度 0.5・`decided_by = doing` で付ける。状態は `needs_review`。ただし `actual.trust_doing = true` なら `auto`（始めたタスクを信頼する）。doing の開始・終了時刻で区間を分割する。
+   - **ロック中の自動休憩**（`apply_locked_break`）: 判定の決まっていない（`decided_by` なし）無操作区間のうち、重なる `idle_span` の理由が `locked` / `sleep` のものの合計が `actual.auto_break_locked_min`（既定 10 分、0 で無効）以上なら、`break`（`decided_by = rule:locked`、確信度 1.0、`auto`）にする。確定と予定との突き合わせ（会議）は先に適用済みなので影響しない。
 10. **状態付け**: 状態が未決の区間は、確信度が `judge.auto_confidence_threshold`（既定 0.8）以上なら `auto`、未満または確信度なしなら `needs_review`。
-11. **統合**（`merge.rs`）: 隣接する同一内容（種別、タスク、ラベル、状態、セッション）の区間を連結し、同一内容にはさまれた `collect.merge_gap_sec`（既定 30 秒）以下の短い `work` を吸収する。`agent_dialog` / `agent_watch` と `confirmed` 区間は、時間を水増ししないため、前後の区間として短い中断を吸収することはない。
+11. **統合**（`merge.rs`）: 隣接する同一内容（種別、タスク、ラベル、状態、セッション）の区間を連結し、同一内容にはさまれた `collect.merge_gap_sec`（既定 30 秒）以下の短い `work` を吸収する。`agent_dialog` / `agent_wait` と `confirmed` 区間は、時間を水増ししないため、前後の区間として短い中断を吸収することはない。
 
-「固定」（`fixed`）フラグが付いた区間（対話・見守り・会議・override・予定外の無操作）は、後続の段階で上書きされない。
+「固定」（`fixed`）フラグが付いた区間（対話・作業待ち・会議・確定・予定外の無操作）は、後続の段階で上書きされない。
 
 ### 4.2 エージェント対話時間
 
@@ -246,43 +246,43 @@ UI への通知は `RuntimeSink`（`segments_updated` / `push` / `doing_changed`
 
 - **セッションとウインドウの結び付け**: 次の順に最初に見つかったものを使う。(1) `prompt_submit` の時刻に前面だったウインドウが `collect.terminal_exes` または `collect.agent_host_exes`（GUI のエージェントクライアント。既定は `Orca.exe`、`Cursor.exe`、`Windsurf.exe`、`Code - Insiders.exe`）のもの。(2) 直前 `agent.bind_lookback_sec`（既定 5 秒）内の最も新しい (1) の区間。(3) `agent.bind_unlisted = true`（既定）なら、送信時に前面だった一覧外のウインドウ。ただし除外ウインドウ、`transient_exes`、Hitoiki 自身、ブラウザ（chrome / msedge / firefox / brave / vivaldi / opera / arc / iexplore）、`communication_exes`、`meeting_exes` は対象外で、送信時刻が無操作（ロック・スリープを含む）の最中でもない。(3) は、人が打った送信なら直前に入力があるはずで、無操作中の送信（エージェント自身の自動投入など）や、ブラウザ・通信アプリなどの別作業の裏で動いたセッションを誤って対話時間にしないための歯止めである。それでも別の一覧外アプリで作業中の裏で送信されたものは対話時間に混ざりうるので、そのアプリを `communication_exes` などに入れるか `agent.bind_unlisted = false` にして一覧だけで判定する。対応付けできなかった送信は `hitoiki doctor` の `agent` が、直近 24 時間の件数と送信時の前面 exe 名（タイトルは出さない）で知らせる。結び付けは `(hwnd, 正規化タイトル)` で行い、タイトルの先頭の記号（スピナー）と空白は `normalize_title` で除く。
 - **agent_dialog**: ユーザーが送信（`prompt_submit`）するまでの「対象期間」のうち、結び付けたウインドウが前面で無操作でない部分。対象期間の開始は、直前の応答完了 / 直前の送信 / セッション開始（最初の送信とほぼ同時の開始は無いものとして扱う。`SESSION_START_GRACE` = 5 秒）。いずれも無ければ、送信直前で同じ `(hwnd, タイトル)` が連続していた区間の開始まで遡る。
-- **agent_watch**: 送信後、同じウインドウが前面のまま続いた時間。次の応答完了または次の送信、あるいは `agent.watch_max_min`（既定 10 分）で打ち切る。
-- **タスクの決定**: セッションの `cwd` / `git_branch` に対する `task_match_rule` が最優先（`rule`、確信度 1.0、`auto`）。無ければセッション開始時点の doing タスク（`doing`、確信度 0.5、`needs_review`）。どちらも無ければタスクなしで `needs_review`。
-- **同一ウインドウの複数セッション**: 同じ `(hwnd, タイトル)` に結び付いた別セッションの対象期間が重なる場合は、その時点で最も近い過去の送信を持つセッションに帰属させる（ベストエフォート）。
+- **agent_wait**: 送信後、同じウインドウが前面のまま続いた時間。次の応答完了または次の送信、あるいは `agent.wait_max_min`（既定 10 分）で打ち切る。
+- **タスクの決定**: セッションの `cwd` / `git_branch` に対する `task_assign_rule` が最優先（`rule`、確信度 1.0、`auto`）。無ければセッション開始時点の doing タスク（`doing`、確信度 0.5、`needs_review`）。どちらも無ければタスクなしで `needs_review`。
+- **同一ウインドウの複数セッション**: 同じ `(hwnd, タイトル)` に結び付いた別セッションの対象期間が重なる場合は、その時点で最も近い過去の送信を持つセッションに割り当てる（ベストエフォート）。
 
 ### 4.3 会議・予定
 
-busy で終日でない予定の時間帯について、無操作区間と、`meeting_exes` が前面の未固定作業区間を `meeting`（`decided_by = calendar`、確信度 1.0、`auto`）にする。予定タイトルが `task_match_rule`（`title` フィールド）に一致すればタスクも付く。予定と重ならない無操作区間は `needs_review` にする（休憩か離席かをユーザーが決める）。決め方は、ロック・スリープが長ければ自動で休憩（4.1 の「ロック中の自動休憩」）、そうでなければ仕分け画面のワンタップ（4.7）。
+busy で終日でない予定の時間帯について、無操作区間と、`meeting_exes` が前面の未固定作業区間を `meeting`（`decided_by = calendar`、確信度 1.0、`auto`）にする。予定タイトルが `task_assign_rule`（`title` フィールド）に一致すればタスクも付く。予定と重ならない無操作区間は `needs_review` にする（休憩か離席かをユーザーが決める）。決め方は、ロック・スリープが長ければ自動で休憩（4.1 の「ロック中の自動休憩」）、そうでなければ確定画面のワンタップ（4.7）。
 
 ### 4.4 ルールの評価
 
 `rules.rs` の `TaskRuleSet` / `ActivityRuleSet` が `priority` 順に評価する。対象フィールドは `exe` / `title` / `cwd` / `repo` / `url` / `git_branch`（ウインドウに対しては exe とタイトル、セッションに対しては cwd・リポジトリ・ブランチ）。
 
-### 4.5 判定器とキャッシュ
+### 4.5 自動判定とキャッシュ
 
-判定器の答えは `JudgeAnswer`（`task_id`, `activity_label`, `is_interrupt`, `confidence`, `judge_name`）。答えがあれば `decided_by = judge:<name>` と確信度を付け、`is_interrupt = true` なら `interrupt`（`needs_review`）にする。判定器の呼び出しは `rebuild.rs` の `CachedJudge` が包み、区間の内容（exe、正規化タイトル、根拠ウインドウ ID）と、判定器の設定・活動ラベル・未完了タスク集合のハッシュからキーを作って `judge_cache` を引く。キャッシュに無い区間だけを実際に問い合わせる。未判定（タイムアウトなど）はキャッシュせず、次回再び問い合わせる。キーに開始・終了時刻を含めないのは、範囲の切り取りや進行中区間の伸びで変わらないようにするため。
+自動判定の答えは `JudgeAnswer`（`task_id`, `activity`, `is_interrupt`, `confidence`, `judge_name`）。答えがあれば `decided_by = judge:<name>` と確信度を付け、`is_interrupt = true` なら `interrupt`（`needs_review`）にする。自動判定の呼び出しは `rebuild.rs` の `CachedJudge` が包み、区間の内容（exe、正規化タイトル、根拠ウインドウ ID）と、自動判定の設定・活動・未完了タスク集合のハッシュからキーを作って `judge_cache` を引く。キャッシュに無い区間だけを実際に問い合わせる。未判定（タイムアウトなど）はキャッシュせず、次回再び問い合わせる。キーに開始・終了時刻を含めないのは、範囲の切り取りや進行中区間の伸びで変わらないようにするため。
 
 ### 4.6 再計算（rebuild）
 
 `rebuild.rs` は DB から生データを読み（範囲の手前 6 時間まで遡る）、パイプラインを実行して派生層を置き換える。結果が「どの範囲をどの順で再計算してきたか」に依存しないよう、次を守る。
 
 - **範囲の拡張**: 境界をまたぐ既存区間を含むところまで広げる（区間を重ねない・欠けさせない）。範囲内の `prompt_submit` の対象期間の開始まで広げる（要求範囲の開始から最大 24 時間まで）。収束するまで繰り返す（上限 16 回）。
-- **排他**: 判定器の呼び出しを含む計算は書き込みトランザクションの外で行い、最後の「範囲の再確定 → 重なる区間の削除 → 挿入」を 1 つの `BEGIN IMMEDIATE` トランザクションで行う。範囲が読み込み時から変わっていたら（他の再計算が書き込んだら）読み直す。3 回失敗したら 4 回目は書き込みロックを取ったまま読み・計算・書き込みを行い、必ず終わらせる。
-- **書き込み**: `activity_segment` と `agent_session_window` を範囲内で全置換し、新しく得た判定器の答えを `judge_cache` に保存して古いものを削除する。
+- **排他**: 自動判定の呼び出しを含む計算は書き込みトランザクションの外で行い、最後の「範囲の再確定 → 重なる区間の削除 → 挿入」を 1 つの `BEGIN IMMEDIATE` トランザクションで行う。範囲が読み込み時から変わっていたら（他の再計算が書き込んだら）読み直す。3 回失敗したら 4 回目は書き込みロックを取ったまま読み・計算・書き込みを行い、必ず終わらせる。
+- **書き込み**: `activity_segment` と `agent_session_window` を範囲内で全置換し、新しく得た自動判定の答えを `judge_cache` に保存して古いものを削除する。
 
-### 4.7 仕分けの補助（`service/review.rs`）
+### 4.7 要確認と確定の補助（`service/review.rs`）
 
-- **無操作のワンタップ分類**（`IdlePreset`）: 新しい種別は作らず、既存の種別と活動ラベルの組で表し、`segment_override` に保存する（再計算でも残る）。`break` = 種別 break、`meeting` = 種別 meeting、`thinking` = 種別 work + 活動「考えごと」（タスクなし）、`away` = 種別 break + 活動「離席」。`set_idle` は区間 ID 指定（CLI・UI）、`set_idle_range` は期間指定（通知のボタン。区間がまだ無くても期間全体の override を保存する）。
+- **無操作のワンタップ分類**（`IdlePreset`）: 新しい種別は作らず、既存の種別と活動の組で表し、`segment_confirmation` に保存する（再計算でも残る）。`break` = 種別 break、`meeting` = 種別 meeting、`thinking` = 種別 work + 活動「考えごと」（タスクなし）、`away` = 種別 break + 活動「離席」。`set_idle` は区間 ID 指定（CLI・UI）、`set_idle_range` は期間指定（通知のボタン。区間がまだ無くても期間全体の確定を保存する）。
 - **一括割り当て**（`set_many`）: 複数の区間 ID に同じタスク・種別・活動（と `--rule`）を 1 つのトランザクションで適用する。同じ条件のルールは 1 つにまとめる。
-- **ルール化の提案**（`suggest_rules` / `accept_suggestion` / `dismiss_suggestion`）: 直近 30 日にユーザーが確定した（`decided_by = user`）作業系の区間を、(条件, タスク) ごとに数える。条件はエージェント区間なら作業ディレクトリ（`cwd` の glob）、それ以外は exe 名（`exe` の contains）。`review.rule_suggest_min_count`（既定 3）回以上で、同じルールが未登録かつ断られていないものを多い順に返す。受け入れは既存の `--rule` と同じ重複確認（`ensure_task_rule`）でルールを追加する。断った組み合わせは `setting` の `review.rule_suggest_dismissed`（キー → 再提案してよい時刻の JSON）に `review.rule_suggest_snooze_days`（既定 14）日分記録する。
+- **ルール化の提案**（`suggest_rules` / `accept_suggestion` / `dismiss_suggestion`）: 直近 30 日にユーザーが確定した（`decided_by = confirmation`）作業系の区間を、(条件, タスク) ごとに数える。条件はエージェント区間なら作業ディレクトリ（`cwd` の glob）、それ以外は exe 名（`exe` の contains）。`actual.rule_suggest_min_count`（既定 3）回以上で、同じルールが未登録かつ断られていないものを多い順に返す。受け入れは既存の `--rule` と同じ重複確認（`ensure_task_rule`）でルールを追加する。断った組み合わせは `setting` の `review.rule_suggest_dismissed`（キー → 再提案してよい時刻の JSON）に `actual.rule_suggest_snooze_days`（既定 14）日分記録する。
 
 ### 4.8 無視（`ignored`）
 
 「ノイズのアプリ・区間を数えない」ための種別。生データ（`window_span` など）は変えず、派生層とユーザー層だけで実現する。
 
-- **表現**: 新しい `SegmentKind::Ignored` を追加した。既存の `idle` / `break` は「PC を使っていない」という意味を持ち、通知（`idle_return` など）・自動休憩・実績の補正（PC 外）に絡むため、流用すると意味が混ざる。また `work` + 活動ラベルのような擬似表現では、全集計・通知に除外条件を散らす必要がある。専用の種別なら除外は「種別が `ignored`」の 1 条件で済み、`segment_override.kind` でも同じ値で表せる（スキーマ変更なし）。
-- **発生源**: (1) `collect.ignore_exes` による自動の無視（4.1 の 6）。(2) ユーザーの手動（`review::ignore`）: 種別 `ignored`・`task_id = ''` の `segment_override`。取り消し（`review::unignore`）は、その override を削除して範囲を再計算する。リスト由来の無視は override ではなく、`ignore remove` で外して再計算する。`apply_overrides` は `kind = ignored` の override でタスク・ラベルを外す。
-- **数えない場所**: `report`（どの切り口でも除外し、別枠 `excluded.ignored_ms` に合計）、`status`（`today.ignored_ms`）、`context`（`ignored_minutes`）、タスクの実績（タスクなしなので数えない）、仕分け（`needs_review` にならない）、実績の補正の候補（付け替え対象にしない）、プッシュ（作業系ではないので `long_focus` / `late_work` / `switch_spike` に数えず、連続も途切れる）。今日のタイムラインには薄く表示する。
+- **表現**: 新しい `SegmentKind::Ignored` を追加した。既存の `idle` / `break` は「PC を使っていない」という意味を持ち、通知（`idle_return` など）・自動休憩・実績の補正（PC 外）に絡むため、流用すると意味が混ざる。また `work` + 活動のような擬似表現では、全集計・通知に除外条件を散らす必要がある。専用の種別なら除外は「種別が `ignored`」の 1 条件で済み、`segment_confirmation.kind` でも同じ値で表せる（スキーマ変更なし）。
+- **発生源**: (1) `collect.ignore_exes` による自動の無視（4.1 の 6）。(2) ユーザーの手動（`review::ignore`）: 種別 `ignored`・`task_id = ''` の `segment_confirmation`。取り消し（`review::unignore`）は、その確定を削除して範囲を再計算する。リスト由来の無視は確定ではなく、`ignore remove` で外して再計算する。`apply_confirmations` は `kind = ignored` の確定でタスク・ラベルを外す。
+- **数えない場所**: `report`（どの切り口でも除外し、別枠 `excluded.ignored_ms` に合計）、`status`（`today.ignored_ms`）、`context`（`ignored_minutes`）、タスクの実績（タスクなしなので数えない）、確定（`needs_review` にならない）、実績の補正の候補（付け替え対象にしない）、プッシュ（作業系ではないので `long_focus` / `late_work` / `switch_spike` に数えず、連続も途切れる）。今日のタイムラインには薄く表示する。
 - **無視リストの管理と提案**（`service/ignore.rs`）: `add` / `remove` は設定ファイルの `collect.ignore_exes` だけを `config::set_value` で書き換え（既定のままなら既定＋追加）、直近 7 日を `rebuild_with_judge` で再計算する。`suggest` は直近 N 日（既定 7）の `window_span` と `activity_segment` から候補を返す。基準は、既知のシステム系 exe（3 区間以上。記録時間が 30 分以上なら理由に明記）、10 秒未満が 7 割以上かつ 20 区間以上、要確認に 10 件以上かつ平均 60 秒未満、ユーザーが「無視」にした確定が 2 回以上、「タスクなし」にした確定が 5 回以上のいずれか。無視リスト済み、`ApplicationFrameHost.exe`、作業アプリ（`terminal_exes` / `agent_host_exes` / `communication_exes` / `meeting_exes`、ブラウザ、Hitoiki 自身）、断って 30 日以内（`setting` の `review.ignore_suggest_dismissed`）は除く。
 
 ## 5. エージェントアダプタ
@@ -303,9 +303,9 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 - 同期は対象範囲の `calendar_event` をソースごとに置き換える。成功したソースがあれば再計算を要求する。
 - URL は秘密情報なので、ログとエラーメッセージには `name` だけを出す。
 
-## 7. 判定器
+## 7. 自動判定
 
-ルールで決まらなかった作業区間の帰属を、型付き質問への回答と確信度で返す差し替え可能な部品。`judge.enabled`（既定 false）が false の間は、判定器を呼ばず、ルールと doing フォールバックだけで帰属する（これが既定の「ルール」判定）。有効にすると `judge.default` が指すバックエンド（`judge.backends.<名前>`）を使う。
+ルールで決まらなかった作業区間の割り当てを、型付き質問への回答と確信度で返す差し替え可能な部品。`judge.enabled`（既定 false）が false の間は、自動判定を呼ばず、ルールと doing フォールバックだけで割り当てする（これが既定の「ルール」判定）。有効にすると `judge.default` が指すバックエンド（`judge.backends.<名前>`）を使う。
 
 - **質問セット**: 既定は `segment_classification`（`task` = 未完了タスクからの選択、`activity` = `activity.labels` からの選択、`is_interrupt` = 真偽）。`%APPDATA%\hitoiki\questions\*.toml`（`paths::questions_dir()`）に質問セットを置くと、`applies_to` が `activity_segment`（または未指定）の最初の有効なセットで差し替えられる（読めない場合は組み込み）。選択肢は `open_tasks` / `activity_labels` / `skills` から動的に解決できる。
 - **問い合わせの状態**: 区間（開始・終了、exe、タイトル、cwd）と文脈（doing タスク、直前 3 区間、重なるカレンダー予定）。
@@ -329,10 +329,10 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 | `after_interrupt` | 割り込み区間が終わり、終了から 5 分以内で、その割り込み以降に未配信 |
 | `meeting_overrun` | 会議アプリが前面で、予定の終了から 5〜180 分経過（ほかの予定が進行中なら対象外） |
 | `switch_spike` | 直近 `push.switch_spike.window_min`（15）分の切替回数が `count`（20）を超える |
-| `long_focus` | 同一キー（task、エージェントセッション、活動ラベルの順）の作業が `push.long_focus_min`（90）分以上連続 |
+| `long_focus` | 同一キー（task、エージェントセッション、活動の順）の作業が `push.long_focus_min`（90）分以上連続 |
 | `urgent_task` | 勤務時間内（`push.day_start_after` ≤ 現在 < `push.day_end_at`）に、緊急のしるし（`task.urgent`）が付いた未完了（todo / doing）のタスクがあり、直近の `urgent_task` 配信から `push.urgent_task_interval_min`（既定 120 分、0 で無効）以上経っている。対象から外すもの: いま作業しているタスク（作業系の最終区間の `task_id`、または doing）、今日の `time_block` に割り当てられ終了がまだ先のもの。対象のどれかが doing か作業中なら、そもそも出さない。示すのは「最後に通知した時刻」が最も古いタスク（`push_log` のペイロードの `task_id` で判定。`push_log` は今週分＋直近 10 件なので、それより前の通知は「通知していない」扱い）で、同順なら作成が古いもの。ほかの対象の件数を「（ほかに N 件）」として添える。ボタンは「始める」（`task_start`）と「あとで」（`task_later`）。クリックでタスク画面（`tasks`）を開く |
 | `kr_idle` | 今週（月曜始まり、今日まで）まだ時間が入っていない成果の指標が 1 つ以上あり、`push.kr_idle_weekday`（1=月〜7=日、既定 3 = 水、0 または 8 以上で無効）の曜日以降の勤務時間内で、今週この通知を配信していない。対象の成果の指標は `service::goal::idle_key_results_this_week`（`key_result_summary.rs`）が選ぶ: 成果の指標が `active` で軸が `time` / `days`、目標が `active` で今が期間内（`period_start <= now < period_end`。無い側は制限しない）、スキル（`key_result_skill`）か紐付けたタスク（やめたものを除く）があり、`KeyResultSelector`（`key-result show` と同じ、スキル経由と紐付けタスクの和集合）で選ばれる区間が今週に 1 つも無い。`PushContext::kr_idle` に `store::load_kr_idle` の結果を入れる材料は、常駐側の `push_tick` が `triggers::kr_idle_due`（無効でなく、曜日に達し、今週未配信）のときだけ読む（毎回の評価で集計し直さない）。週 1 回まで（配信済みなら応答を問わず出さない）で、複数の成果の指標は 1 回の通知にまとめる（3 件まで名前を出し、残りは「ほか N 件」）。ボタンは「今日の予定に入れる」（`open`。`open_screen = today/design`）と「今週は見送る」（`kr_skip_week`。記録のみ）。文言は「◯◯に、今週はまだ時間が入っていません」と事実だけ |
-| `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに帰属した作業系の区間（work / agent_dialog / agent_watch）の最終 `end_at` と `created_at` の大きいほう）が `push.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `time_block` に割り当て済み、いま取り組み中（作業の帰属 / doing）、今週この通知に「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
+| `important_task` | 重要（`task.important`）かつ緊急でない未完了のタスクのうち、「最後に手をつけた時刻」（そのタスクに割り当てられた作業系の区間（work / agent_dialog / agent_wait）の最終 `end_at` と `created_at` の大きいほう）が `push.important_stale_days`（既定 3 日、0 で無効）以上前のもの。今日の `time_block` に割り当て済み、いま取り組み中（作業の割り当て / doing）、今週この通知に「今週は見送る」（`task_skip_week`）と答えたタスクは除く。勤務時間内に 1 日 1 回まで。示すのは最後に手をつけた時刻が最も古いもの。ボタンは「始める」（`task_start`）、「今日の予定に入れる」（`open`。クリックと同じ `open_screen = today/design`）、「今週は見送る」。文言は評価を含めず「ここ N 日ほど時間が入っていません」（一度も入っていなければ「まだ時間が入っていません」）と事実だけを述べる |
 | `late_work` | `push.late_work_after`（20:00）〜翌朝の `day_start_after` に作業が続いている。時間帯ごとに 1 回 |
 | `block_start` | 今日の `time_block` でタスク（`task_id`）が付き、開始を過ぎて `tuning.block_start_window_min`（10 分）以内かつ終了前のもの（複数なら開始が最も新しいもの）。そのタスクが todo でない（doing・完了・中止）、いまの作業区間がそのタスク、そのブロックについて配信済み（push_log のペイロードの `block_id`）のいずれかなら出さない。無操作中は出さない。設定項目は持たず、`push.disabled_triggers` に `block_start` を入れて止める。優先順は `idle_return` の次（同時なら `idle_return` が先で、次の評価で出る）。例外の抑制ルールは 8.2 |
 | `idle_return` | 直近で終わった無操作（`PushContext.last_idle`。隣り合う `idle_span` はつなぐ）が `push.idle_return_min`（既定 15 分、0 で無効）以上で、終了から 10 分以内。busy な予定（終日を除く）と重なる、休憩・会議・確定済みの区間が重なる（長いロックの自動休憩を含む。ただし下の候補タスクがあるときは、自動の休憩（`decided_by = rule:locked` で未確定）は分類済みとみなさず尋ねる）、その無操作の開始以降に配信済み、のいずれかなら発火しない。優先順は `day_start` の次。**候補タスク**: 無操作の期間に (1) 開いていた doing ログのタスク、なければ (2) タスク付きの `time_block` が重なっていたタスクのうち、重なりが最も長い 1 件（`PushContext.doing_spans` / `time_blocks` / `task_refs`）。あれば先頭のボタンに「{タスク名}をしていた」（`idle_task`、ペイロードの `task_id`）を加える（ボタンは最大 5 個に収まる） |
@@ -351,8 +351,8 @@ busy で終日でない予定の時間帯について、無操作区間と、`me
 
 ### 8.3 応答と表示
 
-- **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（override 保存。UI へは `segments_updated` を送り、再計算を要求する）。
-- **`idle_task`**（idle_return の「{タスク名}をしていた」）: ペイロードの `idle_range` を、`task_id` のタスクの PC 外の作業として `service::correction::assign_offline_range` で確定する。実績の補正で無操作・記録なしを選んだときと同じ形（種別 work・`offline` の override と `segment_correction`。補正の一覧から取り消せる）で、自動の休憩にも勝つ。自動では確定せず、ボタンを押したときだけ。`block_skip`（block_start の「今回はやめる」）は記録のみ。
+- **応答**: `store::apply_response` が応答を `push_log` に保存し、チェックイン（`checkin`）、ハッスル（`hassle`）、スヌーズに変換する。`idle_return` のボタン（`idle_break` / `idle_meeting` / `idle_thinking` / `idle_away`）は、ペイロードの `idle_range`（対象の期間）に `review::set_idle_range` で分類をつける（確定 保存。UI へは `segments_updated` を送り、再計算を要求する）。
+- **`idle_task`**（idle_return の「{タスク名}をしていた」）: ペイロードの `idle_range` を、`task_id` のタスクの PC 外の作業として `service::correction::assign_off_pc_range` で確定する。実績の補正で無操作・記録なしを選んだときと同じ形（種別 work・`off_pc` の確定と `segment_correction`。補正の一覧から取り消せる）で、自動の休憩にも勝つ。自動では確定せず、ボタンを押したときだけ。`block_skip`（block_start の「今回はやめる」）は記録のみ。
 - **タスク通知の応答**（`urgent_task` / `important_task` / `block_start`）: ペイロードの `task_id` が対象のタスク。`apply_response_with` は `task_start` で `ResponseOutcome::start_task` にタスク ID を返すだけで（`task_later` / `task_skip_week` は記録のみ）、実際の開始は `Ctx` を持つ呼び出し側が `service::pushlog::start_pushed_task`（`task::start` の前に完了・中止済みでないことを確かめる）で行う。アプリは `runtime::handle_activation` で開始後に `doing-changed` を出し、トレイと再計算も更新する。CLI は `push answer --task start|later|skip_week`。`kr_idle` の「今週は見送る」（`kr_skip_week`）も記録のみで、CLI は `--task kr_skip_week`。ログには `task_id` だけを出し、タスク名は出さない。
 - **後からの回答と見送り**（`service::pushlog`）: `list`（配信済みの通知を状態 `unanswered` / `answered` / `dismissed` 付きで返す。トリガーの日本語名 `PushTrigger::label()`、ペイロード、`idle_range` を含む）と `answer`（`apply_response_with` を通す。CLI の `push answer` と同じ）。UI の「未回答の問いかけ」（`ui/src/push-answer.tsx`、ポップアップ窓と共有）は既存の Tauri コマンド `push_respond`（`runtime::handle_activation`）を呼ぶので、トーストの応答と同じ経路になる。
   - **記録の時刻**: checkin / hassle の `at` は応答時刻ではなく通知の時刻（`push_log.at`）。あとから答えても、通知時点の状態として時系列に載る。
@@ -385,9 +385,9 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 共通仕様: 参照系は `--json` で機械可読な出力。対話的なプロンプトは出さず、不足引数はエラー。終了コードは 0 成功、1 一般、2 引数、3 対象なし、4 曖昧（`Error::exit_code()`）。`HITOIKI_HOME` で設定と DB の置き場所を差し替えられる。
 
-`heatmap`（`service::heatmap`）は日別の値と濃淡の段階を返す。時間の集計の軸は派生層 `activity_segment`（`segment_override` 適用後）をローカル日付の 0 時で分割して合算し、記録の集計の軸は `checkin` / `hassle` / `abc_record` / `reflection` の `at` を数える。段階は値のある日の分布で決め（値以下の日の割合を 4 等分、0 は値なし）、スキルは子孫のスキルを含める。`key_result:<KEY_RESULT>` は成果の指標に紐付いたタスクの時間（日付分割は `heatmap::add_per_day` を成果の指標の集計と共有）。
+`heatmap`（`service::heatmap`）は日別の値と濃淡の段階を返す。時間の集計の軸は派生層 `activity_segment`（`segment_confirmation` 適用後）をローカル日付の 0 時で分割して合算し、記録の集計の軸は `checkin` / `hassle` / `abc_record` / `reflection` の `at` を数える。段階は値のある日の分布で決め（値以下の日の割合を 4 等分、0 は値なし）、スキルは子孫のスキルを含める。`key_result:<KEY_RESULT>` は成果の指標に紐付いたタスクの時間（日付分割は `heatmap::add_per_day` を成果の指標の集計と共有）。
 
-成果の指標の集計（`service::goal::key_result_summary`、実装は `service/key_result_summary.rs`）は、紐付いたタスク（`task.key_result_id`）に帰属した派生層の区間から算出する（実績の入力欄は無い）。期間は目標の `period_start/end`（片方だけなら、開始のみは今日まで、終了のみは 8 週前から）、無ければ直近 8 週（今日を含む週の月曜の 7 週前〜今日の終わり）。時間は無操作・休憩・無視を除いて期間で切り、ローカル日付で日ごとに分けて合算する。取り組んだ日数（`active_days`）はその日別の合計が `active_day_min` 分以上の日数、完了したタスク数は「期間内に `done_at` があるタスクの数 / やめたタスクを除く紐付き全体の数」を割り算せず別々の値で返す（`done_count` / `task_count`）。週ごとの時間は月曜始まりで日別の値を束ね、スキル別は report の skill 集計と同じく付いているスキルそれぞれに全時間を計上する（付いていなければ `(なし)`）。見積は `estimate_min` のあるタスク（やめたものを除く）の合計と、そのタスクの期間内の実績。スキルが主（`key_result_skill`）: 区間は、(a) 成果の指標のスキルと子孫（`skill::descendants`）が付いたタスク（`task_skill`）、(b) `activity_skill_rule`（`rules::Matcher`。区間の exe・タイトルに一致）でそのスキルが付く活動、(c) 紐付けたタスク（`task.key_result_id`）のいずれかに当てはまれば数え、1 区間は一度だけ数える（区間単位の和集合）。時間・週・日別・`active_days` はこの和集合から出す。内訳は `from_skill_ms`（(a)(b) に当てはまる区間）と `from_task_ms`（(c) のみ）で、両方に当てはまる区間は skill 側に入れ、合計は `time_ms` と一致する。完了したタスク数・`task_count` と見積は紐付けたタスクだけが対象。成果の指標のスキルは `KeyResultEdit.skills` / `clear_skills`（既存のスキル名のみ。無ければ何も変えない）で置き換える。選んだ数え方（`measure`）は表示の主従を決めるだけで、`target` / `current` は自由記述のまま返し、達成率の計算や評価はしない。紐付けは `goal::link_tasks`（別の成果の指標からの付け替えを含み、先に全タスクを解決して 1 件でも無ければ何も変えない）と `goal::unlink_tasks`、`task edit` の `clear_key_result`。UI は CLI と同じ関数を Tauri コマンド（`key_result_link` / `key_result_unlink` / `key_result_show`）経由で呼ぶ。
+成果の指標の集計（`service::goal::key_result_summary`、実装は `service/key_result_summary.rs`）は、紐付いたタスク（`task.key_result_id`）に割り当てられた派生層の区間から算出する（実績の入力欄は無い）。期間は目標の `period_start/end`（片方だけなら、開始のみは今日まで、終了のみは 8 週前から）、無ければ直近 8 週（今日を含む週の月曜の 7 週前〜今日の終わり）。時間は無操作・休憩・無視を除いて期間で切り、ローカル日付で日ごとに分けて合算する。取り組んだ日数（`active_days`）はその日別の合計が `active_day_min` 分以上の日数、完了したタスク数は「期間内に `done_at` があるタスクの数 / やめたタスクを除く紐付き全体の数」を割り算せず別々の値で返す（`done_count` / `task_count`）。週ごとの時間は月曜始まりで日別の値を束ね、スキル別は report の skill 集計と同じく付いているスキルそれぞれに全時間を計上する（付いていなければ `(なし)`）。見積は `estimate_min` のあるタスク（やめたものを除く）の合計と、そのタスクの期間内の実績。スキルが主（`key_result_skill`）: 区間は、(a) 成果の指標のスキルと子孫（`skill::descendants`）が付いたタスク（`task_skill`）、(b) `activity_skill_rule`（`rules::Matcher`。区間の exe・タイトルに一致）でそのスキルが付く活動、(c) 紐付けたタスク（`task.key_result_id`）のいずれかに当てはまれば数え、1 区間は一度だけ数える（区間単位の和集合）。時間・週・日別・`active_days` はこの和集合から出す。内訳は `from_skill_ms`（(a)(b) に当てはまる区間）と `from_task_ms`（(c) のみ）で、両方に当てはまる区間は skill 側に入れ、合計は `time_ms` と一致する。完了したタスク数・`task_count` と見積は紐付けたタスクだけが対象。成果の指標のスキルは `KeyResultEdit.skills` / `clear_skills`（既存のスキル名のみ。無ければ何も変えない）で置き換える。選んだ数え方（`measure`）は表示の主従を決めるだけで、`target` / `current` は自由記述のまま返し、達成率の計算や評価はしない。紐付けは `goal::link_tasks`（別の成果の指標からの付け替えを含み、先に全タスクを解決して 1 件でも無ければ何も変えない）と `goal::unlink_tasks`、`task edit` の `clear_key_result`。UI は CLI と同じ関数を Tauri コマンド（`key_result_link` / `key_result_unlink` / `key_result_show`）経由で呼ぶ。
 
 ### 成果の指標への紐づけの提案
 
@@ -399,15 +399,15 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 
 成果の指標の現在値の履歴と時系列（`service::key_result_progress`、`repo/key_result_progress.rs`）: `edit_key_result` は現在値が変わったとき（同じ値への編集では残さない）、`key_result_progress::record` は呼ばれるたびに、`key_result_progress` に 1 行足す。メモは `KeyResultEdit.current_note` / `record` の引数。`key_result_history` は `key_result_summary` と同じ期間・同じ週の区切りで、週ごとに `duration_ms`（`key_result_summary.weekly` と同じ値）と、その週の終わり（`at` がその週の翌月曜 0 時より前）までで最後の履歴の `value` / `text`、その週に足した行数 `changes` を並べる。期間の前の履歴も引き継ぐ。値は自由記述のまま（`value` は先頭の数値を読めたときだけ）で、目標との比較や達成率は出さない。UI は Tauri コマンド `key_result_progress` / `key_result_history` 経由で、成果の指標のカードの「値の履歴」に棒（時間）と折れ線（値。数値のある週だけ、最小〜最大を縦に伸ばす）を同じ週の軸で描く。
 
-主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`log`、`review`、`rebuild`、`block`、`check`、`hassle`、`abc`、`goal`、`key-result`、`skill`、`report`、`heatmap`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
+主なコマンド: `status`、`task`（`rule` サブコマンドを含む）、`actual`（`list` / `review` / `confirm` / `correct` / `corrections` / `undo-correction` / `idle` / `ignore` / `unignore` / `suggest`）、`activity`（`list` / `add` / `rename` / `remove`）、`rebuild`、`block`、`check`、`hassle`、`abc`、`goal`、`key-result`、`skill`、`report`、`heatmap`、`context`、`reflect`、`agent`、`daemon`、`ui`、`ingest context`、`native-host`（install / uninstall / ホスト動作）、`config`（path / get / set）、`doctor`、`version [--check]`。
 
-`doctor` は config / db / collect / agent / calendar / notify / judge / ai を ok・warn・error で診断する。`collect` は直近 24 時間の記録停止（2.4）、`agent` は直近 24 時間のプロンプトのうちウインドウに対応付けできなかった件数（4.2）も見る。ネットワークへの実アクセス（カレンダー取得・判定器への疎通）は `--network` 指定時だけ。
+`doctor` は config / db / collect / agent / calendar / notify / judge / ai を ok・warn・error で診断する。`collect` は直近 24 時間の記録停止（2.4）、`agent` は直近 24 時間のプロンプトのうちウインドウに対応付けできなかった件数（4.2）も見る。ネットワークへの実アクセス（カレンダー取得・自動判定への疎通）は `--network` 指定時だけ。
 
 `native-host` は、ブラウザ拡張からの URL などを `context_hint` に保存するネイティブメッセージングホスト（4 バイト長 + JSON、1 MB 上限）で、Chrome/Edge/Firefox 向けのマニフェストとレジストリ登録を `install` が行う。
 
 ## 11. GUI
 
-`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today`（計画を含む。日付は `?date=`、右のサイドパネルにブロック・区間・付け替え・今日のデザイン・未回答の問いかけを同時に 1 つ出す。旧名の `plan` は `legacyRoute` が `today` に写す）/ `log`（実績。旧名の `review` は `log?status=review` に写す）/ `tasks` / `goals` / `records`（チェックイン・ハッスル・ABC・振り返りの時系列。旧名の `reflect`・`checkin`・`hassle` は UI の `legacyRoute` が `records` に写す）/ `report` / `settings`、初回起動時の `onboarding`、通知用の `popup`、クイック入力用の `quick`（ウインドウラベルで切り替える小窓）。オンボーディングの完了は `setting` テーブルの `onboarding.completed_at` で判定し（`service::onboarding`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了に加え、「タスクを素早く入力…」でクイック入力を開く。
+`ui/` は Preact + Vite + TypeScript の SPA で、画面は `today`（計画を含む。日付は `?date=`、右のサイドパネルにブロック・区間・付け替え・今日のデザイン・未回答の問いかけを同時に 1 つ出す。旧名の `plan` は `legacyRoute` が `today` に写す）/ `actual`（実績。要確認の絞り込みは `actual?status=review`）/ `tasks` / `goals` / `records`（チェックイン・ハッスル・ABC・振り返りの時系列。旧名の `reflect`・`checkin`・`hassle` は UI の `legacyRoute` が `records` に写す）/ `report` / `settings`、初回起動時の `onboarding`、通知用の `popup`、クイック入力用の `quick`（ウインドウラベルで切り替える小窓）。オンボーディングの完了は `setting` テーブルの `onboarding.completed_at` で判定し（`service::onboarding`）、未完了で `--screen` 指定なしに起動したときだけメインウインドウを開いて表示する。ロジックは持たず、Tauri のコマンド（`hitoiki-app/src/commands.rs`）が core の `service` を呼ぶ。区間更新・プッシュ・doing 変更・取り込み完了は Tauri イベントで UI に通知する。トレイ（`tray.rs`）のメニューは、現在のタスクと今日の合計の表示、タスクの切り替え、チェックイン（エネルギー）、ハッスルの記録、UI を開く、通知の一時停止、終了に加え、「タスクを素早く入力…」でクイック入力を開く。
 
 クイック入力（`hitoiki-app/src/quick.rs`）: 設定 `general.quick_entry_shortcut`（既定 `Ctrl+Alt+Space`、`core::shortcut` が検証・正規化）を `tauri-plugin-global-shortcut` で登録する。Windows ではその実体は `RegisterHotKey`（global-hotkey クレート）で、OS から受け取るのは登録した組み合わせの押下通知だけであり、`WH_KEYBOARD_LL` などのフックやキー入力の記録は使わない（登録したキーが離されるまで、そのキー 1 つの押下状態を 50ms 間隔で見る処理はプラグイン内にあるが、離したときの通知は使わず、何も保存しない）。ウインドウ（ラベル `quick`、装飾なし・常に手前・タスクバー非表示）は起動時に非表示で作っておき、ショートカットで画面中央上寄せに出してフォーカスを取り、`quick-open` イベントで UI が入力を初期化する。フォーカスを失うと隠す。登録・解除は main スレッドで行われるため、設定を変えるコマンド（`quick_shortcut_set`）は async にしている。作成または選択して開始する処理と直前の doing の取得は core の `service::quick`（`switch` / `back` / `previous_doing`。直前の doing は `task_doing_log` の閉じたログのうち終了が最も新しい、未完了のタスク）で、CLI の `task switch` / `task back` と共通。ヘッドレスの daemon にはショートカットもウインドウも無い。UI の選択欄は `task-picker.tsx`（絞り込みと候補の組み立ては `task-picker-util.ts` の純粋関数）で、ブロックのフォームとクイック入力が共用する。
 
@@ -420,7 +420,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | 設定 | `%APPDATA%\hitoiki\config.toml` |
 | DB | `%LOCALAPPDATA%\hitoiki\hitoiki.db`（WAL。マイグレーション前のバックアップは同じ場所に `hitoiki.db.bak-<日時>`） |
 | ログ | `%LOCALAPPDATA%\hitoiki\logs\hitoiki.log.<日付>`（日次ローテーション、14 日分。app と daemon で共通） |
-| 判定器・プラグイン | `%APPDATA%\hitoiki\plugins\` |
+| 自動判定・プラグイン | `%APPDATA%\hitoiki\plugins\` |
 | 質問セット | `%APPDATA%\hitoiki\questions\` |
 | 振り返りテンプレート | `%APPDATA%\hitoiki\templates\` |
 | 通知アイコン | `%LOCALAPPDATA%\hitoiki\app-icon.png`（起動時に書き出す） |
@@ -435,8 +435,8 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 |---|---|
 | `general` | `timezone`（`Asia/Tokyo`）、`autostart`（true）、`update_check`（未設定=確認しない） |
 | `collect` | `idle_threshold_sec`（120）、`merge_gap_sec`（30）、`poll_interval_sec`（3）、`terminal_exes`、`agent_host_exes`、`communication_exes`、`meeting_exes`、`exclude`、`drop_excluded`（false）、`record_self`（false）、`interrupt_min_sec`（180）、`rebuild_window_min`（180）、`transient_exes`（`explorer.exe` など）、`transient_max_sec`（60）、`ignore_exes`（`explorer.exe`、`ShellExperienceHost.exe` など。無視するアプリ） |
-| `review` | `min_sec`（60: 仕分け一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120: 補正の範囲選択の吸着幅）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（false: 補正の初期チェック） |
-| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`watch_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
+| `actual` | `min_sec`（60: 要確認の一覧で既定表示する最小の長さ。未満は既定で隠し、`--all` / 画面のトグルで表示する。件数表示も同じ基準で、短い件数は別に返す）、`auto_break_locked_min`（10）、`trust_doing`（false）、`rule_suggest_min_count`（3）、`rule_suggest_snooze_days`（14）、`snap_sec`（120: 補正の範囲選択の吸着幅）、`correct_include_confirmed` / `correct_include_meeting` / `correct_include_idle`（false: 補正の初期チェック） |
+| `agent` | `enabled`（`claude-code`, `codex`）、`prompt_excerpt_chars`（200）、`wait_max_min`（10）、`bind_lookback_sec`（5）、`bind_unlisted`（true） |
 | `push` | `enabled`（true）、`daily_limit`（6）、`min_interval_min`（60）、`day_start_after`（08:00）、`day_end_at`（18:30）、`weekly.weekday`/`weekly.at`（fri / 17:00）、`long_focus_min`（90）、`switch_spike.window_min`/`count`（15 / 20）、`late_work_after`（20:00）、`idle_return_min`（15）、`urgent_task_interval_min`（120）、`important_stale_days`（3）、`kr_idle_weekday`（3）、`disabled_triggers` |
 | `activity` | `labels`（開発、レビュー、調査、設計、コミュニケーション、会議、事務、学習） |
 | `judge` | `enabled`（false）、`default`、`auto_confidence_threshold`（0.8）、`backends.<名前>`（`type = "openai-compatible"`: `base_url`, `model`, `api_key_env`, `timeout_sec`／`type = "external-command"`: `command`, `timeout_sec`, `batch`） |
@@ -444,7 +444,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 | `calendar` | `fetch_interval_min`（15）、`past_days`（7）、`future_days`（14）、`sources`（`name`, `type`, `url`） |
 | `task` | `single_doing`（true: `task start` で他の doing を todo に戻す） |
 
-設定の変更は、再計算・カレンダー・プッシュ・判定器には次回から反映される。収集器とログ監視の設定の変更には再起動が必要。
+設定の変更は、再計算・カレンダー・プッシュ・自動判定には次回から反映される。収集器とログ監視の設定の変更には再起動が必要。
 
 ## 13. 配布とライセンス
 
@@ -466,7 +466,7 @@ Hitoiki は推論を持たない。`ai.command`（既定 `["claude", "-p"]`）�
 - **Codex のログ形式**: 実ログで確認できていない。公開されている形式に基づくパーサであり、バージョン差分で変わる可能性がある。`codex exec` の判別も同様。
 - **Claude Code のログ形式**: 手元の実ファイルで確認した形式に基づくが、将来のバージョンで変わりうる。
 - **ロック/スリープの実機記録**: `WTSRegisterSessionNotification` と `WM_POWERBROADCAST` による `locked` / `sleep` の記録は、`Recorder` の単体テストでは検証しているが、実機での長期の挙動（復帰直後のイベント順など）は確認していない。
-- **Windows Terminal の複数タブ**: ウインドウタイトルでタブを区別できるかはターミナルの設定に依存する。区別できない場合、同じ `(hwnd, タイトル)` のセッションの帰属はベストエフォート（4.2）。
-- **ブラウザ拡張とネイティブホスト**: 拡張自体は本リポジトリに無い。未署名の exe からのホスト登録が社内のブラウザポリシーで許可されるかは未確認。`context_hint` は現状、帰属判定で使っていない。
-- **OpenAI 互換判定器の接続先**: 構造化出力（`json_schema`）の対応状況はサーバ依存。非対応なら `json_object` に切り替えるが、実サーバでの網羅的な確認はしていない。
+- **Windows Terminal の複数タブ**: ウインドウタイトルでタブを区別できるかはターミナルの設定に依存する。区別できない場合、同じ `(hwnd, タイトル)` のセッションの割り当てはベストエフォート（4.2）。
+- **ブラウザ拡張とネイティブホスト**: 拡張自体は本リポジトリに無い。未署名の exe からのホスト登録が社内のブラウザポリシーで許可されるかは未確認。`context_hint` は現状、割り当てで使っていない。
+- **OpenAI 互換の判定の接続先**: 構造化出力（`json_schema`）の対応状況はサーバ依存。非対応なら `json_object` に切り替えるが、実サーバでの網羅的な確認はしていない。
 - **Outlook の ICS 公開**: 社内で ICS の公開が許可されているかは利用者の環境による（不可なら別のアダプタが必要）。

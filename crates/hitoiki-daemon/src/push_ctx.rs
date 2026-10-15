@@ -112,7 +112,7 @@ fn last_closed_idle(spans: &[IdleSpan], now: Millis) -> Option<ClosedIdle> {
 }
 
 /// DB から評価に必要な行を読む。
-/// `review_min_sec` 未満の短い要確認区間は `needs_review_count` に含めない（仕分け一覧の既定表示と同じ数え方）。
+/// `review_min_sec` 未満の短い要確認区間は `needs_review_count` に含めない（要確認の一覧の既定表示と同じ数え方）。
 pub fn load_snapshot(conn: &Connection, now: Millis, tz: Tz, review_min_sec: u64) -> Result<PushSnapshot> {
     let today = day_range(tz, local_date_of(tz, now));
     // 「当日分」かつ少なくとも直近 3 時間。
@@ -167,7 +167,7 @@ pub fn push_tick(
         return Ok(vec![]);
     }
     let tz = cfg.tz()?;
-    let mut snap = load_snapshot(conn, now, tz, cfg.review.min_sec)?;
+    let mut snap = load_snapshot(conn, now, tz, cfg.actual.min_sec)?;
     if kr_idle_due(cfg, now, tz, &snap.push_log) {
         snap.kr_idle = store::load_kr_idle(conn, tz, now)?;
     }
@@ -354,7 +354,7 @@ mod tests {
             end_at: end,
             kind,
             task_id: Some(task.into()),
-            activity_label: None,
+            activity: None,
             confidence: None,
             decided_by: None,
             status: SegmentStatus::Auto,
@@ -362,7 +362,7 @@ mod tests {
             agent_session_id: None,
             exe_name: None,
             title: None,
-            offline: false,
+            off_pc: false,
         }
     }
 
@@ -388,7 +388,7 @@ mod tests {
                 work_seg(
                     "s2",
                     "imp",
-                    SegmentKind::AgentWatch,
+                    SegmentKind::AgentWait,
                     DAY0 + 8 * 60 * MIN,
                     DAY0 + 9 * 60 * MIN,
                 ),
