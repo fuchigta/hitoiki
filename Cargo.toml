@@ -9,6 +9,11 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/fuchigta/hitoiki"
 rust-version = "1.80"
 
+# 依存クレートのデバッグ情報は使わないのに、Windows では .pdb として target を数十 GB 単位で
+# 膨らませるため作らない。自分のクレートのデバッグ情報は残る。
+[profile.dev.package."*"]
+debug = false
+
 [workspace.dependencies]
 hitoiki-core = { path = "crates/hitoiki-core" }
 hitoiki-collect = { path = "crates/hitoiki-collect" }
