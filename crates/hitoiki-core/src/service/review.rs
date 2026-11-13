@@ -1143,8 +1143,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((r.count, r.confirmation_ids.len()), (3, 3));
-        for i in 0..3 {
-            let v = &r.segments[i];
+        for v in r.segments.iter().take(3) {
             assert_eq!(
                 (v.status, v.task_id.as_deref(), v.activity.as_deref()),
                 (SegmentStatus::Confirmed, Some(t.as_str()), Some("開発"))
