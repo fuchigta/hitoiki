@@ -3,12 +3,19 @@ import { hashStep } from "./hash-guard";
 import {
   SIDE_INITIAL,
   blockIsTask,
+  breakdownOf,
   dateFromParam,
   dateParams,
   daySum,
+  legendKinds,
   mergedDoingIds,
   actualPeriodFor,
   shiftDate,
+  shownPanel,
+  startGuideFor,
+  timelineSelection,
+  unplacedTasks,
+  viewAnchors,
   weekdayLabel,
   sideReducer,
   visiblePanel,
@@ -74,6 +81,78 @@ describe("サイドパネルの状態遷移", () => {
     expect(visiblePanel(run(SIDE_INITIAL, { type: "open", panel: { kind: "nudge" } }, { type: "dateChanged" }))?.kind).toBe("nudge");
     const s = run(SIDE_INITIAL, { type: "open", panel: { kind: "design" } }, { type: "open", panel: { kind: "segment", id: "x" } }, { type: "dateChanged" });
     expect(visiblePanel(s)?.kind).toBe("design");
+  });
+});
+
+describe("サイドパネルの表示とタイムラインの強調", () => {
+  const draft = { start: 1, end: 2, task: "", label: "", focus: false };
+  it("ブロックの編集は日の範囲が届くまで出さない（ほかは範囲に関係なく出す）", () => {
+    expect(shownPanel(null, true)).toBeNull();
+    expect(shownPanel({ kind: "block", draft }, false)).toBeNull();
+    expect(shownPanel({ kind: "block", draft }, true)?.kind).toBe("block");
+    expect(shownPanel({ kind: "segment", id: "x" }, false)?.kind).toBe("segment");
+    expect(shownPanel({ kind: "design" }, false)?.kind).toBe("design");
+  });
+  it("パネルの種類に応じて、タイムラインで強調するものが 1 つだけ決まる", () => {
+    const none = { draft: null, actualSpan: null, segmentId: null };
+    expect(timelineSelection(null)).toEqual(none);
+    expect(timelineSelection({ kind: "design" })).toEqual(none);
+    expect(timelineSelection({ kind: "nudge" })).toEqual(none);
+    expect(timelineSelection({ kind: "block", draft })).toEqual({ ...none, draft });
+    expect(timelineSelection({ kind: "correct", span: { start: 3, end: 4 } })).toEqual({ ...none, actualSpan: { start: 3, end: 4 } });
+    expect(timelineSelection({ kind: "segment", id: "S1" })).toEqual({ ...none, segmentId: "S1" });
+  });
+});
+
+describe("タイムライン", () => {
+  it("表示範囲に収める時刻は、現在時刻（今日だけ）・ブロック・区間・終日でない予定の両端", () => {
+    const blocks = [{ start_at: 10, end_at: 20 }];
+    const segs = [{ start_at: 30, end_at: 40 }];
+    const events = [
+      { start_at: 50, end_at: 60, all_day: false },
+      { start_at: 0, end_at: 100, all_day: true },
+    ];
+    expect(viewAnchors(5, blocks, segs, events)).toEqual([5, 10, 20, 30, 40, 50, 60]);
+    expect(viewAnchors(undefined, blocks, segs, events)).toEqual([10, 20, 30, 40, 50, 60]);
+    expect(viewAnchors(undefined, [], [], [])).toEqual([]);
+  });
+  it("凡例の種別は出現順で重複なし", () => {
+    expect(legendKinds([{ kind: "work" }, { kind: "idle" }, { kind: "work" }, { kind: "meeting" }])).toEqual(["work", "idle", "meeting"]);
+    expect(legendKinds([])).toEqual([]);
+  });
+  it("ブロックに置いたタスクは候補から外す", () => {
+    const tasks = [{ id: "T1" }, { id: "T2" }, { id: "T3" }];
+    expect(unplacedTasks(tasks, [{ task_id: "T2" }, { task_id: null }])).toEqual([{ id: "T1" }, { id: "T3" }]);
+    expect(unplacedTasks(tasks, [])).toEqual(tasks);
+  });
+});
+
+describe("内訳と案内", () => {
+  const row = (label: string) => ({ key: null, label, duration_ms: 1, ratio: 1, segments: 1 });
+  const status = { today: { by_kind: [row("作業")], top_tasks: [row("A")], total_ms: 100 } };
+  const rows9 = Array.from({ length: 9 }, (_, i) => row(`T${i}`));
+  it("今日は status の集計（届くまで null）", () => {
+    expect(breakdownOf(true, undefined, undefined, undefined)).toBeNull();
+    expect(breakdownOf(true, status, null, null)).toEqual({ kindRows: status.today.by_kind, taskRows: status.today.top_tasks, total: 100 });
+  });
+  it("今日以外はレポートの集計（タスクは上位 8 件。両方届くまで null）", () => {
+    const kinds = { rows: [row("会議")], total_ms: 50 };
+    expect(breakdownOf(false, status, kinds, undefined)).toBeNull();
+    expect(breakdownOf(false, undefined, undefined, { rows: rows9, total_ms: 1 })).toBeNull();
+    const b = breakdownOf(false, undefined, kinds, { rows: rows9, total_ms: 1 });
+    expect(b?.kindRows).toEqual(kinds.rows);
+    expect(b?.taskRows).toHaveLength(8);
+    expect(b?.total).toBe(50);
+  });
+  it("「次にやること」は今日・データが届いた後・デザイン中でない・使い始めのときだけ", () => {
+    const fresh = { doing: [] as unknown[] };
+    expect(startGuideFor(true, fresh, [], false)).toEqual({ doing: 0, segments: 0 });
+    expect(startGuideFor(true, { doing: [1] }, [], false)).toEqual({ doing: 1, segments: 0 });
+    expect(startGuideFor(true, { doing: [1] }, [1], false)).toBeNull();
+    expect(startGuideFor(false, fresh, [], false)).toBeNull();
+    expect(startGuideFor(true, undefined, [], false)).toBeNull();
+    expect(startGuideFor(true, fresh, undefined, false)).toBeNull();
+    expect(startGuideFor(true, fresh, [], true)).toBeNull();
   });
 });
 

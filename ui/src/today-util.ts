@@ -1,7 +1,8 @@
-// 今日の画面の純粋なロジック（日付の移動・サイドパネルの状態・「いま」の行のまとめ方）。画面に依存しない。
+// 今日の画面の純粋なロジック（日付の移動・サイドパネルの状態・「いま」の行のまとめ方・内訳の選び方）。画面に依存しない。
 import type { BlockDraft } from "./block-form";
-import type { Millis } from "./api";
+import type { Millis, ReportRow } from "./api";
 import type { TimeSpan } from "./plan-util";
+import { showStartGuide } from "./welcome-util";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -90,6 +91,99 @@ export function sideReducer(s: SideState, a: SideAction): SideState {
 /** 実際に出すパネル。別のパネルがあればそれ、なければデザイン。 */
 export function visiblePanel(s: SideState): SidePanel | null {
   return s.other ?? (s.design ? { kind: "design" } : null);
+}
+
+/** 画面に出すパネル。ブロックの作成・編集は、その日の範囲（`hasRange`）が届くまで出さない。 */
+export function shownPanel(panel: SidePanel | null, hasRange: boolean): SidePanel | null {
+  if (!panel) return null;
+  return panel.kind === "block" && !hasRange ? null : panel;
+}
+
+/** サイドパネルの内容のうち、タイムラインで強調するもの（編集中のブロック・補正の範囲・開いている区間）。 */
+export interface TimelineSelection {
+  draft: BlockDraft | null;
+  actualSpan: TimeSpan | null;
+  segmentId: string | null;
+}
+
+export function timelineSelection(panel: SidePanel | null): TimelineSelection {
+  return {
+    draft: panel?.kind === "block" ? panel.draft : null,
+    actualSpan: panel?.kind === "correct" ? panel.span : null,
+    segmentId: panel?.kind === "segment" ? panel.id : null,
+  };
+}
+
+// ===== タイムライン =====
+
+interface Spanned {
+  start_at: Millis;
+  end_at: Millis;
+}
+
+/** タイムラインの表示範囲に収めたい時刻（現在時刻・ブロック・区間・終日でない予定の両端）。`now` は今日だけ渡す。 */
+export function viewAnchors(now: Millis | undefined, blocks: Spanned[], segments: Spanned[], events: (Spanned & { all_day: boolean })[]): Millis[] {
+  return [
+    ...(now === undefined ? [] : [now]),
+    ...blocks.flatMap((b) => [b.start_at, b.end_at]),
+    ...segments.flatMap((x) => [x.start_at, x.end_at]),
+    ...events.filter((c) => !c.all_day).flatMap((c) => [c.start_at, c.end_at]),
+  ];
+}
+
+/** 凡例に出す種別（区間の出現順。重複なし）。 */
+export function legendKinds<K>(segments: { kind: K }[]): K[] {
+  return [...new Set(segments.map((x) => x.kind))];
+}
+
+/** まだブロックにしていないタスク（デザインのパネルに並べる候補）。 */
+export function unplacedTasks<T extends { id: string }>(tasks: T[], blocks: { task_id: string | null }[]): T[] {
+  const placed = new Set(blocks.map((b) => b.task_id).filter(Boolean));
+  return tasks.filter((t) => !placed.has(t.id));
+}
+
+// ===== 内訳・案内 =====
+
+interface BreakdownStatus {
+  today: { by_kind: ReportRow[]; top_tasks: ReportRow[]; total_ms: number };
+}
+interface BreakdownReport {
+  rows: ReportRow[];
+  total_ms: number;
+}
+
+/** 内訳の節に出すもの。 */
+export interface Breakdown {
+  kindRows: ReportRow[];
+  /** タスクごと（上位 8 件）。 */
+  taskRows: ReportRow[];
+  total: number;
+}
+
+/**
+ * 内訳。今日は status の集計、それ以外はレポートの集計（今日は null で届く）。
+ * 元になる値がまだ届いていなければ null（節を出さない）。
+ */
+export function breakdownOf(
+  isToday: boolean,
+  status: BreakdownStatus | undefined,
+  kinds: BreakdownReport | null | undefined,
+  tasks: BreakdownReport | null | undefined,
+): Breakdown | null {
+  if (isToday) return status ? { kindRows: status.today.by_kind, taskRows: status.today.top_tasks, total: status.today.total_ms } : null;
+  if (!kinds || !tasks) return null;
+  return { kindRows: kinds.rows, taskRows: tasks.rows.slice(0, 8), total: kinds.total_ms };
+}
+
+/** 「次にやること」の案内に出す件数。今日の状況と実績が届いていて、デザイン中でなく、使い始めのときだけ。それ以外は null。 */
+export function startGuideFor(
+  isToday: boolean,
+  status: { doing: unknown[] } | undefined,
+  segments: unknown[] | undefined,
+  designing: boolean,
+): { doing: number; segments: number } | null {
+  if (!isToday || !status || !segments || designing) return null;
+  return showStartGuide(status.doing.length, segments.length) ? { doing: status.doing.length, segments: segments.length } : null;
 }
 
 // ===== 「いま」 =====
