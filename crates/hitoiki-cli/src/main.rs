@@ -290,325 +290,10 @@ fn run(cli: Cli) -> Result<()> {
             emit(json, &st, || render::status(tz, &st))
         }
         Cmd::Task(t) => task_cmd(&ctx, t, json),
-        Cmd::Nudge(p) => match p {
-            NudgeCmd::List { range, unanswered } => {
-                let l = nudgelog::list(&ctx, &range_args(&range), unanswered)?;
-                emit(json, &l, || render::nudge_list(tz, &l))
-            }
-            NudgeCmd::Answer {
-                id,
-                energy,
-                mood,
-                stress,
-                concern,
-                idle,
-                task,
-                dismiss,
-            } => {
-                // `--idle task` は「通知が示したタスクをしていた」（`--task idle_task` と同じ）。
-                let (idle, task) = match idle.as_deref() {
-                    Some("task") if task.is_none() => (None, Some("idle_task".to_string())),
-                    _ => (idle, task),
-                };
-                let idle_task = task.as_deref() == Some("idle_task");
-                let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
-                let task = task.map(|s| s.parse::<nudgelog::TaskAnswer>()).transpose()?;
-                let r = nudgelog::answer(
-                    &ctx,
-                    &id,
-                    &nudgelog::AnswerInput {
-                        energy,
-                        mood,
-                        stress,
-                        concern,
-                        idle,
-                        task,
-                        dismiss,
-                    },
-                )?;
-                if r.condition_id.is_some() {
-                    ext::notify_data("condition");
-                }
-                if r.concern_id.is_some() {
-                    ext::notify_data("concern");
-                }
-                if idle.is_some() || idle_task {
-                    ext::notify_data("segments");
-                }
-                if let Some(id) = r.started_task.as_deref() {
-                    ext::notify_task(Some(id));
-                }
-                emit(json, &r, || render::nudge_answered(&r))
-            }
-        },
-        Cmd::Actual(r) => match r {
-            ActualCmd::List { range, raw } => {
-                let l = actual_svc::list(
-                    &ctx,
-                    &actual_svc::ActualListInput {
-                        range: range_args(&range),
-                        raw,
-                    },
-                )?;
-                emit(json, &l, || render::actual_list(tz, &l))
-            }
-            ActualCmd::Review { range, all } => {
-                let l = review::list_with(&ctx, &range_args(&range), all)?;
-                emit(json, &l, || render::actual_review(tz, &l))
-            }
-            ActualCmd::Confirm {
-                mut segments,
-                task,
-                kind,
-                activity,
-                rule,
-            } => {
-                if segments.len() == 1 {
-                    let r = review::confirm(
-                        &ctx,
-                        &review::ConfirmInput {
-                            segment: segments.remove(0),
-                            task,
-                            kind,
-                            activity,
-                            rule,
-                        },
-                    )?;
-                    ext::notify_data("segments");
-                    emit(json, &r, || render::actual_confirm(tz, &r))
-                } else {
-                    let r = review::confirm_many(
-                        &ctx,
-                        &review::ConfirmBatchInput {
-                            segments,
-                            task,
-                            kind,
-                            activity,
-                            rule,
-                        },
-                    )?;
-                    ext::notify_data("segments");
-                    emit(json, &r, || render::actual_batch(tz, &r))
-                }
-            }
-            ActualCmd::Correct {
-                from,
-                to,
-                task,
-                activity,
-                no_task,
-                rest,
-                include_confirmed,
-                include_meeting,
-                include_idle,
-                exclude,
-                dry_run,
-            } => {
-                // 範囲指定の付け替え（実績の補正）。
-                let range = ctx.range(&RangeArgs {
-                    date: None,
-                    from: Some(from),
-                    to: Some(to),
-                })?;
-                let flag = |b: bool| b.then_some(true);
-                let input = correction::CorrectionInput {
-                    start_at: range.start,
-                    end_at: range.end,
-                    task,
-                    no_task,
-                    rest,
-                    activity,
-                    selected: None,
-                    include_confirmed: flag(include_confirmed),
-                    include_meeting: flag(include_meeting),
-                    include_idle: flag(include_idle),
-                    exclude,
-                };
-                if dry_run {
-                    let p = correction::preview(&ctx, &input)?;
-                    emit(json, &p, || render::correction_preview(tz, &p))
-                } else {
-                    let r = correction::apply(&ctx, &input)?;
-                    ext::notify_data("segments");
-                    emit(json, &r, || render::correction_applied(tz, &r))
-                }
-            }
-            ActualCmd::Corrections { task, date } => {
-                let l = correction::list(&ctx, &correction::CorrectionFilter { task, date })?;
-                emit(json, &l, || render::corrections(tz, &l))
-            }
-            ActualCmd::UndoCorrection { id } => {
-                let judge = ext::judge_for(&ctx, None)?;
-                let r = correction::undo(&ctx, &id, judge.as_deref())?;
-                ext::notify_data("segments");
-                emit(json, &r, || render::correction_undone(tz, &r))
-            }
-            ActualCmd::Ignore { segments } => {
-                let r = review::ignore(&ctx, &segments)?;
-                ext::notify_data("segments");
-                emit(json, &r, || render::actual_batch(tz, &r))
-            }
-            ActualCmd::Unignore { segments } => {
-                let judge = ext::judge_for(&ctx, None)?;
-                let r = review::unignore(&ctx, &segments, judge.as_deref())?;
-                ext::notify_data("segments");
-                emit(json, &r, || render::unignored(&r))
-            }
-            ActualCmd::Idle { mut args } => {
-                let preset: review::IdlePreset = args.pop().unwrap_or_default().parse()?;
-                let r = review::set_idle(&ctx, &args, preset)?;
-                ext::notify_data("segments");
-                emit(json, &r, || render::actual_batch(tz, &r))
-            }
-            ActualCmd::Suggest { accept, dismiss } => {
-                let list = review::suggest_rules(&ctx)?;
-                let pick = |n: usize| {
-                    n.checked_sub(1).and_then(|i| list.get(i)).ok_or_else(|| {
-                        hitoiki_core::Error::InvalidArgument(format!(
-                            "提案 {n} はありません（1〜{}）",
-                            list.len()
-                        ))
-                    })
-                };
-                if let Some(n) = accept {
-                    let r = review::accept_suggestion(&ctx, &pick(n)?.rule)?;
-                    ext::notify_data("segments");
-                    emit(json, &r, || render::rule_line(&r))
-                } else if let Some(n) = dismiss {
-                    review::dismiss_suggestion(&ctx, &pick(n)?.rule)?;
-                    emit(json, &serde_json::json!({ "dismissed": true }), || {
-                        "この提案は一定期間表示しません。".to_string()
-                    })
-                } else {
-                    emit(json, &list, || render::suggestions(&list))
-                }
-            }
-        },
-        Cmd::Ignore(c) => {
-            use service::ignore as ign;
-            let cfg_path = paths::config_file();
-            match c {
-                IgnoreCmd::List => {
-                    let l = ign::list(&Config::load_from(&cfg_path)?);
-                    emit(json, &l, || render::ignore_list(&l))
-                }
-                IgnoreCmd::Add { exe } => {
-                    let judge = ext::judge_for(&ctx, None)?;
-                    let r = ign::add(&ctx, &cfg_path, &exe, judge.as_deref())?;
-                    ext::notify_data("segments");
-                    emit(json, &r, || render::ignore_change(&r, true))
-                }
-                IgnoreCmd::Remove { exe } => {
-                    let judge = ext::judge_for(&ctx, None)?;
-                    let r = ign::remove(&ctx, &cfg_path, &exe, judge.as_deref())?;
-                    ext::notify_data("segments");
-                    emit(json, &r, || render::ignore_change(&r, false))
-                }
-                IgnoreCmd::Suggest {
-                    accept,
-                    dismiss,
-                    days,
-                } => {
-                    let days = days.unwrap_or(ign::SUGGEST_DAYS);
-                    if let Some(exe) = accept {
-                        let judge = ext::judge_for(&ctx, None)?;
-                        let r = ign::add(&ctx, &cfg_path, &exe, judge.as_deref())?;
-                        ext::notify_data("segments");
-                        emit(json, &r, || render::ignore_change(&r, true))
-                    } else if let Some(exe) = dismiss {
-                        ign::dismiss(&ctx, &exe)?;
-                        emit(
-                            json,
-                            &serde_json::json!({ "dismissed": true, "exe": exe }),
-                            || format!("{exe} の提案は {} 日間表示しません。", ign::DISMISS_DAYS),
-                        )
-                    } else {
-                        let l = ign::suggest(&ctx, days)?;
-                        emit(json, &l, || render::ignore_suggestions(&l, days))
-                    }
-                }
-            }
-        }
-        Cmd::Block(b) => match b {
-            BlockCmd::Add {
-                start,
-                end,
-                task,
-                label,
-                focus,
-            } => {
-                let now = ctx.now();
-                let block = plan::add(
-                    &ctx,
-                    &plan::BlockInput {
-                        start: timefmt::parse_instant(tz, &start, now)?,
-                        end: timefmt::parse_instant(tz, &end, now)?,
-                        task,
-                        label,
-                        focus,
-                    },
-                )?;
-                ext::notify_data("blocks");
-                emit(json, &block, || render::block_added(tz, &block))
-            }
-            BlockCmd::List { range } => {
-                let l = plan::list(&ctx, &range_args(&range))?;
-                emit(json, &l, || render::blocks(tz, &l))
-            }
-            BlockCmd::Edit {
-                id,
-                start,
-                end,
-                task,
-                label,
-                focus,
-                no_focus,
-            } => {
-                let now = ctx.now();
-                let cur = plan::find(&ctx, &id)?;
-                let b = plan::update(
-                    &ctx,
-                    &id,
-                    &plan::BlockInput {
-                        start: match &start {
-                            Some(s) => timefmt::parse_instant(tz, s, now)?,
-                            None => cur.start_at,
-                        },
-                        end: match &end {
-                            Some(s) => timefmt::parse_instant(tz, s, now)?,
-                            None => cur.end_at,
-                        },
-                        task: task.or(cur.task_id),
-                        label: label.or(cur.label),
-                        focus: if focus {
-                            true
-                        } else if no_focus {
-                            false
-                        } else {
-                            cur.focus
-                        },
-                    },
-                )?;
-                ext::notify_data("blocks");
-                emit(json, &b, || {
-                    format!(
-                        "ブロックを更新しました: {} {}-{}",
-                        render::short(&b.id),
-                        timefmt::fmt_hm(tz, b.start_at),
-                        timefmt::fmt_hm(tz, b.end_at)
-                    )
-                })
-            }
-            BlockCmd::Delete { id } => {
-                let b = plan::find(&ctx, &id)?;
-                plan::delete(&ctx, &b.id)?;
-                ext::notify_data("blocks");
-                emit(json, &b, || {
-                    format!("ブロックを削除しました: {}", render::short(&b.id))
-                })
-            }
-            BlockCmd::Template(t) => template_cmd(&ctx, tz, json, t),
-        },
+        Cmd::Nudge(p) => nudge_cmd(&ctx, tz, json, p),
+        Cmd::Actual(r) => actual_cmd(&ctx, tz, json, r),
+        Cmd::Ignore(c) => ignore_cmd(&ctx, json, c),
+        Cmd::Block(b) => block_cmd(&ctx, tz, json, b),
         Cmd::Condition { cmd: Some(sub), .. } => manage::condition_sub(&ctx, json, sub),
         Cmd::Concern { cmd: Some(sub), .. } => manage::concern_sub(&ctx, json, sub),
         Cmd::ActivityRule(c) => manage::activity_rule_sub(&ctx, json, c),
@@ -683,23 +368,7 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Erg(e) => erg_cmd(&ctx, e, json),
         Cmd::Goal(g) => manage::goal_sub(&ctx, json, g),
         Cmd::KeyResult(k) => manage::key_result_sub(&ctx, json, k),
-        Cmd::Skill(s) => match s {
-            SkillCmd::Add { name, parent } => {
-                let s = skill::add(&ctx, &skill::SkillInput { name, parent })?;
-                emit(json, &s, || {
-                    format!("スキルを追加しました: {} {}", render::short(&s.id), s.name)
-                })
-            }
-            SkillCmd::ImportPreset { name } => {
-                let p = skill::import_preset(&ctx, name.as_deref())?;
-                emit(json, &p, || render::preset_import(&p))
-            }
-            SkillCmd::List => {
-                let l = skill::list(&ctx)?;
-                emit(json, &l, || render::skills(&l))
-            }
-            other => manage::skill_sub(&ctx, json, other),
-        },
+        Cmd::Skill(s) => skill_cmd(&ctx, json, s),
         Cmd::Report {
             period,
             from,
@@ -734,6 +403,355 @@ fn run(cli: Cli) -> Result<()> {
         }
         // DB を開く前に処理済み
         _ => unreachable!("handled before opening the database"),
+    }
+}
+
+fn nudge_cmd(ctx: &Ctx, tz: chrono_tz::Tz, json: bool, cmd: NudgeCmd) -> Result<()> {
+    match cmd {
+        NudgeCmd::List { range, unanswered } => {
+            let l = nudgelog::list(ctx, &range_args(&range), unanswered)?;
+            emit(json, &l, || render::nudge_list(tz, &l))
+        }
+        NudgeCmd::Answer {
+            id,
+            energy,
+            mood,
+            stress,
+            concern,
+            idle,
+            task,
+            dismiss,
+        } => {
+            // `--idle task` は「通知が示したタスクをしていた」（`--task idle_task` と同じ）。
+            let (idle, task) = match idle.as_deref() {
+                Some("task") if task.is_none() => (None, Some("idle_task".to_string())),
+                _ => (idle, task),
+            };
+            let idle_task = task.as_deref() == Some("idle_task");
+            let idle = idle.map(|s| s.parse::<review::IdlePreset>()).transpose()?;
+            let task = task.map(|s| s.parse::<nudgelog::TaskAnswer>()).transpose()?;
+            let r = nudgelog::answer(
+                ctx,
+                &id,
+                &nudgelog::AnswerInput {
+                    energy,
+                    mood,
+                    stress,
+                    concern,
+                    idle,
+                    task,
+                    dismiss,
+                },
+            )?;
+            if r.condition_id.is_some() {
+                ext::notify_data("condition");
+            }
+            if r.concern_id.is_some() {
+                ext::notify_data("concern");
+            }
+            if idle.is_some() || idle_task {
+                ext::notify_data("segments");
+            }
+            if let Some(id) = r.started_task.as_deref() {
+                ext::notify_task(Some(id));
+            }
+            emit(json, &r, || render::nudge_answered(&r))
+        }
+    }
+}
+
+fn actual_cmd(ctx: &Ctx, tz: chrono_tz::Tz, json: bool, cmd: ActualCmd) -> Result<()> {
+    match cmd {
+        ActualCmd::List { range, raw } => {
+            let l = actual_svc::list(
+                ctx,
+                &actual_svc::ActualListInput {
+                    range: range_args(&range),
+                    raw,
+                },
+            )?;
+            emit(json, &l, || render::actual_list(tz, &l))
+        }
+        ActualCmd::Review { range, all } => {
+            let l = review::list_with(ctx, &range_args(&range), all)?;
+            emit(json, &l, || render::actual_review(tz, &l))
+        }
+        ActualCmd::Confirm {
+            mut segments,
+            task,
+            kind,
+            activity,
+            rule,
+        } => {
+            if segments.len() == 1 {
+                let r = review::confirm(
+                    ctx,
+                    &review::ConfirmInput {
+                        segment: segments.remove(0),
+                        task,
+                        kind,
+                        activity,
+                        rule,
+                    },
+                )?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::actual_confirm(tz, &r))
+            } else {
+                let r = review::confirm_many(
+                    ctx,
+                    &review::ConfirmBatchInput {
+                        segments,
+                        task,
+                        kind,
+                        activity,
+                        rule,
+                    },
+                )?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::actual_batch(tz, &r))
+            }
+        }
+        ActualCmd::Correct {
+            from,
+            to,
+            task,
+            activity,
+            no_task,
+            rest,
+            include_confirmed,
+            include_meeting,
+            include_idle,
+            exclude,
+            dry_run,
+        } => {
+            // 範囲指定の付け替え（実績の補正）。
+            let range = ctx.range(&RangeArgs {
+                date: None,
+                from: Some(from),
+                to: Some(to),
+            })?;
+            let flag = |b: bool| b.then_some(true);
+            let input = correction::CorrectionInput {
+                start_at: range.start,
+                end_at: range.end,
+                task,
+                no_task,
+                rest,
+                activity,
+                selected: None,
+                include_confirmed: flag(include_confirmed),
+                include_meeting: flag(include_meeting),
+                include_idle: flag(include_idle),
+                exclude,
+            };
+            if dry_run {
+                let p = correction::preview(ctx, &input)?;
+                emit(json, &p, || render::correction_preview(tz, &p))
+            } else {
+                let r = correction::apply(ctx, &input)?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::correction_applied(tz, &r))
+            }
+        }
+        ActualCmd::Corrections { task, date } => {
+            let l = correction::list(ctx, &correction::CorrectionFilter { task, date })?;
+            emit(json, &l, || render::corrections(tz, &l))
+        }
+        ActualCmd::UndoCorrection { id } => {
+            let judge = ext::judge_for(ctx, None)?;
+            let r = correction::undo(ctx, &id, judge.as_deref())?;
+            ext::notify_data("segments");
+            emit(json, &r, || render::correction_undone(tz, &r))
+        }
+        ActualCmd::Ignore { segments } => {
+            let r = review::ignore(ctx, &segments)?;
+            ext::notify_data("segments");
+            emit(json, &r, || render::actual_batch(tz, &r))
+        }
+        ActualCmd::Unignore { segments } => {
+            let judge = ext::judge_for(ctx, None)?;
+            let r = review::unignore(ctx, &segments, judge.as_deref())?;
+            ext::notify_data("segments");
+            emit(json, &r, || render::unignored(&r))
+        }
+        ActualCmd::Idle { mut args } => {
+            let preset: review::IdlePreset = args.pop().unwrap_or_default().parse()?;
+            let r = review::set_idle(ctx, &args, preset)?;
+            ext::notify_data("segments");
+            emit(json, &r, || render::actual_batch(tz, &r))
+        }
+        ActualCmd::Suggest { accept, dismiss } => {
+            let list = review::suggest_rules(ctx)?;
+            let pick = |n: usize| {
+                n.checked_sub(1).and_then(|i| list.get(i)).ok_or_else(|| {
+                    hitoiki_core::Error::InvalidArgument(format!(
+                        "提案 {n} はありません（1〜{}）",
+                        list.len()
+                    ))
+                })
+            };
+            if let Some(n) = accept {
+                let r = review::accept_suggestion(ctx, &pick(n)?.rule)?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::rule_line(&r))
+            } else if let Some(n) = dismiss {
+                review::dismiss_suggestion(ctx, &pick(n)?.rule)?;
+                emit(json, &serde_json::json!({ "dismissed": true }), || {
+                    "この提案は一定期間表示しません。".to_string()
+                })
+            } else {
+                emit(json, &list, || render::suggestions(&list))
+            }
+        }
+    }
+}
+
+fn ignore_cmd(ctx: &Ctx, json: bool, cmd: IgnoreCmd) -> Result<()> {
+    use service::ignore as ign;
+    let cfg_path = paths::config_file();
+    match cmd {
+        IgnoreCmd::List => {
+            let l = ign::list(&Config::load_from(&cfg_path)?);
+            emit(json, &l, || render::ignore_list(&l))
+        }
+        IgnoreCmd::Add { exe } => {
+            let judge = ext::judge_for(ctx, None)?;
+            let r = ign::add(ctx, &cfg_path, &exe, judge.as_deref())?;
+            ext::notify_data("segments");
+            emit(json, &r, || render::ignore_change(&r, true))
+        }
+        IgnoreCmd::Remove { exe } => {
+            let judge = ext::judge_for(ctx, None)?;
+            let r = ign::remove(ctx, &cfg_path, &exe, judge.as_deref())?;
+            ext::notify_data("segments");
+            emit(json, &r, || render::ignore_change(&r, false))
+        }
+        IgnoreCmd::Suggest {
+            accept,
+            dismiss,
+            days,
+        } => {
+            let days = days.unwrap_or(ign::SUGGEST_DAYS);
+            if let Some(exe) = accept {
+                let judge = ext::judge_for(ctx, None)?;
+                let r = ign::add(ctx, &cfg_path, &exe, judge.as_deref())?;
+                ext::notify_data("segments");
+                emit(json, &r, || render::ignore_change(&r, true))
+            } else if let Some(exe) = dismiss {
+                ign::dismiss(ctx, &exe)?;
+                emit(
+                    json,
+                    &serde_json::json!({ "dismissed": true, "exe": exe }),
+                    || format!("{exe} の提案は {} 日間表示しません。", ign::DISMISS_DAYS),
+                )
+            } else {
+                let l = ign::suggest(ctx, days)?;
+                emit(json, &l, || render::ignore_suggestions(&l, days))
+            }
+        }
+    }
+}
+
+fn block_cmd(ctx: &Ctx, tz: chrono_tz::Tz, json: bool, cmd: BlockCmd) -> Result<()> {
+    match cmd {
+        BlockCmd::Add {
+            start,
+            end,
+            task,
+            label,
+            focus,
+        } => {
+            let now = ctx.now();
+            let block = plan::add(
+                ctx,
+                &plan::BlockInput {
+                    start: timefmt::parse_instant(tz, &start, now)?,
+                    end: timefmt::parse_instant(tz, &end, now)?,
+                    task,
+                    label,
+                    focus,
+                },
+            )?;
+            ext::notify_data("blocks");
+            emit(json, &block, || render::block_added(tz, &block))
+        }
+        BlockCmd::List { range } => {
+            let l = plan::list(ctx, &range_args(&range))?;
+            emit(json, &l, || render::blocks(tz, &l))
+        }
+        BlockCmd::Edit {
+            id,
+            start,
+            end,
+            task,
+            label,
+            focus,
+            no_focus,
+        } => {
+            let now = ctx.now();
+            let cur = plan::find(ctx, &id)?;
+            let b = plan::update(
+                ctx,
+                &id,
+                &plan::BlockInput {
+                    start: match &start {
+                        Some(s) => timefmt::parse_instant(tz, s, now)?,
+                        None => cur.start_at,
+                    },
+                    end: match &end {
+                        Some(s) => timefmt::parse_instant(tz, s, now)?,
+                        None => cur.end_at,
+                    },
+                    task: task.or(cur.task_id),
+                    label: label.or(cur.label),
+                    focus: if focus {
+                        true
+                    } else if no_focus {
+                        false
+                    } else {
+                        cur.focus
+                    },
+                },
+            )?;
+            ext::notify_data("blocks");
+            emit(json, &b, || {
+                format!(
+                    "ブロックを更新しました: {} {}-{}",
+                    render::short(&b.id),
+                    timefmt::fmt_hm(tz, b.start_at),
+                    timefmt::fmt_hm(tz, b.end_at)
+                )
+            })
+        }
+        BlockCmd::Delete { id } => {
+            let b = plan::find(ctx, &id)?;
+            plan::delete(ctx, &b.id)?;
+            ext::notify_data("blocks");
+            emit(json, &b, || {
+                format!("ブロックを削除しました: {}", render::short(&b.id))
+            })
+        }
+        BlockCmd::Template(t) => template_cmd(ctx, tz, json, t),
+    }
+}
+
+fn skill_cmd(ctx: &Ctx, json: bool, cmd: SkillCmd) -> Result<()> {
+    match cmd {
+        SkillCmd::Add { name, parent } => {
+            let s = skill::add(ctx, &skill::SkillInput { name, parent })?;
+            emit(json, &s, || {
+                format!("スキルを追加しました: {} {}", render::short(&s.id), s.name)
+            })
+        }
+        SkillCmd::ImportPreset { name } => {
+            let p = skill::import_preset(ctx, name.as_deref())?;
+            emit(json, &p, || render::preset_import(&p))
+        }
+        SkillCmd::List => {
+            let l = skill::list(ctx)?;
+            emit(json, &l, || render::skills(&l))
+        }
+        other => manage::skill_sub(ctx, json, other),
     }
 }
 
