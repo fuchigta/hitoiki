@@ -650,17 +650,25 @@ mod tests {
     use crate::service::record::{self, ReframeInput};
     use crate::service::testutil::Env;
 
-    /// `cargo test` が一緒にビルドする examples/echo_stdin のパス。
+    /// ビルド済み examples/echo_stdin のパス。
+    ///
+    /// テストバイナリの置き場所は cargo の版によって変わる（`debug/deps/` のことも
+    /// `debug/build/<pkg>/<hash>/out/` のこともある）ため、実行ファイルの祖先を
+    /// たどって `examples/` を探す。
     fn echo_bin() -> Option<String> {
         let exe = std::env::current_exe().ok()?;
-        let dir = exe.parent()?.parent()?.join("examples");
         let name = if cfg!(windows) {
             "echo_stdin.exe"
         } else {
             "echo_stdin"
         };
-        let p = dir.join(name);
-        p.is_file().then(|| p.to_string_lossy().into_owned())
+        for dir in exe.ancestors().skip(1) {
+            let p = dir.join("examples").join(name);
+            if p.is_file() {
+                return Some(p.to_string_lossy().into_owned());
+            }
+        }
+        None
     }
 
     fn argv(mode: Option<&str>) -> Vec<String> {
