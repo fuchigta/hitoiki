@@ -43,6 +43,10 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      # reflect のテストが examples/echo_stdin を実行時に探すため、先に確実にビルドしておく。
+      - name: Build test examples
+        run: cargo build -p hitoiki-core --examples
+
       - name: Test
         run: cargo test --workspace
 
