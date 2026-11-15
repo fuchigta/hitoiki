@@ -1,0 +1,21 @@
+# cccc (https://github.com/moznion/cccc) の設定
+#
+# 閾値は「現状より悪化させない」ためのラチェットです。
+# 標準の目安（認知的 15 / 循環的 10）では既存コードが通らないため、
+# 実測値の少し上（max + 2）に置いています。
+#
+# 導入時点の実測値（cccc v1.8.6、2026-11-15、除外後 250 ファイル・5868 関数）:
+#   - 認知的複雑度 max 43
+#     - crates/hitoiki-core/src/service/ignore.rs の suggest（認知的 43 / 循環的 31）
+#     - crates/hitoiki-agents/src/codex.rs の parse_incremental（認知的 43 / 循環的 20）
+#   - 循環的複雑度 max 41
+#     - ui/src/screens/Actual.tsx の Actual（認知的 33 / 循環的 41）
+#
+# リファクタリングで max が下がったら、この値も引き下げてください。
+max-cognitive = 45
+max-cyclomatic = 43
+
+# 開発用のコードは対象外にする（製品に含まれないため）。
+#   - ui/scripts/**: スクリーンショット・監査用の開発スクリプト
+#   - ui/src/dev/**: 開発用の画面
+exclude = ["ui/scripts/**", "ui/src/dev/**"]
