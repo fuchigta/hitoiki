@@ -51,8 +51,8 @@ tracing-appender = "0.2"
 winreg = "0.55"
 
 # テスト専用（dev-dependencies）
-# 1.9 以降は rust-version が 1.82 以上のため、rust-version = "1.80" で動く 1.8.0 に固定する。
-proptest = { version = "=1.8.0", default-features = false, features = ["std"] }
+# 更新は意図して行うため版を固定する（1.12.0 は rust-version 1.88 以上）。
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 
 # GUI（hitoiki-app）
 tauri = { version = "2", features = ["tray-icon"] }
