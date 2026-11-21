@@ -7,7 +7,7 @@ version = "0.9.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/fuchigta/hitoiki"
-rust-version = "1.80"
+rust-version = "1.100"
 
 # 依存クレートのデバッグ情報は使わないのに、Windows では .pdb として target を数十 GB 単位で
 # 膨らませるため作らない。自分のクレートのデバッグ情報は残る。
@@ -51,8 +51,8 @@ tracing-appender = "0.2"
 winreg = "0.55"
 
 # テスト専用（dev-dependencies）
-# 1.9 以降は rust-version が 1.82 以上のため、rust-version = "1.80" で動く 1.8.0 に固定する。
-proptest = { version = "=1.8.0", default-features = false, features = ["std"] }
+# 更新は意図して行うため版を固定する（1.12.0 は rust-version 1.88 以上）。
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
 
 # GUI（hitoiki-app）
 tauri = { version = "2", features = ["tray-icon"] }
