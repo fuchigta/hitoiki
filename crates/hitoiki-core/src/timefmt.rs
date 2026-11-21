@@ -258,4 +258,138 @@ mod tests {
         let d = parse_instant(tz, "2026-10-09", now).unwrap();
         assert_eq!(fmt_rfc3339(tz, d), "2026-10-09T00:00:00+09:00");
     }
+
+    /// proptest によるプロパティテスト（往復変換と範囲の包含関係）。
+    ///
+    /// タイムゾーンは UTC と Asia/Tokyo に固定する。どちらも対象期間（2000〜2099 年）に
+    /// サマータイムが無く、オフセットが時単位なので、1 日は常に 24 時間で、
+    /// ローカルの分と UTC ミリ秒が 1 対 1 に対応する。サマータイムのあるタイムゾーンでは
+    /// 春の切り替えで存在しない時刻を次の有効な時刻へ進める仕様（`local_minute_to_ms`）のため、
+    /// 分 → ミリ秒 → 分 の往復は成り立たない（不具合ではなく仕様）。
+    mod props {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// 1 日のミリ秒。
+        const DAY_MS: Millis = 86_400_000;
+        /// 1 分のミリ秒。
+        const MIN_MS: Millis = 60_000;
+        /// 対象期間の始まり（2000-01-01T00:00:00Z）。
+        const START_MS: Millis = 946_684_800_000;
+        /// 対象期間の終わり（2100-01-01T00:00:00Z、含まない）。
+        const END_MS: Millis = 4_102_444_800_000;
+
+        fn tz() -> impl Strategy<Value = Tz> {
+            prop_oneof![Just(Tz::UTC), Just(chrono_tz::Asia::Tokyo)]
+        }
+
+        /// 2000-01-01〜2099-12-31 のローカル日付。
+        fn date() -> impl Strategy<Value = NaiveDate> {
+            let base = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+            let last = NaiveDate::from_ymd_opt(2099, 12, 31).unwrap();
+            (0..=(last - base).num_days()).prop_map(move |n| base + Duration::days(n))
+        }
+
+        /// 対象期間内の UTC ミリ秒。
+        fn instant() -> impl Strategy<Value = Millis> {
+            START_MS..END_MS
+        }
+
+        /// 分単位に切り捨てる（UTC / Asia/Tokyo はオフセットが時単位なので、ローカルでも同じ）。
+        fn floor_minute(ms: Millis) -> Millis {
+            ms - ms.rem_euclid(MIN_MS)
+        }
+
+        proptest! {
+            // CI の実行時間を抑えるため、既定の 256 ケースから 64 ケースに減らす。
+            // with_cases で明示した値は環境変数 PROPTEST_CASES に左右されないので、
+            // ローカルと CI で同じケース数になる。
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            /// 分 → ミリ秒 → 分 で元に戻る（0〜1440 の全域）。
+            #[test]
+            fn local_minute_roundtrip(tz in tz(), d in date(), min in 0u32..=24 * 60) {
+                let ms = local_minute_to_ms(tz, d, min);
+                prop_assert_eq!(ms_to_local_minute(tz, d, ms), min);
+            }
+
+            /// ミリ秒 → 分 → ミリ秒 で、その日の範囲内の時刻が分単位に切り捨てた値に戻る。
+            #[test]
+            fn ms_to_local_minute_roundtrip(tz in tz(), ms in instant()) {
+                let d = local_date_of(tz, ms);
+                let min = ms_to_local_minute(tz, d, ms);
+                prop_assert!(min < 24 * 60);
+                prop_assert_eq!(local_minute_to_ms(tz, d, min), floor_minute(ms));
+            }
+
+            /// 日の範囲は 24 時間で、始まりと終わり直前がその日、終わりが翌日の始まりになる。
+            #[test]
+            fn day_range_covers_the_day(tz in tz(), d in date()) {
+                let r = day_range(tz, d);
+                prop_assert_eq!(r.len(), DAY_MS);
+                prop_assert_eq!(local_date_of(tz, r.start), d);
+                prop_assert_eq!(local_date_of(tz, r.end - 1), d);
+                prop_assert_eq!(local_date_of(tz, r.start - 1), d - Duration::days(1));
+                prop_assert_eq!(r.end, day_range(tz, d + Duration::days(1)).start);
+                prop_assert_eq!(r.start, local_minute_to_ms(tz, d, 0));
+                prop_assert_eq!(r.end, local_minute_to_ms(tz, d, 24 * 60));
+            }
+
+            /// 任意の時刻は、そのローカル日付の日の範囲と週の範囲に含まれる。
+            #[test]
+            fn ranges_contain_instant(tz in tz(), ms in instant()) {
+                let d = local_date_of(tz, ms);
+                let day = day_range(tz, d);
+                prop_assert!(day.start <= ms && ms < day.end);
+                let week = week_range(tz, d);
+                prop_assert!(week.start <= ms && ms < week.end);
+            }
+
+            /// 週の範囲は月曜 0 時から 7 日間で、その日の範囲を含み、同じ週のどの日から求めても同じになる。
+            #[test]
+            fn week_range_contains_day(tz in tz(), d in date(), other in 0i64..7) {
+                let w = week_range(tz, d);
+                let day = day_range(tz, d);
+                prop_assert_eq!(w.len(), 7 * DAY_MS);
+                prop_assert!(w.start <= day.start && day.end <= w.end);
+                let monday = local_date_of(tz, w.start);
+                prop_assert_eq!(monday.weekday(), chrono::Weekday::Mon);
+                prop_assert_eq!(w.start, day_range(tz, monday).start);
+                prop_assert_eq!(week_range(tz, monday + Duration::days(other)), w);
+            }
+
+            /// 表示した長さを解釈し直すと、分単位に切り捨てた長さに戻る。
+            #[test]
+            fn duration_roundtrip(min in 0i64..=1_000_000, sub in 0i64..MIN_MS) {
+                let s = fmt_duration(min * MIN_MS + sub);
+                prop_assert_eq!(parse_duration_min(&s).unwrap(), min);
+            }
+
+            /// `XhYm` / `Xh` / `Ym` / 数字だけ の形式は、時と分を合計した分になる。
+            #[test]
+            fn parse_duration_forms(h in 0i64..=10_000, m in 0i64..=59) {
+                prop_assert_eq!(parse_duration_min(&format!("{h}h{m}m")).unwrap(), h * 60 + m);
+                prop_assert_eq!(parse_duration_min(&format!("{h}h")).unwrap(), h * 60);
+                prop_assert_eq!(parse_duration_min(&format!("{m}m")).unwrap(), m);
+                prop_assert_eq!(parse_duration_min(&format!("{}", h * 60 + m)).unwrap(), h * 60 + m);
+            }
+
+            /// RFC 3339 の表示を解釈し直すと、ミリ秒まで元の時刻に戻る（`now` には依存しない）。
+            #[test]
+            fn rfc3339_roundtrip(tz in tz(), ms in instant(), now in instant()) {
+                let s = fmt_rfc3339(tz, ms);
+                prop_assert_eq!(parse_instant(tz, &s, now).unwrap(), ms);
+            }
+
+            /// `HH:MM` の表示を同じ日の `now` で解釈し直すと、分単位に切り捨てた時刻に戻る。
+            #[test]
+            fn hm_roundtrip(tz in tz(), ms in instant(), now_offset in 0i64..DAY_MS) {
+                // `HH:MM` は `now` のローカル日付で解釈されるので、`now` は `ms` と同じ日に取る。
+                let day = day_range(tz, local_date_of(tz, ms));
+                let now = day.start + now_offset;
+                let s = fmt_hm(tz, ms);
+                prop_assert_eq!(parse_instant(tz, &s, now).unwrap(), floor_minute(ms));
+            }
+        }
+    }
 }
