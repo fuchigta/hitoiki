@@ -1,0 +1,20 @@
+{
+  "threshold": 1.8,
+  "ignore": [
+    ".agents/**",
+    ".claude/**",
+    "Cargo.lock",
+    "ui/package-lock.json",
+    "README.md",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "GLOSSARY.md",
+    "docs/**",
+    "crates/*/tests/**",
+    "crates/*/src/**/tests.rs",
+    "ui/src/**/*.test.*",
+    "ui/src/dev/**",
+    "ui/scripts/**"
+  ],
+  "reporters": ["console"]
+}
