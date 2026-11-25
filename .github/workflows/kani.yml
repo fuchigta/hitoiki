@@ -1,0 +1,48 @@
+name: Kani
+
+# hitoiki-core の時刻計算（timefmt.rs）を Kani（Rust の形式検証ツール）で検証する。
+# ハーネスは crates/hitoiki-core/src/timefmt.rs の `mod verification`（#[cfg(kani)]）。
+# 手順は docs/dev/development.md「Kani による検証」を参照。
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  kani:
+    name: kani (${{ matrix.tz }}::${{ matrix.prop }})
+    runs-on: ubuntu-latest
+    # 1 ハーネスの検証は 5〜10 分（Kani のインストール込みで 10〜15 分）。
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      # ハーネスを 1 件ずつ別のジョブで検証する。Kani のコード生成はハーネス 1 件あたり約 3 GB の
+      # メモリを使い、まとめて生成するとメモリが足りなくなるため、`--exact --harness` で 1 件に絞る。
+      # ハーネスを足したら、ここにも名前を足すこと（timefmt.rs の `day_range_props!`）。
+      matrix:
+        tz: [utc, tokyo]
+        prop:
+          - len_is_one_day
+          - start_is_on_the_day
+          - last_ms_is_on_the_day
+          - before_start_is_previous_day
+          - end_is_next_day_start
+          - start_is_minute_zero
+          - end_is_minute_1440
+    steps:
+      - uses: actions/checkout@v4
+
+      # 公式 Action の v1.1 をコミットで固定する（タグの付け替えに追従しない）。
+      # Kani のバージョンは latest 追従にせず固定する。上げるときは docs/dev/development.md の版も揃える。
+      # Kani は自分専用の nightly ツールチェーンを `cargo kani setup` で入れるので、
+      # ワークスペースの rust-version（1.100）とは独立に動く。
+      - name: Run Kani
+        uses: model-checking/kani-github-action@f838096619a707b0f6b2118cf435eaccfa33e51f # v1.1
+        with:
+          kani-version: '0.68.0'
+          args: -p hitoiki-core --exact --harness timefmt::verification::${{ matrix.tz }}::${{ matrix.prop }}
