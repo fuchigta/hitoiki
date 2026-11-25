@@ -138,6 +138,21 @@ CI（`.github/workflows/ci.yml`）では、fmt・clippy・test（Windows）、`c
 
 依存クレートは MIT / Apache-2.0 / BSD などの permissive ライセンスのみです。新規クレートには `publish = false` を付けます。依存は `[workspace.dependencies]` に追加して `xxx.workspace = true` で参照します。
 
+## Kani による検証
+
+`hitoiki-core` の時刻計算（`timefmt.rs`）の一部は、プロパティテストに加えて [Kani](https://github.com/model-checking/kani)（Rust の形式検証ツール）で対象範囲の全入力について検証しています。現在の対象はプロパティテスト `day_range_covers_the_day` の各主張（UTC と Asia/Tokyo、2000〜2099 年の全日付）です。ハーネスは `timefmt.rs` の `mod verification`（`#[cfg(kani)]`）にあり、通常のビルド・テストには含まれません。Kani は Linux（と macOS）でのみ動くため、CI では `.github/workflows/kani.yml`（ubuntu-latest）で実行します。
+
+```bash
+# 初回のみ（Kani は専用の nightly ツールチェーンを自分で入れるので、rust-version の 1.100 は下げない）
+cargo install --locked kani-verifier --version 0.68.0
+cargo kani setup
+
+# 検証（ハーネスは 1 件ずつ実行する）
+cargo kani -p hitoiki-core --exact --harness timefmt::verification::utc::len_is_one_day
+```
+
+Kani のコード生成はハーネス 1 件あたり約 3 GB のメモリを使い、まとめて実行するとメモリが足りなくなることがあるため、`--exact --harness` で 1 件ずつ実行します（1 件 5〜10 分）。CI もハーネスごとに別のジョブで実行します。ハーネスを足したら `kani.yml` の matrix にも名前を足してください。
+
 ## ドキュメント
 
 利用者向けは [`docs/user/`](../user/)、開発者向けは `docs/dev/` に置きます。挙動を変えたら、対応する文書を同じコミットで更新します。ソースと文書の対応は spotter の `doc-sync` が検査します（対応表は `.spotter.yml`）。

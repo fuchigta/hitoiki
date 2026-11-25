@@ -26,3 +26,7 @@ which.workspace = true
 [dev-dependencies]
 tempfile = "3"
 proptest.workspace = true
+
+# Kani の検証ハーネス（src/timefmt.rs の `#[cfg(kani)]`）を、未知の cfg として警告させないための宣言。
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

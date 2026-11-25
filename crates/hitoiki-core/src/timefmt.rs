@@ -393,3 +393,75 @@ mod tests {
         }
     }
 }
+
+/// Kani による検証ハーネス（`cargo kani -p hitoiki-core` で実行する。手順は docs/dev/development.md）。
+///
+/// `mod tests::props` のプロパティテストを、乱択のケースではなく対象範囲の全入力について検証する
+/// （現在は `day_range_covers_the_day` のみ）。
+/// 前提はプロパティテストと同じで、タイムゾーンは UTC と Asia/Tokyo、日付は 2000-01-01〜2099-12-31 に限る
+/// （サマータイムのあるタイムゾーンは 分 → ミリ秒 → 分 の往復が仕様上成り立たないため含めない）。
+/// 検証器の負荷を抑えるため、タイムゾーンはハーネスごとに固定し、UTC 用と Asia/Tokyo 用を別に置く。
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    /// 1 日のミリ秒。
+    const DAY_MS: Millis = 86_400_000;
+
+    /// 2000-01-01〜2099-12-31 のローカル日付。
+    fn any_date() -> NaiveDate {
+        let base = NaiveDate::from_ymd_opt(2000, 1, 1).unwrap();
+        // 2000-01-01 から 2099-12-31 までの日数。
+        let n: i64 = kani::any();
+        kani::assume((0..=36_524).contains(&n));
+        base + Duration::days(n)
+    }
+
+    /// `day_range_covers_the_day` の各主張を、UTC 用と Asia/Tokyo 用のハーネスにする。
+    /// 1 つのハーネスにまとめると検証器のメモリが足りなくなるため、主張ごとに分けて検証する
+    /// （すべてが成り立つことは、まとめた主張が成り立つことと同じ）。
+    macro_rules! day_range_props {
+        ($($name:ident: |$tz:ident, $d:ident, $r:ident| $body:expr;)*) => {
+            mod day_range_covers_the_day {
+                use super::*;
+                $(
+                    pub(super) fn $name($tz: Tz) {
+                        let $d = any_date();
+                        let $r = day_range($tz, $d);
+                        $body;
+                    }
+                )*
+            }
+            mod utc {
+                $(
+                    #[kani::proof]
+                    #[kani::unwind(3)]
+                    fn $name() {
+                        super::day_range_covers_the_day::$name(super::Tz::UTC);
+                    }
+                )*
+            }
+            mod tokyo {
+                $(
+                    #[kani::proof]
+                    #[kani::unwind(3)]
+                    fn $name() {
+                        super::day_range_covers_the_day::$name(chrono_tz::Asia::Tokyo);
+                    }
+                )*
+            }
+        };
+    }
+
+    // 日の範囲は 24 時間で、始まりと終わり直前がその日、終わりが翌日の始まりになる。
+    // CI（.github/workflows/kani.yml）はハーネスを名前で 1 件ずつ実行するので、足したらそちらの一覧にも足す。
+    day_range_props! {
+        len_is_one_day: |tz, d, r| assert_eq!(r.len(), DAY_MS);
+        start_is_on_the_day: |tz, d, r| assert_eq!(local_date_of(tz, r.start), d);
+        last_ms_is_on_the_day: |tz, d, r| assert_eq!(local_date_of(tz, r.end - 1), d);
+        before_start_is_previous_day: |tz, d, r| assert_eq!(local_date_of(tz, r.start - 1), d - Duration::days(1));
+        end_is_next_day_start: |tz, d, r| assert_eq!(r.end, day_range(tz, d + Duration::days(1)).start);
+        start_is_minute_zero: |tz, d, r| assert_eq!(r.start, local_minute_to_ms(tz, d, 0));
+        end_is_minute_1440: |tz, d, r| assert_eq!(r.end, local_minute_to_ms(tz, d, 24 * 60));
+    }
+}
