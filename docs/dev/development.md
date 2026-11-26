@@ -140,7 +140,7 @@ CI（`.github/workflows/ci.yml`）では、fmt・clippy・test（Windows）、`c
 
 ## ミューテーションテスト
 
-[cargo-mutants](https://mutants.rs) でコードを少しずつ書き換え（ミュータント）、テストがその変化を検出できるかを確かめます。対象は `hitoiki-core` だけで、設定は `.cargo/mutants.toml`、CI は `.github/workflows/mutation.yml` です。全件（3,000 件以上、1 件あたり約 20〜30 秒）は回さず、CI では main との差分に掛かるミュータントだけを試します。
+[cargo-mutants](https://mutants.rs) でコードを少しずつ書き換え（ミュータント）、テストがその変化を検出できるかを確かめます。対象は `hitoiki-core` だけで、設定は `.cargo/mutants.toml`、CI は `.github/workflows/mutation.yml` です。全件（3,000 件以上、1 件あたり約 20〜30 秒）は回さず、CI では main との差分に掛かるミュータントだけを試します。CI は `hitoiki-core` のソースかミューテーションテストの設定・ワークフローを変えたときだけ動き、シャードの数（最大 4）は差分に掛かるミュータントの件数で決まります。
 
 ```sh
 # 道具（CI と同じ版。Cargo.toml の依存には入れない）

@@ -16,9 +16,10 @@ name: Mutation
 # - 空振りの防止: plan で数えたミュータント数と、各シャードが実際に試した数の合計が一致しない
 #   ときはゲートを落とす。差分が木と合わない（cargo-mutants の終了コード 5）ときに --list が
 #   何も出さず 0 件に見えるため、plan は pipefail で失敗させる
-# - シャード: 4 つ（round-robin）。1 件あたり約 25 秒、シャードごとにビルドと未変異のテストで
-#   約 3 分。過去の hitoiki-core を変えたコミットは差分に掛かるミュータントが 0〜216 件
-#   （中央値は 50〜100 件）で、100 件なら 1 シャードあたり約 10 分になる
+# - シャード: 10 件ごとに 1 つ、最大 4 つ（round-robin）。cargo-mutants の文書はシャードあたり
+#   10 件以上を勧めている。1 件あたり約 25 秒、シャードごとにビルドと未変異のテストで約 3 分。
+#   過去の hitoiki-core を変えたコミットは差分に掛かるミュータントが 0〜216 件（中央値は
+#   50〜100 件）で、100 件なら 4 シャードで 1 シャードあたり約 10 分になる
 #
 # ゲート（MAX_MISSED）の根拠。計測は 2026-11-26、手元（4 コア）で cargo-mutants 27.1.0 + nextest:
 # - 実際の差分: 4f2977e（claude の既定モデル）の差分 9 件はすべて caught、生き残り 0 件（3 分 28 秒）
@@ -33,10 +34,25 @@ name: Mutation
 # （関数単位で外れて検出力を失う）を使わず、この上限で受ける。実際の差分の実測 0 件に、
 # 等価なミュータントの割合（timefmt で 2/69 ≈ 3%）ぶりの余裕として 2 件を足す。
 # 等価なものが重なって超えたら、PR に理由を書いて上限を見直す
+# hitoiki-core のソースか、ミューテーションテストの設定・ワークフロー・スクリプトを変えたときだけ動かす
+# （Kani の試行で、対象に触らない PR にも毎回時間を使う構成が採用見送りの理由の一つになった。
+# docs/adr/0002-do-not-adopt-kani.md）。差分の判定は plan でも行うので、ここは粗い絞り込み。
 on:
   push:
     branches: [main]
+    paths:
+      - 'crates/hitoiki-core/src/**'
+      - '.cargo/mutants.toml'
+      - '.github/workflows/mutation.yml'
+      - '.github/scripts/install-mutants-tools.sh'
+      - '.github/scripts/mutants-*.sh'
   pull_request:
+    paths:
+      - 'crates/hitoiki-core/src/**'
+      - '.cargo/mutants.toml'
+      - '.github/workflows/mutation.yml'
+      - '.github/scripts/install-mutants-tools.sh'
+      - '.github/scripts/mutants-*.sh'
 
 permissions:
   contents: read
@@ -61,6 +77,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       count: ${{ steps.list.outputs.count }}
+      shards: ${{ steps.list.outputs.shards }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -83,8 +100,12 @@ jobs:
           set -o pipefail
           cargo mutants --list --in-diff git.diff | tee mutants-list.txt
           count=$(wc -l < mutants-list.txt)
-          echo "差分に掛かるミュータント: ${count} 件"
+          # 10 件ごとに 1 シャード、最大 4。0 件のときはシャードを作らない
+          n=$(( (count + 9) / 10 )); (( n > 4 )) && n=4
+          shards=$(jq -cn --argjson n "$n" '[range($n)]')
+          echo "差分に掛かるミュータント: ${count} 件（シャード ${n} 個）"
           echo "count=${count}" >> "$GITHUB_OUTPUT"
+          echo "shards=${shards}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -101,7 +122,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
     steps:
       - uses: actions/checkout@v4
 
