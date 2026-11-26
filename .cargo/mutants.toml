@@ -1,0 +1,19 @@
+# cargo-mutants（ミューテーションテスト）の設定。CI は .github/workflows/mutation.yml、
+# 回し方は docs/dev/development.md の「ミューテーションテスト」を参照。
+#
+# 対象は hitoiki-core だけに絞る（純粋なロジックが多く、テストが厚い）。
+# - hitoiki-collect-win・hitoiki-app は Windows 専用で、Linux の CI ではビルドできない
+# - ほかのクレートは hitoiki-core での運用を見てから広げる
+# - #[cfg(test)] のモジュール（tests.rs を含む）は cargo-mutants が自動で外す
+examine_globs = ["crates/hitoiki-core/src/**/*.rs"]
+
+# 変異させたクレート（hitoiki-core）のテストだけを回す。cargo-mutants の既定と同じだが、
+# 仮想ワークスペースで全クレートのテストに広がらないよう明示する。hitoiki-core の関数が
+# ほかのクレート（hitoiki-cli など）のテストでだけ確かめられている場合、その変異は
+# 生き残りとして出る点に注意する。
+test_package = ["hitoiki-core"]
+
+# テストは cargo-nextest で回す。テストごとに別プロセスで並列に走り、最初の失敗で止まるため、
+# hitoiki-core のテスト一式が cargo test の約 47 秒から約 20 秒になる（2026-11-26 に実測）。
+# hitoiki-core に doctest は無い（nextest は doctest を回さない）。
+test_tool = "nextest"

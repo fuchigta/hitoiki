@@ -9,3 +9,4 @@ node_modules/
 /crates/hitoiki-app/binaries/
 /ui/shots
 /ui/shots-prev
+/mutants.out*
