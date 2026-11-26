@@ -223,6 +223,13 @@ pub fn fmt_duration(ms: Millis) -> String {
 mod tests {
     use super::*;
 
+    // 【一時】ゲートの確認用（PR から取り除く）。
+    #[test]
+    fn gate_probe_boundary() {
+        assert!(gate_probe_is_long(90));
+        assert!(!gate_probe_is_long(89));
+    }
+
     #[test]
     fn midnight_missing_in_dst_does_not_panic() {
         // America/Santiago は 2026-09-06 の 0:00 に時計が 1:00 へ進み、0 時が存在しない。
