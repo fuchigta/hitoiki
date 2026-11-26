@@ -1,0 +1,158 @@
+name: Mutation
+
+# ミューテーションテスト（cargo-mutants）。テストが変更したコードの誤りを検出できるかを確かめる。
+# 全件（hitoiki-core だけで 3,268 件、1 件あたり約 25 秒で約 23 時間）は回せないので、比較元との差分に
+# 掛かるミュータントだけを試す（--in-diff）。対象範囲は .cargo/mutants.toml を参照。
+# 回し方と結果の読み方は docs/dev/development.md の「ミューテーションテスト」を参照。
+#
+# - 版: cargo-mutants 27.1.0（MIT）と、テストを回す cargo-nextest 0.9.152（MIT OR Apache-2.0）。
+#   Cargo.toml の依存には入れず、公式リリースのバイナリを sha256 で検証して使う
+#   （cargo install だと CI のたびに約 4 分のビルドになる）
+# - 比較元: pull_request は origin/<ベースブランチ>（git diff origin/main...HEAD）、
+#   main への push は push 前の main（github.event.before）
+# - 差分に掛かるミュータントが 0 件（Rust 以外だけの変更、テストだけの変更、hitoiki-core 以外の
+#   変更、差分なし）のときは、何も試さずに成功として扱う。cargo-mutants 自身も空の差分では
+#   全件実行にせず「Diff file is empty」で 0 件のまま終了する（2026-11-26 に実測）
+# - 空振りの防止: plan で数えたミュータント数と、各シャードが実際に試した数の合計が一致しない
+#   ときはゲートを落とす。差分が木と合わない（cargo-mutants の終了コード 5）ときに --list が
+#   何も出さず 0 件に見えるため、plan は pipefail で失敗させる
+# - シャード: 4 つ（round-robin）。1 件あたり約 25 秒、シャードごとにビルドと未変異のテストで
+#   約 3 分。過去の hitoiki-core を変えたコミットは差分に掛かるミュータントが 0〜216 件
+#   （中央値は 50〜100 件）で、100 件なら 1 シャードあたり約 10 分になる
+#
+# ゲート（MAX_MISSED）の根拠。計測は 2026-11-26、手元（4 コア）で cargo-mutants 27.1.0 + nextest:
+# - 実際の差分: 4f2977e（claude の既定モデル）の差分 9 件はすべて caught、生き残り 0 件（3 分 28 秒）
+# - timefmt.rs 全件: 85 件中 caught 53・missed 16・unviable 16、スコア 76.8%（26 分 45 秒）。
+#   生き残り 16 件のうち等価（DST の探索幅 24*60 → 24+60 で、実在する 84 分超の飛びでしか差が
+#   出ない）が 2 件、残り 14 件はテストの穴（Range::is_empty は未使用、隣接区間の intersect、
+#   today/yesterday/this-week/last-week の別名、fmt_duration の 60 分の境界など）
+# - クレート全体の抽出（--shard 0/64 --sharding round-robin）: 52 件中 caught 32・missed 12・
+#   unviable 8、スコア 72.7%（24 分 29 秒）。生き残りのうちテストで使わない SystemClock が 1 件、
+#   境界の扱い次第で等価かもしれないものが 2 件、残り 9 件はテストの穴
+# 差分に掛かる生き残りは、テストを足して殺すのが基本。等価なミュータントは #[mutants::skip]
+# （関数単位で外れて検出力を失う）を使わず、この上限で受ける。実際の差分の実測 0 件に、
+# 等価なミュータントの割合（timefmt で 2/69 ≈ 3%）ぶりの余裕として 2 件を足す。
+# 等価なものが重なって超えたら、PR に理由を書いて上限を見直す
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # バージョンを上げるときは sha256 も更新する
+  # （https://github.com/sourcefrog/cargo-mutants/releases の
+  # cargo-mutants-x86_64-unknown-linux-gnu.tar.gz を sha256sum した値）。
+  CARGO_MUTANTS_VERSION: 27.1.0
+  CARGO_MUTANTS_SHA256: dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e
+  # 同様に https://github.com/nextest-rs/nextest/releases の
+  # cargo-nextest-<版>-x86_64-unknown-linux-gnu.tar.gz の sha256。
+  CARGO_NEXTEST_VERSION: 0.9.152
+  CARGO_NEXTEST_SHA256: d039b43c3e0958441b6ad0a39c8884d018b3d2e8fb9928f209074b1100b5e17a
+  # 差分に掛かるミュータントの生き残りの上限（根拠は冒頭のコメント）。
+  MAX_MISSED: 2
+
+jobs:
+  plan:
+    name: mutants (plan)
+    runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.list.outputs.count }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-mutants and cargo-nextest
+        run: .github/scripts/install-mutants-tools.sh
+
+      - name: Diff
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: .github/scripts/mutants-diff.sh "$BASE" > git.diff
+
+      - name: List mutants in diff
+        id: list
+        run: |
+          # 差分が木と合わない（終了コード 5）などの失敗を tee で隠さない
+          set -o pipefail
+          cargo mutants --list --in-diff git.diff | tee mutants-list.txt
+          count=$(wc -l < mutants-list.txt)
+          echo "差分に掛かるミュータント: ${count} 件"
+          echo "count=${count}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mutants-diff
+          path: |
+            git.diff
+            mutants-list.txt
+
+  mutants:
+    name: mutants (shard ${{ matrix.shard }})
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: mutants
+
+      - name: Install cargo-mutants and cargo-nextest
+        run: .github/scripts/install-mutants-tools.sh
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: mutants-diff
+
+      # 生き残り（終了コード 2）や時間切れ（3）でもここでは止めず、件数の判定は gate で行う。
+      # 未変異のテストが落ちる（4）などそれ以外の失敗は、このジョブを落とす。
+      - name: Mutants
+        run: |
+          set +e
+          cargo mutants --in-diff git.diff --in-place --no-shuffle \
+            --shard ${{ matrix.shard }}/${{ strategy.job-total }} --sharding round-robin
+          code=$?
+          case "$code" in
+            0|2|3) exit 0 ;;
+            *) echo "cargo-mutants が終了コード ${code} で失敗した"; exit "$code" ;;
+          esac
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mutants-out-${{ matrix.shard }}
+          path: mutants.out
+
+  gate:
+    name: mutants (gate)
+    needs: [plan, mutants]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.count != '0'
+        with:
+          pattern: mutants-out-*
+
+      - name: Gate
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          MUTANTS_RESULT: ${{ needs.mutants.result }}
+          EXPECTED: ${{ needs.plan.outputs.count }}
+        run: .github/scripts/mutants-gate.sh
