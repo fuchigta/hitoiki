@@ -35,6 +35,15 @@ pub fn gate_probe_is_long(min: i64) -> bool {
     min >= 90
 }
 
+/// 【一時】シャードが 2 つになる件数での確認用（テストなし。PR から取り除く）。
+pub fn gate_probe_mix(a: i64, b: i64, c: i64) -> i64 {
+    if a > b && b != 0 {
+        a * b + c - a / b
+    } else {
+        c % 7
+    }
+}
+
 pub fn parse_tz(name: &str) -> Result<Tz> {
     name.parse::<Tz>()
         .map_err(|_| Error::InvalidArgument(format!("不明なタイムゾーン: {name}")))
