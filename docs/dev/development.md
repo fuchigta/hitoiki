@@ -138,6 +138,29 @@ CI（`.github/workflows/ci.yml`）では、fmt・clippy・test（Windows）、`c
 
 依存クレートは MIT / Apache-2.0 / BSD などの permissive ライセンスのみです。新規クレートには `publish = false` を付けます。依存は `[workspace.dependencies]` に追加して `xxx.workspace = true` で参照します。
 
+## ミューテーションテスト
+
+[cargo-mutants](https://mutants.rs) でコードを少しずつ書き換え（ミュータント）、テストがその変化を検出できるかを確かめます。対象は `hitoiki-core` だけで、設定は `.cargo/mutants.toml`、CI は `.github/workflows/mutation.yml` です。全件（3,000 件以上、1 件あたり約 20〜30 秒）は回さず、CI では main との差分に掛かるミュータントだけを試します。CI は `hitoiki-core` のソースかミューテーションテストの設定・ワークフローを変えたときだけ動き、シャードの数（最大 4）は差分に掛かるミュータントの件数で決まります。
+
+```sh
+# 道具（CI と同じ版。Cargo.toml の依存には入れない）
+cargo install --locked cargo-mutants@27.1.0
+cargo install --locked cargo-nextest@0.9.152
+
+# 作業中の変更（main との差分）に掛かるミュータントを数えて、試す
+git diff origin/main...HEAD > /tmp/mutants.diff
+cargo mutants --list --in-diff /tmp/mutants.diff
+cargo mutants --in-diff /tmp/mutants.diff
+
+# 1 ファイルだけ試す（--file は設定の examine_globs に足される＝絞り込みにならないので、
+# --no-config で設定を読まずに対象とテストの道具を指定する）
+cargo mutants --no-config -p hitoiki-core --test-tool nextest --file crates/hitoiki-core/src/timefmt.rs
+```
+
+結果は `mutants.out/` に出ます（Git の管理外）。`missed.txt` が生き残り（テストが検出できなかった変化）、`caught.txt` が検出できたもの、`unviable.txt` がビルドできなかった変化（数えない）、`outcomes.json` が件数の集計です。`hitoiki-core` のテストだけを回すため、`hitoiki-cli` などほかのクレートのテストでだけ確かめている関数は生き残りとして出ます。
+
+CI のゲートは、差分に掛かるミュータントの生き残りが上限（`mutation.yml` の `MAX_MISSED`）を超えたら落ちます。落ちたら `mutants-out-*` の成果物の `missed.txt` を見て、テストを足します。テストでは殺せない変化（等価なミュータント）なら、PR にその理由を書きます。`#[mutants::skip]` による除外は関数単位で検出力を失うので使いません。差分に掛かるミュータントが 0 件（Rust 以外やテストだけの変更など）のときは、何も試さずに成功します。
+
 ## ドキュメント
 
 利用者向けは [`docs/user/`](../user/)、開発者向けは `docs/dev/` に置きます。挙動を変えたら、対応する文書を同じコミットで更新します。ソースと文書の対応は spotter の `doc-sync` が検査します（対応表は `.spotter.yml`）。
