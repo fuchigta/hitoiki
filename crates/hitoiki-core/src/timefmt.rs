@@ -30,6 +30,11 @@ impl Range {
     }
 }
 
+/// 【一時】ミューテーションテストのゲートの確認用（テストなし。PR から取り除く）。
+pub fn gate_probe_is_long(min: i64) -> bool {
+    min >= 90
+}
+
 pub fn parse_tz(name: &str) -> Result<Tz> {
     name.parse::<Tz>()
         .map_err(|_| Error::InvalidArgument(format!("不明なタイムゾーン: {name}")))
