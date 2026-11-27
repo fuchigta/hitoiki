@@ -341,6 +341,41 @@ mod tests {
                 prop_assert_eq!(local_minute_to_ms(tz, d, min), floor_minute(ms));
             }
 
+            /// その日の範囲より前の時刻は 0 に、範囲の終わり以降の時刻は 1440 に丸める。
+            #[test]
+            fn ms_to_local_minute_clamps_outside_the_day(
+                tz in tz(),
+                d in date(),
+                offset in 0i64..=7 * DAY_MS,
+            ) {
+                let r = day_range(tz, d);
+                prop_assert_eq!(ms_to_local_minute(tz, d, r.start - offset), 0);
+                prop_assert_eq!(ms_to_local_minute(tz, d, r.end + offset), 24 * 60);
+            }
+
+            /// `today` は `now` のローカル日付、`yesterday` はその前日になる。
+            #[test]
+            fn today_and_yesterday_aliases(tz in tz(), now in instant()) {
+                let today = parse_date(tz, "today", now).unwrap();
+                let yesterday = parse_date(tz, "yesterday", now).unwrap();
+                prop_assert_eq!(today, local_date_of(tz, now));
+                prop_assert_eq!(yesterday, today - Duration::days(1));
+                prop_assert_eq!(
+                    parse_period(tz, "yesterday", now).unwrap().end,
+                    parse_period(tz, "today", now).unwrap().start
+                );
+            }
+
+            /// `this-week` は `now` を含む週、`last-week` はその直前の 7 日間になる。
+            #[test]
+            fn this_week_and_last_week_aliases(tz in tz(), now in instant()) {
+                let this_week = parse_period(tz, "this-week", now).unwrap();
+                let last_week = parse_period(tz, "last-week", now).unwrap();
+                prop_assert!(this_week.start <= now && now < this_week.end);
+                prop_assert_eq!(last_week.end, this_week.start);
+                prop_assert_eq!(last_week.len(), 7 * DAY_MS);
+            }
+
             /// 日の範囲は 24 時間で、始まりと終わり直前がその日、終わりが翌日の始まりになる。
             #[test]
             fn day_range_covers_the_day(tz in tz(), d in date()) {
