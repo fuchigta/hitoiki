@@ -219,6 +219,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn range_is_empty() {
+        assert!(Range::new(5, 5).is_empty());
+        // 終わりが始まりより前の区間も長さ 0 として扱う。
+        assert!(Range::new(5, 3).is_empty());
+        assert!(!Range::new(5, 6).is_empty());
+    }
+
+    #[test]
+    fn intersect_of_adjacent_ranges_is_none() {
+        // 半開区間なので、[0, 10) と [10, 20) は重ならない。
+        assert_eq!(Range::new(0, 10).intersect(&Range::new(10, 20)), None);
+        assert_eq!(Range::new(10, 20).intersect(&Range::new(0, 10)), None);
+        assert_eq!(
+            Range::new(0, 11).intersect(&Range::new(10, 20)),
+            Some(Range::new(10, 11))
+        );
+    }
+
+    #[test]
     fn midnight_missing_in_dst_does_not_panic() {
         // America/Santiago は 2026-09-06 の 0:00 に時計が 1:00 へ進み、0 時が存在しない。
         let tz = parse_tz("America/Santiago").unwrap();
@@ -239,6 +258,23 @@ mod tests {
         assert_eq!(parse_duration_min("2h").unwrap(), 120);
         assert_eq!(parse_duration_min("45").unwrap(), 45);
         assert!(parse_duration_min("abc").is_err());
+    }
+
+    #[test]
+    fn durations_reject_empty_and_trailing_number() {
+        // 0 分は受け付けるが、空文字は受け付けない。
+        assert_eq!(parse_duration_min("0m").unwrap(), 0);
+        assert!(parse_duration_min("").is_err());
+        // 単位の無い数字で終わる形は受け付けない。
+        assert!(parse_duration_min("1h30").is_err());
+    }
+
+    #[test]
+    fn fmt_duration_switches_to_hours_at_60_minutes() {
+        assert_eq!(fmt_duration(0), "0m");
+        assert_eq!(fmt_duration(59 * 60_000), "59m");
+        assert_eq!(fmt_duration(60 * 60_000), "1h00m");
+        assert_eq!(fmt_duration(75 * 60_000), "1h15m");
     }
 
     #[test]
@@ -320,6 +356,41 @@ mod tests {
                 let min = ms_to_local_minute(tz, d, ms);
                 prop_assert!(min < 24 * 60);
                 prop_assert_eq!(local_minute_to_ms(tz, d, min), floor_minute(ms));
+            }
+
+            /// その日の範囲より前の時刻は 0 に、範囲の終わり以降の時刻は 1440 に丸める。
+            #[test]
+            fn ms_to_local_minute_clamps_outside_the_day(
+                tz in tz(),
+                d in date(),
+                offset in 0i64..=7 * DAY_MS,
+            ) {
+                let r = day_range(tz, d);
+                prop_assert_eq!(ms_to_local_minute(tz, d, r.start - offset), 0);
+                prop_assert_eq!(ms_to_local_minute(tz, d, r.end + offset), 24 * 60);
+            }
+
+            /// `today` は `now` のローカル日付、`yesterday` はその前日になる。
+            #[test]
+            fn today_and_yesterday_aliases(tz in tz(), now in instant()) {
+                let today = parse_date(tz, "today", now).unwrap();
+                let yesterday = parse_date(tz, "yesterday", now).unwrap();
+                prop_assert_eq!(today, local_date_of(tz, now));
+                prop_assert_eq!(yesterday, today - Duration::days(1));
+                prop_assert_eq!(
+                    parse_period(tz, "yesterday", now).unwrap().end,
+                    parse_period(tz, "today", now).unwrap().start
+                );
+            }
+
+            /// `this-week` は `now` を含む週、`last-week` はその直前の 7 日間になる。
+            #[test]
+            fn this_week_and_last_week_aliases(tz in tz(), now in instant()) {
+                let this_week = parse_period(tz, "this-week", now).unwrap();
+                let last_week = parse_period(tz, "last-week", now).unwrap();
+                prop_assert!(this_week.start <= now && now < this_week.end);
+                prop_assert_eq!(last_week.end, this_week.start);
+                prop_assert_eq!(last_week.len(), 7 * DAY_MS);
             }
 
             /// 日の範囲は 24 時間で、始まりと終わり直前がその日、終わりが翌日の始まりになる。
