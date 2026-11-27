@@ -261,6 +261,23 @@ mod tests {
     }
 
     #[test]
+    fn durations_reject_empty_and_trailing_number() {
+        // 0 分は受け付けるが、空文字は受け付けない。
+        assert_eq!(parse_duration_min("0m").unwrap(), 0);
+        assert!(parse_duration_min("").is_err());
+        // 単位の無い数字で終わる形は受け付けない。
+        assert!(parse_duration_min("1h30").is_err());
+    }
+
+    #[test]
+    fn fmt_duration_switches_to_hours_at_60_minutes() {
+        assert_eq!(fmt_duration(0), "0m");
+        assert_eq!(fmt_duration(59 * 60_000), "59m");
+        assert_eq!(fmt_duration(60 * 60_000), "1h00m");
+        assert_eq!(fmt_duration(75 * 60_000), "1h15m");
+    }
+
+    #[test]
     fn day_range_tokyo() {
         let tz = parse_tz("Asia/Tokyo").unwrap();
         let r = day_range(tz, NaiveDate::from_ymd_opt(2026, 10, 10).unwrap());
