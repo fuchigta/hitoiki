@@ -219,6 +219,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn range_is_empty() {
+        assert!(Range::new(5, 5).is_empty());
+        // 終わりが始まりより前の区間も長さ 0 として扱う。
+        assert!(Range::new(5, 3).is_empty());
+        assert!(!Range::new(5, 6).is_empty());
+    }
+
+    #[test]
+    fn intersect_of_adjacent_ranges_is_none() {
+        // 半開区間なので、[0, 10) と [10, 20) は重ならない。
+        assert_eq!(Range::new(0, 10).intersect(&Range::new(10, 20)), None);
+        assert_eq!(Range::new(10, 20).intersect(&Range::new(0, 10)), None);
+        assert_eq!(
+            Range::new(0, 11).intersect(&Range::new(10, 20)),
+            Some(Range::new(10, 11))
+        );
+    }
+
+    #[test]
     fn midnight_missing_in_dst_does_not_panic() {
         // America/Santiago は 2026-09-06 の 0:00 に時計が 1:00 へ進み、0 時が存在しない。
         let tz = parse_tz("America/Santiago").unwrap();
